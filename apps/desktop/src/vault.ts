@@ -42,6 +42,7 @@ import {
   parseEncryptedExportText,
 } from '../../../packages/import-export/src/index';
 import type { EncryptedExportItem, WrappedKeyEnvelope } from '../../../packages/import-export/src/index';
+import { selectStorageBackend } from './storage/index';
 
 const LS_KEY = 'my-secrect.local-vault.v1';
 const LS_KEYS = 'my-secrect.local-vault.v1.keys';
@@ -66,7 +67,12 @@ export class LocalStorageBackend implements StorageBackend {
   }
 }
 
-const storage: StorageBackend = new LocalStorageBackend();
+// Tauri desktop: SQLCipher store (key in the OS keychain), migrating these
+// localStorage keys once. Web/tests: the localStorage backend above.
+const storage: StorageBackend = selectStorageBackend({
+  fallback: () => new LocalStorageBackend(),
+  migrateKeys: [LS_KEY, LS_KEYS],
+});
 
 /** One encrypted row. Nonce and ciphertext are stored as separate base64 fields. */
 interface StoredRow {
