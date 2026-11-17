@@ -2,12 +2,13 @@ require 'active_support/core_ext/integer/time'
 
 # Fail at boot instead of running with a missing, placeholder or weak secret.
 # Messages name the variable, never its value. Object storage (S3_*) is
-# validated separately in config/initializers/storage_config.rb.
+# validated separately in config/initializers/storage_config.rb, SMTP_* /
+# MAIL_FROM presence in config/initializers/action_mailer.rb.
 required = %w[SECRET_KEY_BASE DATABASE_URL REDIS_URL WEBAUTHN_RP_ID WEBAUTHN_ORIGIN CORS_ORIGINS]
 missing = required.select { |name| ENV[name].to_s.strip.empty? }
 raise "Missing required environment variables: #{missing.join(', ')}" if missing.any?
 
-placeholders = %w[SECRET_KEY_BASE DATABASE_URL S3_ACCESS_KEY S3_SECRET_KEY].select { |name| ENV[name].to_s.match?(/change_?me/i) }
+placeholders = %w[SECRET_KEY_BASE DATABASE_URL S3_ACCESS_KEY S3_SECRET_KEY SMTP_PASSWORD].select { |name| ENV[name].to_s.match?(/change_?me/i) }
 raise "Placeholder value (CHANGE_ME) in: #{placeholders.join(', ')}" if placeholders.any?
 raise 'SECRET_KEY_BASE must be at least 64 characters (openssl rand -hex 64)' if ENV['SECRET_KEY_BASE'].length < 64
 raise 'S3_SECRET_KEY must be at least 16 characters' if ENV['S3_SECRET_KEY'].to_s.length.between?(1, 15)
