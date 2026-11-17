@@ -169,6 +169,19 @@ async function handle(req: ExtRequest): Promise<ExtResponse> {
       await resetAutoLock();
       return { ok: true, recoveryKey };
     }
+    case 'restoreBackup': {
+      // restoreEncrypted needs empty storage, decrypts every item before any
+      // write and throws (writing nothing) otherwise; errors reach the caller
+      // through the generic handler as { ok:false, error }.
+      const hasPass = typeof req.passphrase === 'string';
+      await vault.restoreEncrypted(
+        req.json,
+        hasPass ? { passphrase: req.passphrase as string } : { recoveryKey: req.recoveryKey ?? '' },
+      );
+      const restoredCount = vault.listUnlockedItems().filter((i) => !i.deleted_at).length;
+      vault.lockVault(); // a normal unlock is required after restore
+      return { ok: true, restoredCount };
+    }
     case 'lock': {
       vault.lockVault();
       await chrome.alarms.clear(AUTOLOCK_ALARM);

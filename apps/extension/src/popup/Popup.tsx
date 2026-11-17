@@ -236,6 +236,7 @@ export default function Popup() {
             </div>
             {error && <p className="text-sm text-red-400" role="alert">{error}</p>}
             <button className="btn w-full" onClick={() => void handleCreateVault()}>Create vault</button>
+            <button className="btn-secondary w-full" onClick={() => { void chrome.runtime.openOptionsPage(); }}>Restore from backup…</button>
           </div>
         )}
         {onboardingStep === 1 && (
