@@ -29,8 +29,6 @@ import { computeHealth } from './utils/health';
 import { buildExampleItems, isExampleItem } from './utils/exampleData';
 import { isArchived, getNoteRevisions, appendNoteRevision } from './utils/itemMeta';
 import { parseEncryptedExportText } from '../../../packages/import-export/src/index';
-import type { VaultShare, SharePermission } from '../../../packages/core/src/sharing';
-import { revokeShare } from '../../../packages/core/src/sharing';
 import SettingsView, { downloadText, type AutoLockMinutes } from './components/SettingsView';
 import Sidebar, {
   CATEGORIES,
@@ -78,40 +76,10 @@ import { detectLocale } from '../../../packages/i18n/src/index';
  */
 
 const LS_AUTOLOCK = 'my-secrect.local-vault.autolock-minutes.v1';
-const LS_SHARES = 'my-secrect.local-vault.share-proposals.v1';
 /** API base URL for the account server. Empty = local-only: no
  *  SecurityApiClient is constructed and the Security Center shows its
  *  not-configured state. The server never sees vault content. */
 const LS_API_BASE_URL = 'my-secrect:api-base-url';
-
-/** Share proposals are PENDING only — no key envelope exists, so no share
- *  is ever active. See SharesView / handleCreateShare. */
-function loadShares(): VaultShare[] {
-  try {
-    const raw = localStorage.getItem(LS_SHARES);
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((s): s is VaultShare =>
-        typeof s === 'object' && s !== null &&
-        typeof (s as VaultShare).id === 'string' &&
-        typeof (s as VaultShare).recipient_id === 'string' &&
-        ((s as VaultShare).status === 'pending' || (s as VaultShare).status === 'revoked' || (s as VaultShare).status === 'active'))
-      // Defence in depth: this build has no key-exchange, so a stored
-      // 'active' share cannot have an envelope — downgrade it to pending
-      // rather than ever displaying an active share.
-      .map((s) => (s.status === 'active' ? { ...s, status: 'pending' as const } : s));
-  } catch {
-    return [];
-  }
-}
-
-function newShareId(): string {
-  const bytes = new Uint8Array(12);
-  crypto.getRandomValues(bytes);
-  return 'share_' + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-}
 
 // AutoLockMinutes (1 | 5 | 15 | 0 = never) is imported from SettingsView.
 
@@ -173,8 +141,6 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
   const [onboardingError, setOnboardingError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lockTimerRef = useRef<number | null>(null);
-  // Sharing: pending proposals only (no key exchange — see loadShares).
-  const [shares, setShares] = useState<VaultShare[]>(() => loadShares());
   // List sorting + bulk selection.
   const [sort, setSort] = useState<ItemSort>('updated');
   const [selectionMode, setSelectionMode] = useState(false);
@@ -309,14 +275,6 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
       // API URL persistence is non-critical; a full localStorage must not break the vault.
     }
   }, []);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(LS_SHARES, JSON.stringify(shares));
-    } catch {
-      // Share proposals are non-critical; a full localStorage must not break the vault.
-    }
-  }, [shares]);
 
   const refresh = useCallback(() => {
     if (isUnlocked()) {
@@ -729,33 +687,10 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     setNotice('Note restored to the selected revision. The previous version was kept in revision history.');
   };
 
-  /**
-   * Sharing: record a PENDING proposal only. No key envelope is created
-   * and no share becomes active — HPKE / sealed-box key exchange is not
-   * implemented (see SharesView). A proposal that claimed to be active
-   * would be a lie; the UI shows every proposal as pending.
-   */
-  const handleCreateShare = (proposal: { recipient_id: string; permission: SharePermission; item_ids: string[] }) => {
-    const share: VaultShare = {
-      id: newShareId(),
-      vault_id: 'local',
-      owner_id: 'local',
-      recipient_id: proposal.recipient_id,
-      recipient_label_encrypted: null,
-      permission: proposal.permission,
-      status: 'pending',
-      key_envelope_id: '',
-      item_ids: proposal.item_ids,
-      created_at: new Date().toISOString(),
-      revoked_at: null,
-    };
-    setShares((prev) => [...prev, share]);
-    setNotice('Share proposal saved locally as PENDING — no key was exchanged and no share is active. Sharing is not production-ready until HPKE key exchange is implemented.');
-  };
-
-  const handleRevokeShare = (share: VaultShare) => {
-    setShares((prev) => prev.map((s) => (s.id === share.id ? revokeShare(s) : s)));
-    setNotice('Share revoked. Revocation removes the proposal — it does not erase copies a recipient already decrypted.');
+  /** Sharing: the owner's explicit "Save this version to my vault". */
+  const handleSaveSharedItem = async (item: VaultItem) => {
+    await upsertItem(item);
+    refresh();
   };
 
   const handleBulkFavorite = async () => {
@@ -1112,7 +1047,16 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
           </div>
         ) : view === 'shares' ? (
           <div className="min-h-0 flex-1 overflow-y-auto">
-            <SharesView shares={shares} onCreate={handleCreateShare} onRevoke={handleRevokeShare} />
+            <SharesView
+              apiBaseUrl={apiBaseUrl}
+              signedIn={signedIn}
+              getToken={() => getValidToken(webTokenStore())}
+              items={items}
+              encryptWithVaultKey={encryptWithVaultKey}
+              decryptWithVaultKey={decryptWithVaultKey}
+              onSaveItem={handleSaveSharedItem}
+              onUnauthorized={handleUnauthorized}
+            />
           </div>
         ) : (
         <div className="flex min-h-0 flex-1">
