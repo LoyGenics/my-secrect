@@ -31,6 +31,11 @@ import {
   sha256,
 } from '../../../packages/crypto-adapters/src/index';
 import type { VaultItem } from '../../../packages/core/src/types';
+import {
+  buildEncryptedExport,
+  parseEncryptedExportText,
+} from '../../../packages/import-export/src/index';
+import type { EncryptedExportItem, WrappedKeyEnvelope } from '../../../packages/import-export/src/index';
 
 const LS_KEY = 'my-secrect.local-vault.v1';
 const LS_KEYS = 'my-secrect.local-vault.v1.keys';
@@ -56,13 +61,6 @@ interface StoredKeys {
   wrapped_vault: string; wrapped_vault_nonce: string;
   wrapped_recovery: string; wrapped_recovery_nonce: string;
 }
-export interface VaultExport {
-  format: 'my-secrect-vault-export'; format_version: 1; exported_at: string;
-  vault_id: 'local';
-  items: Array<{ item_id: string; revision: number; encrypted_payload: string; encrypted_item_key: string; encryption_version: number }>;
-  relations_included: true;
-}
-
 let masterKey: Uint8Array | null = null;
 let vaultKey: Uint8Array | null = null;
 let unlockedItems: VaultItem[] = [];
@@ -81,15 +79,26 @@ function splitNoncePrefixed(encoded: string): { nonce: Uint8Array; rest: Uint8Ar
   const bytes = fromBase64(encoded); if (bytes.length < 24) throw new Error('encrypted blob too short');
   return { nonce: bytes.subarray(0, 24), rest: bytes.subarray(24) };
 }
+function decodeUtf8(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString('utf8');
+}
 async function decryptRows(rows: StoredRow[]): Promise<VaultItem[]> {
   if (!vaultKey) throw new Error('vault locked');
   const items: VaultItem[] = [];
   for (const row of rows) {
-    const itemKey = await crypto.unwrapKey(vaultKey, fromBase64(row.wrapped_nonce), fromBase64(row.wrapped_item_key));
-    const plaintext = await crypto.decrypt(itemKey, fromBase64(row.nonce), fromBase64(row.ciphertext));
-    const item = JSON.parse(Buffer.from(plaintext).toString('utf8')) as VaultItem;
-    if (row.deleted_at) item.deleted_at = row.deleted_at;
-    items.push(item); itemKey.fill(0);
+    let itemKey: Uint8Array | null = null;
+    try {
+      itemKey = await crypto.unwrapKey(vaultKey, fromBase64(row.wrapped_nonce), fromBase64(row.wrapped_item_key));
+      const plaintext = await crypto.decrypt(itemKey, fromBase64(row.nonce), fromBase64(row.ciphertext));
+      const item = JSON.parse(decodeUtf8(plaintext)) as VaultItem;
+      if (typeof item !== 'object' || item === null || item.id !== row.id) {
+        throw new Error('vault: decrypted item id does not match stored row id');
+      }
+      if (row.deleted_at) item.deleted_at = row.deleted_at;
+      items.push(item);
+    } finally {
+      itemKey?.fill(0);
+    }
   }
   return items;
 }
@@ -256,41 +265,192 @@ export function searchLocal(q: string): VaultItem[] {
   const s = q.trim().toLowerCase(); if (!s) return listItems();
   return listItems().filter((i) => (i.title + ' ' + i.tags.join(' ') + ' ' + JSON.stringify(i.fields)).toLowerCase().includes(s));
 }
+function rowFromExportItem(item: EncryptedExportItem): StoredRow {
+  const payload = splitNoncePrefixed(item.encrypted_payload);
+  const wrapped = splitNoncePrefixed(item.encrypted_item_key);
+  return {
+    id: item.item_id,
+    revision: item.revision,
+    nonce: toBase64(payload.nonce),
+    ciphertext: toBase64(payload.rest),
+    wrapped_item_key: toBase64(wrapped.rest),
+    wrapped_nonce: toBase64(wrapped.nonce),
+    deleted_at: null,
+  };
+}
+async function openExportItem(key: Uint8Array, item: EncryptedExportItem, purpose: 'import' | 'restore'): Promise<VaultItem> {
+  const idError = `${purpose}: decrypted item id does not match item_id`;
+  const decryptError = `${purpose}: could not decrypt item`;
+  let itemKey: Uint8Array | null = null;
+  try {
+    const payload = splitNoncePrefixed(item.encrypted_payload);
+    const wrapped = splitNoncePrefixed(item.encrypted_item_key);
+    itemKey = await crypto.unwrapKey(key, wrapped.nonce, wrapped.rest);
+    const plaintext = await crypto.decrypt(itemKey, payload.nonce, payload.rest);
+    const decoded = JSON.parse(decodeUtf8(plaintext)) as VaultItem;
+    if (typeof decoded !== 'object' || decoded === null || decoded.id !== item.item_id) throw new Error(idError);
+    return decoded;
+  } catch (err) {
+    if (err instanceof Error && err.message === idError) throw err;
+    throw new Error(decryptError);
+  } finally {
+    itemKey?.fill(0);
+  }
+}
+function envelopeToStoredKeys(keys: WrappedKeyEnvelope): StoredKeys {
+  return {
+    salt: keys.salt,
+    wrapped_master: keys.wrapped_master,
+    wrapped_master_nonce: keys.wrapped_master_nonce,
+    wrapped_vault: keys.wrapped_vault,
+    wrapped_vault_nonce: keys.wrapped_vault_nonce,
+    wrapped_recovery: keys.wrapped_recovery,
+    wrapped_recovery_nonce: keys.wrapped_recovery_nonce,
+  };
+}
+async function vaultStorageOccupied(): Promise<boolean> {
+  if ((await storage.getItem(LS_KEYS)) !== null) return true;
+  const raw = await storage.getItem(LS_KEY);
+  if (!raw) return false;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return true;
+    return parsed.length > 0;
+  } catch {
+    return true;
+  }
+}
+async function persistRestoredVault(keys: StoredKeys, rows: StoredRow[]): Promise<void> {
+  const priorKeys = await storage.getItem(LS_KEYS);
+  const priorRows = await storage.getItem(LS_KEY);
+  if (priorKeys !== null || await vaultStorageOccupied()) throw new Error('restore: vault storage is not empty');
+  try {
+    await storage.setItem(LS_KEYS, JSON.stringify(keys));
+    await storage.setItem(LS_KEY, JSON.stringify(rows));
+  } catch (err) {
+    if (priorKeys === null) await storage.removeItem(LS_KEYS);
+    else await storage.setItem(LS_KEYS, priorKeys);
+    if (priorRows === null) await storage.removeItem(LS_KEY);
+    else await storage.setItem(LS_KEY, priorRows);
+    throw err instanceof Error ? err : new Error('restore: could not write the vault');
+  }
+}
+/** format_version 2. Item cipher stays encryption_version 1. Envelope is the wrapped keys already stored locally. */
 export async function exportEncrypted(): Promise<string> {
+  const keys = await loadKeys();
+  if (!keys) throw new Error('export: vault has no wrapped key envelope');
   const items = (await loadRows()).filter((r) => !r.deleted_at).map((r) => ({
-    item_id: r.id, revision: r.revision,
+    item_id: r.id,
+    revision: r.revision,
     encrypted_payload: toBase64(concat(fromBase64(r.nonce), fromBase64(r.ciphertext))),
     encrypted_item_key: toBase64(concat(fromBase64(r.wrapped_nonce), fromBase64(r.wrapped_item_key))),
-    encryption_version: 1,
+    encryption_version: 1 as const,
   }));
-  const out: VaultExport = { format: 'my-secrect-vault-export', format_version: 1, exported_at: new Date().toISOString(), vault_id: 'local', items, relations_included: true };
-  return JSON.stringify(out);
+  return JSON.stringify(buildEncryptedExport({ vaultId: 'local', keys, items }));
 }
+/** Merge into an unlocked vault. Decrypt failure aborts with no partial write. */
 export async function importEncrypted(json: string): Promise<void> {
   if (!vaultKey) throw new Error('vault locked');
-  let parsed: unknown; try { parsed = JSON.parse(json); } catch { throw new Error('import: invalid JSON'); }
-  const data = parsed as Partial<VaultExport>;
-  if (data.format !== 'my-secrect-vault-export' || data.format_version !== 1 || !Array.isArray(data.items)) throw new Error('import: unsupported vault export format');
-  const rows = await loadRows();
+  const { validation, data } = parseEncryptedExportText(json);
+  if (!validation.ok || !data) throw new Error(`import: ${validation.errors.join(' ')}`);
+  const opened: Array<{ item: VaultItem; row: StoredRow }> = [];
   for (const item of data.items) {
-    if (typeof item.item_id !== 'string' || !item.item_id || typeof item.revision !== 'number' || typeof item.encrypted_payload !== 'string' || typeof item.encrypted_item_key !== 'string') throw new Error('import: malformed item in export');
-    const existing = rows.find((r) => r.id === item.item_id);
-    if (existing && existing.revision >= item.revision) continue;
-    let decrypted: VaultItem;
-    try {
-      const payload = splitNoncePrefixed(item.encrypted_payload); const wrapped = splitNoncePrefixed(item.encrypted_item_key);
-      const itemKey = await crypto.unwrapKey(vaultKey, wrapped.nonce, wrapped.rest);
-      const plaintext = await crypto.decrypt(itemKey, payload.nonce, payload.rest);
-      itemKey.fill(0); decrypted = JSON.parse(Buffer.from(plaintext).toString('utf8')) as VaultItem;
-      if (decrypted.id !== item.item_id) continue;
-    } catch { continue; }
-    const row: StoredRow = { id: item.item_id, revision: item.revision, nonce: toBase64(splitNoncePrefixed(item.encrypted_payload).nonce), ciphertext: toBase64(splitNoncePrefixed(item.encrypted_payload).rest), wrapped_item_key: toBase64(splitNoncePrefixed(item.encrypted_item_key).rest), wrapped_nonce: toBase64(splitNoncePrefixed(item.encrypted_item_key).nonce), deleted_at: null };
-    const idx = rows.findIndex((r) => r.id === item.item_id);
-    if (idx >= 0) rows[idx] = row; else rows.push(row);
+    const decrypted = await openExportItem(vaultKey, item, 'import');
     decrypted.deleted_at = null;
-    unlockedItems = [...unlockedItems.filter((i) => i.id !== decrypted.id), decrypted];
+    opened.push({ item: decrypted, row: rowFromExportItem(item) });
   }
-  await saveRows(rows);
+  const nextRows = (await loadRows()).map((row) => ({ ...row }));
+  let nextItems = [...unlockedItems];
+  for (const { item, row } of opened) {
+    const existing = nextRows.find((r) => r.id === row.id);
+    if (existing && existing.revision >= row.revision) continue;
+    const idx = nextRows.findIndex((r) => r.id === row.id);
+    if (idx >= 0) nextRows[idx] = row;
+    else nextRows.push(row);
+    nextItems = [...nextItems.filter((i) => i.id !== item.id), item];
+  }
+  await saveRows(nextRows);
+  unlockedItems = nextItems;
+}
+export type VaultRestoreSecret =
+  | { passphrase: string; recoveryKey?: undefined }
+  | { recoveryKey: string; passphrase?: undefined };
+/**
+ * Empty storage plus this file plus a passphrase or recovery key.
+ * Uses the same KEK as unlock. Writes nothing until every item decrypts
+ * and each decrypted id matches item_id.
+ */
+export async function restoreEncrypted(json: string, secret: VaultRestoreSecret): Promise<void> {
+  if (isUnlocked()) throw new Error('restore: lock and wipe the vault before restoring');
+  if (await vaultStorageOccupied()) throw new Error('restore: vault storage is not empty');
+  const { validation, data } = parseEncryptedExportText(json);
+  if (!validation.ok || !data) throw new Error(`restore: ${validation.errors.join(' ')}`);
+  const hasPassphrase = typeof secret.passphrase === 'string';
+  const hasRecovery = typeof secret.recoveryKey === 'string';
+  if (hasPassphrase === hasRecovery) throw new Error('restore: provide a passphrase or a recovery key, not both');
+  await sodiumReady;
+  let master: Uint8Array | null = null;
+  let vk: Uint8Array | null = null;
+  let published = false;
+  try {
+    if (hasPassphrase) {
+      const passphrase = secret.passphrase ?? '';
+      if (!passphrase) throw new Error('restore: passphrase must not be empty');
+      const kek = await crypto.deriveKek(passphrase, fromBase64(data.keys.salt));
+      try {
+        master = await crypto.unwrapKey(kek, fromBase64(data.keys.wrapped_master_nonce), fromBase64(data.keys.wrapped_master));
+      } catch {
+        throw new Error('restore: could not open the backup with this passphrase');
+      } finally {
+        kek.fill(0);
+      }
+    } else {
+      const recoveryKey = (secret.recoveryKey ?? '').trim();
+      let recoveryKeyBytes: Uint8Array;
+      try { recoveryKeyBytes = fromBase64Url(recoveryKey); } catch { throw new Error('restore: recovery key must be 32 bytes'); }
+      if (recoveryKeyBytes.length !== 32) {
+        recoveryKeyBytes.fill(0);
+        throw new Error('restore: recovery key must be 32 bytes');
+      }
+      const recoveryKek = await sha256(recoveryKeyBytes);
+      recoveryKeyBytes.fill(0);
+      try {
+        master = await crypto.unwrapKey(recoveryKek, fromBase64(data.keys.wrapped_recovery_nonce), fromBase64(data.keys.wrapped_recovery));
+      } catch {
+        throw new Error('restore: could not open the backup with this recovery key');
+      } finally {
+        recoveryKek.fill(0);
+      }
+    }
+    if (!master) throw new Error('restore: could not open the backup');
+    try {
+      vk = await crypto.unwrapKey(master, fromBase64(data.keys.wrapped_vault_nonce), fromBase64(data.keys.wrapped_vault));
+    } catch {
+      throw new Error('restore: could not unwrap the vault key');
+    }
+    if (!vk) throw new Error('restore: could not unwrap the vault key');
+    const opened: VaultItem[] = [];
+    const rows: StoredRow[] = [];
+    for (const item of data.items) {
+      const decrypted = await openExportItem(vk, item, 'restore');
+      decrypted.deleted_at = null;
+      opened.push(decrypted);
+      rows.push(rowFromExportItem(item));
+    }
+    await persistRestoredVault(envelopeToStoredKeys(data.keys), rows);
+    masterKey = master;
+    vaultKey = vk;
+    unlockedItems = opened;
+    published = true;
+  } catch (err) {
+    if (!published) {
+      master?.fill(0);
+      vk?.fill(0);
+      if (masterKey === master) masterKey = null;
+      if (vaultKey === vk) vaultKey = null;
+    }
+    throw err;
+  }
 }
 export function getVaultStats(): { total: number; favorites: number; trash: number } {
   const live = unlockedItems.filter((i) => !isDeleted(i));

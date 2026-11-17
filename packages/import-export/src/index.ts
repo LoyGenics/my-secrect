@@ -5,27 +5,42 @@
  * shapes, versions and base64, and parses other password managers'
  * CSV exports into drafts. Decryption / encryption of the rows lives
  * in the vault implementations (apps/desktop/src/vault.ts,
- * apps/mobile/src/vault.ts), which reject rows they cannot open.
+ * apps/mobile/src/vault.ts, apps/extension/src/lib/vault-ext.ts).
+ * Those vaults abort the whole import or restore when a row fails;
+ * they never skip a bad row and never write a partial file.
  *
  * Formats (all JSON, versioned):
  *  - Encrypted vault export: format 'my-secrect-vault-export',
- *    format_version 1. Items carry only opaque encrypted blobs
- *    (`nonce || ciphertext` and `wrapped nonce || wrapped key`, base64).
+ *    format_version 2. Items still use the frozen v1 item cipher:
+ *    encryption_version 1, XChaCha20-Poly1305 IETF, 24-byte nonce,
+ *    null additional data. `encrypted_payload` is base64(nonce24 ||
+ *    ciphertext||tag) and `encrypted_item_key` is base64(wrap_nonce24
+ *    || wrapped||tag). The file ALSO carries the wrapped key envelope
+ *    already stored locally (salt, wrapped_master, wrapped_vault,
+ *    wrapped_recovery, and their nonces) plus non-secret KDF metadata.
+ *    It never contains a plaintext master, vault, item, or file key.
  *    Trash rows are never exported. A plaintext export is a DIFFERENT
  *    format ('my-secrect-vault-plaintext-export') and is NEVER accepted
  *    by the encrypted-import path — the two must never be confused.
- *  - Plaintext export: same versioning, items are VaultItem plaintext.
+ *  - Plaintext export: format_version 1, items are VaultItem plaintext.
  *    Desktop-only, behind an explicit warning + confirm checkbox.
  *    The web client offers encrypted-only export.
  *
- * Version policy: format_version 1 is the only supported version.
+ * Version policy: encrypted format_version 2 is the only supported
+ * encrypted version. format_version 1 has items and no key envelope,
+ * so a fresh device cannot restore it — it is rejected, not skipped.
  * A newer version is REJECTED ("created by a newer version — update
- * the app"), never silently imported. An older/unknown version is
- * rejected the same way. Tampered rows fail the AEAD authentication
- * check at import time in the vault and are skipped, never stored.
+ * the app"), never silently imported. Tampered structure is rejected
+ * here, before decrypt. A row that fails AEAD or whose decrypted id
+ * does not match item_id aborts the vault import with no writes.
  */
 
-export const EXPORT_FORMAT_VERSION = 1;
+/** Encrypted backup format. Item ciphertext stays encryption_version 1. */
+export const ENCRYPTED_EXPORT_FORMAT_VERSION = 2;
+/** Plaintext export is a separate format and stays at version 1. */
+export const PLAINTEXT_EXPORT_FORMAT_VERSION = 1;
+/** @see ENCRYPTED_EXPORT_FORMAT_VERSION */
+export const EXPORT_FORMAT_VERSION = ENCRYPTED_EXPORT_FORMAT_VERSION;
 export const ENCRYPTED_EXPORT_FORMAT = 'my-secrect-vault-export';
 export const PLAINTEXT_EXPORT_FORMAT = 'my-secrect-vault-plaintext-export';
 /** Hard cap on rows in one import file — a larger file is rejected, not truncated. */
@@ -33,17 +48,101 @@ export const MAX_IMPORT_ITEMS = 10_000;
 /** Max validation errors listed before the rest are summarised as a count. */
 const MAX_LISTED_ERRORS = 10;
 
-export interface VaultExport {
-  format: 'my-secrect-vault-export';
-  format_version: number;
-  exported_at: string;
-  vault_id: string;
-  items: Array<{ item_id: string; revision: number; encrypted_payload: string; encrypted_item_key: string; encryption_version: number }>;
-  relations_included: boolean;
+const SALT_BYTES = 16;
+const NONCE_BYTES = 24;
+/** 32-byte key plus the 16-byte Poly1305 tag from XChaCha20-Poly1305 IETF. */
+const WRAPPED_KEY_BYTES = 48;
+const ITEM_KEY_BLOB_BYTES = NONCE_BYTES + WRAPPED_KEY_BYTES;
+const MIN_PAYLOAD_BYTES = NONCE_BYTES + 16;
+
+/**
+ * Non-secret description of the frozen KDF. Vault code does not read
+ * these numbers to choose a cipher: deriveKek stays Argon2id
+ * INTERACTIVE (opslimit 2, memlimit 67108864, 16-byte salt, 32-byte
+ * output, UTF-8 passphrase) and the recovery KEK stays SHA-256 of the
+ * 32-byte recovery key. A file whose metadata disagrees is rejected.
+ */
+export const EXPORT_KDF_METADATA = {
+  name: 'argon2id',
+  opslimit: 2,
+  memlimit: 67108864,
+  salt_bytes: SALT_BYTES,
+  output_bytes: 32,
+  recovery_kek: 'sha256',
+  cipher: 'xchacha20poly1305-ietf',
+  nonce_bytes: NONCE_BYTES,
+  encryption_version: 1,
+} as const;
+
+export interface WrappedKeyEnvelope {
+  salt: string;
+  wrapped_master: string;
+  wrapped_master_nonce: string;
+  wrapped_vault: string;
+  wrapped_vault_nonce: string;
+  wrapped_recovery: string;
+  wrapped_recovery_nonce: string;
 }
 
-export function buildExportSkeleton(vaultId: string): VaultExport {
-  return { format: 'my-secrect-vault-export', format_version: EXPORT_FORMAT_VERSION, exported_at: new Date().toISOString(), vault_id: vaultId, items: [], relations_included: true };
+export interface EncryptedExportItem {
+  item_id: string;
+  revision: number;
+  encrypted_payload: string;
+  encrypted_item_key: string;
+  encryption_version: number;
+}
+
+export interface VaultExport {
+  format: 'my-secrect-vault-export';
+  format_version: typeof ENCRYPTED_EXPORT_FORMAT_VERSION;
+  exported_at: string;
+  vault_id: string;
+  kdf: { [K in keyof typeof EXPORT_KDF_METADATA]: (typeof EXPORT_KDF_METADATA)[K] };
+  keys: WrappedKeyEnvelope;
+  items: EncryptedExportItem[];
+  relations_included: true;
+}
+
+const ENVELOPE_FIELD_BYTES: Record<keyof WrappedKeyEnvelope, number> = {
+  salt: SALT_BYTES,
+  wrapped_master: WRAPPED_KEY_BYTES,
+  wrapped_master_nonce: NONCE_BYTES,
+  wrapped_vault: WRAPPED_KEY_BYTES,
+  wrapped_vault_nonce: NONCE_BYTES,
+  wrapped_recovery: WRAPPED_KEY_BYTES,
+  wrapped_recovery_nonce: NONCE_BYTES,
+};
+
+/** Copy only the wrapped envelope. Callers must not pass plaintext keys. */
+export function buildEncryptedExport(input: {
+  vaultId: string;
+  exportedAt?: string;
+  keys: WrappedKeyEnvelope;
+  items: EncryptedExportItem[];
+}): VaultExport {
+  const source = input.keys;
+  return {
+    format: ENCRYPTED_EXPORT_FORMAT,
+    format_version: ENCRYPTED_EXPORT_FORMAT_VERSION,
+    exported_at: input.exportedAt ?? new Date().toISOString(),
+    vault_id: input.vaultId,
+    kdf: { ...EXPORT_KDF_METADATA },
+    keys: {
+      salt: source.salt,
+      wrapped_master: source.wrapped_master,
+      wrapped_master_nonce: source.wrapped_master_nonce,
+      wrapped_vault: source.wrapped_vault,
+      wrapped_vault_nonce: source.wrapped_vault_nonce,
+      wrapped_recovery: source.wrapped_recovery,
+      wrapped_recovery_nonce: source.wrapped_recovery_nonce,
+    },
+    items: input.items,
+    relations_included: true,
+  };
+}
+
+export function buildExportSkeleton(vaultId: string, keys: WrappedKeyEnvelope): VaultExport {
+  return buildEncryptedExport({ vaultId, keys, items: [] });
 }
 
 // ---------------------------------------------------------------------------
@@ -89,42 +188,76 @@ function pushError(list: string[], msg: string): void {
   if (list.length < MAX_LISTED_ERRORS) list.push(msg);
 }
 
-/** Validate a parsed JSON value as an encrypted vault export (v1). */
+function reject(errors: string[], warnings: string[], duplicateIds: string[], formatVersion?: number, itemCount = 0): ImportValidation {
+  return { ok: false, errors, warnings, formatVersion, itemCount, duplicateIds };
+}
+
+/**
+ * Validate a parsed JSON value as an encrypted vault export (v2).
+ * Structural problems, including a missing envelope or KDF metadata
+ * that does not match the frozen contract, fail here — before decrypt.
+ */
 export function validateEncryptedExport(data: unknown): ImportValidation {
   const errors: string[] = [];
   const warnings: string[] = [];
   const duplicateIds: string[] = [];
-  if (!isRecord(data)) return { ok: false, errors: ['Import file is not a JSON object.'], warnings, itemCount: 0, duplicateIds };
+  if (!isRecord(data)) return reject(['Import file is not a JSON object.'], warnings, duplicateIds);
   if (data.format === PLAINTEXT_EXPORT_FORMAT) {
-    return { ok: false, errors: ['This is a plaintext export. Plaintext files cannot be imported as an encrypted backup — use a desktop encrypted backup instead.'], warnings, itemCount: 0, duplicateIds };
+    return reject(['This is a plaintext export. Plaintext files cannot be imported as an encrypted backup — use a desktop encrypted backup instead.'], warnings, duplicateIds);
   }
   if (data.format !== ENCRYPTED_EXPORT_FORMAT) {
-    return { ok: false, errors: ['Not a my-secrect vault export (unexpected "format" field).'], warnings, itemCount: 0, duplicateIds };
+    return reject(['Not a my-secrect vault export (unexpected "format" field).'], warnings, duplicateIds);
   }
   const version = data.format_version;
   if (typeof version !== 'number' || !Number.isInteger(version)) {
-    return { ok: false, errors: ['Export is missing a valid "format_version".'], warnings, itemCount: 0, duplicateIds };
+    return reject(['Export is missing a valid "format_version".'], warnings, duplicateIds);
   }
-  if (version > EXPORT_FORMAT_VERSION) {
-    return { ok: false, errors: [`Export was created by a newer version (format_version ${version}). Update this app before importing it.`], warnings, formatVersion: version, itemCount: 0, duplicateIds };
+  if (version > ENCRYPTED_EXPORT_FORMAT_VERSION) {
+    return reject([`Export was created by a newer version (format_version ${version}). Update this app before importing it.`], warnings, duplicateIds, version);
   }
-  if (version < EXPORT_FORMAT_VERSION) {
-    return { ok: false, errors: [`Unsupported export version (format_version ${version}). Only version ${EXPORT_FORMAT_VERSION} can be imported.`], warnings, formatVersion: version, itemCount: 0, duplicateIds };
+  if (version === 1) {
+    return reject(['format_version 1 backups contain items only and have no wrapped key envelope. A new device cannot restore them. Export a format_version 2 backup.'], warnings, duplicateIds, version);
   }
-  if (typeof data.exported_at === 'string' && Number.isNaN(Date.parse(data.exported_at))) {
+  if (version !== ENCRYPTED_EXPORT_FORMAT_VERSION) {
+    return reject([`Unsupported export version (format_version ${version}). Only version ${ENCRYPTED_EXPORT_FORMAT_VERSION} can be imported.`], warnings, duplicateIds, version);
+  }
+  if (typeof data.exported_at !== 'string' || data.exported_at === '') {
+    pushError(errors, 'Export is missing "exported_at".');
+  } else if (Number.isNaN(Date.parse(data.exported_at))) {
     warnings.push('"exported_at" is not a valid date; continuing anyway.');
   }
-  if (data.vault_id !== undefined && (typeof data.vault_id !== 'string' || data.vault_id === '')) {
-    warnings.push('"vault_id" is missing or empty; continuing anyway.');
+  if (typeof data.vault_id !== 'string' || data.vault_id === '') {
+    pushError(errors, 'Export is missing "vault_id".');
   }
-  if (data.relations_included !== undefined && typeof data.relations_included !== 'boolean') {
-    warnings.push('"relations_included" is not a boolean; continuing anyway.');
+  if (data.relations_included !== true) {
+    pushError(errors, 'Export "relations_included" must be true.');
+  }
+  if (!isRecord(data.kdf)) {
+    pushError(errors, 'Export is missing the "kdf" metadata object.');
+  } else {
+    for (const key of Object.keys(EXPORT_KDF_METADATA) as Array<keyof typeof EXPORT_KDF_METADATA>) {
+      if (data.kdf[key] !== EXPORT_KDF_METADATA[key]) {
+        pushError(errors, `Export "kdf.${key}" does not match the frozen contract.`);
+      }
+    }
+  }
+  if (!isRecord(data.keys)) {
+    pushError(errors, 'Export is missing the wrapped key envelope ("keys").');
+  } else {
+    for (const field of Object.keys(ENVELOPE_FIELD_BYTES) as Array<keyof WrappedKeyEnvelope>) {
+      const value = data.keys[field];
+      if (typeof value !== 'string' || !isBase64(value) || base64ByteLength(value) !== ENVELOPE_FIELD_BYTES[field]) {
+        pushError(errors, `Export key envelope field "${field}" is missing or the wrong length.`);
+      }
+    }
   }
   if (!Array.isArray(data.items)) {
-    return { ok: false, errors: ['Export has no "items" array.'], warnings, formatVersion: version, itemCount: 0, duplicateIds };
+    pushError(errors, 'Export has no "items" array.');
+    return reject(errors, warnings, duplicateIds, version);
   }
   if (data.items.length > MAX_IMPORT_ITEMS) {
-    return { ok: false, errors: [`Export has ${data.items.length} items, over the limit of ${MAX_IMPORT_ITEMS}. Split the file and import it in parts.`], warnings, formatVersion: version, itemCount: data.items.length, duplicateIds };
+    pushError(errors, `Export has ${data.items.length} items, over the limit of ${MAX_IMPORT_ITEMS}. Split the file and import it in parts.`);
+    return reject(errors, warnings, duplicateIds, version, data.items.length);
   }
   const seen = new Set<string>();
   data.items.forEach((raw, i) => {
@@ -133,30 +266,28 @@ export function validateEncryptedExport(data: unknown): ImportValidation {
     if (typeof raw.item_id !== 'string' || raw.item_id === '') { pushError(errors, `${at}: missing "item_id".`); return; }
     if (seen.has(raw.item_id)) {
       if (!duplicateIds.includes(raw.item_id)) duplicateIds.push(raw.item_id);
+      pushError(errors, `${at} (${raw.item_id}): duplicate "item_id".`);
     } else seen.add(raw.item_id);
     if (typeof raw.revision !== 'number' || !Number.isInteger(raw.revision) || raw.revision < 0) {
       pushError(errors, `${at} (${raw.item_id}): "revision" must be a non-negative integer.`);
     }
-    if (typeof raw.encrypted_payload !== 'string' || !isBase64(raw.encrypted_payload) || base64ByteLength(raw.encrypted_payload) < 40) {
+    if (typeof raw.encrypted_payload !== 'string' || !isBase64(raw.encrypted_payload) || base64ByteLength(raw.encrypted_payload) < MIN_PAYLOAD_BYTES) {
       pushError(errors, `${at} (${raw.item_id}): "encrypted_payload" is not valid base64 of an encrypted blob (nonce + ciphertext).`);
     }
-    if (typeof raw.encrypted_item_key !== 'string' || !isBase64(raw.encrypted_item_key) || base64ByteLength(raw.encrypted_item_key) < 40) {
+    if (typeof raw.encrypted_item_key !== 'string' || !isBase64(raw.encrypted_item_key) || base64ByteLength(raw.encrypted_item_key) !== ITEM_KEY_BLOB_BYTES) {
       pushError(errors, `${at} (${raw.item_id}): "encrypted_item_key" is not valid base64 of a wrapped key.`);
     }
-    if (raw.encryption_version !== undefined && raw.encryption_version !== 1) {
+    if (raw.encryption_version !== 1) {
       pushError(errors, `${at} (${raw.item_id}): unsupported "encryption_version" ${String(raw.encryption_version)}.`);
     }
   });
-  if (duplicateIds.length > 0) {
-    warnings.push(`${duplicateIds.length} item id(s) appear more than once; the highest revision wins.`);
-  }
   const extraErrors = errors.length > MAX_LISTED_ERRORS ? errors.length - MAX_LISTED_ERRORS : 0;
   return {
     ok: errors.length === 0,
-    errors: extraErrors > 0 ? [...errors, `…and ${extraErrors} more error(s).`] : errors,
+    errors: extraErrors > 0 ? [...errors.slice(0, MAX_LISTED_ERRORS), `…and ${extraErrors} more error(s).`] : errors,
     warnings,
     formatVersion: version,
-    itemCount: Array.isArray(data.items) ? data.items.length : 0,
+    itemCount: data.items.length,
     duplicateIds,
   };
 }
@@ -187,8 +318,8 @@ export function validatePlaintextExport(data: unknown): ImportValidation {
     return { ok: false, errors: ['Not a my-secrect plaintext export (unexpected "format" field).'], warnings, itemCount: 0, duplicateIds: [] };
   }
   const version = data.format_version;
-  if (version !== EXPORT_FORMAT_VERSION) {
-    return { ok: false, errors: [`Unsupported plaintext export version (${String(version)}). Only version ${EXPORT_FORMAT_VERSION} is supported.`], warnings, formatVersion: typeof version === 'number' ? version : undefined, itemCount: 0, duplicateIds: [] };
+  if (version !== PLAINTEXT_EXPORT_FORMAT_VERSION) {
+    return { ok: false, errors: [`Unsupported plaintext export version (${String(version)}). Only version ${PLAINTEXT_EXPORT_FORMAT_VERSION} is supported.`], warnings, formatVersion: typeof version === 'number' ? version : undefined, itemCount: 0, duplicateIds: [] };
   }
   if (!Array.isArray(data.items)) {
     return { ok: false, errors: ['Plaintext export has no "items" array.'], warnings, formatVersion: version, itemCount: 0, duplicateIds: [] };
