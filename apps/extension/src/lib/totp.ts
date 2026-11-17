@@ -74,9 +74,11 @@ export async function generateTotp(secret: string, now: number = Date.now()): Pr
     counterBytes[i] = remaining & 0xff;
     remaining = Math.floor(remaining / 256);
   }
+  // Erased cast. TS 5.7+ types a returned Uint8Array as ArrayBufferLike, which
+  // is not a BufferSource. The key bytes passed to HMAC-SHA1 are unchanged.
   const key = await crypto.subtle.importKey(
     'raw',
-    keyBytes,
+    keyBytes as BufferSource,
     { name: 'HMAC', hash: 'SHA-1' },
     false,
     ['sign'],
