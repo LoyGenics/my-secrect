@@ -10,8 +10,8 @@ import { useTranslation } from '../../../../packages/i18n/src/react';
 // levels up — '../../../../packages/...' — the same depth TrashScreen uses
 // for packages/core. A three-level import would resolve inside apps/.
 // The SDK client (packages/sdk/src/security.ts) is owned by the desktop agent;
-// agent and did not exist when this screen was written; this import only
-// resolves once it lands. Do not “fix” it by inlining a client here.
+// this screen only calls its public methods, never re-implements them.
+// Method names follow the SDK as landed (mfaEnroll, mfaConfirm, mfaDisable, mfaRecoveryCodes). Do not “fix” it by inlining a client here.
 import { LS_API_TOKEN, SecurityApiClient } from '../../../../packages/sdk/src/security';
 import { fromBase64Url, sha256, toBase64 } from '../../../../packages/crypto-adapters/src/index';
 import { decryptWithVaultKey, encryptWithVaultKey } from '../vault';
@@ -320,12 +320,15 @@ export default function SecurityScreen({ onClose }: { onClose: () => void }) {
     if (!name) return;
     setError(''); setBusy(true);
     try {
-      // The wire field is name_encrypted; this client passes the display
-      // name and relies on the SDK to encode it for the wire. The rename
-      // is only believed once a fresh list shows the new name — a 2xx
-      // alone proves nothing if the server ignored the field.
-      await client.updateDevice(d.id, { name });
-      const fresh = rows<DeviceRow>(await client.listDevices(), 'devices');
+      // The wire field is name_encrypted: the display name encrypted with
+      // the in-memory Vault Key (nonce-prefixed base64, same envelope as
+      // exportEncrypted). The server stores it opaquely and can never
+      // read it. Encryption needs the unlocked vault — when locked,
+      // encryptWithVaultKey throws and the rename is refused honestly.
+      const nameEncrypted = await encryptWithVaultKey(name);
+      await client.updateDevice(d.id, { name_encrypted: nameEncrypted });
+      // Believe the rename only once a fresh list shows the new name.
+      const fresh = await resolveDeviceLabels(rows<DeviceRow>(await client.listDevices(), 'devices'));
       setDevices(fresh);
       const updated = fresh.find((x) => x.id === d.id);
       if (!updated || deviceLabel(updated) !== name) {
@@ -455,12 +458,6 @@ export default function SecurityScreen({ onClose }: { onClose: () => void }) {
       <Pressable testID="security-back" accessibilityLabel="Back to settings" onPress={onClose} hitSlop={10} style={{ alignSelf: 'flex-start', paddingVertical: 8 }}><Text style={{ color: '#A5B4FC', fontSize: 15 }}>‹ Back</Text></Pressable>
       <Text style={styles.title}>{t('security.title')}</Text>
       <Text style={styles.subtitle}>{t('security.subtitle')}</Text>
-      {/* TODO(i18n): no security.* key was specified for the account/vault
-          separation note, so it is written here in English. If the i18n
-          owner adds a key for it, replace this line with t('security.…'). */}
-      <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 8 }}>
-        Account security here is separate from vault unlock: passkeys, MFA and sessions protect your account, while your passphrase and recovery key alone unlock the vault.
-      </Text>
       {notice ? <Text testID="security-notice" style={{ color: '#A5B4FC', fontSize: 14, lineHeight: 20, marginTop: 10 }}>{notice}</Text> : null}
       {error ? <Text testID="security-error" style={[styles.error, { marginTop: 10 }]}>{error}</Text> : null}
       {offline ? (
@@ -622,11 +619,7 @@ export default function SecurityScreen({ onClose }: { onClose: () => void }) {
       <Pressable testID="register-verifier-button" accessibilityLabel={t('security.registerRecoveryVerifier')} disabled={busy} style={styles.primaryButton} onPress={() => void handleRegisterVerifier()}>
         <Text style={styles.primaryButtonText}>{t('security.registerRecoveryVerifier')}</Text>
       </Pressable>
-      {/* TODO(i18n): no security.* key was specified for this note, so it
-          is written here in English. */}
-      <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 8 }}>
-        Only the Ed25519 public key derived from your recovery key is sent to the server. The recovery key itself never leaves this device.
-      </Text>
+
 
       {section(t('security.activity'))}
       {activity.length === 0 ? (
