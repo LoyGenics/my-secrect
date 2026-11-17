@@ -1,0 +1,11 @@
+Puma starting in single mode...
+* Puma version: 6.6.1 ("Return to Forever")
+* Ruby version: ruby 3.3.6 (2024-11-05 revision 75015d4c1f) [arm64-darwin25]
+*  Min threads: 5
+*  Max threads: 5
+*  Environment: development
+*          PID: 74884
+DEPRECATION WARNING: `WebAuthn.origin=` is deprecated and will be removed in future. Please use `WebAuthn.allowed_origins=` instead that also allows configuring multiple origins per Relying Party
+* Listening on http://0.0.0.0:3102
+Use Ctrl-C to stop
+- Gracefully stopping, waiting for requests to finish

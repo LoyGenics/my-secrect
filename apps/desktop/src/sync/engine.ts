@@ -196,7 +196,6 @@ export class SyncEngine {
   private events = new Map<string, SyncEvent>();
   private unsub: (() => void) | null = null;
   private started = false;
-  private running = false;
   private again = false;
   private dirtyIds = new Set<string>();
   private pushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -373,18 +372,50 @@ export class SyncEngine {
     }
   }
 
-  /** Push the queue, then pull. Safe to call any time; calls coalesce. */
-  async syncNow(): Promise<void> {
-    if (!this.started) return;
-    if (this.running) { this.again = true; return; }
-    this.running = true;
+  private runPromise: Promise<void> | null = null;
+
+  /**
+   * Push the queue, then pull. Safe to call any time: calls made while a run
+   * is in progress coalesce into one follow-up run, and the returned promise
+   * resolves when ALL of that work (including the follow-up) is done.
+   */
+  syncNow(): Promise<void> {
+    if (!this.started) return Promise.resolve();
+    if (this.runPromise) {
+      this.again = true;
+      return this.runPromise;
+    }
+    this.runPromise = this.runLoop().finally(() => { this.runPromise = null; });
+    return this.runPromise;
+  }
+
+  private async runLoop(): Promise<void> {
+    let rounds = 0;
+    for (;;) {
+      this.again = false;
+      const retry = await this.syncOnce();
+      rounds += 1;
+      if (!this.started) return;
+      if (this.dirtyIds.size > 0 || this.again) {
+        if (rounds < 20) continue; // bounded: a pathological edit storm must not spin forever
+      }
+      if (retry) this.scheduleRetry();
+      return;
+    }
+  }
+
+  /** One push+pull round. Returns true when a retry should be scheduled. */
+  private async syncOnce(): Promise<boolean> {
     this.setStatus({ state: 'syncing', error: null });
     let retry = false;
     try {
-      const vaultId = await this.ensureBinding();
-      if (!this.client) this.client = this.buildClient(vaultId);
+      // Queue first (no network needed): an offline edit is persisted in the
+      // push queue before we even try to reach the server.
       for (const id of listRowIds()) await this.wireIdOf(id);
       await this.enqueueDirty();
+      this.setStatus({});
+      const vaultId = await this.ensureBinding();
+      if (!this.client) this.client = this.buildClient(vaultId);
       const res = await this.client.syncAll();
       await this.storage.flush();
 
@@ -420,15 +451,8 @@ export class SyncEngine {
         this.setStatus({ state: 'error', error: errText(err) });
         retry = true;
       }
-    } finally {
-      this.running = false;
     }
-    if (this.dirtyIds.size > 0 || this.again) {
-      this.again = false;
-      void this.syncNow();
-    } else if (retry) {
-      this.scheduleRetry();
-    }
+    return retry;
   }
 
   /**
@@ -461,7 +485,7 @@ export class SyncEngine {
     this.cfg.onItemsChanged?.();
     this.setStatus({});
     this.dirtyIds.add(localId);
-    void this.syncNow();
+    await this.syncNow();
   }
 }
 
