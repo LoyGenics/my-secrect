@@ -293,3 +293,5 @@ throttle).
   wrapping.
 - `tests/sharing-e2e/two-users.test.ts` — two enrolled users (real WebAuthn
   registration) against the real Rails API + Postgres.
+- `tests/sharing-e2e/ui.spec.ts` — the same flow through the real web UI in
+  two Chromium contexts (Playwright, real stack from `tests/e2e-web`).
