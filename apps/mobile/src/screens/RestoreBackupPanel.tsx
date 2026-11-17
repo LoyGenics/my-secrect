@@ -5,6 +5,8 @@ import { useMobileTheme } from '../theme';
 import { Icon, illustrations, typeArt } from '../../../../packages/ui/src/native';
 import { restoreEncrypted, getVaultStats, lockVault } from '../vault';
 import { describeRestoreError } from '../../../desktop/src/components/restoreErrors';
+import { useTranslation } from '../../../../packages/i18n/src/react';
+import type { ItemListCheck } from '../../../../packages/import-export/src/index';
 
 /**
  * Fresh-device restore for mobile. No document-picker dependency is
@@ -20,15 +22,18 @@ export default function RestoreBackupPanel({ onRestored, onCancel }: { onRestore
   const [secret, setSecret] = useState('');
   const [error, setError] = useState('');
   const [count, setCount] = useState<number | null>(null);
+  const [itemList, setItemList] = useState<ItemListCheck | null>(null);
   const [busy, setBusy] = useState(false);
+  const { dict } = useTranslation();
 
   async function submit() {
     setError('');
     if (!json.trim()) { setError('Paste the contents of your backup file first.'); return; }
     if (!secret.trim()) { setError(mode === 'passphrase' ? 'Enter the passphrase for this backup.' : 'Enter the recovery key.'); return; }
     setBusy(true);
+    let checked: ItemListCheck;
     try {
-      await restoreEncrypted(json, mode === 'passphrase' ? { passphrase: secret } : { recoveryKey: secret });
+      checked = await restoreEncrypted(json, mode === 'passphrase' ? { passphrase: secret } : { recoveryKey: secret });
     } catch (e) {
       setError(describeRestoreError(e).message);
       setBusy(false);
@@ -37,6 +42,7 @@ export default function RestoreBackupPanel({ onRestored, onCancel }: { onRestore
     const n = getVaultStats().total;
     lockVault();
     setSecret(''); setJson('');
+    setItemList(checked);
     setCount(n);
     setBusy(false);
   }
@@ -48,6 +54,11 @@ export default function RestoreBackupPanel({ onRestored, onCancel }: { onRestore
         <Text style={{ color: colors.text, fontSize: 16, textAlign: 'center', marginTop: 8 }}>
           Backup restored: {count} {count === 1 ? 'item' : 'items'} decrypted and saved. The vault is locked; unlock it normally.
         </Text>
+        {itemList === 'unverifiable-legacy' ? (
+          <Text testID="restore-item-list-unverified" accessibilityRole="alert" style={[styles.error, { textAlign: 'center', marginTop: 12 }]}>
+            {dict.backup.itemListUnverified}
+          </Text>
+        ) : null}
         <Pressable testID="restore-continue" accessibilityRole="button" accessibilityLabel="Continue to unlock" style={[styles.primaryButton, { marginTop: 20, alignSelf: 'stretch' }]} onPress={onRestored}>
           <Text style={styles.primaryButtonText}>Continue to unlock</Text>
         </Pressable>
@@ -57,7 +68,7 @@ export default function RestoreBackupPanel({ onRestored, onCancel }: { onRestore
   return (
     <View style={{ marginTop: 20 }}>
       <Text style={{ color: colors.text, fontSize: 15, lineHeight: 22, marginBottom: 14 }}>
-        Restore an encrypted backup (format version 2). Paste the backup file contents below. Nothing existing is overwritten.
+        Restore an encrypted backup (format version 3, or 2 from older versions). Paste the backup file contents below. Nothing existing is overwritten.
       </Text>
       <Field label="Backup file contents" testID="restore-json" multiline value={json} onChangeText={(v) => { setJson(v); setError(''); }} autoCapitalize="none" autoCorrect={false} />
       <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>

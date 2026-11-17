@@ -37,8 +37,10 @@ import type { VaultItem } from '../../../packages/core/src/types';
 import {
   buildEncryptedExport,
   parseEncryptedExportText,
+  sealItemIndex,
+  verifyItemIndex,
 } from '../../../packages/import-export/src/index';
-import type { EncryptedExportItem, WrappedKeyEnvelope } from '../../../packages/import-export/src/index';
+import type { EncryptedExportItem, ItemListCheck, WrappedKeyEnvelope } from '../../../packages/import-export/src/index';
 import { deviceKeyErrorCode, type Biometry, type DeviceKeyErrorCode } from '../modules/device-key/src/DeviceKey.types';
 import { autofillEntryFor, autofillIndexFor } from './storage/autofillIndex';
 import { migrateFromAsyncStorage } from './storage/migration';
@@ -495,8 +497,12 @@ function envelopeToStoredKeys(keys: WrappedKeyEnvelope): StoredKeys {
     wrapped_recovery_nonce: keys.wrapped_recovery_nonce,
   };
 }
-/** format_version 2. Item cipher stays encryption_version 1. Envelope is the wrapped keys already stored locally. */
+/**
+ * format_version 3. Item cipher stays encryption_version 1. Envelope is the wrapped keys already stored
+ * locally, plus the item index sealed under the Vault Key (so the vault must be unlocked).
+ */
 export async function exportEncrypted(): Promise<string> {
+  if (!vaultKey) throw new Error('export: vault locked');
   const keys = await loadKeys();
   if (!keys) throw new Error('export: vault has no wrapped key envelope');
   const items = (await loadRows()).filter((r) => !r.deleted_at).map((r) => ({
@@ -506,10 +512,22 @@ export async function exportEncrypted(): Promise<string> {
     encrypted_item_key: toBase64(concat(fromBase64(r.wrapped_nonce), fromBase64(r.wrapped_item_key))),
     encryption_version: 1 as const,
   }));
-  return JSON.stringify(buildEncryptedExport({ vaultId: 'local', keys, items }));
+  const itemIndex = await sealItemIndex({ vaultId: 'local', items }, vaultKey, crypto);
+  return JSON.stringify(buildEncryptedExport({ vaultId: 'local', keys, items, itemIndex }));
 }
-/** Merge into an unlocked vault. Decrypt failure aborts with no partial write. */
-export async function importEncrypted(json: string): Promise<void> {
+/** Throws `<purpose>: …` if a v3 item list does not match its sealed index. */
+async function checkItemList(data: Parameters<typeof verifyItemIndex>[0], key: Uint8Array, purpose: 'import' | 'restore'): Promise<ItemListCheck> {
+  try {
+    return await verifyItemIndex(data, key, crypto);
+  } catch (err) {
+    throw new Error(`${purpose}: ${err instanceof Error ? err.message : 'item list could not be verified'}`);
+  }
+}
+/**
+ * Merge into an unlocked vault. A decrypt failure or an item-list mismatch aborts with no partial
+ * write. Returns 'unverifiable-legacy' for a format_version 2 file.
+ */
+export async function importEncrypted(json: string): Promise<ItemListCheck> {
   if (!vaultKey) throw new Error('vault locked');
   const { validation, data } = parseEncryptedExportText(json);
   if (!validation.ok || !data) throw new Error(`import: ${validation.errors.join(' ')}`);
@@ -519,6 +537,7 @@ export async function importEncrypted(json: string): Promise<void> {
     decrypted.deleted_at = null;
     opened.push({ item: decrypted, row: rowFromExportItem(item) });
   }
+  const itemList = await checkItemList(data, vaultKey, 'import');
   const store = await getStore();
   const current = new Map((await store.listRows()).map((r) => [r.id, r.revision]));
   const accepted: StoredRow[] = [];
@@ -532,16 +551,18 @@ export async function importEncrypted(json: string): Promise<void> {
   }
   await store.mergeRows(accepted, (await store.getDeviceUnlock()) !== null ? autofillIndexFor(nextItems) : []);
   unlockedItems = nextItems;
+  return itemList;
 }
 export type VaultRestoreSecret =
   | { passphrase: string; recoveryKey?: undefined }
   | { recoveryKey: string; passphrase?: undefined };
 /**
  * Empty storage plus this file plus a passphrase or recovery key.
- * Uses the same KEK as unlock. Writes nothing until every item decrypts
- * and each decrypted id matches item_id.
+ * Uses the same KEK as unlock. Writes nothing until every item decrypts,
+ * each decrypted id matches item_id, and the item list matches its sealed
+ * index. Returns 'unverifiable-legacy' for a format_version 2 file.
  */
-export async function restoreEncrypted(json: string, secret: VaultRestoreSecret): Promise<void> {
+export async function restoreEncrypted(json: string, secret: VaultRestoreSecret): Promise<ItemListCheck> {
   if (isUnlocked()) throw new Error('restore: lock and wipe the vault before restoring');
   const store = await getStore();
   if (await store.isOccupied()) throw new Error('restore: vault storage is not empty');
@@ -599,6 +620,7 @@ export async function restoreEncrypted(json: string, secret: VaultRestoreSecret)
       opened.push(decrypted);
       rows.push(rowFromExportItem(item));
     }
+    const itemList = await checkItemList(data, vk, 'restore');
     // A restore lands in an empty store: no biometric unlock yet, so no autofill index.
     await store.restoreVault(JSON.stringify(envelopeToStoredKeys(data.keys)), rows, []);
     masterKey = master;
@@ -606,6 +628,7 @@ export async function restoreEncrypted(json: string, secret: VaultRestoreSecret)
     unlockedItems = opened;
     unlockSource = hasPassphrase ? 'passphrase' : 'recovery';
     published = true;
+    return itemList;
   } catch (err) {
     if (!published) {
       master?.fill(0);

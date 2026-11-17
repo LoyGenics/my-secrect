@@ -27,7 +27,6 @@ import type { VaultItem } from '../../packages/core/src/types';
 
 const PASS = 'acceptance passphrase — K 42';
 const OTHER_PASS = 'a different vault passphrase 7';
-const defect = (id: string) => (process.env.ACCEPTANCE_STRICT ? undefined : id);
 
 type Doc = {
   format: string; format_version: number; kdf: Record<string, unknown>;
@@ -180,10 +179,8 @@ describe('K2: corrupted backup fails safely', () => {
       await expectSafeFailure(t, JSON.stringify(c5), pass, /could not open the backup with this passphrase|nonce/);
     });
 
-    // Fixed by the authenticated item index (backup format_version 3); the
-    // apps not integrated yet keep the todo.
-    const omissionTodo = name !== 'mobile' ? undefined : defect('DEFECT-K2-omission: backup has no authenticated item list; a dropped item restores "successfully" as N-1 items');
-    test(`${name}: a backup with one item silently removed is detected`, { todo: omissionTodo }, async () => {
+    // Fixed by the authenticated item index (backup format_version 3).
+    test(`${name}: a backup with one item silently removed is detected`, async () => {
       const t = T[name];
       const doc = JSON.parse(backups.desktop!.json) as Doc;
       const dropped = clone(doc); dropped.items.splice(3, 1);
