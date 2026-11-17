@@ -297,13 +297,29 @@ export async function applyRemoteEvents(
   for (const event of ordered) {
     const local = localById.get(event.item_id);
 
-    // Tombstone: remote delete. Apply only if it is newer than local.
+    // Tombstone: remote delete.
+    //
+    // Revision semantics: the server's delete requires base_revision ==
+    // the item's current revision and then INCREMENTS it, so a genuinely
+    // new delete always carries revision >= (revision it was based on) + 1.
+    // baseRevision is the last revision this device synced for the item.
+    //  - delete.revision <= baseRevision: it cannot be a new delete of
+    //    state this device has not seen; it is history already merged into
+    //    the lineage. Skip it, never tombstone, leave any pending local
+    //    edit untouched.
+    //  - delete.revision > baseRevision while the local item has a pending
+    //    (unsynced) edit (revision > baseRevision): a concurrent delete.
+    //    That holds even when delete.revision <= local.revision (both
+    //    sides advanced from the same base), so the conflict check comes
+    //    BEFORE the generic stale check. Record delete_vs_update, keep both.
+    //  - No pending edit: apply only if newer than local, else stale.
     if (event.operation === 'delete') {
-      if (local && event.revision <= local.revision) {
-        result.skipped.push({ item_id: event.item_id, reason: 'stale tombstone: revision not newer than local' });
+      if (local && event.revision <= local.baseRevision) {
+        result.skipped.push({ item_id: event.item_id, reason: 'stale tombstone: revision at or behind synced base' });
         continue;
       }
-      if (local && local.item.deleted_at == null && event.revision > local.baseRevision) {
+      const pendingLocalEdit = !!local && local.item.deleted_at == null && local.revision > local.baseRevision;
+      if (local && pendingLocalEdit) {
         // Local was edited after base while remote deleted it: conflict, keep both.
         const kind = detectDeleteConflict(true, event.revision, local.baseRevision);
         if (kind !== 'none') {
@@ -325,6 +341,10 @@ export async function applyRemoteEvents(
           });
           continue;
         }
+      }
+      if (local && event.revision <= local.revision) {
+        result.skipped.push({ item_id: event.item_id, reason: 'stale tombstone: revision not newer than local' });
+        continue;
       }
       result.tombstones.push(event.item_id);
       localById.delete(event.item_id);
