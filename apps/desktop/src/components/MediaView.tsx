@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { VaultItem } from '../../../../packages/core/src/types';
 import type { BlobManifest } from '../../../../packages/storage/src/upload';
+import { BlobUploadError, webStorageResumeStore } from '../../../../packages/storage/src/upload';
 import {
   mediaInfoFromItem,
   formatBytes,
@@ -12,29 +13,33 @@ import {
   uploadMediaFile,
   downloadMediaItem,
   loadMediaMetadata,
+  loadThumbnailUrl,
   MAX_MEDIA_BYTES,
   type MediaApi,
+  type MediaInfo,
+  type MediaKind,
 } from '../utils/media';
 import { upsertItem, withVaultKey, encryptWithVaultKey } from '../vault';
 
 /**
- * MediaView — encrypted file upload / download / gallery.
+ * MediaView — encrypted file upload / download / gallery / viewer.
  *
- *  - Upload: the chosen file is encrypted ON THIS DEVICE in 1 MiB chunks
- *    (per-file random File Key, XChaCha20-Poly1305 v1), the manifest
- *    (name, type, size, chunk hashes, wrapped File Key, optional encrypted
- *    thumbnail) is encrypted with the Vault Key, and only ciphertext goes
- *    to object storage through presigned URLs. See utils/media.ts.
- *  - Download: chunks are fetched, verified against the authenticated
- *    manifest (count, order, length, hash) and decrypted; any failure is
- *    shown as an error and nothing is saved.
- *  - Per item the manifest is fetched and verified when the view opens.
- *    Status is shown honestly: verified / failed (with reason) / not
- *    uploaded (old manifest-only item) / unknown (no account server).
- *  - Thumbnails come only from the encrypted manifest (decrypted here and
- *    shown as an object URL); otherwise the tile shows an icon.
- *  - Preview plaintext exists only in RAM while displayed; object URLs are
- *    revoked on unmount. A fully compromised device is not protected.
+ *  - Upload: the chosen file is read and encrypted ON THIS DEVICE one 1 MiB
+ *    chunk at a time (per-file random File Key, XChaCha20-Poly1305 v1); the
+ *    manifest (name, type, size, chunk hashes, wrapped File Key) is
+ *    encrypted with the Vault Key, and only ciphertext goes to object
+ *    storage through presigned URLs. Progress is shown per part. An
+ *    interrupted upload is remembered (no plaintext, no key — see
+ *    utils/media.ts) and resumes when the same file is chosen again.
+ *  - Thumbnails are generated here, encrypted and uploaded as their own
+ *    blob. The gallery loads and decrypts each tile's thumbnail (and
+ *    verifies its manifest) only when the tile scrolls into view.
+ *  - View / Download: every chunk is verified against the authenticated
+ *    manifest before it is decrypted, and the decrypted file is handed to
+ *    the viewer or the browser only after ALL checks passed. Any failure is
+ *    shown as an error and nothing is shown or saved. Decrypted bytes live
+ *    in memory only; every object URL is revoked when the viewer closes,
+ *    after a download was handed over, and on unmount.
  *  - Works unchanged in the web client (same component). Needs a configured
  *    account server: with no API base URL nothing can be stored remotely and
  *    the UI says so.
@@ -49,89 +54,161 @@ export interface MediaViewProps {
   onSelect?: (item: VaultItem) => void;
 }
 
-const KIND_ICON: Record<string, string> = {
-  photo: '🖼️',
-  video: '🎬',
-  audio: '🎵',
-  document: '📄',
-  other: '📦',
-};
+type Filter = 'all' | MediaKind;
+const FILTERS: Filter[] = ['all', 'photo', 'video', 'audio', 'document', 'other'];
+
+/** One consistent stroke icon set for the kinds (no emoji stand-ins). */
+function KindIcon({ kind, className = 'h-8 w-8' }: { kind: MediaKind; className?: string }) {
+  const common = { className, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true };
+  switch (kind) {
+    case 'photo':
+      return <svg {...common}><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="1.75" /><path d="m21 16-5-5-8 9" /></svg>;
+    case 'video':
+      return <svg {...common}><rect x="3" y="5" width="13" height="14" rx="2" /><path d="m16 10 5-3v10l-5-3" /></svg>;
+    case 'audio':
+      return <svg {...common}><path d="M9 18V6l11-2v12" /><circle cx="6.5" cy="18" r="2.5" /><circle cx="17.5" cy="16" r="2.5" /></svg>;
+    case 'document':
+      return <svg {...common}><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5M9 13h6M9 17h6" /></svg>;
+    default:
+      return <svg {...common}><path d="m21 8-9-5-9 5 9 5z" /><path d="M3 8v8l9 5 9-5V8M12 13v8" /></svg>;
+  }
+}
+
+/** Can this browser show the decrypted file in-app? (images by type; audio/video asked of the element). */
+function previewSupport(info: MediaInfo): { ok: boolean; reason?: string } {
+  if (info.kind === 'photo') return isSupportedMime(info.mime_type) ? { ok: true } : { ok: false, reason: `${info.mime_type} is not previewed in-app` };
+  if (info.kind !== 'video' && info.kind !== 'audio') return { ok: false, reason: 'no in-app preview for this type' };
+  if (typeof document === 'undefined') return { ok: false, reason: 'no media element here' };
+  const can = document.createElement(info.kind).canPlayType(info.mime_type);
+  return can ? { ok: true } : { ok: false, reason: `this browser cannot play ${info.mime_type}` };
+}
+
+/** Runs at most `limit` decrypt jobs at a time so a long gallery does not fire every request at once. */
+function useLimiter(limit: number) {
+  const active = useRef(0);
+  const queue = useRef<Array<() => void>>([]);
+  return useCallback(<T,>(job: () => Promise<T>): Promise<T> => new Promise<T>((resolve, reject) => {
+    const run = () => {
+      active.current++;
+      job().then(resolve, reject).finally(() => {
+        active.current--;
+        queue.current.shift()?.();
+      });
+    };
+    if (active.current < limit) run(); else queue.current.push(run);
+  }), [limit]);
+}
+
+interface UploadState {
+  fileName: string;
+  done: number;
+  total: number;
+  resumedParts: number;
+  retry?: string;
+}
+
+interface ViewerState {
+  item: VaultItem;
+  info: MediaInfo;
+  status: 'decrypting' | 'ready' | 'failed';
+  done: number;
+  total: number;
+  url?: string;
+  error?: string;
+}
 
 export default function MediaView({ items, api = null, onItemsChanged, onSelect }: MediaViewProps) {
-  const [filter, setFilter] = useState<'all' | 'photo' | 'video' | 'audio' | 'document' | 'other'>('all');
+  const [filter, setFilter] = useState<Filter>('all');
   const [manifests, setManifests] = useState<Record<string, BlobManifest>>({});
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [metaErrors, setMetaErrors] = useState<Record<string, string>>({});
+  const [thumbErrors, setThumbErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  const [upload, setUpload] = useState<UploadState | null>(null);
+  const [interrupted, setInterrupted] = useState<{ file: File; stored: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const thumbRef = useRef<Record<string, string>>({});
+  const [viewer, setViewer] = useState<ViewerState | null>(null);
+  const urlsRef = useRef<Set<string>>(new Set());
+  const requested = useRef<Set<string>>(new Set());
   const fileInput = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const limit = useLimiter(3);
+  const resumeStore = useMemo(() => (typeof localStorage === 'undefined' ? undefined : webStorageResumeStore(localStorage)), []);
 
   const mediaItems = useMemo(() => {
     const list = items
       .map((item) => ({ item, info: mediaInfoFromItem(item) }))
-      .filter((x): x is { item: VaultItem; info: NonNullable<ReturnType<typeof mediaInfoFromItem>> } => x.info !== null);
+      .filter((x): x is { item: VaultItem; info: MediaInfo } => x.info !== null);
     return filter === 'all' ? list : list.filter(({ info }) => info.kind === filter);
   }, [items, filter]);
 
-  // Verify each uploaded item's encrypted manifest (and decrypt its thumbnail) — no chunk is downloaded.
-  const blobIds = useMemo(
-    () => items.map((i) => mediaInfoFromItem(i)?.blob_id).filter((id): id is string => !!id && isUploadedBlobId(id)),
-    [items],
-  );
-  useEffect(() => {
-    if (!api) return;
-    let cancelled = false;
-    (async () => {
-      for (const blobId of blobIds) {
-        if (cancelled || manifests[blobId] || metaErrors[blobId]) continue;
-        try {
-          const meta = await loadMediaMetadata({ api, blobId, withVaultKey });
-          if (cancelled) { if (meta.thumbnailUrl) URL.revokeObjectURL(meta.thumbnailUrl); return; }
-          setManifests((m) => ({ ...m, [blobId]: meta.manifest }));
-          if (meta.thumbnailUrl) { thumbRef.current[blobId] = meta.thumbnailUrl; setThumbs((t) => ({ ...t, [blobId]: meta.thumbnailUrl as string })); }
-        } catch (e) {
-          if (!cancelled) setMetaErrors((m) => ({ ...m, [blobId]: e instanceof Error ? e.message : String(e) }));
-        }
-      }
-    })();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, blobIds]);
-  // Release decrypted thumbnails when the view goes away.
-  useEffect(() => () => { Object.values(thumbRef.current).forEach((u) => URL.revokeObjectURL(u)); thumbRef.current = {}; }, []);
+  // Release every decrypted object URL (thumbnails, viewer) when the view goes away.
+  useEffect(() => () => { urlsRef.current.forEach((u) => URL.revokeObjectURL(u)); urlsRef.current.clear(); }, []);
+
+  const track = (url: string) => { urlsRef.current.add(url); return url; };
+  const release = (url: string | undefined) => { if (!url) return; URL.revokeObjectURL(url); urlsRef.current.delete(url); };
+
+  /** A tile scrolled into view: verify its manifest and decrypt its thumbnail (once). */
+  const loadTile = useCallback((info: MediaInfo) => {
+    if (!api || !isUploadedBlobId(info.blob_id) || requested.current.has(info.blob_id)) return;
+    requested.current.add(info.blob_id);
+    void limit(() => loadMediaMetadata({ api, blobId: info.blob_id, withVaultKey }))
+      .then((meta) => {
+        setManifests((m) => ({ ...m, [info.blob_id]: meta.manifest }));
+        if (meta.thumbnailUrl) setThumbs((t) => ({ ...t, [info.blob_id]: track(meta.thumbnailUrl as string) }));
+      })
+      .catch((e) => setMetaErrors((m) => ({ ...m, [info.blob_id]: e instanceof Error ? e.message : String(e) })));
+    if (info.thumbnail_blob_id) {
+      const thumbId = info.thumbnail_blob_id;
+      void limit(() => loadThumbnailUrl({ api, thumbnailBlobId: thumbId, withVaultKey }))
+        .then((url) => setThumbs((t) => ({ ...t, [info.blob_id]: track(url) })))
+        .catch((e) => setThumbErrors((m) => ({ ...m, [info.blob_id]: e instanceof Error ? e.message : String(e) })));
+    }
+  }, [api, limit]);
 
   const onUpload = useCallback(async (file: File) => {
     if (!api) return;
-    setError(null); setNotice(null); setBusy(`Encrypting and uploading ${file.name}…`);
+    setError(null); setNotice(null); setInterrupted(null);
+    setUpload({ fileName: file.name, done: 0, total: Math.max(1, Math.ceil(file.size / (1024 * 1024))), resumedParts: 0 });
     try {
-      const { item, warning } = await uploadMediaFile({
-        api, file, withVaultKey,
+      const { item, warning, resumedParts } = await uploadMediaFile({
+        api, file, withVaultKey, resumeStore,
         makeEncryptedMetadataB64: () => encryptWithVaultKey(JSON.stringify({ name: 'My vault' })),
+        transfer: {
+          onProgress: (done, total) => setUpload((u) => u && { ...u, done, total, retry: undefined }),
+          onRetry: (r) => setUpload((u) => u && { ...u, retry: `Part ${r.partNumber} failed (${r.error.split(' — ')[0]}); retrying in ${(r.delayMs / 1000).toFixed(1)} s` }),
+        },
       });
       await upsertItem(item);
       onItemsChanged?.();
-      setNotice(`Uploaded “${file.name}” as encrypted chunks.${warning ? ' ' + warning : ''}`);
+      const resumed = resumedParts ? ` Resumed: ${resumedParts} part${resumedParts > 1 ? 's were' : ' was'} already stored.` : '';
+      setNotice(`Uploaded “${file.name}” as encrypted chunks.${resumed}${warning ? ' ' + warning : ''}`);
     } catch (e) {
-      setError(`Upload failed: ${e instanceof Error ? e.message : String(e)}`);
+      if (e instanceof BlobUploadError) {
+        const total = Math.max(1, Math.ceil(file.size / (1024 * 1024)));
+        setInterrupted({ file, stored: total - e.missingParts.length, total });
+        setError(`Upload interrupted — ${total - e.missingParts.length} of ${total} parts are stored. Resume to send the rest, or choose the same file again later.`);
+      } else {
+        setError(`Upload failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
     } finally {
-      setBusy(null);
+      setUpload(null);
       if (fileInput.current) fileInput.current.value = '';
     }
-  }, [api, onItemsChanged]);
+  }, [api, onItemsChanged, resumeStore]);
 
   const onDownload = useCallback(async (item: VaultItem) => {
     if (!api) return;
-    setError(null); setNotice(null); setBusy(`Downloading and decrypting ${item.title}…`);
+    setError(null); setNotice(null); setBusy(`Downloading and verifying ${item.title}…`);
     try {
       const got = await downloadMediaItem({ api, item, withVaultKey });
-      const url = URL.createObjectURL(new Blob([got.bytes as BlobPart], { type: got.mimeType }));
+      const url = URL.createObjectURL(got.blob);
       const a = document.createElement('a');
       a.href = url; a.download = got.fileName; a.rel = 'noopener';
       document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
-      setNotice(`Decrypted and verified “${got.fileName}” (${formatBytes(got.bytes.length)})${got.sha256Matches ? '; SHA-256 matches.' : '.'}`);
+      setTimeout(() => URL.revokeObjectURL(url), 10_000); // the browser has taken the file by then
+      setNotice(`Decrypted and verified “${got.fileName}” (${formatBytes(got.blob.size)})${got.sha256Matches ? '; SHA-256 matches.' : '.'}`);
     } catch (e) {
       setError(`Download failed — nothing was saved: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -139,39 +216,137 @@ export default function MediaView({ items, api = null, onItemsChanged, onSelect 
     }
   }, [api]);
 
+  const closeViewer = useCallback(() => {
+    setViewer((v) => { release(v?.url); return null; });
+    if (dialogRef.current?.open) dialogRef.current.close();
+  }, []);
+
+  const onView = useCallback(async (item: VaultItem, info: MediaInfo) => {
+    if (!api) return;
+    setError(null); setNotice(null);
+    setViewer({ item, info, status: 'decrypting', done: 0, total: 0 });
+    dialogRef.current?.showModal();
+    try {
+      const got = await downloadMediaItem({
+        api, item, withVaultKey,
+        transfer: { onProgress: (done, total) => setViewer((v) => v && v.item.id === item.id ? { ...v, done, total } : v) },
+      });
+      const url = track(URL.createObjectURL(got.blob));
+      setViewer((v) => {
+        if (!v || v.item.id !== item.id) { release(url); return v; } // closed while decrypting
+        return { ...v, status: 'ready', url };
+      });
+    } catch (e) {
+      setViewer((v) => v && v.item.id === item.id ? { ...v, status: 'failed', error: e instanceof Error ? e.message : String(e) } : v);
+    }
+  }, [api]);
+
   const header = (
-    <div className="mb-4">
+    <div className="mb-5">
       {api ? (
         <div className="flex flex-wrap items-center gap-3">
-          <label className="btn-primary cursor-pointer text-sm" htmlFor="media-upload-input">Upload encrypted file…</label>
+          <label className={`btn-primary cursor-pointer text-sm ${upload || busy ? 'pointer-events-none opacity-50' : ''}`} htmlFor="media-upload-input">Upload encrypted file…</label>
           <input
             id="media-upload-input" ref={fileInput} data-testid="media-upload-input" type="file" className="sr-only"
-            disabled={busy !== null}
+            disabled={upload !== null || busy !== null}
             onChange={(e) => { const f = e.target.files?.[0]; if (f) void onUpload(f); }}
           />
           <span className="text-xs text-zinc-500">Encrypted on this device before upload · max {formatBytes(MAX_MEDIA_BYTES)} per file</span>
         </div>
       ) : (
-        <p role="note" className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200">
+        <p role="note" className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200">
           Local-only: file upload and download need an account server. Set the API base URL in Settings and sign in. Until then no file bytes are stored anywhere.
         </p>
       )}
-      {busy && <p role="status" className="mt-2 text-xs text-zinc-300">{busy}</p>}
-      {notice && <p role="status" className="mt-2 text-xs text-emerald-400">{notice}</p>}
-      {error && <p role="alert" className="mt-2 text-xs text-red-400">{error}</p>}
+      {upload && (
+        <div className="mt-3 max-w-xl" role="status" aria-live="polite">
+          <div className="flex items-baseline justify-between gap-3 text-xs">
+            <span className="truncate text-zinc-200">Encrypting and uploading {upload.fileName}</span>
+            <span className="shrink-0 tabular-nums text-zinc-400">{upload.done} / {upload.total} parts</span>
+          </div>
+          <div
+            className="mt-1.5 h-1 overflow-hidden rounded-full bg-zinc-800" role="progressbar" aria-label={`Upload progress for ${upload.fileName}`}
+            aria-valuemin={0} aria-valuemax={upload.total} aria-valuenow={upload.done}
+          >
+            <div className="h-full rounded-full bg-[var(--ms-color-brand)] transition-[width] duration-200 ease-out" style={{ width: `${(100 * upload.done) / upload.total}%` }} />
+          </div>
+          {upload.retry && <p className="mt-1.5 text-xs text-[var(--ms-color-warning-text)]">{upload.retry}</p>}
+        </div>
+      )}
+      {busy && <p role="status" className="mt-3 text-xs text-zinc-300">{busy}</p>}
+      {notice && <p role="status" className="mt-3 text-xs text-[var(--ms-color-success-text)]">{notice}</p>}
+      {error && (
+        <div role="alert" className="mt-3 flex max-w-xl flex-wrap items-center gap-3 rounded-lg border border-[var(--ms-color-danger-border)] bg-[var(--ms-color-danger-soft)] px-3 py-2 text-xs text-[var(--ms-color-danger-soft-text)]">
+          <span className="min-w-0 flex-1">{error}</span>
+          {interrupted && (
+            <button className="btn-ghost !py-1 text-xs" disabled={upload !== null} onClick={() => void onUpload(interrupted.file)}>
+              Resume upload
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 
-  if (mediaItems.length === 0) {
+  const viewerDialog = (
+    <dialog
+      ref={dialogRef}
+      aria-label={viewer ? `Viewer: ${viewer.item.title}` : 'Viewer'}
+      onClose={closeViewer}
+      onClick={(e) => { if (e.target === e.currentTarget) closeViewer(); }}
+      className="w-[min(92vw,64rem)] overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 p-0 text-zinc-100 shadow-2xl backdrop:bg-black/70"
+    >
+      {viewer && (
+        <div className="flex max-h-[88vh] flex-col">
+          <div className="flex items-center gap-3 border-b border-zinc-800 px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <h2 className="truncate text-sm font-semibold">{viewer.item.title}</h2>
+              <p className="text-xs text-zinc-400">
+                {viewer.info.mime_type} · {formatBytes(viewer.info.size_bytes)}
+                {viewer.status === 'ready' && <span className="text-[var(--ms-color-success-text)]"> · verified and decrypted on this device</span>}
+              </p>
+            </div>
+            <button className="btn-ghost !py-1 text-xs" onClick={closeViewer} autoFocus>Close</button>
+          </div>
+          <div className="flex min-h-[16rem] flex-1 items-center justify-center overflow-auto bg-black/40 p-4">
+            {viewer.status === 'decrypting' && (
+              <div className="w-full max-w-sm text-center" role="status" aria-live="polite">
+                <p className="text-sm text-zinc-300">Verifying and decrypting…</p>
+                <p className="mt-1 text-xs tabular-nums text-zinc-500">{viewer.total ? `${viewer.done} / ${viewer.total} chunks` : 'fetching manifest'}</p>
+                <div className="mt-3 h-1 overflow-hidden rounded-full bg-zinc-800">
+                  <div className="h-full rounded-full bg-[var(--ms-color-brand)] transition-[width] duration-200 ease-out" style={{ width: viewer.total ? `${(100 * viewer.done) / viewer.total}%` : '0%' }} />
+                </div>
+                <p className="mt-3 text-xs text-zinc-500">Nothing is shown until every chunk has been verified.</p>
+              </div>
+            )}
+            {viewer.status === 'failed' && (
+              <p role="alert" className="max-w-md text-center text-sm text-[var(--ms-color-danger-soft-text)]">
+                Could not open — nothing was shown: {viewer.error}
+              </p>
+            )}
+            {viewer.status === 'ready' && viewer.url && (
+              viewer.info.kind === 'photo' ? <img src={viewer.url} alt={viewer.item.title} className="max-h-[72vh] max-w-full object-contain" />
+                : viewer.info.kind === 'video' ? <video src={viewer.url} controls className="max-h-[72vh] max-w-full" aria-label={viewer.item.title} />
+                  : <audio src={viewer.url} controls className="w-full max-w-md" aria-label={viewer.item.title} />
+            )}
+          </div>
+        </div>
+      )}
+    </dialog>
+  );
+
+  if (mediaItems.length === 0 && filter === 'all') {
     return (
       <div className="p-5">
         {header}
-        <div className="text-center">
-          <p className="text-zinc-400">No media or documents yet.</p>
+        <div className="mx-auto mt-10 max-w-md text-center">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-500"><KindIcon kind="photo" className="h-7 w-7" /></div>
+          <p className="mt-4 text-sm text-zinc-200">No photos, videos or documents yet.</p>
           <p className="mt-1 text-xs text-zinc-500">
-            Uploaded files are split into authenticated encrypted chunks on this device; thumbnails are generated and encrypted here too.
+            Each file is split into authenticated encrypted chunks on this device before it leaves. Thumbnails are made and encrypted here too, so the server only ever holds ciphertext.
           </p>
         </div>
+        {viewerDialog}
       </div>
     );
   }
@@ -180,57 +355,130 @@ export default function MediaView({ items, api = null, onItemsChanged, onSelect 
     <div className="p-5">
       {header}
       <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="Filter media">
-        {(['all', 'photo', 'video', 'audio', 'document', 'other'] as const).map((k) => (
-          <button key={k} onClick={() => setFilter(k)} aria-pressed={filter === k} className={`rounded-full px-3 py-1 text-xs ${filter === k ? 'bg-indigo-600 text-white' : 'bg-zinc-800 text-zinc-300'}`}>
+        {FILTERS.map((k) => (
+          <button key={k} onClick={() => setFilter(k)} aria-pressed={filter === k} className={`rounded-full px-3 py-1 text-xs transition-colors duration-150 ${filter === k ? 'bg-indigo-600 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}>
             {k === 'all' ? 'All' : k[0].toUpperCase() + k.slice(1)}
           </button>
         ))}
       </div>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+      {mediaItems.length === 0 && <p className="text-sm text-zinc-400">Nothing in this filter.</p>}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {mediaItems.map(({ item, info }) => {
           const manifest = manifests[info.blob_id];
           const uploaded = isUploadedBlobId(info.blob_id);
           const metaError = metaErrors[info.blob_id];
           const status = !uploaded ? 'missing' : metaError ? 'tampered' : manifestStatus(manifest);
-          const thumb = thumbs[info.blob_id];
-          const supported = isSupportedMime(info.mime_type);
+          const preview = previewSupport(info);
           return (
-            <article key={item.id} className="card overflow-hidden" aria-label={`Media item ${item.title}`}>
-              <button className="block w-full text-left" onClick={() => onSelect?.(item)} disabled={status === 'tampered'}>
-                <div className="flex h-28 items-center justify-center bg-zinc-900 text-4xl" aria-hidden="true">
-                  {thumb ? <img src={thumb} alt="" className="h-full w-full object-cover" /> : KIND_ICON[info.kind] ?? '📦'}
-                </div>
-                <div className="p-3">
-                  <h3 className="truncate text-sm font-semibold text-zinc-100">{item.title}</h3>
-                  <p className="mt-1 text-xs text-zinc-400">
-                    {info.mime_type} · {formatBytes(info.size_bytes)}
-                    {info.width && info.height ? ` · ${info.width}×${info.height}` : ''}
-                    {info.duration_s != null ? ` · ${formatDuration(info.duration_s)}` : ''}
-                  </p>
-                  <p className="mt-1 text-xs">
-                    <span className={status === 'verified' ? 'text-emerald-400' : status === 'tampered' ? 'text-red-400' : 'text-zinc-500'}>
-                      Manifest: {status === 'tampered' && metaError ? 'FAILED verification' : status === 'missing' ? 'not uploaded' : api ? status : 'unknown (no account server)'}
-                    </span>
-                    {manifest ? ` · ${manifest.chunks.length} chunk${manifest.chunks.length > 1 ? 's' : ''}` : ''}
-                  </p>
-                  {!supported && <p className="mt-1 text-xs text-amber-400">Unsupported type for in-app preview — download only.</p>}
-                  {status === 'tampered' && <p role="alert" className="mt-1 text-xs text-red-400">Manifest failed verification{metaError ? `: ${metaError}` : ''}. Do not open this file.</p>}
-                  {status === 'missing' && <p className="mt-1 text-xs text-amber-400">This item was created with the old manifest-only form: no file bytes were ever stored, so there is nothing to download.</p>}
-                  {info.kind === 'video' && manifest && (
-                    <p className="mt-1 text-xs text-zinc-500">{seekChunksLabel(manifest, 0)} — video seeks fetch only the needed chunks.</p>
-                  )}
-                </div>
-              </button>
-              <div className="flex gap-2 border-t border-zinc-800 px-3 py-2">
-                <button className="btn-ghost !py-1 text-xs" disabled={!api || status === 'tampered' || status === 'missing' || busy !== null} onClick={() => void onDownload(item)}>Download decrypted</button>
-              </div>
-            </article>
+            <MediaTile
+              key={item.id}
+              item={item}
+              info={info}
+              thumb={thumbs[info.blob_id]}
+              thumbError={thumbErrors[info.blob_id]}
+              manifest={manifest}
+              status={status}
+              metaError={metaError}
+              hasApi={!!api}
+              busy={busy !== null || upload !== null}
+              preview={preview}
+              onVisible={loadTile}
+              onSelect={onSelect}
+              onView={() => void onView(item, info)}
+              onDownload={() => void onDownload(item)}
+            />
           );
         })}
       </div>
-      <p className="mt-4 text-xs text-zinc-500">
-        Thumbnails are generated on this device and stored only inside the encrypted manifest; the server never sees them. Preview plaintext lives only in RAM while displayed — release it on lock. A fully compromised device is not protected by this.
+      <p className="mt-5 max-w-3xl text-xs text-zinc-500">
+        Thumbnails are generated on this device and stored as their own encrypted blobs; the server never sees them. Decrypted files live only in memory while shown and are released when you close them. A fully compromised device is not protected by this.
       </p>
+      {viewerDialog}
     </div>
+  );
+}
+
+function MediaTile(props: {
+  item: VaultItem;
+  info: MediaInfo;
+  thumb?: string;
+  thumbError?: string;
+  manifest?: BlobManifest;
+  status: 'verified' | 'missing' | 'tampered' | 'unknown';
+  metaError?: string;
+  hasApi: boolean;
+  busy: boolean;
+  preview: { ok: boolean; reason?: string };
+  onVisible: (info: MediaInfo) => void;
+  onSelect?: (item: VaultItem) => void;
+  onView: () => void;
+  onDownload: () => void;
+}) {
+  const { item, info, thumb, thumbError, manifest, status, metaError, hasApi, busy, preview, onVisible } = props;
+  const ref = useRef<HTMLElement>(null);
+  const uploaded = isUploadedBlobId(info.blob_id);
+
+  // Lazy: decrypt this tile's thumbnail + manifest only once it is (nearly) on screen.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !hasApi || !uploaded) return;
+    if (typeof IntersectionObserver === 'undefined') { onVisible(info); return; }
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) { onVisible(info); io.disconnect(); }
+    }, { rootMargin: '200px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [hasApi, uploaded, info, onVisible]);
+
+  const loadingThumb = hasApi && uploaded && !thumb && !thumbError && (info.thumbnail_blob_id || !manifest) && status !== 'tampered';
+  const blocked = !hasApi || status === 'tampered' || status === 'missing' || busy;
+
+  return (
+    <article ref={ref} className="card overflow-hidden" aria-label={`Media item ${item.title}`}>
+      <button className="group block w-full text-left focus-visible:outline-none" onClick={() => props.onSelect?.(item)} disabled={status === 'tampered'}>
+        <div className={`relative flex aspect-[4/3] items-center justify-center overflow-hidden bg-zinc-900 text-zinc-500 ${loadingThumb ? 'animate-pulse' : ''}`}>
+          {thumb ? <img src={thumb} alt="" className="h-full w-full object-cover" /> : <KindIcon kind={info.kind} />}
+          {info.duration_s != null && (
+            <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[11px] tabular-nums text-zinc-100">{formatDuration(info.duration_s)}</span>
+          )}
+        </div>
+        <div className="p-3">
+          <h3 className="truncate text-sm font-semibold text-zinc-100 group-hover:text-white">{item.title}</h3>
+          <p className="mt-1 text-xs text-zinc-400">
+            {info.mime_type} · {formatBytes(info.size_bytes)}
+            {info.width && info.height ? ` · ${info.width}×${info.height}` : ''}
+          </p>
+          <p className="mt-1 text-xs">
+            <span className={status === 'verified' ? 'text-[var(--ms-color-success-text)]' : status === 'tampered' ? 'text-[var(--ms-color-danger-soft-text)]' : 'text-zinc-500'}>
+              Manifest: {status === 'tampered' && metaError ? 'FAILED verification' : status === 'missing' ? 'not uploaded' : hasApi ? status : 'unknown (no account server)'}
+            </span>
+            {manifest ? <span className="text-zinc-500">{` · ${manifest.chunks.length} chunk${manifest.chunks.length > 1 ? 's' : ''}`}</span> : ''}
+          </p>
+          {thumbError && <p className="mt-1 text-xs text-[var(--ms-color-warning-text)]">Thumbnail failed verification — not shown.</p>}
+          {status === 'tampered' && <p role="alert" className="mt-1 text-xs text-[var(--ms-color-danger-soft-text)]">Manifest failed verification{metaError ? `: ${metaError}` : ''}. Do not open this file.</p>}
+          {status === 'missing' && <p className="mt-1 text-xs text-[var(--ms-color-warning-text)]">This item was created with the old manifest-only form: no file bytes were ever stored, so there is nothing to download.</p>}
+          {info.kind === 'video' && manifest && (
+            <p className="mt-1 text-xs text-zinc-500">{seekChunksLabel(manifest, 0)} — video seeks fetch only the needed chunks.</p>
+          )}
+        </div>
+      </button>
+      <div className="flex flex-wrap gap-2 border-t border-zinc-800 px-3 py-2">
+        {(info.kind === 'photo' || info.kind === 'video' || info.kind === 'audio') && (
+          <button
+            className="btn-ghost !py-1 text-xs" disabled={blocked || !preview.ok} onClick={props.onView}
+            title={preview.ok ? undefined : `Download only: ${preview.reason}`}
+          >
+            View
+          </button>
+        )}
+        <button className="btn-ghost !py-1 text-xs" disabled={blocked} onClick={props.onDownload}>Download decrypted</button>
+      </div>
+      {!preview.ok && info.kind !== 'document' && info.kind !== 'other' && (
+        <p className="px-3 pb-2 text-xs text-[var(--ms-color-warning-text)]">Download only: {preview.reason}.</p>
+      )}
+      {!isSupportedMime(info.mime_type) && (info.kind === 'document' || info.kind === 'other') && (
+        <p className="px-3 pb-2 text-xs text-zinc-500">No in-app preview for this type — download only.</p>
+      )}
+    </article>
   );
 }

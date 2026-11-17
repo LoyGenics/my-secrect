@@ -52,6 +52,7 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_17_100010) do
     t.bigint "ciphertext_size", default: 0, null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.index ["blob_id", "part_number"], name: "index_blob_parts_on_blob_id_and_part_number", unique: true
     t.index ["blob_id"], name: "index_blob_parts_on_blob_id"
   end
 
@@ -63,6 +64,8 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_17_100010) do
     t.string "status", default: "pending", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.datetime "upload_expires_at"
+    t.index ["status", "upload_expires_at"], name: "index_blobs_on_status_and_upload_expires_at"
     t.index ["vault_id"], name: "index_blobs_on_vault_id"
   end
 

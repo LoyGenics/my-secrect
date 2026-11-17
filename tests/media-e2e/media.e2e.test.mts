@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import { libsodiumAdapter, sodiumReady } from '../../packages/crypto-adapters/src/index';
 import { VaultApiClient } from '../../packages/sdk/src/index';
 import { CHUNK_SIZE, prepareUpload, runUpload, downloadFile, type PreparedUpload } from '../../packages/storage/src/upload';
+import { s3Admin } from './s3-admin.mts';
 
 const need = (n: string) => { const v = process.env[n]; if (!v) throw new Error(`${n} is required (run via tests/media-e2e/run.sh)`); return v; };
 const API = need('E2E_API'), ORIGIN = need('E2E_ORIGIN'), TOKEN = need('E2E_TOKEN'), VAULT = need('E2E_VAULT_ID');
@@ -41,7 +42,7 @@ async function rawObjects(blobId: string): Promise<Uint8Array[]> {
 }
 async function upload(data: Uint8Array, name = 'photo.png'): Promise<PreparedUpload> {
   const prepared = await prepareUpload({ api, vaultId: VAULT, vaultKey, crypto: libsodiumAdapter, data, fileName: name, mimeType: 'image/png' });
-  await runUpload(api, prepared);
+  await runUpload(api, prepared, { vaultKey, crypto: libsodiumAdapter });
   return prepared;
 }
 const dl = (id: string, key = vaultKey) => downloadFile(api, id, key, libsodiumAdapter);
@@ -105,11 +106,20 @@ test('TAMPER in MinIO: duplicated chunk is rejected', async () => {
   await assert.rejects(dl(p.blobId), /chunk 3 hash mismatch/);
 });
 
-test('TAMPER in MinIO: truncated chunk is rejected', async () => {
+test('TAMPER in MinIO: a presigned upload URL refuses a different length (signed Content-Length)', async () => {
   const p = await upload(fileBytes(2 * CHUNK_SIZE + 700));
   const objs = await rawObjects(p.blobId);
-  await put(p.urls.get(3)!, objs[2].subarray(0, objs[2].length - 100));
-  await assert.rejects(dl(p.blobId), /size/);
+  const r = await fetch(p.urls.get(3)!, { method: 'PUT', body: objs[2].subarray(0, objs[2].length - 100) as unknown as BodyInit, headers: { Origin: ORIGIN } });
+  assert.equal(r.status, 403, 'storage must refuse a part whose length differs from the signed size');
+  assert.match(await r.text(), /SignatureDoesNotMatch/);
+});
+
+test('TAMPER in MinIO: truncated chunk (written with storage root credentials) is rejected', async () => {
+  const p = await upload(fileBytes(2 * CHUNK_SIZE + 700));
+  const objs = await rawObjects(p.blobId);
+  const key = `vaults/${VAULT}/blobs/${p.blobId}/part-00003`;
+  await s3Admin().put(key, objs[2].subarray(0, objs[2].length - 100));
+  await assert.rejects(dl(p.blobId), /chunk 3 size mismatch — possible truncation|server part 3 size differs|size/);
 });
 
 test('TAMPER in MinIO: chunk replaced by a chunk of ANOTHER file (same key space, valid ciphertext) is rejected', async () => {
@@ -123,6 +133,12 @@ test('TAMPER in MinIO: chunk replaced by a chunk of ANOTHER file (same key space
 test('API refuses an upload session without an encrypted manifest and a complete with a lying size', async () => {
   await assert.rejects(api.createBlobUploadSession(VAULT, { blob_id: crypto.randomUUID(), part_count: 1, ciphertext_size: 100, encrypted_manifest: '' }), /422/);
   const p = await prepareUpload({ api, vaultId: VAULT, vaultKey, crypto: libsodiumAdapter, data: fileBytes(500), fileName: 'x', mimeType: 'x/y' });
-  for (const [n, u] of p.urls) await put(u, p.chunks[n - 1].ciphertext);
-  await assert.rejects(api.completeBlobUpload(p.blobId, [{ part_number: 1, ciphertext_size: p.chunks[0].ciphertext.length + 1, ciphertext_sha256_b64: p.manifest.chunks[0].ciphertext_sha256_b64 }]), /422/);
+  // Store the real part, but stop before the honest complete call…
+  const noComplete = { ...api, createBlobUploadSession: api.createBlobUploadSession.bind(api), createBlobDownloadSession: api.createBlobDownloadSession.bind(api), completeBlobUpload: async () => undefined };
+  await runUpload(noComplete, p, { vaultKey, crypto: libsodiumAdapter });
+  // …then lie about the size: the server compares against the session and storage.
+  const size = p.manifest.chunks[0].ciphertext_size;
+  await assert.rejects(api.completeBlobUpload(p.blobId, [{ part_number: 1, ciphertext_size: size + 1, ciphertext_sha256_b64: p.manifest.chunks[0].ciphertext_sha256_b64 }]), /422.*differs from the session/);
+  await api.completeBlobUpload(p.blobId, [{ part_number: 1, ciphertext_size: size, ciphertext_sha256_b64: p.manifest.chunks[0].ciphertext_sha256_b64 }]);
+  assert.equal((await dl(p.blobId)).bytes.length, 500);
 });

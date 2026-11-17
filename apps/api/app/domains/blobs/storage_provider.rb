@@ -1,14 +1,7 @@
 require 'aws-sdk-s3'
 
 module Blobs
-  # Seam for specs: any object implementing the StorageProvider interface
-  # (presigned_put/presigned_get/delete/head) may be installed here. Nil
-  # (production default) means a real StorageProvider built from ENV.
-  class << self
-    attr_writer :storage_provider
-
-    def storage_provider = @storage_provider || StorageProvider.new
-  end
+  # (Blobs.storage_provider, the spec seam, lives in app/domains/blobs.rb.)
 
   # ONE StorageProvider per deployment (S3 / R2 / MinIO — all S3-compatible).
   # Per-user storage is deferred (migration/integrity/backup get complex).
@@ -96,9 +89,24 @@ module Blobs
       @presigner = Aws::S3::Presigner.new(client: presign_client)
       @bucket = cfg['S3_BUCKET']
     end
-    def presigned_put(object_key:) = @presigner.presigned_url(:put_object, bucket: @bucket, key: object_key, expires_in: PRESIGN_TTL)
+    # The exact part size is a SIGNED header (Content-Length is unsigned by
+    # default in aws-sdk): storage rejects a PUT of any other length with a
+    # signature error, so a presigned URL can never store more than the
+    # session declared for that part.
+    def presigned_put(object_key:, content_length:)
+      @presigner.presigned_url(:put_object, bucket: @bucket, key: object_key, content_length: content_length,
+                                            whitelist_headers: ['content-length'], expires_in: PRESIGN_TTL)
+    end
+
     def presigned_get(object_key:) = @presigner.presigned_url(:get_object, bucket: @bucket, key: object_key, expires_in: PRESIGN_TTL)
     def delete(object_key:) = @client.delete_object(bucket: @bucket, key: object_key)
     def head(object_key:) = @client.head_object(bucket: @bucket, key: object_key)
+
+    # Every object under `prefix` (ListObjectsV2, 1,000 keys per page).
+    def list(prefix:)
+      @client.list_objects_v2(bucket: @bucket, prefix: prefix).flat_map do |page|
+        page.contents.map { |o| StoredObject.new(key: o.key, size: o.size, last_modified: o.last_modified) }
+      end
+    end
   end
 end

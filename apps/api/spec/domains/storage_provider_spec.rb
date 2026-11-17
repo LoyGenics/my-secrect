@@ -60,8 +60,9 @@ RSpec.describe Blobs::StorageProvider do
     let(:provider) { described_class.new(env: full_env) }
 
     it 'are signed against the PUBLIC endpoint host, never the internal one' do
-      %i[presigned_put presigned_get].each do |m|
-        url = URI(provider.public_send(m, object_key: 'vaults/v/blobs/b/part-00001'))
+      [provider.presigned_put(object_key: 'vaults/v/blobs/b/part-00001', content_length: 10),
+       provider.presigned_get(object_key: 'vaults/v/blobs/b/part-00001')].each do |signed|
+        url = URI(signed)
         expect(url.scheme).to eq('https')
         expect(url.host).to eq('s3.vault.test')
         expect(url.port).to eq(8443)
@@ -72,8 +73,13 @@ RSpec.describe Blobs::StorageProvider do
     end
 
     it 'sign the Host header (host-bound SigV4) so a different host would not validate' do
-      url = URI(provider.presigned_put(object_key: 'k'))
+      url = URI(provider.presigned_put(object_key: 'k', content_length: 10))
       expect(CGI.parse(url.query)['X-Amz-SignedHeaders'].first).to include('host')
+    end
+
+    it 'sign the exact Content-Length into an upload URL so storage refuses any other part size' do
+      url = URI(provider.presigned_put(object_key: 'k', content_length: 1_048_592))
+      expect(CGI.parse(url.query)['X-Amz-SignedHeaders'].first.split(';')).to eq(%w[content-length host])
     end
   end
 

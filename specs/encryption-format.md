@@ -255,13 +255,29 @@ vault trộn v1/v2; sau bước 4, row v1 bị từ chối; backup v2 qua Rust �
   (Rust tạo; TS adapter + OpenSSL `hkdfSync` kiểm) và RFC 5869 A.3 ở cả hai phía.
 
 ## File / blob (`packages/storage/src/upload.ts`)
-- Mỗi file có File Key 32B riêng; chunk 1 MiB; mỗi chunk XChaCha20-Poly1305 với nonce 24B ngẫu nhiên; AD null.
-- Manifest (format_version 1) ghi thứ tự, byte range, kích thước và SHA-256 (WebCrypto) của ciphertext từng chunk,
-  cùng File Key đã wrap bằng Vault Key; cả manifest mã hóa bằng Vault Key.
-- Chunk đổi chỗ / cắt bớt / thay thế bị phát hiện (hash + kích thước + AEAD). Thiếu: so `blob_id` (xem (d)).
-- Thumbnail tạo trên client, mã hóa trước khi upload. Không dùng thumbnail generation của server.
-- Upload qua presigned URL ngắn hạn, client upload ciphertext trực tiếp lên R2/S3/MinIO.
-- `secretstream` chỉ có trong Rust crate, chưa có caller; không dùng cho item nhỏ.
+- Mỗi file có File Key riêng (32 byte ngẫu nhiên). Chunk độc lập, nonce không trùng (hoặc subkey riêng/chunk).
+- Manifest (`format_version` 1) mã hóa bằng Vault Key, ràng buộc: `blob_id`, kích thước plaintext,
+  `chunk_size`, danh sách chunk (part_number, byte range, nonce, kích thước + SHA-256 của ciphertext),
+  SHA-256 của toàn bộ plaintext (`plaintext_sha256_b64`, tùy chọn với manifest cũ), tên file, MIME,
+  và File Key đã wrap bằng Vault Key (`wrapped_file_key`). Thiết bị nào có Vault Key (thiết bị thứ hai
+  restore cùng vault) đều giải mã được. Download từ chối manifest có `blob_id` khác blob được yêu cầu.
+- Upload hai lượt (bộ nhớ không phụ thuộc kích thước file): lượt 1 mã hóa từng chunk với nonce mới chỉ để
+  ghi nonce + hash vào manifest; lượt 2 mã hóa lại với ĐÚNG nonce đã ghi (ra cùng ciphertext), so hash
+  với manifest rồi mới PUT. File đổi giữa hai lượt → hash lệch → không gửi gì (không bao giờ có hai
+  ciphertext khác nhau cùng một nonce rời thiết bị).
+- Download kiểm tra từng chunk (kích thước, SHA-256 theo manifest, tag AEAD) trước khi giải mã, rồi hash
+  toàn file; lỗi bất kỳ → hủy, không trả/hiển thị plaintext nào.
+- Thumbnail tạo trên client, mã hóa và upload thành blob RIÊNG (File Key riêng); item lưu
+  `thumbnail_blob_id`. Manifest cũ có thể nhúng `thumbnail` (mã hóa bằng File Key) — vẫn đọc được.
+  Không dùng thumbnail generation của server.
+- Upload qua presigned URL ngắn hạn (5 phút), client upload ciphertext trực tiếp lên R2/S3/MinIO.
+  API (`POST /v1/blobs/upload-session`) nhận `part_count`, `part_size`, `ciphertext_size`,
+  `encrypted_manifest`; mọi part trừ part cuối có đúng `part_size` byte, kích thước từng part được ký
+  vào URL (Content-Length là signed header) nên storage từ chối độ dài khác. Gọi lại cùng `blob_id` +
+  manifest + layout khi session chưa hết hạn (24 h) = resume: URL mới, mỗi part có `stored` theo
+  storage. Complete kiểm tra từng part tồn tại đúng kích thước và quota.
+- **File encryption qua libsodium `secretstream` (ghi chú — chưa implement
+  trong prototype; chỉ dùng cho file tuần tự, không dùng cho item nhỏ).**
 
 ## Key rotation (v1)
 - **Đổi passphrase (đã implement ở cả 3 app, `changePassphrase`):** verify

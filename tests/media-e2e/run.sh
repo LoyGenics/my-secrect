@@ -4,6 +4,8 @@
 # PUBLIC endpoints only (Caddy: https://localhost:PORT and https://s3.localhost:PORT).
 # Needs docker, node >= 20 + tsx (npm ci), ruby 3.3 + bundle in apps/api.
 # Usage: tests/media-e2e/run.sh [--keep]
+#   E2E_TESTS="<files>"  -> run only these node test files (default: media + devices)
+#   E2E_LARGE_MIB=96     -> size of the large-file streaming test in devices.e2e.test.mts
 #   E2E_BROWSER=1 tests/media-e2e/run.sh   -> instead of the node test, serve apps/web
 #   (vite, port E2E_WEB_PORT=5204) and drive the real MediaView in Chromium
 #   (Playwright) against the stack: tests/media-e2e/browser.e2e.mjs.
@@ -21,13 +23,15 @@ APP_ORIGIN=https://localhost:$HTTPS_PORT
 KEEP=${1:-}
 ENVF=$(mktemp -t vmedia-env.XXXXXX)
 rand() { openssl rand -hex "$1"; }
+S3_ACCESS="ak$(rand 6)"
+S3_SECRET="$(rand 16)"
 cat >"$ENVF" <<ENV
 POSTGRES_PASSWORD=$(rand 16)
 S3_BUCKET=vault-blobs
 S3_PUBLIC_ENDPOINT=https://s3.localhost:$HTTPS_PORT
 S3_REGION=us-east-1
-S3_ACCESS_KEY=ak$(rand 6)
-S3_SECRET_KEY=$(rand 16)
+S3_ACCESS_KEY=$S3_ACCESS
+S3_SECRET_KEY=$S3_SECRET
 SECRET_KEY_BASE=$(rand 64)
 SITE_ADDRESS=localhost
 HTTP_PORT=$HTTP_PORT
@@ -78,7 +82,14 @@ if [ -n "$BROWSER" ]; then
 else
   echo "[media-e2e] running tests"
   # NODE_TLS_REJECT_UNAUTHORIZED=0 only because Caddy uses its internal CA for `localhost`; throwaway stack.
+  # E2E_S3_* = the throwaway stack's storage root credentials: tests use them
+  # (tests/media-e2e/s3-admin.mts) to tamper with stored objects as a hostile
+  # storage operator would.
   E2E_API="https://localhost:$HTTPS_PORT/api" E2E_ORIGIN="$APP_ORIGIN" \
     E2E_TOKEN="$E2E_TOKEN" E2E_VAULT_ID="$E2E_VAULT_ID" NODE_TLS_REJECT_UNAUTHORIZED=0 \
-    npx tsx --test --test-concurrency=1 tests/media-e2e/media.e2e.test.mts
+    E2E_S3_ENDPOINT="https://s3.localhost:$HTTPS_PORT" E2E_S3_BUCKET=vault-blobs \
+    E2E_S3_ACCESS_KEY="$S3_ACCESS" E2E_S3_SECRET_KEY="$S3_SECRET" \
+    E2E_MINIO_CONTAINER="$(dc ps -q minio)" E2E_DB_CONTAINER="$(dc ps -q db)" \
+    E2E_REDIS_CONTAINER="$(dc ps -q redis)" E2E_WORKER_CONTAINER="$(dc ps -q worker)" \
+    npx tsx --test --test-concurrency=1 ${E2E_TESTS:-tests/media-e2e/media.e2e.test.mts tests/media-e2e/devices.e2e.test.mts}
 fi
