@@ -1,14 +1,7 @@
 require 'aws-sdk-s3'
 
 module Blobs
-  # Seam for specs: any object implementing the StorageProvider interface
-  # (presigned_put/presigned_get/delete/head/list) may be installed here. Nil
-  # (production default) means a real StorageProvider built from ENV.
-  class << self
-    attr_writer :storage_provider
-
-    def storage_provider = @storage_provider || StorageProvider.new
-  end
+  # (Blobs.storage_provider, the spec seam, lives in app/domains/blobs.rb.)
 
   # ONE StorageProvider per deployment (S3 / R2 / MinIO — all S3-compatible).
   # Per-user storage is deferred (migration/integrity/backup get complex).
@@ -29,8 +22,6 @@ module Blobs
   #                      Required whenever S3_ENDPOINT is used (set it equal to
   #                      S3_ENDPOINT only if clients can reach that address).
   #                      Must NOT be set with S3_USE_AWS_ENDPOINT=true.
-  StoredObject = Struct.new(:key, :size, :last_modified, keyword_init: true)
-
   class StorageProvider
     PRESIGN_TTL = 300
 
