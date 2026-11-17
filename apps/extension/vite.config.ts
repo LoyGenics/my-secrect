@@ -16,12 +16,13 @@ const libsodiumWrappersCjs = require.resolve('libsodium-wrappers-sumo');
 //   popup/index.html, options/index.html, background.js, content.js
 //
 // NOTE on libsodium + MV3 service workers: libsodium-wrappers-sumo loads its
-// WebAssembly module at runtime. If the worker cannot instantiate wasm under
-// the extension CSP it falls back to the wrapper's embedded asm.js module
-// (same API, same results, slower Argon2id). `assetsInclude` keeps any .wasm
-// asset in the bundle if the bundler emits one. Verify on first load in
-// Chrome (see README.md — Troubleshooting) that unlock works; if wasm fails
-// there, unlock still works via the asm fallback, just slower.
+// WebAssembly module at runtime, so the manifest CSP MUST contain
+// 'wasm-unsafe-eval'. Without it wasm instantiation is blocked and libsodium
+// silently falls back to its asm.js build, which in this bundle returned
+// NON-RANDOM bytes (randombytes_buf leaked WASM heap contents, including the
+// passphrase) and made unlock fail after vault creation. Found by the
+// real-Chromium e2e (apps/extension/e2e); guarded by tests/manifest.test.ts.
+// `assetsInclude` keeps any .wasm asset in the bundle if the bundler emits one.
 export default defineConfig({
   plugins: [
     {

@@ -150,6 +150,8 @@ async function finishUnlock(master: Uint8Array, keys: StoredKeys): Promise<boole
 
 export async function createVault(passphrase: string): Promise<{ recoveryKey: string }> {
   if (!passphrase) throw new Error('passphrase must not be empty');
+  // Never silently overwrite an existing vault (would destroy all ciphertext).
+  if (await loadKeys()) throw new Error('A vault already exists. Wipe it explicitly before creating a new one.');
   await sodiumReady;
   const salt = crypto.randomBytes(16);
   const kek = await crypto.deriveKek(passphrase, salt);
