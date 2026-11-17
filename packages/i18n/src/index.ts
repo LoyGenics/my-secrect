@@ -23,6 +23,36 @@ export type Locale = 'en' | 'vi';
 export const supportedLocales: readonly Locale[] = ['en', 'vi'] as const;
 export const defaultLocale: Locale = 'en';
 
+/**
+ * Language names as endonyms (each language in its own words). Not in the
+ * dictionaries on purpose: a language switch shows "Tiếng Việt" to an
+ * English reader and "English" to a Vietnamese reader.
+ */
+export const languageNames: Record<Locale, string> = { en: 'English', vi: 'Tiếng Việt' };
+
+/** localStorage key for the user's language choice (a UI preference, never vault data). */
+export const LOCALE_STORAGE_KEY = 'my-secrect:locale';
+
+/** Stored language choice, or null when none / storage unavailable (React Native has no localStorage). */
+export function getStoredLocale(): Locale | null {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    const raw = localStorage.getItem(LOCALE_STORAGE_KEY);
+    return raw === 'en' || raw === 'vi' ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Persist the language choice. No-op when storage is unavailable. */
+export function storeLocale(locale: Locale): void {
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+  } catch {
+    /* private mode etc. — the choice still applies for this session */
+  }
+}
+
 const dictionaries: Record<Locale, Dictionary> = { en, vi };
 
 /** Return the dictionary for a locale. Unknown locales fall back to English. */
@@ -41,15 +71,22 @@ export function normalizeLocale(tag: string | undefined | null): Locale {
 }
 
 /**
- * Detect the user's locale without crashing outside a browser / in
- * React Native (where `navigator` may be absent or partial).
- * Never throws; defaults to English.
+ * The user's locale: the stored choice first (set by the language switch),
+ * then the browser language, then the runtime's Intl locale (React Native /
+ * Hermes have no navigator.language), then English. Never throws.
  */
 export function detectLocale(): Locale {
+  const stored = getStoredLocale();
+  if (stored) return stored;
   try {
     const nav =
       typeof navigator !== 'undefined' ? (navigator as { language?: string }) : undefined;
-    return normalizeLocale(nav?.language);
+    if (nav?.language) return normalizeLocale(nav.language);
+  } catch {
+    /* fall through */
+  }
+  try {
+    return normalizeLocale(Intl.DateTimeFormat().resolvedOptions().locale);
   } catch {
     return defaultLocale;
   }
@@ -88,6 +125,37 @@ export function createTranslator(locale: Locale) {
 
 export type Translator = ReturnType<typeof createTranslator>;
 
+/** Insert positional `{0}`, `{1}` values into a dictionary string: `format(dict.health.weakTitle, 3)`. */
+export function format(template: string, ...args: Array<string | number>): string {
+  let out = template;
+  args.forEach((arg, i) => {
+    out = out.split(`{${i}}`).join(String(arg));
+  });
+  return out;
+}
+
+/** A dictionary entry that varies by count. English needs `one`; Vietnamese uses `other` for every count. */
+export interface PluralForms {
+  one: string;
+  other: string;
+}
+
+/**
+ * Pick the plural form with Intl.PluralRules and format it: `{0}` is the
+ * count (locale-formatted), `{1}`… are the extra args.
+ * `plural('en', dict.health.itemsChecked, 1)` -> '1 item checked'.
+ */
+export function plural(locale: Locale, forms: PluralForms, count: number, ...args: Array<string | number>): string {
+  let rule: string = 'other';
+  try {
+    rule = new Intl.PluralRules(locale === 'vi' ? 'vi-VN' : 'en-US').select(count);
+  } catch {
+    rule = count === 1 ? 'one' : 'other';
+  }
+  const template = rule === 'one' ? forms.one : forms.other;
+  return format(template, formatNumber(locale, count), ...args);
+}
+
 // ---------------------------------------------------------------------------
 // Locale-aware formatting of DISPLAY values only (Intl). Never use these
 // for crypto material, identifiers, or wire formats — those stay raw.
@@ -101,6 +169,15 @@ export function formatDate(locale: Locale, date: Date, options?: Intl.DateTimeFo
 /** Format a plain number for display (counts, scores). */
 export function formatNumber(locale: Locale, value: number): string {
   return new Intl.NumberFormat(locale === 'vi' ? 'vi-VN' : 'en-US').format(value);
+}
+
+/** A duration for display ("3 days" / "3 ngày"), e.g. estimated crack time. */
+export function formatDuration(locale: Locale, value: number, unit: 'second' | 'minute' | 'hour' | 'day' | 'month' | 'year'): string {
+  try {
+    return new Intl.NumberFormat(locale === 'vi' ? 'vi-VN' : 'en-US', { style: 'unit', unit, unitDisplay: 'long' }).format(value);
+  } catch {
+    return `${value} ${unit}${value === 1 ? '' : 's'}`;
+  }
 }
 
 /** Relative time for display ("2 hours ago" / "2 giờ trước"). */
