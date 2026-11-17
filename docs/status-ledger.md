@@ -29,6 +29,9 @@ Re-run 2026-11-18 04:05 on main a7a777c (after desktop storage + sync integrity)
 - Full run on main: npm test 31/0 + 135/0, security mirrors 61/0, RSpec 270/0 (3 MinIO-only pending), sync e2e 21/0 (harness now does email code + device proof), web e2e 19/0, restore e2e 10/0, extension e2e 42/0, cargo 20/0, typecheck desktop/web/extension/mobile, web + extension builds.
 - Not re-run on main yet: sharing e2e and media e2e (their registration helpers predate the email step; owners are adapting them), deploy scripts (infra follow-up in progress).
 
+## Merged 06:00: feat/mobile-secure-storage
+SQLCipher vault.db, AsyncStorage migration, DeviceKey (iOS keychain/SE, Android Keystore + BiometricPrompt), biometric unlock and invalidation, native libsodium on iOS/Android via react-native-libsodium (Hermes has no WebAssembly). Agent runs on iOS simulator + Android emulator: 14/14 crypto vectors, create → biometric → cold-start unlock, desktop backup restored on the phone. Decisions to note: SHA-256 on mobile comes from @noble/hashes (audited; the native binding lacks it); v2 item AD with bytes ≥0x80 is refused by the native binding until a binary-capable binding exists. On main a1e0112: npm test 31/0 + 185/2 (the 2 = cross-impl harness, being fixed), acceptance 24/0 (+1 todo), mobile typecheck clean.
+
 ## Merged 05:30: fix/backup-integrity-v2 (QA K2)
 Backup format_version 3 with an HKDF-keyed authenticated item index; desktop/web and extension refuse a backup with items removed, added or re-versioned; v2 backups restore with an "item list not verifiable" warning. Mobile part (e2c1567) held until the mobile storage merge. On main 54dcc29: npm test 31/0 + 160/0, acceptance 47/0 (+1 todo: mobile K2), restore e2e 12/0, acceptance e2e 30/0 (+1 todo: K3).
 
@@ -50,8 +53,8 @@ On main cb1bca6: npm run test:acceptance 45 pass / 3 todo; npm run test:acceptan
 Covered: A, B, D, E, I, K, M. Partial: C, F, H. Pending: G, J, L. Open defects: H1/H2 device revocation (re-check on main), H3 pull 401 not handled, H4 local-only choice not sticky, C1 different vault key pushes unreadable items (high), K3 rollback (high, needs v2 AD + signed events), K2 backup item omission undetected, E1 relations rewritten on save.
 
 ## In progress (agents, each on its own branch)
-- feat/mobile-secure-storage: SQLCipher store, AsyncStorage migration, DeviceKey module and biometric flows built and checked on iOS simulator + Android emulator (storage/keys only). BLOCKER being fixed on the same branch: libsodium-wrappers has no working fallback on Hermes (no WebAssembly) — random bytes repeat and AEAD fails, so the mobile vault cannot work until a native libsodium binding (JSI) lands; main's self-test makes it fail closed meanwhile.
-- Paused until mobile storage lands: iOS and Android credential providers.
+- fix/mobile-post-merge: mobile K2 item-index check on the SQLCipher vault; cross-impl test harness for the new mobile vault (2 test:real cases red on main until this lands).
+- feat/ios-credential-provider-v2, feat/android-credential-provider-v2: providers against the merged mobile store.
 - Waiting on the user: logo choice.
 
 ## Open (not assigned yet)
