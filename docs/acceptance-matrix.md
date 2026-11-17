@@ -189,7 +189,16 @@ a corrupted `wrapped_recovery` cannot be detected by a passphrase restore (only
 later, when the recovery key fails safely); `SyncEngine.scheduleRetry` still fires
 after a later manual sync succeeded (one extra harmless sync).
 
-## 5. How to run
+## 5. Run against `main` (5717965), unmodified tests
+
+The tests were copied onto a `git archive main` export (fresh `npm ci`); nothing else was changed.
+
+- Module suites (`recovery-failures`, `mirror-replacements`): 48 tests, 45 pass, 3 todo — DEFECT-K2-omission still reproduces in all three apps.
+- `portable-backup.e2e`: 4 pass; DEFECT-E1 still reproduces.
+- `account-deletion`, `device-revocation`, `media-cross-device`, `sync-integrity`: blocked at account creation, so they say nothing about H/K/M/F on `main` yet. `main` now requires an emailed code + registration ticket before the passkey (`POST /v1/auth/passkeys/register` without `registration_ticket` → 401 `verification_failed`; web UI "Email me a code"), and binds sessions to devices only with an Ed25519 device proof (`specs/device-identity.md`). The harness must adopt `tests/e2e-web`'s mail-file code flow and the device-proof sign-in before these can run there.
+- `main`'s own `npm run test:sync-e2e` fails 17/17 for the same reason: `tests/sync-e2e/client-worker.ts` `register` still calls `passkeyRegisterOptions(email)` without a ticket.
+
+## 6. How to run
 
 ```sh
 # fast, no services (real modules only): ~10 s
