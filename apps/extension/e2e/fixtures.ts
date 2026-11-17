@@ -33,11 +33,75 @@ export function buildExtension(): string {
   return out;
 }
 
+/**
+ * A second, unrelated MV3 extension loaded next to ours. Its worker is the
+ * "other extension" attacker in the isolation tests; it has no code of its own.
+ */
+export function writeHostileExtension(): string {
+  const dir = mkdtempSync(path.join(tmpdir(), 'my-secrect-hostile-ext-'));
+  writeFileSync(
+    path.join(dir, 'manifest.json'),
+    JSON.stringify({ manifest_version: 3, name: 'hostile-e2e', version: '1.0', background: { service_worker: 'bg.js' } }),
+  );
+  writeFileSync(path.join(dir, 'bg.js'), 'self.hostileE2E = true;\n');
+  return dir;
+}
+
 export const LOGIN_HTML = `<!doctype html><title>login</title>
 <form id="f" onsubmit="return false">
   <input id="user" name="username" type="text" autocomplete="username">
   <input id="pass" name="password" type="password" autocomplete="current-password">
 </form>`;
+
+/**
+ * Test pages, served by path on every host. The real login fields are
+ * always #user / #pass; everything with id trap-* (or in another form/frame)
+ * must stay empty after a fill. /signin really submits (POST, navigates).
+ */
+function testPages(httpsPort: number): Record<string, string> {
+  const crossFrame = `<iframe id="cross" src="https://evil.test:${httpsPort}/login" width="400" height="120"></iframe>`;
+  return {
+    '/signin': `<!doctype html><title>sign in</title>
+<form id="f" method="post" action="/welcome">
+  <input id="user" name="username" type="text" autocomplete="username">
+  <input id="pass" name="password" type="password" autocomplete="current-password">
+  <button id="go" type="submit">Sign in</button>
+</form>
+<form id="other" method="post" action="/welcome"><input id="trap-q" name="q" type="text"><button id="go-other" type="submit">Search</button></form>`,
+    '/welcome': '<!doctype html><title>welcome</title><p id="welcome">Signed in.</p>',
+    '/honeypot': `<!doctype html><title>honeypot</title>
+<form id="f" onsubmit="return false">
+  <input id="trap-user" name="username" type="text" autocomplete="username" style="display:none">
+  <input id="trap-offscreen" name="password" type="password" autocomplete="current-password" style="position:absolute;left:-10000px;top:0">
+  <input id="trap-opacity" type="password" autocomplete="current-password" style="opacity:0">
+  <span style="visibility:hidden"><input id="trap-visibility" type="password"></span>
+  <input id="trap-tiny" type="password" style="width:1px;height:1px;padding:0;border:0">
+  <div hidden><input id="trap-hidden-attr" type="password"></div>
+  <input id="trap-readonly" type="password" readonly>
+  <input id="trap-disabled" type="password" disabled>
+  <input id="user" name="login" type="email">
+  <input id="pass" name="pw" type="password">
+</form>`,
+    '/two-forms': `<!doctype html><title>two forms</title>
+<form id="newsletter" onsubmit="return false"><input id="trap-news" name="email" type="email" autocomplete="email"></form>
+<form id="signup" onsubmit="return false"><input id="trap-su-user" name="username" type="text" autocomplete="username"><input id="trap-su-pass" type="password" autocomplete="new-password"></form>
+<form id="login" onsubmit="return false"><input id="user" name="account" type="text"><input id="pass" type="password"></form>
+<form id="search" onsubmit="return false"><input id="trap-q" name="q" type="text"></form>`,
+    '/formless': `<!doctype html><title>formless</title>
+<div><input id="trap-search" name="query" type="text" placeholder="Search"></div>
+<div id="login"><input id="user" type="email" placeholder="Email"><input id="pass" type="password"></div>
+<input id="trap-after" name="username" type="text" autocomplete="username">`,
+    '/hidden-only': `<!doctype html><title>hidden only</title>
+<form id="f" onsubmit="return false"><input id="user" name="username" type="text"><input id="pass" type="password" style="display:none"></form>`,
+    '/new-password-only': `<!doctype html><title>change password</title>
+<form id="f" onsubmit="return false"><input id="user" name="username" type="text" autocomplete="username">
+<input id="pass" type="password" autocomplete="new-password"><input id="trap-confirm" type="password" autocomplete="new-password"></form>`,
+    '/iframe-only': `<!doctype html><title>iframe only</title><p>Sign in below.</p>${crossFrame}`,
+    '/iframe-and-form': `<!doctype html><title>iframes</title>
+<form id="f" onsubmit="return false"><input id="user" name="username" type="text" autocomplete="username"><input id="pass" type="password" autocomplete="current-password"></form>
+${crossFrame}<iframe id="same" src="/login" width="400" height="120"></iframe>`,
+  };
+}
 
 export interface Servers {
   httpsPort: number;
@@ -54,9 +118,10 @@ export async function startServers(): Promise<Servers> {
     ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', cert, '-days', '1', '-subj', '/CN=my-secrect-e2e'],
     { stdio: 'pipe' },
   );
-  const handler: http.RequestListener = (_req, res) => {
+  let pages: Record<string, string> = {};
+  const handler: http.RequestListener = (req, res) => {
     res.setHeader('content-type', 'text/html');
-    res.end(LOGIN_HTML);
+    res.end(pages[new URL(req.url ?? '/', 'http://x').pathname] ?? LOGIN_HTML);
   };
   const s1 = https.createServer({ key: readFileSync(key), cert: readFileSync(cert) }, handler);
   const s2 = http.createServer(handler);
@@ -64,6 +129,7 @@ export async function startServers(): Promise<Servers> {
     new Promise<void>((r) => s1.listen(0, '127.0.0.1', r)),
     new Promise<void>((r) => s2.listen(0, '127.0.0.1', r)),
   ]);
+  pages = testPages((s1.address() as AddressInfo).port);
   return {
     httpsPort: (s1.address() as AddressInfo).port,
     httpPort: (s2.address() as AddressInfo).port,

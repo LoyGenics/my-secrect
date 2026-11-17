@@ -7,6 +7,7 @@
     "dev": "vite build --watch",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "test": "tsx --test --test-concurrency=1 tests/domain.test.ts tests/manifest.test.ts tests/totp.test.ts tests/password.test.ts tests/vault-ext-recovery.test.ts",
     "test:e2e": "playwright test -c e2e/playwright.config.ts"
   },
   "dependencies": {

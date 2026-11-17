@@ -10,12 +10,41 @@ Local-first, end-to-end encrypted autofill. TypeScript + React, built with Vite.
 | **Popup / options UI** | `src/popup/`, `src/options/` | No keys, no vault. Talks to the background via `chrome.runtime` messages only. Holds at most the single item the user opened. |
 | **Content script** | `src/content/content.ts` | Receives exactly ONE username + ONE password for one user-chosen fill. Never the vault, never a key, never the item list. Never stores anything. |
 
+## Who may talk to the background (enforced in `src/background.ts`)
+
+- Every vault request (`ExtRequest`) is answered only when the browser-provided
+  `sender` is this extension's `popup/index.html` or `options/index.html`.
+- A content script counts as the web page: it may send only `ext-form-detected`
+  and `ext-login-submitted`, only from the top frame, and the page origin is
+  taken from `sender`, never from the message. Anything else gets `Forbidden`.
+- Other extensions: there is no `onMessageExternal` / `onConnectExternal` listener.
+- `chrome.storage.local` is restricted to extension pages + the worker with
+  `setAccessLevel('TRUSTED_CONTEXTS')`; by default Chrome lets content scripts
+  read and write it. Injection fails closed if the browser refuses.
+- A fill is injected into frame 0 only, the tab is re-read after injection, and
+  the credential is addressed to that exact `documentId`.
+
+Proven in real Chromium by `e2e/hardening.spec.ts`.
+
 ## Permissions — minimal by design
 
 `storage`, `activeTab`, `scripting`, `alarms`. **No broad host permissions**
 (`host_permissions` is empty, and there is no persistent `content_scripts`
 entry in the manifest). The content script is injected on demand with
 `chrome.scripting.executeScript` into the active tab only, for one fill.
+
+- `storage`: the encrypted vault + settings. `activeTab` + `scripting`: inject
+  into the tab the user clicked, nowhere else. `alarms`: auto-lock.
+- No `web_accessible_resources` (pages cannot frame or fetch extension pages),
+  `externally_connectable: { ids: [] }` (no web page, no other extension).
+- CSP `script-src 'self' 'wasm-unsafe-eval'; object-src 'none'`.
+  `'wasm-unsafe-eval'` is required for libsodium's WebAssembly; without it
+  libsodium fell back to asm.js, which returned non-random bytes (see
+  `vite.config.ts`). It permits compiling wasm, not JS `eval`.
+- Guarded by `tests/manifest.test.ts` (`npm --workspace apps/extension test`)
+  and `e2e/build-output.spec.ts` (production `dist/`: manifest unchanged, no
+  source maps, no eval/`Function`, no inline scripts, classic `content.js`,
+  no private keys or fixtures).
 
 ## Autofill security rules (enforced in `src/lib/domain.ts` + `src/content/`)
 
@@ -25,10 +54,25 @@ entry in the manifest). The content script is injected on demand with
 4. **Punycode (`xn--`) domains** need explicit user confirmation (homograph protection, on by default).
 5. **Bank / card items** need explicit user confirmation (on by default).
 6. The content script fills **only the top-level frame** (`window.top === window.self`) — never an iframe.
+   Within it, only a **visible, editable** login password field (never hidden,
+   off-page, transparent, tiny, read-only, disabled or `new-password`-only) and
+   the username field of the **same form**, placed before it. Other forms on
+   the page are never touched.
 7. The content script verifies the fill message's `origin` equals `window.location.origin`.
 8. Blocked origins (options page) always win; an allow-list, when set, restricts filling to those origins.
-9. Login-form detection reports **only that a form exists** (origin + which fields exist). Field **values are never sent** by the content script — the user types credentials into the popup's Add-login form.
+9. Login-form detection reports **only that a form exists** (which fields exist; the origin comes from the browser).
 10. No autofill happens without a user click. There is no automatic fill on page load.
+11. **Save / update offer.** Field values leave a page in exactly one case: a
+    real (`isTrusted`) submit of a top-frame form with a visible password
+    field, on a page that passes rules 1, 2 and 8. The content script sends
+    that username + password to the background only and gets a bare `{ok:true}`
+    back. The background keeps it in worker memory (never `chrome.storage`,
+    never the popup, never a page) for at most 5 minutes and sets the toolbar
+    badge. The popup shows "Save this login" (new) or "Update password" (same
+    username, different password, for a domain-matching login) and "Not now".
+    Nothing is saved until the user clicks; lock, wipe, decline and expiry
+    drop the capture. Because there are no host permissions, the script is
+    present only on a tab where the user opened the popup or filled.
 
 ## Crypto
 
@@ -44,7 +88,11 @@ until Phase 2 sync unifies devices. Do not present it as synced.
 
 **MV3 service workers are ephemeral:** Chrome may terminate the worker at
 any time; the in-memory session is then gone and the vault reports locked.
-That is correct behaviour — unlock again.
+That is correct behaviour — unlock again. Keys are deliberately not kept in
+`chrome.storage.session` (it would outlive the worker and be readable by
+every extension page). The auto-lock alarm is browser state and survives a
+restart; a pending save offer does not. Proven by the worker-restart test in
+`e2e/hardening.spec.ts` (CDP `ServiceWorker.stopWorker`).
 
 **libsodium + wasm note:** `libsodium-wrappers-sumo` loads its WebAssembly
 module at runtime. If the worker cannot instantiate wasm under the extension
@@ -64,6 +112,7 @@ merely slow, that is the asm fallback.
   Settings link.
 - Fill confirmation dialog whenever a fill needs confirmation (bank/card,
   punycode).
+- Save / update offer for a login just submitted (rule 11).
 
 ## What the options page does
 
@@ -97,19 +146,56 @@ src/lib/vault-ext.ts        Extension vault (Argon2id + XChaCha20, chrome.storag
 src/lib/domain.ts           Origin/domain matching + fill gate
 src/lib/messages.ts         Popup <-> background protocol
 src/lib/settings.ts         Settings load/save (chrome.storage.local)
+src/lib/password.ts         Password generator (rejection sampling, as desktop/mobile)
 src/popup/                  Popup React UI (Popup.tsx, main.tsx, index.html, popup.css)
-src/content/content.ts      On-demand fill + form detection (values never leave the page)
+src/content/content.ts      On-demand fill, form detection, submit capture (rule 11)
 src/options/                Options React UI (Options.tsx, main.tsx, index.html)
+e2e/                        Real-Chromium Playwright specs + firefox-probe.mjs
+tests/                      Unit tests (npm --workspace apps/extension test)
 ```
+
+## Tests
+
+```sh
+npm --workspace apps/extension test       # unit: domain gate, manifest, TOTP, generator, recovery key
+npm --workspace apps/extension run test:e2e
+```
+
+`test:e2e` runs in real Chromium: `extension.spec.ts` (onboarding, fill and
+refusals, TOTP, lock/unlock, auto-lock), `hardening.spec.ts` (sender and
+storage isolation attacks, hostile markup, save/update/decline, worker
+restart) and `build-output.spec.ts` (production `dist/`). The e2e copy of the
+manifest adds host permissions only because automation cannot click the
+toolbar to grant `activeTab` (see `e2e/fixtures.ts`).
+
+## Firefox — not supported (tested on Firefox 151, 18 Nov 2026)
+
+Method: `e2e/firefox-probe.mjs` installs the built extension into real
+Firefox over WebDriver BiDi and drives the real popup/options pages.
+
+- **The production build does not install:** "background.service_worker is
+  currently disabled. Add background.scripts."
+- With `background.scripts` added (test copy only): installs; popup and
+  options render; create vault, lock, unlock, wrong recovery key refused,
+  save login work; no plaintext in storage. **Fill is refused** (fail
+  closed): Firefox has no `storage.local.setAccessLevel`, so content scripts
+  could read extension storage, and injection is never done in that case.
+- Not tested in Firefox: the popup UI flows, save offer, auto-lock, worker
+  (event page) restarts, any automated suite.
+- Needed for real support: both `background.service_worker` and
+  `background.scripts` in the manifest, a `browser_specific_settings.gecko`
+  id, a Firefox answer to storage isolation from content scripts, and a
+  Firefox e2e suite.
 
 ## Status / honest gaps
 
-- **Not tested in a real browser yet.** Nothing here has been loaded in
-  Chrome: `npm run build` has not run on the Mac (no shell access), the
-  extension has not been loaded unpacked, and no fill has been exercised
-  end-to-end. The first load in Chrome is the real verification step.
-- No sync with desktop/web yet (separate vault, see above).
-- No login capture of typed credentials (deliberate — see rule 9).
+- Chromium only (see Firefox above). Verified by the e2e suites listed under Tests.
+- No sync with desktop/web yet (separate vault; plan in `SYNC-PLAN.md`).
+  Encrypted backup restore on the options page is the supported way in.
+- Login capture needs the content script on the tab (popup opened or a
+  fill there); there is no always-on capture without host permissions.
+- Field detection does not look inside shadow DOM, and a field covered by
+  another element still counts as visible.
 - No passkey fill yet; passkey items are listed, not filled.
 - Not audited, not production-ready.
 
@@ -118,4 +204,4 @@ src/options/                Options React UI (Options.tsx, main.tsx, index.html)
 - Fixed: `background.ts` now checks the content script's fill reply instead of reporting success when the page refused (iframe / origin mismatch / no password field).
 - Fixed: `domain.ts` now treats IPv6 literals (`::1`, `2001:db8::1`, …) as raw IPs and refuses to fill on them, and punycode confirmation now triggers on an `xn--` label in any position, not just the first label.
 - Fixed: `generatePassword` clamps length to 4–64 (the class-guarantee writes touch indices 0–3); `changePassphrase` rejects an empty new passphrase.
-- Known limitation (by design, not fixed): the content script is injected on demand for a fill only, so login-form detection — and the popup's "Login form detected" banner — only runs right after a fill injection, not on ordinary page loads. Adding a persistent content script would need broader host permissions, so this stays as-is until a deliberate decision is made.
+- Known limitation (by design, not fixed): the content script is injected on demand for a fill only, so login-form detection — and the popup's "Login form detected" banner — only runs right after a fill injection, not on ordinary page loads. Adding a persistent content script would need broader host permissions, so this stays as-is until a deliberate decision is made. (18 Nov: the popup now also injects it when opened on a tab, for save offers — still no host permissions.)

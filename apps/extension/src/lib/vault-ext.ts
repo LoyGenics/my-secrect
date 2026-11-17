@@ -200,11 +200,25 @@ export async function unlockVault(passphrase: string): Promise<boolean> {
   }
 }
 
+/**
+ * Decode a recovery key (base64url, exactly 32 bytes, as shown at creation),
+ * hand the bytes to `use`, and zero them afterwards whatever happens.
+ */
+export async function withRecoveryKeyBytes<T>(recoveryKey: string, use: (bytes: Uint8Array) => Promise<T>): Promise<T> {
+  const bytes = fromBase64Url(recoveryKey.trim());
+  try {
+    if (bytes.length !== 32) throw new Error('recovery key must be 32 bytes');
+    return await use(bytes);
+  } finally {
+    bytes.fill(0);
+  }
+}
+
 export async function unlockWithRecoveryKey(recoveryKey: string): Promise<boolean> {
   const keys = await loadKeys();
   if (!keys) return false;
   try {
-    const recoveryKek = await sha256(fromBase64Url(recoveryKey.trim()));
+    const recoveryKek = await withRecoveryKeyBytes(recoveryKey, (bytes) => sha256(bytes));
     const master = await crypto.unwrapKey(
       recoveryKek,
       fromBase64(keys.wrapped_recovery_nonce),

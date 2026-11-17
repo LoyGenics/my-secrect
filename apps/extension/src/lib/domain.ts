@@ -61,6 +61,25 @@ export type FillCheck =
   | { allowed: false; reason: string }
   | { allowed: true; needsConfirmation: string };
 
+/** Rules 1-2 (the page alone, no item): https or localhost dev, never a raw IP. */
+function pageRefusal(page: URL): string | null {
+  if (page.protocol !== 'https:' && !isLocalhost(page.hostname)) return 'Refusing to fill on a non-HTTPS page.';
+  if (isIpHost(normalizeHost(page.hostname))) return 'Refusing to fill on a raw IP address.';
+  return null;
+}
+
+/** Page-only gate for injecting the content script and accepting a login submission. */
+export function checkPageAllowed(pageUrl: string): { allowed: true } | { allowed: false; reason: string } {
+  let page: URL;
+  try {
+    page = new URL(pageUrl);
+  } catch {
+    return { allowed: false, reason: 'Could not parse the page URL.' };
+  }
+  const reason = pageRefusal(page);
+  return reason ? { allowed: false, reason } : { allowed: true };
+}
+
 export function checkFillAllowed(
   pageUrl: string,
   itemUrl: string,
@@ -75,13 +94,9 @@ export function checkFillAllowed(
   } catch {
     return { allowed: false, reason: 'Could not parse the page or item URL.' };
   }
-  if (page.protocol !== 'https:' && !isLocalhost(page.hostname)) {
-    return { allowed: false, reason: 'Refusing to fill on a non-HTTPS page.' };
-  }
+  const refusal = pageRefusal(page);
+  if (refusal) return { allowed: false, reason: refusal };
   const pageHost = normalizeHost(page.hostname);
-  if (isIpHost(pageHost)) {
-    return { allowed: false, reason: 'Refusing to fill on a raw IP address.' };
-  }
   const itemHost = normalizeHost(item.hostname);
   if (!domainsMatch(pageHost, itemHost)) {
     return {

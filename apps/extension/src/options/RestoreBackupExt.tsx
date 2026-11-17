@@ -30,6 +30,7 @@ export default function RestoreBackupExt({ vaultExists, onRestored }: { vaultExi
       <section className="card space-y-2" aria-label="Restore from backup" data-testid="restore-success">
         <h2 className="font-semibold">Restore from backup</h2>
         <p className="text-sm text-zinc-200">Backup restored: {count} {count === 1 ? 'item' : 'items'} decrypted and saved. The vault is locked — open the extension popup and unlock it normally.</p>
+        <p className="text-xs text-zinc-400">This is a one-time copy. Changes made later here or on your other devices are not synced.</p>
       </section>
     );
   }
@@ -38,6 +39,7 @@ export default function RestoreBackupExt({ vaultExists, onRestored }: { vaultExi
       <section className="card space-y-2" aria-label="Restore from backup">
         <h2 className="font-semibold">Restore from backup</h2>
         <p className="text-sm text-zinc-400">A vault already exists in this extension. Restore never overwrites it. To replace it, wipe it deliberately below, then restore.</p>
+        <p className="text-xs text-zinc-500" data-testid="restore-sync-note">Sync with your other devices is not available in the extension yet. Restoring an encrypted backup is the supported way to bring your vault here.</p>
       </section>
     );
   }
@@ -69,6 +71,7 @@ export default function RestoreBackupExt({ vaultExists, onRestored }: { vaultExi
     <section className="card space-y-3" aria-label="Restore from backup" data-testid="restore-backup">
       <h2 className="font-semibold">Restore from backup</h2>
       <p className="text-sm text-zinc-400">This extension has no vault yet. Restore an encrypted backup (format version 2); nothing is overwritten.</p>
+      <p className="text-sm text-zinc-400" data-testid="restore-sync-note">Sync with your other devices is not available in the extension yet. To use your desktop vault here, export an encrypted backup in the desktop app (Settings), then restore it below with that vault&apos;s passphrase or recovery key. The restored items are a one-time copy: later changes on either side are not synced.</p>
       <div>
         <label className="label" htmlFor="restore-file">Backup file</label>
         <input id="restore-file" type="file" accept="application/json,.json" className="input" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setError(''); }} />
