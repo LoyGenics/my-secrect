@@ -36,11 +36,14 @@ const M = {
   del: 'MARK-DEL-delta-3b3b', dvu: 'MARK-DVU-echo-6d6d', dvuEdit: 'MARK-DVU-EDIT-1f1f',
   lvr: 'MARK-LVR-foxtrot-9e9e', lvrEdit: 'MARK-LVR-EDIT-2a2a',
   tamper: 'MARK-TAMPER-golf-7c7c', offline: 'MARK-OFFLINE-hotel-5e5e',
+  lost: 'MARK-LOST-india-1a2b', lostEdit: 'MARK-LOST-EDIT-3c4d', lostAfter: 'MARK-LOST-AFTER-5e6f',
+  lostA: 'MARK-LOST-A-7a8b', lostB: 'MARK-LOST-B-9c0d', fault: 'MARK-FAULT-juliet-2e3f',
+  bothDel: 'MARK-BOTHDEL-kilo-4a5b',
 };
 const ALL_MARKERS = Object.values(M);
 
 const id = (n: string) => `item_${n.padEnd(24, '0').slice(0, 24)}`;
-const ID = { one: id('a1'), two: id('b2'), three: id('c3'), del: id('d4'), dvu: id('e5'), lvr: id('f6'), tamper: id('a7'), offline: id('b8') };
+const ID = { one: id('a1'), two: id('b2'), three: id('c3'), del: id('d4'), dvu: id('e5'), lvr: id('f6'), tamper: id('a7'), offline: id('b8'), lost: id('c9'), fault: id('d0'), bothDel: id('e1') };
 const nodeSha = async (b: Uint8Array) => new Uint8Array(createHash('sha256').update(b).digest());
 const wire = (local: string) => wireItemId(local, nodeSha); // independent SHA-256 (node:crypto)
 
@@ -71,6 +74,16 @@ async function waitFor<T>(label: string, fn: () => Promise<T | false | undefined
   }
 }
 const serverItem = (w: string) => psql(`SELECT current_revision, (deleted_at IS NOT NULL) FROM items WHERE id='${w}'`);
+/** Server-side history of one item: "revision:operation" per sync event, and its stored versions. */
+const serverLog = (w: string) => ({
+  events: psql(`SELECT revision || ':' || operation FROM sync_events WHERE item_id='${w}' ORDER BY sequence`).split('\n').filter(Boolean),
+  versions: psql(`SELECT revision FROM item_versions WHERE item_id='${w}' ORDER BY revision`).split('\n').filter(Boolean).map(Number),
+});
+const settled = async (c: Client, label: string) => waitFor(`${label} idle with nothing pending`, async () => {
+  const s = await c.call('status');
+  return s.state === 'idle' && s.pending === 0 ? s : false;
+});
+const openConflicts = async (c: Client) => (await c.call<any[]>('conflicts')).filter((x) => x.resolution === 'unresolved');
 
 test('account auth: real WebAuthn registration; server rejects a forged assertion', async () => {
   const soft = SoftwareAuthenticator.create(WEB_ORIGIN, RP_ID);
@@ -189,7 +202,8 @@ test('offline queue survives a reload and is pushed automatically when the netwo
   // Back online: the engine retries by itself (no manual sync).
   await A.call('setOnline', { online: true });
   await waitFor('retry pushed the queued item', async () => serverItem(await wire(ID.offline)) === '1|f');
-  assert.equal((await A.call('status')).pending, 0);
+  // The server commits before it answers: give A the moment to process the reply.
+  await waitFor('A queue drained', async () => (await A.call('status')).pending === 0);
   await B.call('syncNow');
   assert.equal((await B.find(M.offline))?.id, ID.offline);
 });
@@ -308,6 +322,119 @@ test('a ciphertext that fails AEAD is reported with visible text, not applied, n
   const st3 = await B.call('syncNow');
   assert.equal(st3.state, 'idle', JSON.stringify(st3));
   assert.equal((await B.find(M.tamper))?.id, ID.tamper, 'after the ciphertext is intact again B applies it');
+});
+
+test('INTERRUPTED: push response lost -> the automatic retry is a replay: one revision, one event, nothing lost', async () => {
+  await A.call('createItem', { id: ID.lost, title: M.lost, fields: { notes: 'v1' } });
+  await A.call('syncNow'); await B.call('syncNow');
+  const w = await wire(ID.lost);
+  assert.equal(serverItem(w), '1|f');
+  await A.call('loseResponses', { match: '/sync/push', count: 1 });
+  await A.call('editItem', { id: ID.lost, title: M.lostEdit });
+  const st = await A.call('syncNow');
+  assert.equal(st.state, 'offline', `the lost response looks like a dead connection to A: ${JSON.stringify(st)}`);
+  assert.equal(st.pending, 1, 'A still holds the edit: it cannot know the server stored it');
+  assert.deepEqual(serverLog(w), { events: ['1:upsert', '2:upsert'], versions: [1, 2] }, 'the server did store the edit');
+  // The engine retries by itself. The retry carries the same ciphertext and base 1:
+  // the server answers with the stored revision 2 instead of a 409 or a duplicate.
+  await settled(A, 'A after the retry');
+  assert.deepEqual(serverLog(w), { events: ['1:upsert', '2:upsert'], versions: [1, 2] }, 'no duplicate event or version');
+  assert.equal((await openConflicts(A)).length, 0);
+  // Not stuck: A's next edit is based on revision 2 and is accepted as 3.
+  await A.call('editItem', { id: ID.lost, title: M.lostAfter });
+  assert.equal((await A.call('syncNow')).state, 'idle');
+  assert.equal(serverItem(w), '3|f');
+  await B.call('syncNow');
+  assert.equal((await B.find(M.lostAfter))?.id, ID.lost);
+  assert.equal((await openConflicts(B)).length, 0);
+});
+
+test('INTERRUPTED: response lost, then B writes on top before A retries -> no false conflict, A ends on B\'s version', async () => {
+  const w = await wire(ID.lost);
+  await A.call('loseResponses', { match: '/sync/push', count: 1, thenOffline: true });
+  await A.call('editItem', { id: ID.lost, title: M.lostA });
+  assert.equal((await A.call('syncNow')).state, 'offline');
+  assert.equal(serverItem(w), '4|f', 'A\'s edit reached the server as revision 4');
+  await B.call('syncNow');
+  assert.equal((await B.find(M.lostA))?.id, ID.lost, 'B pulled A\'s edit');
+  await B.call('editItem', { id: ID.lost, title: M.lostB });
+  assert.equal((await B.call('syncNow')).state, 'idle');
+  assert.equal(serverItem(w), '5|f');
+  // A comes back and retries its base-3 push: the server recognises revision 4 as that same
+  // write, A advances to 4 and then pulls B's revision 5 cleanly — B built on A's edit.
+  await A.call('setOnline', { online: true });
+  await settled(A, 'A after reconnecting');
+  assert.equal((await openConflicts(A)).length, 0, 'no conflict between A and its own accepted edit');
+  assert.equal((await A.call<any[]>('list')).find((i) => i.id === ID.lost).title, M.lostB);
+  assert.deepEqual(serverLog(w).events, ['1:upsert', '2:upsert', '3:upsert', '4:upsert', '5:upsert']);
+});
+
+test('INTERRUPTED: the server fails mid-push (500) -> nothing partial stored, the edit stays queued and lands once', async () => {
+  await A.call('createItem', { id: ID.fault, title: M.fault, fields: { notes: 'v1' } });
+  assert.equal((await A.call('syncNow')).state, 'idle');
+  const w = await wire(ID.fault);
+  const before = serverLog(w);
+  assert.deepEqual(before, { events: ['1:upsert'], versions: [1] });
+  // A real failure inside the push transaction: the item row and the version are written,
+  // then the sync event INSERT raises.
+  psql(`CREATE FUNCTION e2e_injected_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected fault'; END $$`);
+  psql(`CREATE TRIGGER e2e_injected_fault BEFORE INSERT ON sync_events FOR EACH ROW EXECUTE FUNCTION e2e_injected_fault()`);
+  try {
+    await A.call('editItem', { id: ID.fault, title: `${M.fault}-edit` });
+    const st = await A.call('syncNow');
+    assert.equal(st.state, 'error', JSON.stringify(st));
+    assert.match(st.error, /500/);
+    assert.equal(st.pending, 1, 'the edit stays queued');
+    assert.deepEqual(serverLog(w), before, 'no version without an event, no revision bump');
+    assert.equal(serverItem(w), '1|f');
+  } finally {
+    psql('DROP FUNCTION IF EXISTS e2e_injected_fault() CASCADE');
+  }
+  await settled(A, 'A once the server works again');
+  assert.deepEqual(serverLog(w), { events: ['1:upsert', '2:upsert'], versions: [1, 2] }, 'landed exactly once');
+  await B.call('syncNow');
+  assert.equal((await B.find(`${M.fault}-edit`))?.id, ID.fault);
+});
+
+test('both devices delete the same item offline -> one tombstone, both clean, no conflict', async () => {
+  await A.call('createItem', { id: ID.bothDel, title: M.bothDel, fields: { notes: 'v1' } });
+  await A.call('syncNow'); await B.call('syncNow');
+  const w = await wire(ID.bothDel);
+  await A.call('setOnline', { online: false });
+  await B.call('setOnline', { online: false });
+  await A.call('deleteItem', { id: ID.bothDel });
+  await B.call('deleteItem', { id: ID.bothDel });
+  await waitFor('both deletes queued', async () => (await A.call('status')).pending === 1 && (await B.call('status')).pending === 1);
+  await B.call('setOnline', { online: true });
+  await B.call('syncNow');
+  await settled(B, 'B');
+  assert.deepEqual(serverLog(w).events, ['1:upsert', '2:delete']);
+  await A.call('setOnline', { online: true });
+  await A.call('syncNow');
+  await settled(A, 'A (its delete from the same base returns B\'s tombstone)');
+  assert.deepEqual(serverLog(w).events, ['1:upsert', '2:delete'], 'exactly one tombstone');
+  for (const c of [A, B]) {
+    assert.ok((await c.find(M.bothDel))?.deleted_at, `${c.name}: in trash, restorable`);
+    assert.equal((await openConflicts(c)).length, 0);
+  }
+});
+
+test('a session holder without the vault key cannot roll an item back by re-pushing old ciphertext', async () => {
+  const w = await wire(ID.lost);
+  const token = (await B.call<Record<string, string>>('rawStorage'))['sync-e2e.token'];
+  const vaultId = psql(`SELECT vault_id FROM items WHERE id='${w}'`);
+  const old = psql(`SELECT encode(encrypted_payload,'base64'), encode(encrypted_item_key,'base64') FROM item_versions WHERE item_id='${w}' AND revision=1`)
+    .replace(/\n/g, '').split('|');
+  const res = await fetch(`http://127.0.0.1:${PORT}/api/v1/vaults/${vaultId}/sync/push`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ item_id: w, base_revision: 5, operation: 'upsert', encrypted_payload: old[0], encrypted_item_key: old[1], encryption_version: 1 }),
+  });
+  assert.equal(res.status, 422);
+  assert.deepEqual(await res.json(), { error: 'ciphertext_reuse', revision: 1 });
+  assert.equal(serverItem(w), '5|f', 'nothing written');
+  await A.call('syncNow');
+  assert.equal((await A.call<any[]>('list')).find((i) => i.id === ID.lost).title, M.lostB, 'A still shows the current version');
 });
 
 test('convergence + server stores ciphertext only (full DB dump and API log contain no plaintext)', async () => {
