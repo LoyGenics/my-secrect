@@ -30,7 +30,7 @@ module Accounts
       keys = BlobPart.joins(:blob).where(blobs: { vault_id: vault_ids }).pluck(:object_key) - already_deleted
       return already_deleted if keys.empty?
 
-      provider = Blobs::StorageProvider.new
+      provider = Blobs.storage_provider
       failed = 0
       error_classes = []
       keys.each do |key|

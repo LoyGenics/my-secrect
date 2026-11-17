@@ -82,3 +82,10 @@ RSpec.describe Blobs::StorageProvider do
     expect(src).not_to match(/minio123|localhost:9000/)
   end
 end
+
+RSpec.describe 'production boot check' do
+  it 'config_from raises (used by config/initializers/storage_config.rb in production) when S3 config is absent' do
+    expect { Blobs::StorageProvider.config_from({}) }.to raise_error(Blobs::StorageProvider::ConfigError, /S3_ACCESS_KEY/)
+    expect(File.read(Rails.root.join('config/initializers/storage_config.rb'))).to match(/config_from\(ENV\) if Rails\.env\.production\?/)
+  end
+end

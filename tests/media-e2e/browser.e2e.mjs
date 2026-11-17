@@ -39,7 +39,9 @@ const filePath = path.join(dir, FILE_NAME);
 writeFileSync(filePath, png);
 console.log(`[browser] test file ${png.length} bytes (${Math.ceil(png.length / 1048576)} chunks expected)`);
 
-const browser = await chromium.launch();
+console.log('[browser] launching chromium');
+const browser = await chromium.launch({ timeout: 30000 });
+console.log('[browser] launched');
 const context = await browser.newContext({ ignoreHTTPSErrors: true, acceptDownloads: true, viewport: { width: 1280, height: 900 } });
 await context.addInitScript(({ token, api }) => {
   localStorage.setItem('my-secrect:api-token', token);
@@ -47,6 +49,8 @@ await context.addInitScript(({ token, api }) => {
   localStorage.setItem('my-secrect:account-email', 'media-e2e@example.test');
 }, { token: TOKEN, api: API });
 const page = await context.newPage();
+page.setDefaultTimeout(45000);
+process.on('unhandledRejection', async (e) => { console.error('[browser] FAIL', e); try { await page.screenshot({ path: path.join(SHOT, 'media-view-failure.png') }); } catch {} process.exit(1); });
 const consoleErrors = [];
 page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
 page.on('pageerror', (e) => consoleErrors.push(String(e)));
@@ -55,15 +59,13 @@ page.on('pageerror', (e) => consoleErrors.push(String(e)));
 const outgoing = [];
 page.on('request', (r) => { const b = r.postDataBuffer(); if (b) outgoing.push({ url: r.url(), method: r.method(), body: b }); });
 
-await page.goto(APP);
+await page.goto(APP, { timeout: 30000 });
+console.log('[browser] app loaded');
 process.on('uncaughtException', async (e) => { try { await page.screenshot({ path: path.join(SHOT, 'media-view-failure.png') }); } catch {} throw e; });
-// Create a fresh vault (passphrase + recovery key onboarding).
+// Create a fresh local vault (passphrase onboarding; it lands directly in the app).
 await page.getByLabel('Master passphrase').fill('correct horse battery staple 42');
 await page.getByLabel('Confirm passphrase').fill('correct horse battery staple 42');
 await page.getByRole('button', { name: 'Create vault' }).click();
-await page.getByRole('checkbox').check();
-await page.getByRole('button', { name: 'Done' }).click();
-await page.getByRole('button', { name: 'Done' }).click().catch(() => {});
 await page.getByRole('button', { name: /Media gallery/ }).click();
 await page.getByRole('button', { name: 'Upload encrypted file…' }).or(page.getByText('Upload encrypted file…')).first().waitFor();
 console.log('[browser] media gallery open, upload control visible (api configured)');

@@ -1,6 +1,15 @@
 require 'aws-sdk-s3'
 
 module Blobs
+  # Seam for specs: any object implementing the StorageProvider interface
+  # (presigned_put/presigned_get/delete/head) may be installed here. Nil
+  # (production default) means a real StorageProvider built from ENV.
+  class << self
+    attr_writer :storage_provider
+
+    def storage_provider = @storage_provider || StorageProvider.new
+  end
+
   # ONE StorageProvider per deployment (S3 / R2 / MinIO — all S3-compatible).
   # Per-user storage is deferred (migration/integrity/backup get complex).
   # Rails only signs short-lived (5 min) presigned URLs; the client uploads

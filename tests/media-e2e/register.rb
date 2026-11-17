@@ -25,7 +25,16 @@ def api(method, path, body: nil, token: nil)
   req['Content-Type'] = 'application/json'
   req['Authorization'] = "Bearer #{token}" if token
   req.body = JSON.generate(body) if body
-  res = http.request(req)
+  attempts = 0
+  begin
+    res = http.request(req)
+  rescue Errno::ECONNRESET, OpenSSL::SSL::SSLError
+    # Caddy may still be minting its internal-CA cert right after it turns healthy.
+    attempts += 1
+    raise if attempts > 10
+    sleep 2
+    retry
+  end
   [res.code.to_i, res.body.to_s.empty? ? nil : JSON.parse(res.body)]
 end
 
