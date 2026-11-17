@@ -1,130 +1,500 @@
-import { useState } from 'react';
-import type { VaultShare, SharePermission } from '../../../../packages/core/src/sharing';
-import { canRead, canWrite, isWholeVaultShare, recordPendingProposal } from '../../../../packages/core/src/sharing';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { VaultItem } from '../../../../packages/core/src/types';
+import { fingerprintOf, type SharePermission } from '../../../../packages/core/src/sharing';
+import {
+  SharingApiClient,
+  SharingSession,
+  classifyShareError,
+  shareActions,
+  sharePeer,
+  type ContactView,
+  type OpenedShare,
+  type ShareErrorKind,
+  type ShareSummary,
+} from '../../../../packages/sdk/src/sharing';
+import { useTranslation } from '../../../../packages/i18n/src/react';
 
 /**
- * SharesView — NEW FILE, does not modify App.tsx (another agent owns it).
- * App.tsx can render <SharesView shares={...} onCreate={...} onRevoke={...} />
- * when it chooses; this component is complete on its own.
+ * SharesView — end-to-end encrypted item sharing (desktop + web).
+ * Protocol and limits: specs/sharing-protocol.md. All crypto runs in
+ * packages/core/src/sharing.ts via SharingSession (packages/sdk/src/sharing.ts).
  *
- * Honest limits, shown in the UI itself:
- *  - Sharing is not live. The create form records a local pending proposal
- *    with no key and does not call POST /v1/shares. It never stores
- *    status 'active'. The parent keeps the proposal pending.
- *  - Revocation removes the envelope + share record. It does NOT erase
- *    copies a recipient already decrypted. That is stated next to the
- *    Revoke button, not hidden in docs.
- *
- * Intended real implementation (NOT done — do not present as working):
- *  - Each user holds an X25519 keypair (libsodium `crypto_box_keypair`).
- *    The recipient's public key must be verified out of band (fingerprint
- *    comparison) before use — an unverified key enables MITM.
- *  - The sharer seals the per-share Item Key with `crypto_box_seal`
- *    (libsodium sealed box: ephemeral sender key + XChaCha20-Poly1305) to
- *    the recipient's public key and stores the sealed envelope server-side.
- *  - The recipient opens it with `crypto_box_seal_open` + their secret
- *    key, then decrypts shared items exactly like their own vault items.
- *  - Until that envelope round-trip exists end to end AND is tested
- *    (wrong-key rejection, tampered-envelope rejection, revocation +
- *    key rotation), no share may be created with status 'active'.
+ *  - "Your sharing key" shows the fingerprint derived from the locally
+ *    decrypted identity — never one the server reports.
+ *  - Sharing needs the recipient's key to be verified (fingerprint compared
+ *    out of band, then pinned on this device). A changed key blocks the
+ *    action with a warning; the only way on is to forget and re-verify.
+ *  - An incoming share is accepted only after the owner's key is verified and
+ *    the wrapped key opens with it (the key exchange). The server keeps the
+ *    content back until then.
+ *  - Recipient edits never enter the owner's vault by themselves: the owner
+ *    chooses "Save this version to my vault".
+ *  - Revoke states its limit next to the button: already-seen data cannot be
+ *    erased from the recipient's device.
+ * Without a configured server or a session, the view says so and does nothing.
  */
 
 export interface SharesViewProps {
-  shares: VaultShare[];
-  onCreate?: (proposal: { recipient_id: string; permission: SharePermission; item_ids: string[] }) => void;
-  onRevoke?: (share: VaultShare) => void;
+  /** API base URL; empty = local-only, sharing unavailable. */
+  apiBaseUrl: string;
+  signedIn: boolean;
+  getToken: () => Promise<string | null>;
+  /** Live (non-trashed) vault items. */
+  items: VaultItem[];
+  encryptWithVaultKey: (plaintext: string) => Promise<string>;
+  decryptWithVaultKey: (encoded: string) => Promise<string | null>;
+  /** Persist an item into the vault (upsert) and refresh the app's list. */
+  onSaveItem: (item: VaultItem) => Promise<void>;
+  onUnauthorized?: () => void;
 }
 
-export default function SharesView({ shares, onCreate, onRevoke }: SharesViewProps) {
-  const [recipientId, setRecipientId] = useState('');
-  const [permission, setPermission] = useState<SharePermission>('read');
+type Expiry = '1' | '7' | '30' | 'never';
+
+function expiresAtFor(expiry: Expiry): string | null {
+  return expiry === 'never' ? null : new Date(Date.now() + Number(expiry) * 86_400_000).toISOString();
+}
+
+const ERROR_KEYS: Partial<Record<ShareErrorKind, string>> = {
+  not_verified: 'shares.errorNotVerified',
+  key_changed: 'shares.errorKeyChanged',
+  crypto: 'shares.errorCrypto',
+  revoked: 'shares.errorRevoked',
+  expired: 'shares.errorExpired',
+  not_active: 'shares.errorNotActive',
+  read_only: 'shares.errorReadOnly',
+  conflict: 'shares.errorConflict',
+};
+
+function displayValue(value: unknown): string {
+  return typeof value === 'string' ? value : JSON.stringify(value);
+}
+
+export default function SharesView(props: SharesViewProps) {
+  const { t } = useTranslation();
+  const latest = useRef(props);
+  latest.current = props;
+
+  const [session, setSession] = useState<SharingSession | null>(null);
+  const [startError, setStartError] = useState('');
+  const [myFingerprint, setMyFingerprint] = useState('');
+  const [shares, setShares] = useState<ShareSummary[]>([]);
+  const [peerFingerprints, setPeerFingerprints] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+
+  const [itemId, setItemId] = useState('');
+  const [email, setEmail] = useState('');
+  const [contact, setContact] = useState<ContactView | null>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [permission, setPermission] = useState<SharePermission>('read');
+  const [expiry, setExpiry] = useState<Expiry>('7');
+
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
+  const [opened, setOpened] = useState<{ share: ShareSummary; data: OpenedShare } | null>(null);
+  const [draft, setDraft] = useState<{ title: string; fields: Record<string, string> } | null>(null);
+  const [revealed, setRevealed] = useState(false);
   const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null);
 
-  const handleCreate = () => {
-    const proposal = { vault_id: 'current-vault', recipient_id: recipientId.trim(), permission, item_ids: [] as string[] };
-    let pending: VaultShare;
-    try {
-      pending = recordPendingProposal(proposal, {
-        id: 'local-pending',
-        owner_id: 'local',
-        created_at: new Date().toISOString(),
-      });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'share proposal rejected');
+  const baseUrl = props.apiBaseUrl.trim();
+  const canStart = baseUrl !== '' && props.signedIn;
+
+  const report = useCallback((e: unknown) => {
+    const c = classifyShareError(e);
+    if (c.kind === 'unauthorized') {
+      latest.current.onUnauthorized?.();
       return;
     }
-    if (pending.status !== 'pending') {
-      setError('share proposal must stay pending until a verified key wrap exists');
-      return;
-    }
+    const key = ERROR_KEYS[c.kind];
+    setNotice('');
+    if (key) setError(t(key));
+    else if (c.kind === 'identity') setError(t('shares.unavailable', c.detail));
+    else setError(t('shares.errorGeneric', c.detail));
+  }, [t]);
+
+  useEffect(() => {
+    if (!canStart) return undefined;
+    let cancelled = false;
+    let started: SharingSession | null = null;
+    setStartError('');
+    void (async () => {
+      try {
+        const s = await SharingSession.start({
+          api: new SharingApiClient({ baseUrl, getToken: () => latest.current.getToken() }),
+          vault: {
+            encrypt: (p) => latest.current.encryptWithVaultKey(p),
+            decrypt: (c) => latest.current.decryptWithVaultKey(c),
+          },
+          pinStorage: localStorage,
+          items: {
+            find: (id) => latest.current.items.find((i) => i.id === id),
+            save: (item) => latest.current.onSaveItem(item),
+          },
+        });
+        if (cancelled) {
+          s.close();
+          return;
+        }
+        started = s;
+        setMyFingerprint(await s.myFingerprint());
+        setSession(s);
+      } catch (e) {
+        if (cancelled) return;
+        const c = classifyShareError(e);
+        if (c.kind === 'unauthorized') latest.current.onUnauthorized?.();
+        else setStartError(c.detail);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      started?.close();
+      setSession(null);
+    };
+  }, [canStart, baseUrl]);
+
+  const refresh = useCallback(async (s: SharingSession) => {
+    const list = await s.listShares();
+    const fps: Record<string, string> = {};
+    for (const share of list) fps[share.id] = await fingerprintOf(sharePeer(share).publicKey);
+    setShares(list);
+    setPeerFingerprints(fps);
+  }, []);
+
+  useEffect(() => {
+    if (session) refresh(session).catch(report);
+  }, [session, refresh, report]);
+
+  const run = (fn: (s: SharingSession) => Promise<void>) => {
+    if (!session || busy) return;
+    setBusy(true);
     setError('');
-    onCreate?.({ recipient_id: pending.recipient_id, permission: pending.permission, item_ids: pending.item_ids });
-    setRecipientId('');
+    setNotice('');
+    fn(session).catch(report).finally(() => setBusy(false));
   };
+
+  // --- owner: share an item ---------------------------------------------------
+  const lookUp = () => run(async (s) => {
+    setContact(null);
+    setNotFound(false);
+    const found = await s.lookupContact(email);
+    if (found) setContact(found);
+    else setNotFound(true);
+  });
+  const verifyContact = (c: ContactView) => run(async (s) => {
+    await s.verifyContact(c);
+    setContact(await s.lookupContact(c.email));
+  });
+  const forgetContact = (userId: string) => run(async (s) => {
+    await s.forgetContact(userId);
+    if (contact) setContact(await s.lookupContact(contact.email));
+    await refresh(s);
+  });
+  const doShare = () => run(async (s) => {
+    const item = props.items.find((i) => i.id === itemId);
+    if (!item || !contact) return;
+    const created = await s.shareItem({ item, contact, permission, expiresAt: expiresAtFor(expiry) });
+    setNotice(t('shares.shared', created.recipient.email));
+    setContact(null);
+    setEmail('');
+    await refresh(s);
+  });
+
+  // --- both roles ---------------------------------------------------------------
+  const verifyOwner = (share: ShareSummary) => run(async (s) => {
+    await s.verifyContact({ user_id: share.owner.id, email: share.owner.email, public_key: share.owner_public_key });
+    setVerifyingId(null);
+    await refresh(s);
+  });
+  const accept = (share: ShareSummary) => run(async (s) => {
+    await s.acceptShare(share);
+    setNotice(t('shares.accepted', share.owner.email));
+    await refresh(s);
+  });
+  const open = (share: ShareSummary) => run(async (s) => {
+    setOpened({ share, data: await s.openShare(share) });
+    setDraft(null);
+    setRevealed(false);
+  });
+  const revoke = (share: ShareSummary) => run(async (s) => {
+    await s.revokeShare(share);
+    setConfirmRevokeId(null);
+    if (opened?.share.id === share.id) setOpened(null);
+    setNotice(t('shares.revoked'));
+    await refresh(s);
+  });
+  const sendLatest = (share: ShareSummary) => run(async (s) => {
+    const revision = await s.sendLatestVersion(share);
+    setNotice(t('shares.sentLatest', revision));
+    if (opened?.share.id === share.id) setOpened({ share, data: await s.openShare(share) });
+    await refresh(s);
+  });
+  const saveToVault = () => run(async (s) => {
+    if (!opened) return;
+    await s.saveToVault(opened.share);
+    setNotice(t('shares.savedToVault'));
+  });
+  const saveDraft = () => run(async (s) => {
+    if (!opened || !draft) return;
+    const { share, data } = opened;
+    const item: VaultItem = { ...data.item, title: draft.title, fields: { ...data.item.fields, ...draft.fields }, updated_at: new Date().toISOString() };
+    const revision = await s.writeShare(share, item, data.revision);
+    setNotice(t('shares.savedRevision', revision));
+    setDraft(null);
+    setOpened({ share, data: await s.openShare(share) });
+    await refresh(s);
+  });
+
+  // --- rendering ---------------------------------------------------------------
+  const statusLabel = (share: ShareSummary) => {
+    if (share.status === 'revoked') return t('shares.statusRevoked');
+    if (share.expired) return t('shares.statusExpired');
+    return share.status === 'active' ? t('shares.statusActive') : t('shares.statusPending');
+  };
+  const meta = (share: ShareSummary) => [
+    share.permission === 'write' ? t('shares.permWrite') : t('shares.permRead'),
+    statusLabel(share),
+    share.expires_at ? t('shares.expiresOn', new Date(share.expires_at).toLocaleString()) : t('shares.noExpiry'),
+    t('shares.revision', share.revision),
+  ].join(' · ');
+
+  const pinnedFingerprint = (userId: string) => session?.verifiedContacts().find((p) => p.user_id === userId)?.fingerprint ?? '—';
+
+  const keyWarning = (share: ShareSummary) => (
+    <div className="mt-2 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-200">
+      <p>{t('shares.keyChanged', pinnedFingerprint(sharePeer(share).user.id), sharePeer(share).user.email)}</p>
+      <p className="mt-1 font-mono">{peerFingerprints[share.id]}</p>
+      <button className="btn-ghost mt-2 !py-1 text-xs" disabled={busy} onClick={() => forgetContact(sharePeer(share).user.id)}>{t('shares.forgetAndReverify')}</button>
+    </div>
+  );
+
+  const revokeControls = (share: ShareSummary, label: string) => (
+    confirmRevokeId === share.id ? (
+      <span className="flex gap-2">
+        <button className="btn-ghost !py-1 text-xs" onClick={() => setConfirmRevokeId(null)}>{t('shares.cancel')}</button>
+        <button className="btn-primary !py-1 text-xs" disabled={busy} onClick={() => revoke(share)}>{share.role === 'owner' ? t('shares.confirmRevoke') : label}</button>
+      </span>
+    ) : (
+      <button className="btn-ghost !py-1 text-xs" onClick={() => setConfirmRevokeId(share.id)}>{label}</button>
+    )
+  );
+
+  if (!baseUrl || !props.signedIn) {
+    return (
+      <div className="p-5">
+        <h2 className="text-base font-semibold">{t('shares.title')}</h2>
+        <p className="mt-2 text-sm text-zinc-400">{baseUrl ? t('shares.signedOut') : t('shares.notConfigured')}</p>
+      </div>
+    );
+  }
+  if (!session) {
+    return (
+      <div className="p-5">
+        <h2 className="text-base font-semibold">{t('shares.title')}</h2>
+        {startError
+          ? <p className="mt-2 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-200">{t('shares.unavailable', startError)}</p>
+          : <p className="mt-2 text-sm text-zinc-400">{t('shares.starting')}</p>}
+      </div>
+    );
+  }
+
+  const incoming = shares.filter((s) => s.role === 'recipient');
+  const outgoing = shares.filter((s) => s.role === 'owner');
+  const selectedItem = props.items.find((i) => i.id === itemId);
 
   return (
     <div className="p-5">
-      <h2 className="text-base font-semibold">Sharing</h2>
-      <p className="mt-1 text-sm text-zinc-400">
-        Share a vault with another person via a wrapped key envelope — the server sees only the envelope and opaque ids, never plaintext or the Vault Key.
-      </p>
-      <p className="mt-2 rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
-        Sharing is not live. This records a pending proposal on this device only. It does not send the share to the server and it does not activate sharing.
-      </p>
+      <h2 className="text-base font-semibold">{t('shares.title')}</h2>
+      <p className="mt-1 text-sm text-zinc-400">{t('shares.intro')}</p>
+      {notice && <p className="mt-3 rounded-lg border border-emerald-900/60 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-200" role="status">{notice}</p>}
+      {error && <p className="mt-3 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-200" role="alert">{error}</p>}
 
-      <section className="card mt-4 p-4" aria-label="Create a share">
-        <h3 className="text-sm font-semibold">Share this vault</h3>
+      <section className="card mt-4 p-4" aria-label={t('shares.myKey')}>
+        <h3 className="text-sm font-semibold">{t('shares.myKey')}</h3>
+        <p className="mt-2 font-mono text-lg tracking-wider text-zinc-100" data-testid="my-fingerprint">{myFingerprint}</p>
+        <p className="mt-1 text-xs text-zinc-400">{t('shares.myKeyHelp')}</p>
+      </section>
+
+      <section className="card mt-4 p-4" aria-label={t('shares.shareItem')}>
+        <h3 className="text-sm font-semibold">{t('shares.shareItem')}</h3>
         <div className="mt-3 space-y-3">
           <div>
-            <label className="label" htmlFor="share-recipient">Recipient user id</label>
-            <input id="share-recipient" name="recipient-id" type="text" className="input" value={recipientId} onChange={(e) => setRecipientId(e.target.value)} placeholder="Opaque recipient id (never a name in plaintext on the server)" autoComplete="off" />
-          </div>
-          <div>
-            <label className="label" htmlFor="share-permission">Permission</label>
-            <select id="share-permission" name="permission" className="input" value={permission} onChange={(e) => setPermission(e.target.value as SharePermission)}>
-              <option value="read">Read — view and copy</option>
-              <option value="write">Write — view, copy and edit shared items</option>
+            <label className="label" htmlFor="share-item">{t('shares.item')}</label>
+            <select id="share-item" className="input" value={itemId} onChange={(e) => setItemId(e.target.value)}>
+              <option value="">{t('shares.chooseItem')}</option>
+              {props.items.map((i) => <option key={i.id} value={i.id}>{i.title}</option>)}
             </select>
           </div>
-          {error && <p className="text-sm text-red-400">{error}</p>}
-          <button className="btn-primary" onClick={handleCreate}>Create share proposal</button>
+          <div>
+            <label className="label" htmlFor="share-recipient">{t('shares.recipientEmail')}</label>
+            <div className="flex gap-2">
+              <input id="share-recipient" type="email" className="input" value={email} autoComplete="off"
+                onChange={(e) => { setEmail(e.target.value); setContact(null); setNotFound(false); }} />
+              <button className="btn-ghost" disabled={busy || !email.trim()} onClick={lookUp}>{t('shares.lookUp')}</button>
+            </div>
+            {notFound && <p className="mt-2 text-sm text-zinc-400">{t('shares.noSuchRecipient')}</p>}
+          </div>
+
+          {contact && (
+            <div className="rounded-lg border border-zinc-800 p-3">
+              <p className="text-xs text-zinc-400">{t('shares.serverFingerprint', contact.email)}</p>
+              <p className="mt-1 font-mono text-base tracking-wider text-zinc-100" data-testid="recipient-fingerprint">{contact.fingerprint}</p>
+              {contact.pinState === 'verified' && <p className="mt-2 text-sm text-emerald-300">{t('shares.verified')}</p>}
+              {contact.pinState === 'unverified' && (
+                <div className="mt-2 rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
+                  <p>{t('shares.verifyInstructions', contact.email)}</p>
+                  <div className="mt-2 flex gap-2">
+                    <button className="btn-primary !py-1 text-xs" disabled={busy} onClick={() => verifyContact(contact)}>{t('shares.digitsMatch')}</button>
+                    <button className="btn-ghost !py-1 text-xs" onClick={() => setContact(null)}>{t('shares.cancel')}</button>
+                  </div>
+                </div>
+              )}
+              {contact.pinState === 'changed' && (
+                <div className="mt-2 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-200">
+                  <p>{t('shares.keyChanged', contact.pinnedFingerprint ?? '—', contact.email)}</p>
+                  <button className="btn-ghost mt-2 !py-1 text-xs" disabled={busy} onClick={() => forgetContact(contact.user_id)}>{t('shares.forgetAndReverify')}</button>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-3">
+            <div className="min-w-[14rem] flex-1">
+              <label className="label" htmlFor="share-permission">{t('shares.permission')}</label>
+              <select id="share-permission" className="input" value={permission} onChange={(e) => setPermission(e.target.value as SharePermission)}>
+                <option value="read">{t('shares.permRead')}</option>
+                <option value="write">{t('shares.permWrite')}</option>
+              </select>
+            </div>
+            <div className="min-w-[10rem]">
+              <label className="label" htmlFor="share-expiry">{t('shares.expiry')}</label>
+              <select id="share-expiry" className="input" value={expiry} onChange={(e) => setExpiry(e.target.value as Expiry)}>
+                <option value="1">{t('shares.expiry1')}</option>
+                <option value="7">{t('shares.expiry7')}</option>
+                <option value="30">{t('shares.expiry30')}</option>
+                <option value="never">{t('shares.expiryNever')}</option>
+              </select>
+            </div>
+          </div>
+          <button className="btn-primary" disabled={busy || !selectedItem || contact?.pinState !== 'verified'} onClick={doShare}>{t('shares.share')}</button>
         </div>
       </section>
 
-      <section className="mt-4" aria-label="Existing shares">
-        {shares.length === 0 ? (
-          <p className="text-sm text-zinc-500">No shares yet.</p>
-        ) : (
-          <ul className="space-y-2">
-            {shares.map((share) => (
-              <li key={share.id} className="card flex flex-wrap items-center gap-3 p-3">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-zinc-100">Recipient: {share.recipient_id}</p>
-                  <p className="text-xs text-zinc-400">
-                    {share.permission} · {share.status} · {isWholeVaultShare(share) ? 'whole vault' : `${share.item_ids.length} item(s)`} ·
-                    {canRead(share) ? ' can read' : ''}{canWrite(share) ? ' · can write' : ''}
-                    {share.revoked_at ? ` · revoked ${share.revoked_at}` : ''}
-                  </p>
-                </div>
-                {share.status === 'active' && (
-                  confirmRevokeId === share.id ? (
-                    <span className="flex gap-2">
-                      <button className="btn-ghost !py-1 text-xs" onClick={() => setConfirmRevokeId(null)}>Cancel</button>
-                      <button className="btn-primary !py-1 text-xs" onClick={() => { onRevoke?.(share); setConfirmRevokeId(null); }}>Confirm revoke</button>
-                    </span>
-                  ) : (
-                    <button className="btn-ghost !py-1 text-xs" onClick={() => setConfirmRevokeId(share.id)}>Revoke</button>
-                  )
-                )}
-              </li>
-            ))}
+      <section className="mt-6" aria-label={t('shares.sharedWithMe')}>
+        <h3 className="text-sm font-semibold">{t('shares.sharedWithMe')}</h3>
+        {incoming.length === 0 ? <p className="mt-2 text-sm text-zinc-500">{t('shares.none')}</p> : (
+          <ul className="mt-2 space-y-2">
+            {incoming.map((share) => {
+              const actions = shareActions(share);
+              const pin = session.peerPinState(share);
+              return (
+                <li key={share.id} className="card p-3">
+                  <p className="text-sm font-semibold text-zinc-100">{t('shares.from', share.owner.email)}</p>
+                  <p className="text-xs text-zinc-400">{meta(share)}</p>
+                  {actions.canRevoke && pin === 'changed' && keyWarning(share)}
+                  {actions.canAccept && pin === 'unverified' && (
+                    verifyingId === share.id ? (
+                      <div className="mt-2 rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
+                        <p className="text-xs">{t('shares.serverFingerprint', share.owner.email)}</p>
+                        <p className="mt-1 font-mono tracking-wider">{peerFingerprints[share.id]}</p>
+                        <p className="mt-1">{t('shares.verifyInstructions', share.owner.email)}</p>
+                        <div className="mt-2 flex gap-2">
+                          <button className="btn-primary !py-1 text-xs" disabled={busy} onClick={() => verifyOwner(share)}>{t('shares.digitsMatch')}</button>
+                          <button className="btn-ghost !py-1 text-xs" onClick={() => setVerifyingId(null)}>{t('shares.cancel')}</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button className="btn-ghost mt-2 !py-1 text-xs" onClick={() => setVerifyingId(share.id)}>{t('shares.verifyOwner', share.owner.email)}</button>
+                    )
+                  )}
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {actions.canAccept && pin === 'verified' && <button className="btn-primary !py-1 text-xs" disabled={busy} onClick={() => accept(share)}>{t('shares.accept')}</button>}
+                    {actions.canOpen && pin === 'verified' && <button className="btn-ghost !py-1 text-xs" disabled={busy} onClick={() => open(share)}>{t('shares.open')}</button>}
+                    {actions.canRevoke && revokeControls(share, share.status === 'pending' ? t('shares.decline') : t('shares.leave'))}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
-        <p className="mt-3 text-xs text-zinc-500">
-          Revoking removes the key envelope and the share record. It does not erase copies a recipient already decrypted — re-sharing after revocation requires key rotation.
-        </p>
       </section>
+
+      <section className="mt-6" aria-label={t('shares.sharedByMe')}>
+        <h3 className="text-sm font-semibold">{t('shares.sharedByMe')}</h3>
+        {outgoing.length === 0 ? <p className="mt-2 text-sm text-zinc-500">{t('shares.none')}</p> : (
+          <ul className="mt-2 space-y-2">
+            {outgoing.map((share) => {
+              const actions = shareActions(share);
+              const pin = session.peerPinState(share);
+              return (
+                <li key={share.id} className="card p-3">
+                  <p className="text-sm font-semibold text-zinc-100">{t('shares.to', share.recipient.email)}</p>
+                  <p className="text-xs text-zinc-400">{meta(share)}</p>
+                  {actions.canRevoke && pin === 'changed' && keyWarning(share)}
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {actions.canOpen && pin === 'verified' && <button className="btn-ghost !py-1 text-xs" disabled={busy} onClick={() => open(share)}>{t('shares.open')}</button>}
+                    {actions.canEdit && pin === 'verified' && <button className="btn-ghost !py-1 text-xs" disabled={busy} onClick={() => sendLatest(share)}>{t('shares.sendLatest')}</button>}
+                    {actions.canRevoke && revokeControls(share, t('shares.revoke'))}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        <p className="mt-3 text-xs text-zinc-500">{t('shares.revokeLimit')}</p>
+      </section>
+
+      {opened && (
+        <section className="card mt-6 p-4" aria-label={opened.data.item.title}>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-zinc-100">{opened.data.item.title}</h3>
+              <p className="text-xs text-zinc-400">
+                {t('shares.revision', opened.data.revision)} · {opened.data.lastWriter === 'recipient' ? t('shares.lastWriterRecipient') : t('shares.lastWriterOwner')}
+              </p>
+            </div>
+            <button className="btn-ghost !py-1 text-xs" onClick={() => { setOpened(null); setDraft(null); }}>{t('shares.close')}</button>
+          </div>
+          {draft ? (
+            <div className="mt-3 space-y-2">
+              <input className="input" aria-label={t('shares.item')} value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
+              {Object.entries(draft.fields).map(([name, value]) => (
+                <div key={name}>
+                  <label className="label" htmlFor={`share-field-${name}`}>{name}</label>
+                  <input id={`share-field-${name}`} className="input" value={value} autoComplete="off"
+                    onChange={(e) => setDraft({ ...draft, fields: { ...draft.fields, [name]: e.target.value } })} />
+                </div>
+              ))}
+              <div className="flex gap-2">
+                <button className="btn-primary !py-1 text-xs" disabled={busy} onClick={saveDraft}>{t('shares.saveChanges')}</button>
+                <button className="btn-ghost !py-1 text-xs" onClick={() => setDraft(null)}>{t('shares.cancel')}</button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <dl className="mt-3 space-y-1 text-sm">
+                {Object.entries(opened.data.item.fields).map(([name, value]) => (
+                  <div key={name} className="flex gap-3">
+                    <dt className="w-40 shrink-0 text-zinc-400">{name}</dt>
+                    <dd className="min-w-0 break-all font-mono text-zinc-100">{revealed ? displayValue(value) : '••••••••'}</dd>
+                  </div>
+                ))}
+              </dl>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button className="btn-ghost !py-1 text-xs" onClick={() => setRevealed((v) => !v)}>{revealed ? t('shares.hide') : t('shares.reveal')}</button>
+                {shareActions(opened.share).canEdit && (
+                  <button className="btn-ghost !py-1 text-xs" onClick={() => setDraft({
+                    title: opened.data.item.title,
+                    fields: Object.fromEntries(Object.entries(opened.data.item.fields).filter((e): e is [string, string] => typeof e[1] === 'string')),
+                  })}>{t('shares.edit')}</button>
+                )}
+                {opened.share.role === 'owner' && opened.data.lastWriter === 'recipient' && (
+                  <button className="btn-primary !py-1 text-xs" disabled={busy} onClick={saveToVault}>{t('shares.saveToVault')}</button>
+                )}
+              </div>
+            </>
+          )}
+        </section>
+      )}
     </div>
   );
 }
