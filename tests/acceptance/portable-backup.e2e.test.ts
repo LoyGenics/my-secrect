@@ -149,11 +149,12 @@ test('fresh profile B: restore with the passphrase, unlock, every item identical
 
   await openItem(page, 'E Main Bank');
   for (const target of ['E Bank login', 'E Debit card', 'E Me']) {
-    await page.getByRole('button', { name: new RegExp(`^${target} \\(`) }).first().waitFor();
+    // Relations render as their own region; each target is a button named by its title.
+    await page.getByRole('region', { name: 'Relations' }).getByRole('button', { name: target, exact: true }).first().waitFor();
   }
   assert.equal(await page.getByText('(not found)').count(), 0, 'a relation target is missing after restore');
   await openItem(page, UI_TITLE);
-  await page.getByRole('button', { name: /^E Main Bank \(/ }).first().waitFor();
+  await page.getByRole('region', { name: 'Relations' }).getByRole('button', { name: 'E Main Bank', exact: true }).first().waitFor();
 });
 
 test('fresh profile C: restore with the recovery key, unlock with the recovery key, identical items', async () => {
@@ -195,7 +196,7 @@ test('the same web backup restores in the real MV3 extension (options UI), every
   assert.deepEqual(byId(got).map(comparable), byId(expected).map(comparable));
 });
 
-test('editing a restored item in the form and saving without changes keeps its typed relations', { todo: defect('DEFECT-E1: ItemForm rebuilds relations from checkbox ids with type "related_to" (apps/desktop/src/components/ItemForm.tsx:322), so any edit silently rewrites has_login / has_card / owned_by / contains') }, async () => {
+test('editing a restored item in the form and saving without changes keeps its typed relations', async () => {
   needBackup();
   const page = await freshProfile();
   await restoreViaUi(page, backup, { passphrase: PASS });
