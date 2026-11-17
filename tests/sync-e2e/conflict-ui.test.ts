@@ -70,6 +70,7 @@ before(async () => {
 
   vite = spawn(path.resolve(here, '../../node_modules/.bin/vite'), ['--port', WEB_PORT, '--strictPort', '--host', 'localhost'], { cwd: webDir, stdio: 'ignore' });
   for (let i = 0; ; i++) {
+    if (vite.exitCode !== null) throw new Error(`vite exited (port ${WEB_PORT} busy?)`);
     try { if ((await fetch(`${WEB_ORIGIN}/`)).ok) break; } catch { /* starting */ }
     if (i > 100) throw new Error('vite did not start');
     await new Promise((r) => setTimeout(r, 300));

@@ -1,0 +1,207 @@
+/**
+ * Acceptance H — device revocation: future access rejected, honest offline limits.
+ *
+ * Real stack: Rails API + Postgres (lib/stack.ts), the web app in real
+ * Chromium (device B), and a real Node client (device A: desktop vault module
+ * + SyncEngine + SDK, tests/sync-e2e/client-worker.ts). Device B has its OWN
+ * passkey, added to the account through the real step-up + add-passkey API.
+ *
+ * What a user expects from "Revoke device B":
+ *   1. B's existing session stops working on every server route.       (passes)
+ *   2. B's browser notices on its next server call and says so:
+ *      account call (Security Center)                                    (passes)
+ *      sync pull                                               (DEFECT-H3, todo)
+ *   3. Data B already holds offline stays readable there (stated in UI). (passes)
+ *   4. Only B is cut off: A keeps working.                    (DEFECT-H1, todo)
+ *   5. B cannot simply sign in again with its passkey and pull
+ *      items created after the revocation.                     (DEFECT-H2, todo)
+ * DEFECT tests are written as the correct expectation and marked todo;
+ * ACCEPTANCE_STRICT=1 turns them into failures.
+ *
+ * Run: npx tsx --test --test-concurrency=1 tests/acceptance/device-revocation.e2e.test.ts
+ */
+import { after, before, test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import { logDir, startApi, startWeb, type RunningApi } from './lib/stack.ts';
+import { apiStatus, freshDevice, restoreViaUi, signInViaUi, storedToken, tokenDigest, unlockViaUi, LS_VAULT_KEYS, LS_VAULT_ROWS } from './lib/browser.ts';
+import { AccountSession } from './lib/account.ts';
+import { SoftwareAuthenticator } from '../sync-e2e/software-authenticator.ts';
+import { Client } from '../sync-e2e/helpers.ts';
+
+const API_PORT = Number(process.env.ACCEPT_H_API_PORT ?? 3253);
+const WEB_PORT = Number(process.env.ACCEPT_H_WEB_PORT ?? 5365);
+const WEB = `http://localhost:${WEB_PORT}`;
+const DB = 'vault_h_a15_e2eauth';
+const PASS = 'acceptance H passphrase 1';
+const EMAIL = `h-revoke-${Date.now()}@example.test`;
+const defect = (id: string) => (process.env.ACCEPTANCE_STRICT ? undefined : id);
+const id = (s: string) => `item_${s.padEnd(32, '0')}`;
+const ITEMS = { one: { id: id('h01'), title: 'H-BEFORE-REVOKE-1' }, two: { id: id('h02'), title: 'H-BEFORE-REVOKE-2' }, after: { id: id('h03'), title: 'H-CREATED-AFTER-REVOKE' } };
+
+let api: RunningApi;
+let web: { stop(): Promise<void> };
+let browser: Browser;
+let A: Client;
+let PA: SoftwareAuthenticator;
+let PB: SoftwareAuthenticator;
+let backup = '';
+let B: { ctx: BrowserContext; page: Page };
+let bToken = '';
+let aToken = '';
+const dir = mkdtempSync(path.join(tmpdir(), 'accept-h-'));
+
+const sessionDevice = (raw: string) => api.psql(`SELECT device_id FROM sessions WHERE token_digest='${tokenDigest(raw)}'`);
+const aStoredToken = async () => (await A.call<Record<string, string>>('rawStorage'))['sync-e2e.token'];
+
+before(async () => {
+  api = await startApi({ port: API_PORT, db: DB, webOrigin: WEB });
+  web = await startWeb(WEB_PORT);
+  browser = await chromium.launch();
+  A = new Client('A', path.join(dir, 'a.json')).start({ API_BASE: api.apiBase, WEBAUTHN_ORIGIN: WEB, WEBAUTHN_RP_ID: 'localhost' });
+});
+after(async () => {
+  await B?.ctx.close().catch(() => undefined);
+  await browser?.close();
+  await A?.kill();
+  await web?.stop();
+  await api?.stop();
+});
+
+test('setup: device A registers, creates the vault and syncs; the account gets a second passkey for device B (real step-up + add-passkey)', async () => {
+  PA = SoftwareAuthenticator.create(WEB, 'localhost');
+  PB = SoftwareAuthenticator.create(WEB, 'localhost');
+  assert.equal((await A.call('register', { email: EMAIL, authenticator: PA.exportCredential() })).signedIn, true);
+  await A.call('createVault', { passphrase: PASS });
+  backup = await A.call<string>('exportBackup');
+  assert.equal(await A.call('unlock', { passphrase: PASS }), true);
+  await A.call('startSync');
+  for (const it of [ITEMS.one, ITEMS.two]) await A.call('createItem', { id: it.id, title: it.title, fields: { username: 'h', password: `${it.title}-pw` } });
+  assert.equal((await A.call('syncNow')).state, 'idle');
+  aToken = await aStoredToken();
+
+  const admin = await AccountSession.signIn(api.apiBase, EMAIL, PA);
+  await admin.addPasskey(PA, PB);
+  assert.equal(api.psql(`SELECT count(*) FROM authenticators WHERE revoked_at IS NULL`), '2');
+});
+
+test('device B (real Chromium) signs in with its own passkey, restores the backup, unlocks and pulls A\'s items', async () => {
+  const d = await freshDevice(browser, api.apiBase);
+  B = d;
+  await d.auth.importSoftware(PB.exportCredential());
+  await d.page.goto(WEB);
+  await signInViaUi(d.page, EMAIL);
+  await d.page.getByText('Create your local vault').waitFor();
+  await restoreViaUi(d.page, backup, { passphrase: PASS });
+  await unlockViaUi(d.page, PASS);
+  for (const it of [ITEMS.one, ITEMS.two]) await d.page.getByText(it.title).first().waitFor({ timeout: 30_000 });
+  await d.page.getByTestId('sync-status').and(d.page.locator('[data-state="idle"]')).waitFor();
+  bToken = (await storedToken(d.page))!;
+  assert.match(bToken, /^sess_[0-9a-f]{64}$/);
+  assert.equal(await apiStatus(api.apiBase, bToken, 'GET', '/v1/vaults'), 200);
+});
+
+test('B\'s session is bound to a device record of its own, not to A\'s device', { todo: defect('DEFECT-H1: Authentication::Passkeys.verify binds every sign-in to user.devices.active.first (apps/api/app/domains/authentication/passkeys.rb:195), whichever passkey was used') }, () => {
+  assert.notEqual(sessionDevice(bToken), sessionDevice(aToken), 'A and B sessions point at the same device row');
+});
+
+let revokedDeviceId = '';
+test('revoking B\'s device: B\'s token is refused on every route (sync pull/push, vaults, devices, sessions, blobs)', async () => {
+  revokedDeviceId = sessionDevice(bToken);
+  assert.ok(revokedDeviceId, 'B\'s session has a device');
+  const admin = await AccountSession.signIn(api.apiBase, EMAIL, PA);
+  await admin.client().revokeDevice(revokedDeviceId);
+  assert.ok(api.psql(`SELECT revoked_at FROM devices WHERE id='${revokedDeviceId}'`), 'device marked revoked');
+  const vaultId = api.psql('SELECT id FROM vaults LIMIT 1');
+  const routes: Array<[string, string, unknown?]> = [
+    ['GET', '/v1/vaults'],
+    ['GET', `/v1/vaults/${vaultId}/sync`],
+    ['POST', `/v1/vaults/${vaultId}/sync/push`, { item_id: '00000000-0000-4000-8000-000000000001', base_revision: 0, operation: 'upsert', encrypted_payload: 'AAAA', encrypted_item_key: 'AAAA', encryption_version: 1 }],
+    ['GET', `/v1/vaults/${vaultId}/key-envelopes`],
+    ['GET', '/v1/devices'],
+    ['GET', '/v1/auth/sessions'],
+    ['POST', '/v1/blobs/upload-session', { vault_id: vaultId, blob_id: crypto.randomUUID(), part_count: 1, ciphertext_size: 32, encrypted_manifest: 'AAAA' }],
+  ];
+  for (const [method, route, body] of routes) {
+    assert.equal(await apiStatus(api.apiBase, bToken, method, route, body), 401, `${method} ${route} with the revoked device's token`);
+  }
+  assert.equal(api.psql(`SELECT count(*) FROM key_envelopes WHERE recipient_id='${revokedDeviceId}'`), '0');
+});
+
+test('B\'s next SYNC call after the revocation sends it back to sign-in', { todo: defect('DEFECT-H3: a 401 on sync PULL surfaces as a raw sync error ("API 401 ...") and never signs out; only a PUSH 401 matches the /unauthorized \\(401\\)/ check (apps/desktop/src/sync/engine.ts:431; pull errors are pushed as raw messages at packages/sync/src/sync-client.ts:228)') }, async () => {
+  const p = B.page;
+  await p.getByRole('button', { name: 'Sync now' }).click();
+  const outcome = await Promise.race([
+    p.getByRole('heading', { name: 'Sign in to your account' }).waitFor({ timeout: 15_000 }).then(() => 'sign-in'),
+    p.getByTestId('sync-error').waitFor({ timeout: 15_000 }).then(async () => `sync error: ${await p.getByTestId('sync-error').textContent()}`),
+  ]);
+  assert.equal(outcome, 'sign-in');
+});
+
+test('B\'s browser returns to sign-in on its next account call ("session expired"); the encrypted vault stays on the device', async () => {
+  const p = B.page;
+  if (!(await p.getByRole('heading', { name: 'Sign in to your account' }).isVisible())) {
+    await p.getByRole('button', { name: /Security Center/ }).first().click();
+  }
+  await p.getByRole('heading', { name: 'Sign in to your account' }).waitFor({ timeout: 30_000 });
+  await p.getByText('Your session expired').waitFor();
+  assert.equal(await storedToken(p), null, 'token cleared');
+  const offline = await p.evaluate(([k, r]) => ({ keys: localStorage.getItem(k), rows: localStorage.getItem(r) }), [LS_VAULT_KEYS, LS_VAULT_ROWS]);
+  assert.ok(offline.keys && offline.rows, 'revocation is not a remote wipe: the encrypted vault is still on B');
+});
+
+test('"Continue without signing in" right after the session-expired bounce opens the local vault', { todo: defect('DEFECT-H4: the bounce happened in the Security Center view; continuing local-only re-mounts SecurityCenter, its next call 401s, handleUnauthorized resets localOnlyBypass (apps/desktop/src/App.tsx:263-270, :1125) — the user is thrown back to sign-in until a reload') }, async () => {
+  const p = B.page;
+  await p.getByRole('button', { name: /Continue without signing in/ }).click();
+  await p.getByRole('button', { name: /Lock vault/ }).waitFor({ timeout: 8_000 }).catch(() => undefined);
+  await p.waitForTimeout(3_000); // the bounce comes from the remounted Security Center's own request
+  await p.screenshot({ path: path.join(logDir, 'h-b-continue-local-only.png') });
+  assert.equal(await p.getByRole('heading', { name: 'Sign in to your account' }).isVisible(), false, 'thrown back to the sign-in gate after "Continue without signing in"');
+  assert.equal(await p.getByRole('button', { name: /Lock vault/ }).isVisible(), true, 'local vault shell not reachable');
+});
+
+test('honest offline limit: after a reload the revoked browser still opens and reads its local vault with no session', async () => {
+  const p = B.page;
+  await p.reload();
+  await p.getByRole('heading', { name: 'Sign in to your account' }).waitFor();
+  await p.getByRole('button', { name: /Continue without signing in/ }).click();
+  await unlockViaUi(p, PASS);
+  for (const it of [ITEMS.one, ITEMS.two]) await p.getByText(it.title).first().waitFor();
+  assert.equal(await storedToken(p), null, 'read entirely offline, no session');
+});
+
+test('only B is cut off: A\'s session keeps working after B\'s device is revoked', { todo: defect('DEFECT-H1 consequence: B\'s session shares A\'s device row, so revoking "B" also kills A (and every other session on the account)') }, async () => {
+  assert.equal(await apiStatus(api.apiBase, aToken, 'GET', '/v1/vaults'), 200);
+});
+
+test('the revoked device cannot sign in again with its passkey and read items created after the revocation', { todo: defect('DEFECT-H2: revocation is not durable — the revoked browser signs in with the same passkey, gets a fresh session on a newly auto-enrolled device and pulls new items') }, async () => {
+  // A continues (signing in again if its session died with B's device) and creates a new item.
+  const si = await A.call('signIn', { email: EMAIL, authenticator: PA.exportCredential() });
+  PA = SoftwareAuthenticator.importCredential(si.authenticator, WEB, 'localhost');
+  await A.call('lock');
+  assert.equal(await A.call('unlock', { passphrase: PASS }), true);
+  await A.call('startSync');
+  await A.call('createItem', { id: ITEMS.after.id, title: ITEMS.after.title, fields: { password: 'after-revoke' } });
+  assert.equal((await A.call('syncNow')).state, 'idle');
+
+  const p = B.page;
+  await p.evaluate(() => localStorage.removeItem('my-secrect:api-token'));
+  await p.reload();
+  await p.getByRole('heading', { name: 'Sign in to your account' }).waitFor();
+  await signInViaUi(p, EMAIL);
+  const outcome = await Promise.race([
+    p.getByText(/Sign-in failed|not allowed|revoked/i).first().waitFor({ timeout: 20_000 }).then(() => 'refused' as const),
+    p.getByText('Your vault is locked').waitFor({ timeout: 20_000 }).then(() => 'signed-in' as const),
+  ]).catch(() => 'unknown' as const);
+  if (outcome === 'signed-in') {
+    const token = await storedToken(p);
+    const status = await apiStatus(api.apiBase, token, 'GET', '/v1/vaults');
+    await unlockViaUi(p, PASS);
+    const sawNewItem = await p.getByText(ITEMS.after.title).first().waitFor({ timeout: 15_000 }).then(() => true, () => false);
+    assert.fail(`revoked device B signed in again (GET /v1/vaults -> ${status}) and ${sawNewItem ? 'pulled' : 'could pull'} "${ITEMS.after.title}", created after the revocation`);
+  }
+  assert.equal(outcome, 'refused');
+});
