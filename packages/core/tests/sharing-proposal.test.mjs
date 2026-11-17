@@ -1,6 +1,8 @@
 // Imports the real packages/core/src/sharing.ts module.
 // This is not a mirrored copy of the rules.
-// Run: node --experimental-strip-types --test tests/security/sharing-proposal.test.mjs
+// Kept outside tests/security/ because CI runs plain `node --test tests/security/`
+// on Node 20, which cannot import TypeScript.
+// Run: node --experimental-strip-types --test packages/core/tests/sharing-proposal.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -9,7 +11,7 @@ import {
   recordPendingProposal,
   validateShareForActivation,
   validateShareProposal,
-} from '../../packages/core/src/sharing.ts';
+} from '../src/sharing.ts';
 
 const meta = { id: 'share_test', owner_id: 'owner_1', created_at: '2026-11-17T00:00:00.000Z' };
 
@@ -33,7 +35,7 @@ test('a proposal without encrypted_key is recorded as pending', () => {
   assert.equal(canWrite(share), false);
 });
 
-test('activation is rejected because no verified wrap exists', () => {
+test('a forged active share is not readable or writable, and activation is rejected', () => {
   const recorded = recordPendingProposal({
     vault_id: 'vault_1',
     recipient_id: 'recipient_1',
@@ -42,7 +44,8 @@ test('activation is rejected because no verified wrap exists', () => {
     encrypted_key: 'opaque-unverified-blob',
   }, meta);
   assert.equal(recorded.status, 'pending');
-  assert.equal(recorded.key_envelope_id, '');
+  assert.equal(canRead(recorded), false);
+  assert.equal(canWrite(recorded), false);
 
   const pendingError = validateShareForActivation(recorded);
   assert.equal(typeof pendingError, 'string');
@@ -52,10 +55,12 @@ test('activation is rejected because no verified wrap exists', () => {
   const activeError = validateShareForActivation(claimedActive);
   assert.equal(typeof activeError, 'string');
   assert.match(activeError, /no verified key wrap exists/);
+  assert.equal(canRead(claimedActive), false);
+  assert.equal(canWrite(claimedActive), false);
 
-  assert.equal(canRead(claimedActive), true);
-  assert.equal(canWrite(claimedActive), true);
-  assert.equal(canWrite({ ...claimedActive, permission: 'read' }), false);
+  const claimedRead = { ...claimedActive, permission: 'read' };
+  assert.equal(canRead(claimedRead), false);
+  assert.equal(canWrite(claimedRead), false);
 });
 
 test('an invalid proposal is rejected and the error is surfaced', () => {

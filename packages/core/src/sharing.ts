@@ -105,10 +105,14 @@ export function validateShareForActivation(share: VaultShare): string | null {
 }
 
 export function canRead(share: VaultShare): boolean {
+  // No verified wrap exists, so validateShareForActivation always rejects.
+  // A forged status of 'active' must not grant access.
+  if (validateShareForActivation(share) !== null) return false;
   return share.status === 'active' && (share.permission === 'read' || share.permission === 'write');
 }
 
 export function canWrite(share: VaultShare): boolean {
+  if (validateShareForActivation(share) !== null) return false;
   return share.status === 'active' && share.permission === 'write';
 }
 
