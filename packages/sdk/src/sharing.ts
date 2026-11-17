@@ -15,6 +15,8 @@ import type { VaultItem } from '../../core/src/types';
 import { toBase64 } from '../../crypto-adapters/src/index';
 import {
   IdentityError,
+  KeyChangedError,
+  KeyNotVerifiedError,
   PinStore,
   ShareCryptoError,
   decryptIdentity,
@@ -206,6 +208,34 @@ export function shareActions(share: ShareSummary): { canAccept: boolean; canOpen
     canEdit: live && (owner || (share.status === 'active' && share.permission === 'write')),
     canRevoke: share.status !== 'revoked',
   };
+}
+
+export type ShareErrorKind =
+  | 'not_verified' | 'key_changed' | 'crypto' | 'identity'
+  | 'revoked' | 'expired' | 'not_active' | 'read_only' | 'conflict' | 'unauthorized' | 'other';
+
+const API_ERROR_KINDS: Record<string, ShareErrorKind> = {
+  share_revoked: 'revoked',
+  share_expired: 'expired',
+  share_not_active: 'not_active',
+  write_not_permitted: 'read_only',
+  revision_conflict: 'conflict',
+};
+
+/** Map any sharing failure to a kind the UIs translate. `detail` is safe to
+ *  show (error codes / messages, never key material). */
+export function classifyShareError(e: unknown): { kind: ShareErrorKind; detail: string } {
+  if (e instanceof KeyNotVerifiedError) return { kind: 'not_verified', detail: e.message };
+  if (e instanceof KeyChangedError) return { kind: 'key_changed', detail: e.message };
+  if (e instanceof ShareCryptoError) return { kind: 'crypto', detail: e.message };
+  if (e instanceof IdentityError) return { kind: 'identity', detail: e.message };
+  if (e instanceof ApiError) {
+    if (e.status === 401) return { kind: 'unauthorized', detail: '401' };
+    const code = /"error":"([a-z_]+)"/.exec(e.message)?.[1];
+    const kind = code ? API_ERROR_KINDS[code] : undefined;
+    return { kind: kind ?? 'other', detail: code ? `${e.status} ${code}` : String(e.status) };
+  }
+  return { kind: 'other', detail: e instanceof Error ? e.message : String(e) };
 }
 
 /** The other party of a share, seen from `share.role`. */
