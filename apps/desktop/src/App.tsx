@@ -59,6 +59,7 @@ import {
   getValidTokenSync,
   webTokenStore,
 } from '../../../packages/sdk/src/security';
+import { RestoreBackup, RestoreSuccess } from './components/RestoreBackup';
 import { I18nProvider } from '../../../packages/i18n/src/react';
 import { detectLocale } from '../../../packages/i18n/src/index';
 
@@ -165,6 +166,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
   // Onboarding (only when no vault exists yet):
   // 0 create passphrase, 1 show recovery key once, 2 done.
   const [onboardingStep, setOnboardingStep] = useState(0);
+  const [restoreUi, setRestoreUi] = useState<null | { count: number | null }>(null);
   const [newPass, setNewPass] = useState('');
   const [newPassConfirm, setNewPassConfirm] = useState('');
   const [recoveryKey, setRecoveryKey] = useState('');
@@ -848,6 +850,9 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
           <p className="mt-1 text-sm text-zinc-400">
             Create your local vault. Everything is encrypted on this device.
           </p>
+          {restoreUi && restoreUi.count === null && <RestoreBackup onRestored={(count) => setRestoreUi({ count })} onCancel={() => setRestoreUi(null)} />}
+          {restoreUi && restoreUi.count !== null && <RestoreSuccess itemCount={restoreUi.count} onContinue={() => { setRestoreUi(null); setVaultExists(true); }} />}
+          {!restoreUi && (<>
           <div className="mt-4 flex gap-2 text-xs">
             {['Create passphrase', 'Save recovery key', 'Done'].map((label, i) => (
               <span
@@ -877,6 +882,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
               </div>
               {onboardingError && <p className="text-sm text-red-400">{onboardingError}</p>}
               <button className="btn-primary w-full" onClick={() => void handleCreateVault()}>Create vault</button>
+              <button className="btn-ghost w-full" onClick={() => setRestoreUi({ count: null })}>Restore from backup</button>
             </div>
           )}
 
@@ -918,6 +924,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
               </button>
             </div>
           )}
+          </>)}
           <p className="mt-4 text-xs text-zinc-500">
             Prototype: Argon2id + XChaCha20-Poly1305 via libsodium. Not audited — do not treat as production-ready.
           </p>
