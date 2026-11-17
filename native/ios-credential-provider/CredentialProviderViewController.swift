@@ -8,9 +8,10 @@ import UIKit
 /// code has never run. What is real: the class shape, the system callbacks,
 /// the domain-matched identity list (via `VaultStore` + `DomainMatching`),
 /// and the picker UI. What is not: `VaultStore.credential(for:)` — the
-/// actual decryption — which calls `fatalError("not implemented")` on
-/// purpose. It must never be "fixed" by returning a fake credential or by
-/// writing plaintext to the Keychain. See README.md for what remains.
+/// actual decryption — which throws `VaultStoreError.notImplemented`.
+/// Quick fill and interactive fill cancel that request. It must never be
+/// "fixed" by returning a fake credential or by writing plaintext to the
+/// Keychain. See README.md for what remains.
 ///
 /// Security rules enforced here (same as the extension, `domain.ts`):
 /// - Only identities whose host matches the requested domain are offered.
@@ -56,13 +57,28 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     }
 
     private func provideCredential(for identity: ASPasswordCredentialIdentity) {
-        // NOT IMPLEMENTED: decrypts nothing yet — VaultStore.credential
-        // calls fatalError("not implemented") until the unlock handoff
-        // from the main app exists. Deliberate: a silent failure here
-        // would look like "wrong password"; a crash log says exactly what
-        // is missing.
-        let credential = VaultStore.shared.credential(for: identity)
-        extensionContext.completeRequest(withSelectedCredential: credential, completionHandler: nil)
+        // Decryption is not implemented. `credential(for:)` throws
+        // `.notImplemented`; cancel so quick fill and interactive fill
+        // fail closed. Never complete with an empty or fabricated credential.
+        do {
+            let credential = try VaultStore.shared.credential(for: identity)
+            extensionContext.completeRequest(withSelectedCredential: credential, completionHandler: nil)
+        } catch {
+            let message: String
+            if let vaultError = error as? VaultStoreError {
+                switch vaultError {
+                case .notImplemented(let detail), .storeUnavailable(let detail), .corruptStore(let detail):
+                    message = detail
+                }
+            } else {
+                message = "my-secrect could not provide this credential."
+            }
+            extensionContext.cancelRequest(withError: NSError(
+                domain: ASExtensionErrorDomain,
+                code: ASExtensionError.credentialIdentityNotFound.rawValue,
+                userInfo: [NSLocalizedDescriptionKey: message]
+            ))
+        }
     }
 
     // MARK: - Extension configuration (Settings → Passwords → AutoFill)
