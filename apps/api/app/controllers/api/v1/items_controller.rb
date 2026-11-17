@@ -3,9 +3,9 @@ module Api
     # Encrypted items only. Every response field is ciphertext / opaque id.
     # The server never returns (or stores) a title, tag, type or relation.
     #
-    # update/destroy go through Sync::Push so sequence assignment takes the
-    # same per-vault row lock as POST sync/push. Ciphertext rules are
-    # unchanged; a stale base_revision is still 409.
+    # update/destroy go through Sync::Push: same input validation, revision
+    # rules and per-vault sequence allocation as POST sync/push. A stale
+    # base_revision is 409.
     class ItemsController < ApplicationController
       # GET /v1/vaults/:vault_id/items/:id
       def show

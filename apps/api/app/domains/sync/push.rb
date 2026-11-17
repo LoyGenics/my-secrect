@@ -6,14 +6,11 @@ module Sync
     end
     UUID_FORMAT = /\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
     module_function
-    # Phase C fix — sync sequence race: Upsert/Delete assign the next
-    # sequence as (max(sequence) + 1). Under concurrent pushes two writers
-    # could read the same max and collide on the unique (vault_id,
-    # sequence) index. The whole push is therefore serialised per vault
-    # with `vault.with_lock` (SELECT ... FOR UPDATE on the vault row),
-    # so max+1 is computed under the lock. As belt-and-braces, a unique-
-    # violation from any writer that bypassed this path (e.g. direct
-    # item upserts) is retried once instead of surfacing a 500.
+    # Sequence allocation: EncryptedRecords::Upsert / ::Delete lock the
+    # vault row before touching the item and EncryptedRecords::AppendEvent
+    # allocates max(sequence) + 1 under that lock, so pushes to one vault
+    # are serialised and sequences are unique and gap-free whoever calls
+    # them (see spec/domains/sync_sequence_concurrency_spec.rb).
     # The server still NEVER decrypts, merges, or last-write-wins:
     # a stale base_revision raises RevisionConflict (409) and the
     # client resolves it after decryption (see packages/sync).
@@ -44,23 +41,14 @@ module Sync
         encrypted_payload = decode_ciphertext(encrypted_payload, 'encrypted_payload')
         encrypted_item_key = decode_ciphertext(encrypted_item_key, 'encrypted_item_key')
       end
-      attempts = 0
-      begin
-        vault.with_lock do
-          if operation.to_s == 'delete'
-            EncryptedRecords::Delete.call(vault: vault, item_id: item_id, base_revision: base_revision, device: device, signature: signature_bytes)
-          else
-            EncryptedRecords::Upsert.call(
-              vault: vault, item_id: item_id, base_revision: base_revision,
-              encrypted_payload: encrypted_payload, encrypted_item_key: encrypted_item_key,
-              encryption_version: encryption_version, device: device, signature: signature_bytes
-            )
-          end
-        end
-      rescue ActiveRecord::RecordNotUnique
-        attempts += 1
-        retry if attempts < 2
-        raise
+      if operation.to_s == 'delete'
+        EncryptedRecords::Delete.call(vault: vault, item_id: item_id, base_revision: base_revision, device: device, signature: signature_bytes)
+      else
+        EncryptedRecords::Upsert.call(
+          vault: vault, item_id: item_id, base_revision: base_revision,
+          encrypted_payload: encrypted_payload, encrypted_item_key: encrypted_item_key,
+          encryption_version: encryption_version, device: device, signature: signature_bytes
+        )
       end
     rescue EncryptedRecords::Upsert::RevisionConflict => e
       raise RevisionConflict, e.current_revision

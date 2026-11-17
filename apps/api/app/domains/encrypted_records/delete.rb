@@ -9,6 +9,7 @@ module EncryptedRecords
     # opaque bytes and is not authenticated.
     def call(vault:, item_id:, base_revision:, device: nil, signature: nil)
       vault.transaction do
+        vault.lock! # lock order: vault, then item (see AppendEvent)
         item = vault.items.lock.find(item_id)
         supplied = base_revision.presence
         if supplied.nil? || item.current_revision != supplied.to_i
@@ -17,9 +18,8 @@ module EncryptedRecords
         item.current_revision += 1
         item.deleted_at = Time.current
         item.save!
-        seq = (vault.sync_events.maximum(:sequence) || 0) + 1
-        vault.sync_events.create!(sequence: seq, item_id: item.id, revision: item.current_revision, operation: 'delete', device: device, signature: signature)
-        { item_id: item.id, revision: item.current_revision, sequence: seq, deleted_at: item.deleted_at }
+        event = AppendEvent.call(vault: vault, item: item, operation: 'delete', device: device, signature: signature)
+        { item_id: item.id, revision: item.current_revision, sequence: event.sequence, deleted_at: item.deleted_at }
       end
     end
   end
