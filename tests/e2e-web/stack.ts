@@ -7,8 +7,10 @@
  *  - RAILS_ENV=test is used for the API process. Its only relevant effect is
  *    that Rack::Attack throttles are disabled (a full spec run drives far
  *    more than 10 passkey calls/min from one IP). Throttling is NOT covered
- *    by these specs. Authentication, WebAuthn verification, sessions and
- *    step-up are the production code paths.
+ *    by these specs; it is covered by apps/api/spec/requests/api/v1/
+ *    rate_limiting_spec.rb (real Rack::Attack middleware). Authentication,
+ *    WebAuthn verification, sessions and step-up are the production code
+ *    paths.
  *  - S3_* point at a placeholder (127.0.0.1:9, the discard port). Auth specs
  *    never touch blobs; any blob call would fail loudly.
  *  - The database is DROPPED and recreated on every startStack(); the name

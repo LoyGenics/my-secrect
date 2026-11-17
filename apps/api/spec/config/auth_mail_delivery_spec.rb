@@ -59,7 +59,14 @@ RSpec.describe 'Sign-up mail delivery configuration' do
       expect(output).not_to include('BOOTED')
     end
 
-    it 'starts with SMTP settings' do
+    it 'refuses to start without REDIS_URL (rate-limit counters must be shared)' do
+      output, status = boot_production(smtp_env.merge('REDIS_URL' => nil))
+      expect(status).not_to be_success
+      expect(output).to include('production requires REDIS_URL for rate limiting')
+      expect(output).not_to include('BOOTED')
+    end
+
+    it 'starts with SMTP settings and REDIS_URL' do
       output, status = boot_production(smtp_env)
       expect(output).to include('BOOTED')
       expect(status).to be_success
