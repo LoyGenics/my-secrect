@@ -35,6 +35,11 @@ import { serializeCreateCredential, toCreationOptions } from '../utils/webauthn'
  *       recovery key + all devices is permanent loss — no reset.
  *   (d) Security activity — the server's event list, shown as-is.
  *       Nothing is ever invented here; an empty list renders empty.
+ *   (e) Delete account — DELETE /v1/auth/account via guarded(), so a
+ *       403 step_up_required re-prompts through the existing step-up
+ *       dialog and the delete does not proceed. The security
+ *       dictionary has no slot for this action, so its labels are
+ *       plain English (same exception as the WebAuthn note).
  *
  * Account auth is SEPARATE from vault unlock: signing in does not
  * unlock the vault, and the server never sees vault keys or contents.
@@ -153,6 +158,12 @@ export default function SecurityCenter({
   const [recoveryBusy, setRecoveryBusy] = useState(false);
   const [recoveryError, setRecoveryError] = useState('');
   const [recoveryMessage, setRecoveryMessage] = useState('');
+
+  // (e) account deletion — server account only; the local vault stays.
+  const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false);
+  const [deleteAccountBusy, setDeleteAccountBusy] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState('');
+  const [deleteAccountMessage, setDeleteAccountMessage] = useState('');
 
   const fmtDate = (iso: string | null | undefined): string => {
     if (!iso) return '—';
@@ -479,6 +490,34 @@ export default function SecurityCenter({
       setRecoveryKeyInput('');
       setRecoveryBusy(false);
     }
+  };
+
+  // --- (e) Delete account ------------------------------------------------------
+  const handleDeleteAccount = async () => {
+    if (!security) return;
+    setConfirmDeleteAccount(false);
+    setDeleteAccountError('');
+    setDeleteAccountMessage('');
+    setDeleteAccountBusy(true);
+    await guarded(
+      async () => { await security.deleteAccount(); },
+      setDeleteAccountError,
+      () => {
+        try {
+          localStorage.removeItem(LS_API_TOKEN);
+        } catch {
+          // The server session is already gone; a storage failure does not keep it alive.
+        }
+        setPasskeys([]);
+        setSessions([]);
+        setDevices([]);
+        setActivity([]);
+        setDeleteAccountMessage(
+          'Server account deleted. That account’s sessions no longer work. The local vault on this device was not erased.',
+        );
+      },
+    );
+    setDeleteAccountBusy(false);
   };
 
   return (
@@ -931,6 +970,53 @@ export default function SecurityCenter({
                 ))}
               </ul>
             )}
+          </section>
+
+          {/* (e) Delete account. Dictionary has no keys for this action. */}
+          <section className="card p-5" aria-labelledby="security-delete-account-heading">
+            <h3 id="security-delete-account-heading" className="text-base font-semibold">
+              Delete account
+            </h3>
+            <p className="mt-1 text-sm text-zinc-400">
+              Permanently deletes this server account, its sessions, and its vault metadata.
+              The local vault on this device is not erased. The server requires a fresh verification.
+            </p>
+            <div className="mt-3">
+              {confirmDeleteAccount ? (
+                <span className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm text-zinc-300">
+                    Delete this server account permanently?
+                  </span>
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    disabled={deleteAccountBusy}
+                    onClick={() => setConfirmDeleteAccount(false)}
+                  >
+                    {s.cancel}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-danger"
+                    disabled={deleteAccountBusy || !security}
+                    onClick={() => void handleDeleteAccount()}
+                  >
+                    {s.confirm}
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="btn-danger"
+                  disabled={deleteAccountBusy || !security}
+                  onClick={() => setConfirmDeleteAccount(true)}
+                >
+                  Delete account
+                </button>
+              )}
+            </div>
+            {deleteAccountError && <p role="alert" className="mt-2 text-sm text-red-400">{deleteAccountError}</p>}
+            {deleteAccountMessage && <p role="status" className="mt-2 text-sm text-emerald-400">{deleteAccountMessage}</p>}
           </section>
         </>
       )}
