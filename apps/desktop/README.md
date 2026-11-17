@@ -12,9 +12,18 @@ npm run build    # tsc + vite build
 npm run preview  # preview the production build
 ```
 
-Tauri shell lives in `src-tauri/`; `npm run dev` above runs the web UI only.
-The desktop binary path (`tauri dev` / `tauri build`) is wired through
-`@tauri-apps/cli` in `package.json`.
+Tauri shell lives in `src-tauri/`; `npm run dev` above runs the web UI only
+(localStorage storage). The desktop app (SQLCipher storage) is built with
+`@tauri-apps/cli`:
+
+```bash
+cd apps/desktop
+npx tauri build --debug --bundles app   # src-tauri/target/debug/bundle/macos/my-secrect.app
+npx tauri dev                           # dev server inside the Tauri window
+npx tsx --test storage-backend.test.ts  # storage selection + migration tests
+```
+
+Details, tests and platform status: `src-tauri/README.md`.
 
 ## What works locally
 
@@ -44,8 +53,17 @@ The desktop binary path (`tauri dev` / `tauri build`) is wired through
 
 - **Crypto is the libsodium reference adapter (Argon2id + XChaCha20-Poly1305).
   It is NOT audited and this app is NOT production-ready.**
-- **Storage is a localStorage prototype**, structured so it can be replaced
-  by SQLCipher (encrypted SQLite) via Tauri. It is not a hardened store.
+- **Storage depends on where the app runs** (`src/storage/`, chosen by
+  `selectStorageBackend()` in `vault.ts`):
+  - **Tauri desktop app:** SQLCipher database in the app-data folder; its
+    random 256-bit key is kept in the OS credential store (macOS Keychain;
+    Windows/Linux unverified). Writes made together are committed in one
+    transaction. If the store or key is unavailable the app stops with an
+    error; it never falls back to localStorage. An existing localStorage
+    vault is moved in once (copy → verify → delete).
+  - **Browser / web client (`npm run dev`, `apps/web`):** localStorage, as
+    before. Values are ciphertext + wrapped keys, but item counts and sizes
+    are visible and writes are not transactional.
 - **Recovery key: shown once, never stored readable.** `createVault` returns
   a 32-byte base64url recovery key; only its SHA-256-derived KEK's wrapping
   of the master key is stored. Losing both the passphrase and the recovery
@@ -61,6 +79,8 @@ src/
   index.css           Tailwind + dark premium theme (.card/.btn/.input)
   App.tsx             full shell: lock screen, onboarding, views, auto-lock
   vault.ts            encrypted local vault (do not edit casually)
+  storage/            StorageBackend selection: SQLCipher via Tauri, else localStorage;
+                      one-time localStorage -> SQLCipher migration
   components/
     Sidebar.tsx       Vaults / Categories / Tags / Security Health
     SearchPalette.tsx Cmd/Ctrl+K palette, arrows + Enter
