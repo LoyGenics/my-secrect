@@ -83,7 +83,7 @@ async function main() {
   switch (cmd) {
     case 'create-vault': {
       await vault.createVault(args.passphrase);
-      return { backup: vault.exportEncrypted() };
+      return { backup: await vault.exportEncrypted() };
     }
     case 'restore': {
       if (vault.hasVault()) throw new Error('not a fresh device');

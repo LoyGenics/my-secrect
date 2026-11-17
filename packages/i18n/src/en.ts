@@ -325,7 +325,7 @@ export const en = {
     footnote: 'Prototype: Argon2id + XChaCha20-Poly1305 via libsodium. Not audited — do not treat as production-ready.',
   },
   restore: {
-    lede: 'Restore an encrypted backup (format version 2) onto this device. The file never leaves your device and nothing is overwritten.',
+    lede: 'Restore an encrypted backup (format version 3, or 2 from older versions) onto this device. The file never leaves your device and nothing is overwritten.',
     file: 'Backup file',
     credentialType: 'Credential type',
     passphrase: 'Passphrase',
@@ -660,6 +660,7 @@ export const en = {
     newItems: { one: '{0} new item added', other: '{0} new items added' },
     backupImported: 'Backup imported: {0}, {1}. Rows with an older revision than the stored one were skipped. (A file with any row that fails to decrypt is rejected entirely and nothing is written.)',
     importNote: 'Note: {0}',
+    importItemListUnverified: 'Integrity of the imported item list not verifiable — the file was made with an older version, so a removed item cannot be detected.',
     csvImported: { one: 'Imported {0} login from CSV. It is tagged “imported”.', other: 'Imported {0} logins from CSV. They are tagged “imported”.' },
     archived: 'Item archived — find it under Archived.',
     unarchived: 'Item unarchived — back in All Items.',

@@ -72,7 +72,7 @@ test('restore guards: non-empty storage rejected unchanged; flipped wrapped_vaul
   const vault = await import('./src/vault.ts');
   const { recoveryKey } = await vault.createVault(PASSPHRASE);
   await vault.upsertItem(entry);
-  const backup = vault.exportEncrypted();
+  const backup = await vault.exportEncrypted();
   const realKeys = localStorage.getItem(LS_KEYS)!;
   const realRows = localStorage.getItem(LS_KEY)!;
 
@@ -94,11 +94,11 @@ test('restore guards: non-empty storage rejected unchanged; flipped wrapped_vaul
     assert.deepEqual(snapshot(), before);
   }
 
-  // (b) valid v2 file, one wrapped_vault byte flipped.
+  // (b) valid v3 file, one wrapped_vault byte flipped.
   vault.wipeVault();
   assertStorageEmpty();
   const doc = JSON.parse(backup) as { format_version: number; keys: Record<string, string> };
-  assert.equal(doc.format_version, 2);
+  assert.equal(doc.format_version, 3);
   const bad = structuredClone(doc);
   bad.keys.wrapped_vault = flipFirstByte(bad.keys.wrapped_vault);
   assert.notEqual(bad.keys.wrapped_vault, doc.keys.wrapped_vault);

@@ -3,6 +3,7 @@ import { restoreEncrypted, getVaultStats, lockVault } from '../vault';
 import { describeRestoreError } from './restoreErrors';
 import { Alert, Button, EmptyState, Field, Input, SegmentedControl, illustrations } from '../theme';
 import { useTranslation } from '../../../../packages/i18n/src/react';
+import type { ItemListCheck } from '../../../../packages/import-export/src/index';
 
 /**
  * Fresh-device "Restore backup" flow. Mounted on the onboarding screen.
@@ -16,7 +17,7 @@ export function RestoreBackup({
   onRestored,
   onCancel,
 }: {
-  onRestored: (itemCount: number) => void;
+  onRestored: (itemCount: number, itemList: ItemListCheck) => void;
   onCancel: () => void;
 }) {
   const { dict } = useTranslation();
@@ -46,8 +47,9 @@ export function RestoreBackup({
         setError(r.readFailed);
         return;
       }
+      let itemList: ItemListCheck;
       try {
-        await restoreEncrypted(text, mode === 'passphrase' ? { passphrase: secret } : { recoveryKey: secret });
+        itemList = await restoreEncrypted(text, mode === 'passphrase' ? { passphrase: secret } : { recoveryKey: secret });
       } catch (err) {
         setError(describeRestoreError(err).message);
         return;
@@ -55,7 +57,7 @@ export function RestoreBackup({
       const count = getVaultStats().total;
       lockVault(); // require a normal unlock after restore
       setSecret('');
-      onRestored(count);
+      onRestored(count, itemList);
     } finally {
       setBusy(false);
     }
@@ -106,7 +108,7 @@ export function RestoreBackup({
   );
 }
 
-export function RestoreSuccess({ itemCount, onContinue }: { itemCount: number; onContinue: () => void }) {
+export function RestoreSuccess({ itemCount, itemList, onContinue }: { itemCount: number; itemList: ItemListCheck; onContinue: () => void }) {
   const { dict, tp } = useTranslation();
   const r = dict.restore;
   return (
@@ -118,6 +120,11 @@ export function RestoreSuccess({ itemCount, onContinue }: { itemCount: number; o
         primaryAction={{ label: r.continue, icon: 'unlock', onClick: onContinue }}
         className="py-4"
       />
+      {itemList === 'unverifiable-legacy' && (
+        <Alert tone="warning">
+          <span role="alert" data-testid="restore-item-list-unverified">{dict.backup.itemListUnverified}</span>
+        </Alert>
+      )}
     </div>
   );
 }

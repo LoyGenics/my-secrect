@@ -180,15 +180,18 @@ describe('K2: corrupted backup fails safely', () => {
       await expectSafeFailure(t, JSON.stringify(c5), pass, /could not open the backup with this passphrase|nonce/);
     });
 
-    test(`${name}: a backup with one item silently removed is detected`, { todo: defect('DEFECT-K2-omission: backup has no authenticated item list; a dropped item restores "successfully" as N-1 items') }, async () => {
+    // Fixed by the authenticated item index (backup format_version 3); the
+    // apps not integrated yet keep the todo.
+    const omissionTodo = name === 'desktop' ? undefined : defect('DEFECT-K2-omission: backup has no authenticated item list; a dropped item restores "successfully" as N-1 items');
+    test(`${name}: a backup with one item silently removed is detected`, { todo: omissionTodo }, async () => {
       const t = T[name];
       const doc = JSON.parse(backups.desktop!.json) as Doc;
       const dropped = clone(doc); dropped.items.splice(3, 1);
       try {
-        await expectSafeFailure(t, JSON.stringify(dropped), { passphrase: PASS }, /.+/);
+        await expectSafeFailure(t, JSON.stringify(dropped), { passphrase: PASS }, /item list does not match its authenticated index/);
       } finally {
         t.lock();
-        await t.wipe(); // today the restore succeeds: leave a fresh device for the next test
+        await t.wipe(); // if a regression lets it restore, leave a fresh device for the next test
       }
     });
   }

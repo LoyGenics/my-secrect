@@ -28,7 +28,7 @@ import {
 import { computeHealth } from './utils/health';
 import { buildExampleItems, isExampleItem } from './utils/exampleData';
 import { isArchived, getNoteRevisions, appendNoteRevision } from './utils/itemMeta';
-import { parseEncryptedExportText } from '../../../packages/import-export/src/index';
+import { parseEncryptedExportText, type ItemListCheck } from '../../../packages/import-export/src/index';
 import SettingsView, { downloadText, type AutoLockMinutes } from './components/SettingsView';
 import Sidebar, {
   CATEGORIES,
@@ -183,7 +183,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
   // Onboarding (only when no vault exists yet):
   // 0 create passphrase, 1 show recovery key once, 2 done.
   const [onboardingStep, setOnboardingStep] = useState(0);
-  const [restoreUi, setRestoreUi] = useState<null | { count: number | null }>(null);
+  const [restoreUi, setRestoreUi] = useState<null | { count: null } | { count: number; itemList: ItemListCheck }>(null);
   const [newPass, setNewPass] = useState('');
   const [newPassConfirm, setNewPassConfirm] = useState('');
   const [recoveryKey, setRecoveryKey] = useState('');
@@ -598,9 +598,9 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
   // server is configured). This one gate covers every export entry
   // point — the sidebar button and the Settings backup buttons both
   // call handleExport / handleExportPlaintext below.
-  const doExportEncrypted = () => {
+  const doExportEncrypted = async () => {
     try {
-      const blob = new Blob([exportEncrypted()], { type: 'application/json' });
+      const blob = new Blob([await exportEncrypted()], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -614,7 +614,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
   };
 
   const handleExport = () => {
-    requestStepUp(doExportEncrypted, { reason: 'export' });
+    requestStepUp(() => void doExportEncrypted(), { reason: 'export' });
   };
 
   const doExportPlaintext = () => {
@@ -727,12 +727,13 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
       // keeping the higher revision. Any decrypt failure or id mismatch
       // rejects the whole file and nothing is written; only rows with an
       // older revision than the stored one are skipped.
-      await importEncrypted(text);
+      const itemList = await importEncrypted(text);
       refresh();
       const after = listItems(true);
       const newCount = after.filter((i) => !beforeIds.has(i.id)).length;
       setNotice(
         format(dict.notices.backupImported, tp(dict.notices.fileItems, validation.itemCount), tp(dict.notices.newItems, newCount)) +
+          (itemList === 'unverifiable-legacy' ? ` ${dict.notices.importItemListUnverified}` : '') +
           (validation.warnings.length > 0 ? ` ${format(dict.notices.importNote, validation.warnings.join(' '))}` : ''),
       );
     } catch (err) {
@@ -944,8 +945,8 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
         footnote: o.footnote,
         children: (
           <>
-            {restoreUi && restoreUi.count === null && <RestoreBackup onRestored={(count) => setRestoreUi({ count })} onCancel={() => setRestoreUi(null)} />}
-            {restoreUi && restoreUi.count !== null && <RestoreSuccess itemCount={restoreUi.count} onContinue={() => { setRestoreUi(null); setVaultExists(true); }} />}
+            {restoreUi && restoreUi.count === null && <RestoreBackup onRestored={(count, itemList) => setRestoreUi({ count, itemList })} onCancel={() => setRestoreUi(null)} />}
+            {restoreUi && restoreUi.count !== null && <RestoreSuccess itemCount={restoreUi.count} itemList={restoreUi.itemList} onContinue={() => { setRestoreUi(null); setVaultExists(true); }} />}
             {!restoreUi && (
               <>
                 <ol className="ms-steps" aria-label={o.stepsLabel}>
