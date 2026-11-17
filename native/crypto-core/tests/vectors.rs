@@ -11,7 +11,7 @@
 //! The remaining tests are round-trip / tamper / determinism checks.
 //! None of this is an audit. Do not claim otherwise.
 use my_secrect_crypto_core::*;
-use sodiumoxide::crypto::pwhash;
+use sodiumoxide::crypto::pwhash::argon2id13 as pwhash;
 
 #[test]
 fn item_encrypt_decrypt_roundtrip() {
@@ -26,7 +26,8 @@ fn tampered_ciphertext_fails_closed() {
     init().unwrap();
     let key = [0x2au8; 32];
     let mut sealed = encrypt_item(&key, b"vault item json");
-    sealed[sealed.len() - 1] ^= 0xff;
+    let last = sealed.len() - 1;
+    sealed[last] ^= 0xff;
     assert!(decrypt_item(&key, &sealed).is_err());
 }
 
@@ -111,7 +112,7 @@ fn secretstream_file_roundtrip() {
     init().unwrap();
     let key = [0x3cu8; 32];
     let mut enc = EncryptStream::new(&key);
-    let header = enc.header.clone();
+    let header = enc.header;
     let c1 = enc.push(b"chunk one ", false);
     let c2 = enc.push(b"chunk two", true);
     let mut dec = DecryptStream::new(&key, &header).unwrap();

@@ -19,6 +19,9 @@ secrets = [
   'REPLACE_ME',
   'your-.*-here',
   'ci-only-not-a-secret',
+  # RFC 6238 Appendix B published test seed "12345678901234567890" in
+  # base32. A public test vector, not a credential (used by TOTP tests).
+  'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ',
 ]
 # DELIBERATELY NOT allowlisted: the weak default S3_SECRET_KEY 'minio123'
 # in apps/api/app/domains/blobs/storage_provider.rb. If gitleaks flags it,

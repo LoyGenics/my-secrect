@@ -18,7 +18,7 @@
 use hkdf::Hkdf;
 use sha2::Sha256;
 use sodiumoxide::crypto::aead::xchacha20poly1305_ietf as aead;
-use sodiumoxide::crypto::pwhash;
+use sodiumoxide::crypto::pwhash::argon2id13 as pwhash;
 use sodiumoxide::crypto::secretstream::xchacha20poly1305 as stream;
 use sodiumoxide::randombytes;
 use thiserror::Error;
