@@ -357,6 +357,14 @@ export async function applyRemoteEvents(
       continue;
     }
 
+    // A remote revision at or behind the synced base is history already
+    // merged into the lineage, not the other device's offline edit. The
+    // pending local edit is left untouched; nothing is discarded.
+    if (local && event.revision <= local.baseRevision) {
+      result.skipped.push({ item_id: event.item_id, reason: 'stale revision: not newer than local' });
+      continue;
+    }
+
     // Both sides changed since base => conflict, keep BOTH.
     // Same plaintext at a revision that is not newer is the local edit
     // echoed back, not a second version to surface.

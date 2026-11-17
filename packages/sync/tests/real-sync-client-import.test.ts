@@ -258,3 +258,85 @@ test('same plaintext echoed at the local revision is not applied and is not a se
   assert.equal(local.get('item_1').item.title, 'edited on laptop');
   assert.equal(local.get('item_1').revision, 4);
 });
+
+test('remote revision older than the synced base is skipped as history, pending local edit preserved', async () => {
+  const localItem = item('item_1', 'pending local edit', '2026-11-17T03:00:00.000Z');
+  const remoteItem = item('item_1', 'old remote history', '2026-11-17T01:00:00.000Z');
+  const state = { item: localItem, revision: 6, baseRevision: 5 };
+  const local = new Map([['item_1', state]]);
+
+  const result = await applyRemoteEvents(
+    [upsert({ revision: 2, sequence: 2 })],
+    local,
+    async () => remoteItem,
+  );
+
+  assert.deepEqual(result.applied, []);
+  assert.deepEqual(result.conflicts, []);
+  assert.deepEqual(result.rejected, []);
+  assert.deepEqual(result.tombstones, []);
+  assert.equal(result.skipped.length, 1);
+  assert.equal(result.skipped[0].item_id, 'item_1');
+  assert.equal(result.skipped[0].reason, 'stale revision: not newer than local');
+  assert.equal(local.get('item_1'), state);
+  assert.equal(local.get('item_1').item, localItem);
+  assert.equal(local.get('item_1').item.title, 'pending local edit');
+  assert.equal(local.get('item_1').revision, 6);
+  assert.equal(local.get('item_1').baseRevision, 5);
+});
+
+test('remote revision equal to baseRevision with a pending local edit is skipped, not a conflict', async () => {
+  // Existing semantics: remote === base means the remote side is untouched
+  // since the synced base (detectConflict 'none'), and it is not newer than
+  // local, so it is a stale echo. The pending local edit is kept.
+  const localItem = item('item_1', 'pending local edit', '2026-11-17T03:00:00.000Z');
+  const remoteItem = item('item_1', 'synced base version', '2026-11-17T01:00:00.000Z');
+  const state = { item: localItem, revision: 6, baseRevision: 5 };
+  const local = new Map([['item_1', state]]);
+
+  const result = await applyRemoteEvents(
+    [upsert({ revision: 5, sequence: 5 })],
+    local,
+    async () => remoteItem,
+  );
+
+  assert.deepEqual(result.applied, []);
+  assert.deepEqual(result.conflicts, []);
+  assert.deepEqual(result.rejected, []);
+  assert.equal(result.skipped.length, 1);
+  assert.equal(result.skipped[0].reason, 'stale revision: not newer than local');
+  assert.equal(local.get('item_1'), state);
+  assert.equal(local.get('item_1').item, localItem);
+  assert.equal(local.get('item_1').revision, 6);
+  assert.equal(local.get('item_1').baseRevision, 5);
+});
+
+test('base 3 / local 5 / remote 4 is still a conflict and both versions are retained', async () => {
+  const localItem = item('item_1', 'laptop edits', '2026-11-17T03:00:00.000Z');
+  const remoteItem = item('item_1', 'phone edit', '2026-11-17T02:00:00.000Z');
+  const state = { item: localItem, revision: 5, baseRevision: 3 };
+  const local = new Map([['item_1', state]]);
+
+  const result = await applyRemoteEvents(
+    [upsert({ revision: 4, sequence: 4, device_id: 'phone' })],
+    local,
+    async () => remoteItem,
+  );
+
+  assert.deepEqual(result.applied, []);
+  assert.deepEqual(result.skipped, []);
+  assert.deepEqual(result.rejected, []);
+  assert.equal(result.conflicts.length, 1);
+  const conflict = result.conflicts[0];
+  assert.equal(conflict.kind, 'same_item_both_changed');
+  assert.equal(conflict.resolution, 'unresolved');
+  assert.equal(conflict.local_revision, 5);
+  assert.equal(conflict.remote_revision, 4);
+  assert.equal(conflict.base_revision, 3);
+  assert.equal(conflict.local, localItem);
+  assert.equal(conflict.remote, remoteItem);
+  assert.equal(local.get('item_1'), state);
+  assert.equal(local.get('item_1').item, localItem);
+  assert.equal(local.get('item_1').revision, 5);
+  assert.equal(local.get('item_1').baseRevision, 3);
+});
