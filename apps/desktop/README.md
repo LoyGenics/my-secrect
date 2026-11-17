@@ -76,8 +76,9 @@ src/
 ## Notes
 
 - `importEncrypted` requires an unlocked vault and merges rows by id,
-  keeping the higher revision; rows the current vault cannot decrypt are
-  skipped, and trash rows are excluded from `exportEncrypted`.
+  keeping the higher revision. Rows with an older revision are skipped; a
+  decrypt failure or id mismatch rejects the whole file and nothing is
+  written. Trash rows are excluded from `exportEncrypted`.
 - `toggleFavorite` flips the flag in memory immediately and re-encrypts
   asynchronously; `App.tsx` refreshes the list right after the call.
 - `ItemList`'s `onSelect` takes an item **id** (`(id: string) => void`),

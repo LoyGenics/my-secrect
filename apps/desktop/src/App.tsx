@@ -664,15 +664,16 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     const beforeIds = new Set(listItems(true).map((i) => i.id));
     try {
       // importEncrypted requires an unlocked vault and merges rows by id,
-      // keeping the higher revision; rows this vault cannot decrypt
-      // (wrong key / tampered AEAD tag) are skipped, never stored.
+      // keeping the higher revision. Any decrypt failure or id mismatch
+      // rejects the whole file and nothing is written; only rows with an
+      // older revision than the stored one are skipped.
       await importEncrypted(text);
       refresh();
       const after = listItems(true);
       const newCount = after.filter((i) => !beforeIds.has(i.id)).length;
       setNotice(
         `Backup imported: ${validation.itemCount} item(s) in file, ${newCount} new item(s) added. ` +
-          'Rows with an older revision, or that this vault cannot decrypt (wrong key or tampered file), were skipped.' +
+          'Rows with an older revision than the stored one were skipped. (A file with any row that fails to decrypt is rejected entirely and nothing is written.)' +
           (validation.warnings.length > 0 ? ` Note: ${validation.warnings.join(' ')}` : ''),
       );
     } catch (err) {
