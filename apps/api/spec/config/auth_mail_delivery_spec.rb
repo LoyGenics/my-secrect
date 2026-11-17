@@ -45,8 +45,16 @@ RSpec.describe 'Sign-up mail delivery configuration' do
 
   describe 'booting RAILS_ENV=production' do
     def boot_production(extra_env)
+      # Every other variable production refuses to boot without (see
+      # config/environments/production.rb), so only the mail/Redis checks differ.
       env = { 'RAILS_ENV' => 'production', 'SECRET_KEY_BASE' => SecureRandom.hex(64),
-              'REDIS_URL' => 'redis://127.0.0.1:6379/15', 'MAIL_FILE_DIR' => nil }
+              'REDIS_URL' => 'redis://127.0.0.1:6379/15', 'MAIL_FILE_DIR' => nil,
+              'DATABASE_URL' => ENV.fetch('DATABASE_URL', 'postgres://localhost/vault_production_boot_check'),
+              'WEBAUTHN_RP_ID' => 'example.test', 'WEBAUTHN_ORIGIN' => 'https://example.test',
+              'CORS_ORIGINS' => 'https://example.test',
+              'S3_ENDPOINT' => 'https://s3.example.test', 'S3_PUBLIC_ENDPOINT' => 'https://s3.example.test',
+              'S3_BUCKET' => 'boot-check', 'S3_REGION' => 'us-east-1',
+              'S3_ACCESS_KEY' => 'boot-check-access', 'S3_SECRET_KEY' => SecureRandom.hex(16) }
       AuthMailDelivery::REQUIRED_SMTP_ENV.each { |key| env[key] = nil }
       Open3.capture2e(env.merge(extra_env), 'bundle', 'exec', 'ruby', '-e',
                       'require "./config/environment"; puts "BOOTED"', chdir: Rails.root.to_s)
@@ -62,7 +70,10 @@ RSpec.describe 'Sign-up mail delivery configuration' do
     it 'refuses to start without REDIS_URL (rate-limit counters must be shared)' do
       output, status = boot_production(smtp_env.merge('REDIS_URL' => nil))
       expect(status).not_to be_success
-      expect(output).to include('production requires REDIS_URL for rate limiting')
+      # Two independent guards fail closed on a missing REDIS_URL: the generic
+      # required-variable check in config/environments/production.rb runs first;
+      # the Rack::Attack store check stays as the second line of defence.
+      expect(output).to match(/Missing required environment variables: .*REDIS_URL|production requires REDIS_URL for rate limiting/)
       expect(output).not_to include('BOOTED')
     end
 
