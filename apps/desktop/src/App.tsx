@@ -838,8 +838,11 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     );
   }
 
-  // ---------- Onboarding (no vault yet) ----------
-  if (!vaultExists) {
+  // ---------- Onboarding (no vault yet, or still on the recovery-key / done steps) ----------
+  // The vault exists and is unlocked as soon as createVault returns, but the
+  // one-time recovery key must stay on screen until the user acknowledges it
+  // (step 1) — gating on !vaultExists alone skipped that screen entirely.
+  if (!vaultExists || onboardingStep !== 0) {
     const strength = passphraseScore(newPass);
     return (
       <div className="flex min-h-full items-center justify-center bg-[#0B0F14] p-6">
@@ -903,7 +906,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
                 <input type="checkbox" checked={recoveryAck} onChange={(e) => setRecoveryAck(e.target.checked)} className="mt-1 accent-indigo-600" />
                 I have saved my recovery key somewhere safe.
               </label>
-              <button className="btn-primary w-full" disabled={!recoveryAck} onClick={() => setOnboardingStep(2)}>
+              <button className="btn-primary w-full" disabled={!recoveryAck} onClick={() => { setRecoveryKey(''); setRecoveryCopied(false); setRecoveryAck(false); setOnboardingStep(2); }}>
                 Done
               </button>
             </div>

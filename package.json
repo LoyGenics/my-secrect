@@ -2,7 +2,7 @@
   "name": "my-secrect",
   "version": "0.1.0",
   "private": true,
-  "description": "Personal Digital Vault — local-first, E2EE",
+  "description": "Personal Digital Vault \u2014 local-first, E2EE",
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -13,9 +13,11 @@
     "test:real": "tsx --test --test-concurrency=1 packages/import-export/tests/backup-corruption.real.test.ts packages/sync/tests/real-sync-client-import.test.ts packages/sync/tests/sync-client-pull.import.ts packages/core/tests/sharing-proposal.test.mjs packages/crypto-adapters/tests/libsodium-adapter.import.test.mjs apps/desktop/portable-restore.test.ts apps/desktop/portable-restore-guards.test.ts apps/extension/vault-ext-restore.test.ts apps/mobile/vault-restore.test.ts apps/extension/tests/domain.test.ts",
     "test:rails": "cd apps/api && bundle exec rspec",
     "test:crypto-core": "cd native/crypto-core && cargo test",
-    "dev:desktop": "npm --workspace apps/desktop run dev"
+    "dev:desktop": "npm --workspace apps/desktop run dev",
+    "test:e2e:web": "playwright test -c tests/e2e-web/playwright.config.ts"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "libsodium-wrappers-sumo": "0.7.15",
     "tsx": "^4.23.15"
   },
