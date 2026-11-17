@@ -4,7 +4,7 @@
  * Covers the WorkOS-inspired account-security surface the Rails backend
  * exposes under /v1/auth/*, /v1/devices/* and /v1/recovery/*:
  * passkeys, MFA (TOTP + recovery codes), sessions, trusted devices,
- * step-up verification and security activity.
+ * step-up verification, security activity, and account deletion.
  *
  * This client is LOCAL-FIRST aware: the desktop app constructs it ONLY
  * when an API base URL is configured (localStorage key
@@ -465,6 +465,13 @@ export class SecurityApiClient {
    *  rotates the session token). */
   mfaDisable(): Promise<{ mfa_enabled: false; rotated_token?: string }> {
     return this.post<{ mfa_enabled: false; rotated_token?: string }>('/v1/auth/mfa/disable');
+  }
+
+  /** Permanently delete the signed-in account. Step-up is required
+   *  server-side. The server deletes only that account and answers 204.
+   *  A 403 whose body says step_up_required must re-prompt, not proceed. */
+  deleteAccount(): Promise<void> {
+    return this.del<void>('/v1/auth/account');
   }
 
   /** Regenerate recovery codes (shown once, single-use). Step-up required.
