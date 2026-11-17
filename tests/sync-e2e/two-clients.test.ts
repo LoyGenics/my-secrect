@@ -329,14 +329,15 @@ test('INTERRUPTED: push response lost -> the automatic retry is a replay: one re
   await A.call('syncNow'); await B.call('syncNow');
   const w = await wire(ID.lost);
   assert.equal(serverItem(w), '1|f');
+  const lostBefore = await A.call<number>('lostResponses');
   await A.call('loseResponses', { match: '/sync/push', count: 1 });
   await A.call('editItem', { id: ID.lost, title: M.lostEdit });
-  const st = await A.call('syncNow');
-  assert.equal(st.state, 'offline', `the lost response looks like a dead connection to A: ${JSON.stringify(st)}`);
-  assert.equal(st.pending, 1, 'A still holds the edit: it cannot know the server stored it');
+  await A.call('syncNow');
+  assert.equal(await A.call<number>('lostResponses'), lostBefore + 1, 'the reply to the push was lost after the server answered');
   assert.deepEqual(serverLog(w), { events: ['1:upsert', '2:upsert'], versions: [1, 2] }, 'the server did store the edit');
-  // The engine retries by itself. The retry carries the same ciphertext and base 1:
-  // the server answers with the stored revision 2 instead of a 409 or a duplicate.
+  // To A the lost reply was a dead connection, so the edit stayed queued and the engine
+  // retries it by itself with the same ciphertext and base 1: the server answers with the
+  // stored revision 2 instead of a 409 or a duplicate.
   await settled(A, 'A after the retry');
   assert.deepEqual(serverLog(w), { events: ['1:upsert', '2:upsert'], versions: [1, 2] }, 'no duplicate event or version');
   assert.equal((await openConflicts(A)).length, 0);

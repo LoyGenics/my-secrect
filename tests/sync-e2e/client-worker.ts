@@ -30,6 +30,7 @@ let online = process.env.START_OFFLINE !== '1';
 // then the reply is thrown away and the app sees a dead connection — the
 // failure a retry must survive without duplicating or losing the write.
 let lose: { match: string; count: number; thenOffline: boolean } | null = null;
+let lostTotal = 0;
 const realFetch = globalThis.fetch;
 globalThis.fetch = (async (...args: Parameters<typeof fetch>) => {
   if (!online) throw new TypeError('fetch failed (simulated: network down)');
@@ -37,6 +38,7 @@ globalThis.fetch = (async (...args: Parameters<typeof fetch>) => {
   const url = args[0] instanceof Request ? args[0].url : String(args[0]);
   if (lose && lose.count > 0 && url.includes(lose.match)) {
     lose.count -= 1;
+    lostTotal += 1;
     if (lose.thenOffline) online = false;
     await res.arrayBuffer();
     throw new TypeError(`fetch failed (simulated: response lost after the server answered ${res.status})`);
@@ -68,6 +70,7 @@ async function main() {
     lock() { engine?.stop(); engine = null; vault.lockVault(); return true; },
     setOnline({ online: v }) { online = v; return online; },
     loseResponses({ match, count, thenOffline }) { lose = { match, count, thenOffline: !!thenOffline }; return true; },
+    lostResponses() { return lostTotal; },
 
     // --- account auth (real WebAuthn ceremony, verified by the Rails API) ---
     async register({ email: e, authenticator }) {
