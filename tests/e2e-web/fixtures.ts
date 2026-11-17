@@ -155,7 +155,9 @@ export async function unlockVaultViaUi(page: Page, passphrase = DEFAULT_PASSPHRA
 
 export async function openSecurityCenter(page: Page): Promise<void> {
   await page.getByRole('button', { name: /Security Center/ }).first().click();
-  await expect(page.getByRole('heading', { name: 'Security Center' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Security Center', level: 2 })).toBeVisible();
+  // Wait for the first load to settle (loading text gone) so specs act on real server state.
+  await expect(page.getByText('Loading…')).toHaveCount(0);
 }
 
 /** Account sign-out (Security Center button): revokes the server session and locks the vault. */
