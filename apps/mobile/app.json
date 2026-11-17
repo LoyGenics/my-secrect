@@ -16,6 +16,6 @@
       "package": "com.loygenics.mysecrect",
       "versionCode": 1
     },
-    "plugins": ["expo-local-authentication"]
+    "plugins": ["expo-local-authentication", "./plugins/with-ios-credential-provider"]
   }
 }
