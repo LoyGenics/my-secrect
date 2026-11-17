@@ -6,6 +6,7 @@ RSpec.describe 'Sync API', type: :request do
   let(:headers) { auth_headers_for(user) }
   let(:ciphertext) { Base64.strict_encode64('fake-ciphertext-bytes') }
   let(:item_key) { Base64.strict_encode64('fake-wrapped-item-key') }
+  let(:other_ciphertext) { Base64.strict_encode64('other-device-ciphertext') }
 
   describe 'POST /v1/vaults/:id/sync/push' do
     it 'appends a new revision and returns a sequence' do
@@ -19,8 +20,10 @@ RSpec.describe 'Sync API', type: :request do
       item_id = SecureRandom.uuid
       post "/api/v1/vaults/#{vault.id}/sync/push", params: { item_id: item_id, base_revision: 0, operation: 'upsert', encrypted_payload: ciphertext, encrypted_item_key: item_key }, headers: headers, as: :json
       expect(response).to have_http_status(:ok)
+      # A second writer from the same base with DIFFERENT ciphertext (an
+      # identical push would be a replay of the first, see 'revision rules').
       expect {
-        post "/api/v1/vaults/#{vault.id}/sync/push", params: { item_id: item_id, base_revision: 0, operation: 'upsert', encrypted_payload: ciphertext, encrypted_item_key: item_key }, headers: headers, as: :json
+        post "/api/v1/vaults/#{vault.id}/sync/push", params: { item_id: item_id, base_revision: 0, operation: 'upsert', encrypted_payload: other_ciphertext, encrypted_item_key: item_key }, headers: headers, as: :json
       }.not_to change { SyncEvent.where(vault_id: vault.id).count }
       expect(response).to have_http_status(:conflict)
       expect(JSON.parse(response.body)['error']).to eq('revision_conflict')
@@ -146,12 +149,16 @@ RSpec.describe 'Sync API', type: :request do
       expect(response).to have_http_status(:ok)
       post "/api/v1/vaults/#{vault.id}/sync/push", params: { item_id: item_id, base_revision: 1, operation: 'delete' }, headers: headers, as: :json
       expect(response).to have_http_status(:ok)
+      first = JSON.parse(response.body)
+      # Repeating the same delete is a replay: the existing tombstone comes
+      # back, nothing is appended (never a second tombstone).
       expect {
         post "/api/v1/vaults/#{vault.id}/sync/push", params: { item_id: item_id, base_revision: 1, operation: 'delete' }, headers: headers, as: :json
       }.not_to change { SyncEvent.where(vault_id: vault.id).count }
-      expect(response).to have_http_status(:conflict)
-      expect(JSON.parse(response.body)['error']).to eq('revision_conflict')
-      expect(JSON.parse(response.body)['current_revision']).to eq(2)
+      expect(response).to have_http_status(:ok)
+      replay = JSON.parse(response.body)
+      expect(replay).to eq('item_id' => item_id, 'revision' => 2, 'sequence' => first['sequence'], 'replayed' => true)
+      expect(Item.find(item_id).current_revision).to eq(2)
       expect(SyncEvent.where(vault_id: vault.id, item_id: item_id, operation: 'delete').count).to eq(1)
       get "/api/v1/vaults/#{vault.id}/sync", headers: headers
       event = JSON.parse(response.body)['events'].find { |e| e['operation'] == 'delete' }

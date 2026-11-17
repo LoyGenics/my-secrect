@@ -1,7 +1,8 @@
 /**
  * Client sync engine — offline-first, append-only, optimistic concurrency.
  *
- * Implemented in code (NOT run against a live server, NOT audited).
+ * Implemented in code; exercised against the real Rails API by tests/sync-e2e.
+ * NOT audited.
  * Rules enforced here, in code — not just in docs:
  *  - Never Last Write Wins. Never a silent overwrite.
  *  - A remote revision is applied ONLY after its AEAD tag verifies
@@ -36,7 +37,9 @@ export interface SyncEvent {
   /** True for remote deletes. Tombstone events carry NO ciphertext. */
   tombstone?: boolean;
   device_id: string;
-  signature: string; // device signature over (vault_id, item_id, revision)
+  /** Opaque, optional, NOT verified by anyone yet: no meaning until
+   *  specs/device-identity.md defines device-signed events. */
+  signature: string;
   created_at: string;
   // Pull payloads carry the ciphertext so the client can verify + decrypt.
   // A pull that omits these fields cannot be applied — it is skipped.

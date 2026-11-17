@@ -239,8 +239,12 @@ export class SyncEngine {
     }
     if (!this.started) return; // stopped while hydrating (lock / sign-out)
     this.unsub = onVaultMutation((m) => {
-      if (m.kind === 'purge') return;
+      if (m.kind === 'purge') return; // "Delete forever" is device-local; the delete before it is not
       this.dirtyIds.add(m.id);
+      // A purge can follow the delete before the debounced push runs, and it
+      // removes the row that push would be built from. Queue the tombstone now:
+      // it carries no ciphertext and needs no network.
+      if (m.kind === 'delete') this.queueTombstone(m.id);
       this.schedulePush();
     });
     const g = globalThis as unknown as { addEventListener?: (t: string, h: () => void) => void };
@@ -353,18 +357,31 @@ export class SyncEngine {
     });
   }
 
+  /** Queue the tombstone of a just-deleted, already-synced row (no-op otherwise). */
+  private queueTombstone(localId: string): void {
+    const wireId = this.wire.get(localId); // known for every row since the last round
+    if (!wireId) return;
+    const draft = buildSyncPush(localId, wireId);
+    if (draft?.operation === 'delete') enqueuePush(this.storage, { vault_id: this.vaultId ?? '', ...draft });
+  }
+
   /** Turn every locally changed row into a queued push (idempotent). */
   private async enqueueDirty(): Promise<void> {
     const ids = [...this.dirtyIds];
     this.dirtyIds.clear();
+    const rowIds = new Set(listRowIds());
     for (const id of ids) {
       const wireId = await this.wireIdOf(id);
       const draft = buildSyncPush(id, wireId);
       const queue = loadQueue(this.storage);
       const queued = queue.find((q) => q.item_id === wireId);
       if (!draft) {
-        // Nothing to push any more (e.g. an unsynced item deleted again): drop a stale queue entry.
-        if (queued) removeQueuedPushEntry(this.storage, queued);
+        // Nothing to push any more (e.g. an unsynced item deleted again): drop a stale
+        // queue entry — but keep a tombstone whose row was purged ("Delete forever")
+        // before it reached the server: the server and other devices must still learn
+        // of the delete, or the item would stay live everywhere else.
+        const purgedTombstone = queued?.operation === 'delete' && !rowIds.has(id);
+        if (queued && !purgedTombstone) removeQueuedPushEntry(this.storage, queued);
         continue;
       }
       if (queued && queued.local_revision === draft.local_revision && queued.operation === draft.operation) continue;

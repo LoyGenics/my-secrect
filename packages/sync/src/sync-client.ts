@@ -1,7 +1,8 @@
 /**
  * SyncClient — drives push + pull against the Rails API via VaultApiClient.
  *
- * Implemented in code (NOT run against a live server, NOT audited).
+ * Implemented in code; exercised against the real Rails API by tests/sync-e2e
+ * (two real clients, lost responses, server failures). NOT audited.
  *  - Push: drains the persisted offline queue FIFO. A push is removed from
  *    the queue ONLY on a 2xx success. A network failure leaves it queued
  *    (attempts counter incremented) for the next run. A 409 (stale base

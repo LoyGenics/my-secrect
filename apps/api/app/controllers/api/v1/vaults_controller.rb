@@ -1,6 +1,8 @@
 module Api
   module V1
     class VaultsController < ApplicationController
+      include ActiveDeviceRequired
+
       def index
         render json: { vaults: current_user.vaults.as_json(only: %i[id key_version created_at]) }
       end

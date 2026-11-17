@@ -3,10 +3,12 @@ module Api
     # Encrypted items only. Every response field is ciphertext / opaque id.
     # The server never returns (or stores) a title, tag, type or relation.
     #
-    # update/destroy go through Sync::Push so sequence assignment takes the
-    # same per-vault row lock as POST sync/push. Ciphertext rules are
-    # unchanged; a stale base_revision is still 409.
+    # update/destroy go through Sync::Push: same input validation, revision
+    # rules and per-vault sequence allocation as POST sync/push. A stale
+    # base_revision is 409.
     class ItemsController < ApplicationController
+      include ActiveDeviceRequired
+
       # GET /v1/vaults/:vault_id/items/:id
       def show
         item = scope.find(params[:id])
@@ -25,6 +27,8 @@ module Api
         render json: result, status: :ok
       rescue Sync::Push::RevisionConflict => e
         render json: { error: 'revision_conflict', current_revision: e.current_revision }, status: :conflict
+      rescue Sync::Push::CiphertextReuse => e
+        render json: { error: 'ciphertext_reuse', revision: e.revision }, status: :unprocessable_entity
       rescue ArgumentError => e
         render json: { error: 'invalid_request', message: e.message }, status: :unprocessable_entity
       end

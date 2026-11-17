@@ -4,19 +4,24 @@ module Sync
       attr_reader :current_revision
       def initialize(current_revision) = (@current_revision = current_revision; super('revision_conflict'))
     end
+    # The payload repeats a stored version of the item (rollback attempt).
+    class CiphertextReuse < StandardError
+      attr_reader :revision
+      def initialize(revision) = (@revision = revision; super('ciphertext_reuse'))
+    end
     UUID_FORMAT = /\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
     module_function
-    # Phase C fix — sync sequence race: Upsert/Delete assign the next
-    # sequence as (max(sequence) + 1). Under concurrent pushes two writers
-    # could read the same max and collide on the unique (vault_id,
-    # sequence) index. The whole push is therefore serialised per vault
-    # with `vault.with_lock` (SELECT ... FOR UPDATE on the vault row),
-    # so max+1 is computed under the lock. As belt-and-braces, a unique-
-    # violation from any writer that bypassed this path (e.g. direct
-    # item upserts) is retried once instead of surfacing a 500.
+    # Sequence allocation: EncryptedRecords::Upsert / ::Delete lock the
+    # vault row before touching the item and EncryptedRecords::AppendEvent
+    # allocates max(sequence) + 1 under that lock, so pushes to one vault
+    # are serialised and sequences are unique and gap-free whoever calls
+    # them (see spec/domains/sync_sequence_concurrency_spec.rb).
     # The server still NEVER decrypts, merges, or last-write-wins:
-    # a stale base_revision raises RevisionConflict (409) and the
-    # client resolves it after decryption (see packages/sync).
+    # a base_revision other than the current one raises RevisionConflict
+    # (409) and the client resolves it after decryption (see packages/sync).
+    # Replays of an accepted write return it again (replayed: true) and a
+    # payload that repeats an older version raises CiphertextReuse (422):
+    # see EncryptedRecords::Upsert / ::Delete for the exact rules.
     #
     # `signature` is optional client-supplied opaque bytes (standard
     # base64 on the wire). It is stored on the sync event and echoed
@@ -35,6 +40,7 @@ module Sync
         raise ArgumentError, 'encrypted_payload required' if encrypted_payload.blank?
         raise ArgumentError, 'encrypted_item_key required' if encrypted_item_key.blank?
       end
+      base_revision = parse_base_revision(base_revision)
       signature_bytes = decode_opaque_signature(signature)
       # Wire format: standard base64. Stored: the DECODED ciphertext bytes
       # (Pull and ItemPresenter re-encode exactly once). Before this fix the
@@ -44,26 +50,30 @@ module Sync
         encrypted_payload = decode_ciphertext(encrypted_payload, 'encrypted_payload')
         encrypted_item_key = decode_ciphertext(encrypted_item_key, 'encrypted_item_key')
       end
-      attempts = 0
-      begin
-        vault.with_lock do
-          if operation.to_s == 'delete'
-            EncryptedRecords::Delete.call(vault: vault, item_id: item_id, base_revision: base_revision, device: device, signature: signature_bytes)
-          else
-            EncryptedRecords::Upsert.call(
-              vault: vault, item_id: item_id, base_revision: base_revision,
-              encrypted_payload: encrypted_payload, encrypted_item_key: encrypted_item_key,
-              encryption_version: encryption_version, device: device, signature: signature_bytes
-            )
-          end
-        end
-      rescue ActiveRecord::RecordNotUnique
-        attempts += 1
-        retry if attempts < 2
-        raise
+      if operation.to_s == 'delete'
+        EncryptedRecords::Delete.call(vault: vault, item_id: item_id, base_revision: base_revision, device: device, signature: signature_bytes)
+      else
+        EncryptedRecords::Upsert.call(
+          vault: vault, item_id: item_id, base_revision: base_revision,
+          encrypted_payload: encrypted_payload, encrypted_item_key: encrypted_item_key,
+          encryption_version: encryption_version, device: device, signature: signature_bytes
+        )
       end
     rescue EncryptedRecords::Upsert::RevisionConflict => e
       raise RevisionConflict, e.current_revision
+    rescue EncryptedRecords::Upsert::CiphertextReuse => e
+      raise CiphertextReuse, e.revision
+    end
+
+    # A non-negative integer: a JSON number, or a string of digits (form
+    # params). Missing stays nil (an upsert treats it as 0, a delete
+    # refuses it). Anything else is a client bug — "2x".to_i would silently
+    # become 2 — so it is a 422, not a guess.
+    def parse_base_revision(value)
+      return nil if value.nil? || value == ''
+      return value if value.is_a?(Integer) && !value.negative?
+      return value.to_i if value.is_a?(String) && value.match?(/\A\d+\z/)
+      raise ArgumentError, 'base_revision must be a non-negative integer'
     end
 
     def decode_ciphertext(value, name)

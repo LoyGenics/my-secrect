@@ -3,8 +3,9 @@
  * the real SDK (VaultApiClient / SecurityApiClient), the real SyncClient via the
  * desktop SyncEngine, and real libsodium crypto. The only host shims are the ones a
  * browser provides: a file-backed `localStorage` (so a respawned process is a true
- * "reload" with the same persisted state) and an optional connectivity switch that
- * makes `fetch` fail the way a dead network does.
+ * "reload" with the same persisted state), an optional connectivity switch that
+ * makes `fetch` fail the way a dead network does, and a "response lost" switch
+ * (the server handles the request, the client only sees the connection drop).
  *
  * Protocol: one JSON command per stdin line -> one JSON reply per stdout line.
  */
@@ -25,10 +26,24 @@ const persist = () => writeFileSync(stateFile, JSON.stringify(store));
 };
 
 let online = process.env.START_OFFLINE !== '1';
+// "Response lost": the request really reaches the server and completes there,
+// then the reply is thrown away and the app sees a dead connection — the
+// failure a retry must survive without duplicating or losing the write.
+let lose: { match: string; count: number; thenOffline: boolean } | null = null;
+let lostTotal = 0;
 const realFetch = globalThis.fetch;
-globalThis.fetch = ((...args: Parameters<typeof fetch>) => {
-  if (!online) return Promise.reject(new TypeError('fetch failed (simulated: network down)'));
-  return realFetch(...args);
+globalThis.fetch = (async (...args: Parameters<typeof fetch>) => {
+  if (!online) throw new TypeError('fetch failed (simulated: network down)');
+  const res = await realFetch(...args);
+  const url = args[0] instanceof Request ? args[0].url : String(args[0]);
+  if (lose && lose.count > 0 && url.includes(lose.match)) {
+    lose.count -= 1;
+    lostTotal += 1;
+    if (lose.thenOffline) online = false;
+    await res.arrayBuffer();
+    throw new TypeError(`fetch failed (simulated: response lost after the server answered ${res.status})`);
+  }
+  return res;
 }) as typeof fetch;
 
 async function main() {
@@ -54,6 +69,8 @@ async function main() {
     hasVault() { return vault.hasVault(); },
     lock() { engine?.stop(); engine = null; vault.lockVault(); return true; },
     setOnline({ online: v }) { online = v; return online; },
+    loseResponses({ match, count, thenOffline }) { lose = { match, count, thenOffline: !!thenOffline }; return true; },
+    lostResponses() { return lostTotal; },
 
     // --- account auth (real WebAuthn ceremony, verified by the Rails API) ---
     async register({ email: e, authenticator }) {
@@ -113,6 +130,8 @@ async function main() {
       return true;
     },
     deleteItem({ id }) { vault.deleteItem(id); return true; },
+    // Trash, then "Delete forever" straight away (the UI's two clicks, faster than the push debounce).
+    deleteForever({ id }) { vault.deleteItem(id); vault.permanentlyDeleteItem(id); return true; },
     restoreItem({ id }) { vault.restoreItem(id); return true; },
     list() { return vault.listItems(true).map(summary); },
     rawStorage() { return { ...store }; },
