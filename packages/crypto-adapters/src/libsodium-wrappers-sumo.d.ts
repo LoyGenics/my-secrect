@@ -1,7 +1,8 @@
 // Compile-time stand-in for the missing libsodium-wrappers-sumo@0.7 declaration.
 // The published package points `types` at a file that is not in the tarball,
 // and the ESM entry selected by moduleResolution "bundler" has no sibling .d.ts.
-// Only the members packages/crypto-adapters calls are listed. This does not
+// Shared by every client package (extension, desktop, web, mobile, crypto-adapters).
+// Only the members the code calls are listed. This does not
 // verify that those calls match libsodium at runtime.
 
 declare module 'libsodium-wrappers-sumo' {
@@ -46,6 +47,12 @@ declare module 'libsodium-wrappers-sumo' {
       algorithm: number,
     ): SodiumOut;
     randombytes_buf(length: number): SodiumOut;
+    crypto_sign_seed_keypair(seed: SodiumBytes): {
+      keyType: string;
+      publicKey: SodiumOut;
+      privateKey: SodiumOut;
+    };
+    crypto_sign_detached(message: SodiumBytes, privateKey: SodiumBytes): SodiumOut;
   }
 
   const sodium: LibsodiumSumo;

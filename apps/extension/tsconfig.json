@@ -12,6 +12,6 @@
     "outDir": "dist",
     "noEmit": true
   },
-  "include": ["src", "vite.config.ts"],
+  "include": ["src", "vite.config.ts", "../../packages/crypto-adapters/src/libsodium-wrappers-sumo.d.ts"],
   "exclude": ["node_modules", "dist"]
 }
