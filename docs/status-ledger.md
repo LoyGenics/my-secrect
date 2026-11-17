@@ -48,7 +48,7 @@ Covered: A, B, D, E, I, K, M. Partial: C, F, H. Pending: G, J, L. Open defects: 
 
 ## In progress (agents, each on its own branch)
 - fix/backup-integrity: authenticated backup item index (QA K2).
-- feat/mobile-secure-storage: SQLCipher store, biometric unlock.
+- feat/mobile-secure-storage: SQLCipher store, AsyncStorage migration, DeviceKey module and biometric flows built and checked on iOS simulator + Android emulator (storage/keys only). BLOCKER being fixed on the same branch: libsodium-wrappers has no working fallback on Hermes (no WebAssembly) — random bytes repeat and AEAD fails, so the mobile vault cannot work until a native libsodium binding (JSI) lands; main's self-test makes it fail closed meanwhile.
 - Paused until mobile storage lands: iOS and Android credential providers.
 - Waiting on the user: logo choice.
 
