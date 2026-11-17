@@ -131,7 +131,7 @@ test('revoking B\'s device: B\'s token is refused on every route (sync pull/push
   assert.equal(api.psql(`SELECT count(*) FROM key_envelopes WHERE recipient_id='${revokedDeviceId}'`), '0');
 });
 
-test('B\'s next SYNC call after the revocation sends it back to sign-in', { todo: defect('DEFECT-H3: a 401 on sync PULL surfaces as a raw sync error ("API 401 ...") and never signs out; only a PUSH 401 matches the /unauthorized \\(401\\)/ check (apps/desktop/src/sync/engine.ts:432)') }, async () => {
+test('B\'s next SYNC call after the revocation sends it back to sign-in', { todo: defect('DEFECT-H3: a 401 on sync PULL surfaces as a raw sync error ("API 401 ...") and never signs out; only a PUSH 401 matches the /unauthorized \\(401\\)/ check (apps/desktop/src/sync/engine.ts:431; pull errors are pushed as raw messages at packages/sync/src/sync-client.ts:228)') }, async () => {
   const p = B.page;
   await p.getByRole('button', { name: 'Sync now' }).click();
   const outcome = await Promise.race([
