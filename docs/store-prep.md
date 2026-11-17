@@ -1,35 +1,33 @@
-# Store Preparation — iOS App Store + Google Play (Phase H, 17 Nov 2026)
+# Store Preparation — iOS App Store + Google Play (updated 17 Nov 2026)
 
-> **STATUS: NOT SUBMITTED. NOTHING HERE IS DONE.**
+> **STATUS: NOT SUBMITTED. NOT APPROVED. NO ACCOUNTS, NO SIGNING.**
 >
-> Every item below is marked **TODO** unless it says otherwise. No
-> developer account enrolment, no signing, no TestFlight / Play internal
-> testing, no store submission, and no review approval has happened.
-> **External developer accounts, signing, review approvals, and
-> independent audits remain human-controlled and are NOT done** — no agent
-> can do them, and this document does not pretend otherwise.
+> No developer account enrolment, signing identity, TestFlight / Play
+> testing track, store submission or review has happened. Developer
+> accounts, signing keys, legal review, review approvals and audits are
+> **human-controlled and PENDING** — no agent can do them, and this document
+> does not pretend otherwise. Everything below is TODO unless marked.
 >
-> Facts about the app today were read from `apps/mobile/app.json`,
-> `apps/mobile/package.json`, and `apps/mobile/README.md` (Expo SDK 52,
-> React Native 0.76.5, bundle id `com.loygenics.my-secrect`, package
-> `com.loygenics.mysecrect`). Everything else is a checklist, not a
-> claim.
+> "Read" = read in the repo on 17 Nov 2026. "Run" = observed in a scripted
+> run that day (`docs/deployment.md` §A). Nothing on this page was run on a
+> phone, simulator or store build.
 
-## 0. Current state (verified by reading, 17 Nov 2026)
+## 0. Current state
 
-| Fact | Value |
-|---|---|
-| App name / slug | `my-secrect` |
-| Version | `0.1.0` (both platforms) |
-| iOS bundle id | `com.loygenics.my-secrect` |
-| Android package | `com.loygenics.mysecrect` (note: differs from iOS — hyphen vs no hyphen) |
-| Android versionCode | `1` |
-| Expo SDK | `~52.0.0` |
-| Biometrics | `expo-local-authentication` (Face ID prompt exists in `infoPlist`) |
-| Credential provider | **NOT IMPLEMENTED** — `native/ios-credential-provider/` and `native/android-credential-provider/` are EMPTY (Phase A, gate 3) |
-| App ever run | **NO** — never run in Expo Go or a dev build (Phase A) |
-| Icons / splash | Splash background `#0B0F14` only; no icon files verified in the repo |
-| Store accounts | None known — TODO, human-owned |
+| Fact | Value | Source |
+|---|---|---|
+| App name / slug | `my-secrect` | read `apps/mobile/app.json` |
+| Version | `0.1.0` (both platforms); Android versionCode `1` | read |
+| iOS bundle id | `com.loygenics.my-secrect` | read |
+| Android package | `com.loygenics.mysecrect` (differs from iOS: hyphen) | read |
+| Expo SDK | `~52.0.0` | read `apps/mobile/package.json` |
+| Biometrics | `expo-local-authentication`; `NSFaceIDUsageDescription` set | read |
+| Credential providers | Source files exist under `native/ios-credential-provider/` and `native/android-credential-provider/`; never built, signed or run in this pass | read (git ls-files) |
+| Icons / splash | Splash background colour only; no icon assets tracked under `apps/mobile` | read |
+| Server account deletion | `DELETE /api/v1/auth/account` works: step-up required, data + object storage removed, sessions revoked | **run** (scenario L, `smoke.sh`) |
+| In-app account deletion | Desktop + web Security Center: yes. **Mobile: no** (no `deleteAccount` call in `apps/mobile/src`) | read |
+| Web deletion path (Google Play) | The web client served at `https://<domain>/` has the same Security Center deletion (sign-in + step-up) | **run** locally (CSP check flow reaches Security Center); public URL PENDING |
+| Store accounts, signing | None | PENDING (human) |
 
 ## 1. Shared — do before either store
 
@@ -48,16 +46,20 @@
       Both stores require it before submission.
 - [ ] TODO — Support URL + support email (monitored inbox).
 - [ ] TODO — Terms of use (or confirm the privacy policy covers it).
-- [ ] TODO — Fix the release blockers in `docs/release-readiness.md`
-      first: passkey verification, sync pull, Argon2id split, sharing
-      without key exchange, server recovery stub. **Do not submit a build
-      whose core flows are known-broken** — reviewers will reject it and
-      users will lose data.
+- [ ] TODO — Re-check the release gates in `docs/release-readiness.md`
+      (not re-assessed here). Run today against a LOCAL server with the
+      desktop/web code (not the mobile app): passkey registration/sign-in
+      verified by the API, encrypted items pushed by one client and pulled +
+      decrypted by a fresh one, encrypted media round trip, account deletion. **Do not submit a build whose core flows are untested on a
+      real device.**
 - [ ] TODO — External security audit (or at minimum the recorded audit
       plan with no Critical/High open). No audit exists today.
 - [ ] TODO — Decide the data-safety / privacy-nutrition answers from
-      `docs/privacy.md` (no ads SDKs, no third-party tracking, opt-in
-      diagnostics only) and keep them consistent across both stores.
+      `docs/privacy.md` and keep them consistent across both stores. Note:
+      with a sync account the server DOES collect the email address, and per
+      session the IP address and user agent (`sessions` table), plus
+      timestamps and sizes. Vault content is end-to-end encrypted. No ads
+      SDKs, no third-party analytics.
 - [ ] TODO — App versioning scheme + release tagging (none exists today).
 
 ## 2. iOS App Store
@@ -90,16 +92,17 @@
 - [ ] TODO — Pricing: free / paid / IAP (decide; nothing is implemented).
 
 ### 2.3 Privacy disclosures (App Store)
-- [ ] TODO — App Privacy / privacy nutrition labels: data collected —
-      **none from the app itself** (vault is local-first; server stores
-      ciphertext + metadata only — see `docs/privacy.md`). Confirm the
-      exact label answers against the real network behaviour before
-      submitting; a wrong label is a rejection + trust issue.
+- [ ] TODO — App Privacy / privacy nutrition labels. Local-only use collects
+      nothing; a sync account means the operator's server holds the email
+      (contact info, app functionality, linked to the user), session IP +
+      user agent, and encrypted content it cannot read (`docs/privacy.md` §2).
+      Confirm against the real network behaviour of the shipped build; a
+      wrong label is a rejection + trust issue.
 - [ ] TODO — Privacy policy URL (public, reachable).
-- [ ] TODO — Account deletion: Apple requires in-app account deletion
-      for apps with account creation. **NOT IMPLEMENTED** — the API has
-      no delete-account endpoint (routes: devices/vaults/items/sync/
-      blobs/shares/recovery only). Implement + verify before submission.
+- [ ] TODO — Account deletion: Apple requires in-app account deletion for
+      apps with account creation. Server endpoint: done and run-verified.
+      **Mobile UI: NOT IMPLEMENTED** (desktop/web only). Add it to the
+      mobile Security screen, then verify on a device before submission.
 - [ ] TODO — Permission explanations: Face ID (exists), no camera/
       location/contacts requested — confirm no permission is declared
       that the app does not use.
@@ -140,14 +143,17 @@
 - [ ] TODO — Pricing & distribution (countries, free/paid).
 
 ### 3.3 Data safety + privacy disclosures (Play)
-- [ ] TODO — Data safety form: data collected/shared — **none from the
-      app itself** (see `docs/privacy.md`); data encrypted in transit
-      (TLS) and at rest (E2EE); account deletion available (see §2.3 —
-      NOT IMPLEMENTED yet); data deletion request path. Keep answers
-      identical in substance to the Apple labels.
+- [ ] TODO — Data safety form: collected = email + session IP/user agent
+      when a sync account is used (see §1); encrypted in transit (TLS 1.2/1.3,
+      run locally) and end-to-end for vault content; account deletion
+      (server done, mobile UI missing); deletion request path = web client
+      Security Center (public URL PENDING); backups keep deleted data until
+      rotated (period PENDING, `docs/privacy.md` §7). Keep answers identical
+      in substance to the Apple labels.
 - [ ] TODO — Privacy policy URL (required).
-- [ ] TODO — Account deletion: Play also requires account deletion
-      (in-app + web link). NOT IMPLEMENTED — same blocker as iOS.
+- [ ] TODO — Account deletion: Play requires in-app deletion AND a web link.
+      Server + web path exist (run locally); mobile UI missing (same
+      blocker as iOS); the public web URL needs a real domain (PENDING).
 - [ ] TODO — Permissions declarations: biometrics only; confirm no
       unused permissions are declared in the manifest.
 - [ ] TODO — Foreground services / exact alarms / other declarations:
@@ -164,14 +170,15 @@
 
 | # | Blocker | Status |
 |---|---|---|
-| 1 | Account deletion flow (in-app + server endpoint) | TODO — not implemented |
-| 2 | Core flows broken (passkeys, sync pull, sharing, recovery) | TODO — see release-readiness gates 1, 5, 6, 7 |
-| 3 | Credential-provider integration (AutoFill / Credential Manager) | TODO — native dirs empty |
-| 4 | App never run on a real device | TODO — build + test first |
-| 5 | External security audit | TODO — none exists |
-| 6 | Privacy policy hosted + data-safety answers verified | TODO — `docs/privacy.md` is a draft |
-| 7 | Developer accounts + signing (human) | TODO — none known |
-| 8 | Export compliance (iOS encryption) | TODO — human decision |
+| 1 | Account deletion in the mobile app (server + web exist, run-verified) | TODO — mobile UI missing |
+| 2 | Release gates in `docs/release-readiness.md` re-assessed on real devices | TODO |
+| 3 | Credential-provider extensions built, signed, tested on devices | TODO — source exists, never built here |
+| 4 | App built and run on a real iPhone + Android device | TODO |
+| 5 | External security audit | PENDING (human) |
+| 6 | Privacy policy: retention periods set, legal review, public URL; labels/data-safety answers checked against real traffic | PENDING (human + lawyer) |
+| 7 | Apple Developer + Google Play accounts; signing certificates / upload keystore kept offline | PENDING (human) |
+| 8 | Export compliance (iOS encryption) | PENDING (human decision) |
+| 9 | Production server on a real domain with public TLS (needed for passkeys, the web deletion link and reviewer test accounts) | PENDING (human) |
 
 ## 5. What this document is NOT
 

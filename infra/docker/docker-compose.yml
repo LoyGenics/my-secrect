@@ -3,8 +3,39 @@
 # Build contexts are relative to THIS compose file (infra/docker).
 #   api context: ../../apps/api  -> my-secrect/apps/api, Dockerfile there.
 # Secrets come from .env in this folder (copy .env.example first). Never commit .env.
-# Host publish is Caddy 80/443 only. api:3000 and minio:9000 stay on the Compose network;
-# the S3 API is exposed publicly only via Caddy at s3.${SITE_ADDRESS}.
+#
+# Exposure: Caddy is the only service with published ports (80/443) and the
+# only one on a network with outbound access (`edge`, for ACME). Everything
+# else sits on internal-only networks (no host ports, no internet egress):
+#   proxy   : caddy, api, minio           (what Caddy may reach)
+#   backend : api, worker, db, redis, minio, minio-init (Caddy cannot reach db/redis)
+# The S3 API is public only via Caddy at s3.${SITE_ADDRESS}. If you swap
+# MinIO for an external S3/R2, api and worker need an egress network too.
+#
+# The web client is the Vite build of apps/web (npm --workspace apps/web run
+# build), mounted read-only into Caddy; override the path with WEB_DIST.
+x-logging: &logging
+  # Bounded local logs (5 x 10 MB per container); see docs/privacy.md (retention).
+  driver: json-file
+  options: { max-size: '10m', max-file: '5' }
+
+x-app-env: &app-env
+  RAILS_ENV: production
+  DATABASE_URL: postgres://vault:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/vault_production
+  REDIS_URL: redis://redis:6379/0
+  S3_ENDPOINT: http://minio:9000
+  # Origin clients use for presigned URLs (Caddy s3.<SITE_ADDRESS> -> minio:9000).
+  S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?S3_PUBLIC_ENDPOINT is required (public origin of the S3 API, e.g. https://s3.your-domain)}
+  S3_BUCKET: ${S3_BUCKET:?S3_BUCKET is required}
+  S3_REGION: ${S3_REGION:?S3_REGION is required}
+  S3_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}
+  S3_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY is required}
+  SECRET_KEY_BASE: ${SECRET_KEY_BASE:?SECRET_KEY_BASE is required}
+  WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:?WEBAUTHN_RP_ID is required}
+  WEBAUTHN_RP_NAME: my-secrect
+  WEBAUTHN_ORIGIN: ${WEBAUTHN_ORIGIN:?WEBAUTHN_ORIGIN is required}
+  CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS is required}
+
 services:
   caddy:
     image: caddy:2-alpine
@@ -13,34 +44,26 @@ services:
       - '${HTTPS_PORT:-443}:443'
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${WEB_DIST:-../../apps/web/dist}:/srv:ro
       - vault_caddy_data:/data
       - vault_caddy_config:/config
     depends_on:
       api: { condition: service_healthy }
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:?SITE_ADDRESS is required (your domain, or localhost for a local run)}
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?S3_PUBLIC_ENDPOINT is required (public origin of the S3 API, e.g. https://s3.your-domain)}
+    networks: [edge, proxy]
+    security_opt: ['no-new-privileges:true']
+    logging: *logging
     restart: unless-stopped
   api:
     build:
       context: ../../apps/api
       dockerfile: Dockerfile
-    environment:
-      RAILS_ENV: production
-      DATABASE_URL: postgres://vault:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/vault_production
-      REDIS_URL: redis://redis:6379/0
-      S3_ENDPOINT: http://minio:9000
-      # Origin clients use for presigned URLs (Caddy s3.<SITE_ADDRESS> -> minio:9000).
-      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?S3_PUBLIC_ENDPOINT is required (public origin of the S3 API, e.g. https://s3.your-domain)}
-      S3_BUCKET: ${S3_BUCKET:?S3_BUCKET is required}
-      S3_REGION: ${S3_REGION:?S3_REGION is required}
-      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}
-      S3_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY is required}
-      SECRET_KEY_BASE: ${SECRET_KEY_BASE:?SECRET_KEY_BASE is required}
-      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:?WEBAUTHN_RP_ID is required}
-      WEBAUTHN_RP_NAME: my-secrect
-      WEBAUTHN_ORIGIN: ${WEBAUTHN_ORIGIN:?WEBAUTHN_ORIGIN is required}
-      CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS is required}
-    # No host ports. Other containers reach this process as api:3000.
+    # Production boot refuses missing/placeholder secrets
+    # (apps/api/config/environments/production.rb, storage_config.rb).
+    environment: *app-env
+    # No host ports. Caddy reaches this process as api:3000.
     # force_ssl redirects plain HTTP, so the probe sends the same forwarded
     # proto Caddy sends and requires the /health body {"ok":true}.
     healthcheck:
@@ -51,31 +74,32 @@ services:
       start_period: 30s
     depends_on:
       db: { condition: service_healthy }
-      redis: { condition: service_started }
+      redis: { condition: service_healthy }
       minio-init: { condition: service_completed_successfully }
+    networks: [proxy, backend]
+    security_opt: ['no-new-privileges:true']
+    logging: *logging
     restart: unless-stopped
   worker:
     build:
       context: ../../apps/api
       dockerfile: Dockerfile
     command: bundle exec sidekiq
-    environment:
-      RAILS_ENV: production
-      DATABASE_URL: postgres://vault:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/vault_production
-      REDIS_URL: redis://redis:6379/0
-      S3_ENDPOINT: http://minio:9000
-      # Origin clients use for presigned URLs (Caddy s3.<SITE_ADDRESS> -> minio:9000).
-      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?S3_PUBLIC_ENDPOINT is required (public origin of the S3 API, e.g. https://s3.your-domain)}
-      S3_BUCKET: ${S3_BUCKET:?S3_BUCKET is required}
-      S3_REGION: ${S3_REGION:?S3_REGION is required}
-      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}
-      S3_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY is required}
-      SECRET_KEY_BASE: ${SECRET_KEY_BASE:?SECRET_KEY_BASE is required}
-    # Image HEALTHCHECK curls :3000. Sidekiq does not listen there.
-    healthcheck: { disable: true }
+    environment: *app-env
+    # Healthy while THIS container's Sidekiq process heartbeats in Redis
+    # (Sidekiq beats every ~10 s; a dead or hung process drops out within 60 s).
+    healthcheck:
+      test: ['CMD', 'bundle', 'exec', 'ruby', '-rsocket', '-rsidekiq/api', '-e', 'exit(Sidekiq::ProcessSet.new.any? { |p| p["hostname"] == Socket.gethostname } ? 0 : 1)']
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
     depends_on:
       db: { condition: service_healthy }
-      redis: { condition: service_started }
+      redis: { condition: service_healthy }
+    networks: [backend]
+    security_opt: ['no-new-privileges:true']
+    logging: *logging
     restart: unless-stopped
   db:
     image: postgres:16-alpine
@@ -85,20 +109,28 @@ services:
       POSTGRES_DB: vault_production
     volumes: [vault_pgdata:/var/lib/postgresql/data]
     healthcheck: { test: ['CMD-SHELL', 'pg_isready -U vault -d vault_production'], interval: 5s, timeout: 5s, retries: 12 }
+    networks: [backend]
+    security_opt: ['no-new-privileges:true']
+    logging: *logging
     restart: unless-stopped
   redis:
     image: redis:7-alpine
     healthcheck: { test: ['CMD', 'redis-cli', 'ping'], interval: 5s, timeout: 3s, retries: 10 }
+    networks: [backend]
+    security_opt: ['no-new-privileges:true']
+    logging: *logging
     restart: unless-stopped
   minio:
     # Docker Hub minio/minio is no longer published; override MINIO_IMAGE
     # (e.g. quay.io/minio/minio:<release>) if you prefer the upstream image,
     # but it must provide the `minio` binary as entrypoint args below.
     image: ${MINIO_IMAGE:-cgr.dev/chainguard/minio:latest}
-    command: server /data --console-address ':9001'
+    # No --console-address: the web console is not started at all.
+    command: server /data
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}
       MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:?S3_SECRET_KEY is required}
+      MINIO_BROWSER: 'off'
       # Browser PUT/GET of presigned URLs: MinIO answers the CORS preflight
       # and adds Access-Control-Allow-Origin / Expose-Headers (incl. ETag).
       # Exact origins only (comma-separated), same list as the API CORS.
@@ -109,6 +141,9 @@ services:
     # Image is shell-less, so no container healthcheck; minio-init (mc retries)
     # gates the api instead.
     volumes: [vault_minio:/data]
+    networks: [proxy, backend]
+    security_opt: ['no-new-privileges:true']
+    logging: *logging
     restart: unless-stopped
   # One-shot: creates the bucket if missing (idempotent). mc reads the
   # alias from MC_HOST_local; credentials come from the same required env as
@@ -121,7 +156,14 @@ services:
     environment:
       MC_HOST_local: http://${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}:${S3_SECRET_KEY:?S3_SECRET_KEY is required}@minio:9000
     command: ['mb', '--ignore-existing', 'local/${S3_BUCKET:?S3_BUCKET is required}']
+    networks: [backend]
+    logging: *logging
     restart: on-failure:60
+networks:
+  # Only Caddy joins this one: published ports + outbound (ACME).
+  edge: {}
+  proxy: { internal: true }
+  backend: { internal: true }
 volumes:
   vault_pgdata: {}
   vault_minio: {}

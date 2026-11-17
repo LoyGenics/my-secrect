@@ -1,17 +1,60 @@
-# TLS reverse proxy. The site address comes from SITE_ADDRESS (compose env;
-# your real domain in production, `localhost` for a local run with Caddy's
-# internal CA).
-# Caddy obtains a Let's Encrypt certificate automatically when the domain
-# points at this host. Port 3000 is not published; use this proxy on
-# 80/443 instead of http://localhost:3000.
-{$SITE_ADDRESS} {
-  reverse_proxy api:3000
-  header {
-    Strict-Transport-Security "max-age=31536000; includeSubDomains"
-    X-Content-Type-Options nosniff
-    X-Frame-Options DENY
-    Referrer-Policy no-referrer
-  }
+# TLS reverse proxy and static host for the web client. The ONLY container
+# with published ports (see docker-compose.yml).
+#
+# SITE_ADDRESS (compose env): your real domain in production (Caddy obtains
+# a Let's Encrypt certificate automatically once DNS for the domain AND
+# s3.<domain> points at this host and ports 80/443 are reachable), or
+# `localhost` for a local run (Caddy's internal CA). Bare host name only.
+# S3_PUBLIC_ENDPOINT (compose env): the exact public origin of the S3 site
+# below, e.g. https://s3.vault.example.com; the web CSP allows connections
+# to it and nothing else besides this origin.
+#
+# Access logs are OFF (Caddy's default): they would record client IPs and
+# presigned-URL query strings. The API writes its own request log without
+# IPs, parameters or query strings (apps/api/config/initializers/logging.rb).
+{
+	servers {
+		# HTTP/1.1 + HTTP/2 over TCP only. Compose publishes TCP 443, not UDP,
+		# so HTTP/3 would only advertise an Alt-Svc that cannot be reached.
+		protocols h1 h2
+	}
+}
+
+(common_headers) {
+	# `defer` applies these after the upstream answered, so they REPLACE the
+	# API's own values instead of producing duplicate headers.
+	header {
+		defer
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Cross-Origin-Opener-Policy "same-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), hid=(), bluetooth=()"
+		-Server
+		-X-Powered-By
+	}
+}
+
+(modern_tls) {
+	# Caddy's defaults already exclude TLS < 1.2 and weak suites; stated
+	# explicitly so a reviewer does not have to know that.
+	tls {
+		protocols tls1.2 tls1.3
+	}
+}
+
+# Web client: the Vite build of apps/web, mounted read-only at /srv.
+# Strict CSP: no inline script or style, no eval; 'wasm-unsafe-eval' only
+# lets libsodium compile its WebAssembly. Network access is limited to this
+# origin (API) and the S3 endpoint (presigned ciphertext PUT/GET). Decrypted
+# thumbnails / downloads use blob: URLs. WebAuthn needs no CSP source
+# (same origin, rp id = this host).
+(web_headers) {
+	header {
+		Content-Security-Policy "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' {$S3_PUBLIC_ENDPOINT}; manifest-src 'self'; worker-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+		Cross-Origin-Resource-Policy "same-origin"
+	}
 }
 
 # Public S3 API (MinIO) for presigned PUT/GET of ciphertext chunks. Host-based
@@ -19,13 +62,56 @@
 # Caddy forwards the client's Host unchanged, so the signature the API made
 # against S3_PUBLIC_ENDPOINT (https://s3.<SITE_ADDRESS>[:port]) verifies at MinIO.
 # Only ciphertext chunks pass through here. CORS preflight is answered by
-# MinIO itself (MINIO_API_CORS_ALLOW_ORIGIN = CORS_ORIGINS).
-# SITE_ADDRESS must be a bare host name (no scheme, no port).
+# MinIO itself (MINIO_API_CORS_ALLOW_ORIGIN = CORS_ORIGINS). The sandbox CSP
+# keeps any object opened directly in a tab from running script.
 s3.{$SITE_ADDRESS} {
-  reverse_proxy minio:9000
-  header {
-    Strict-Transport-Security "max-age=31536000; includeSubDomains"
-    X-Content-Type-Options nosniff
-    Referrer-Policy no-referrer
-  }
+	import modern_tls
+	import common_headers
+	header {
+		defer
+		Content-Security-Policy "default-src 'none'; sandbox; frame-ancestors 'none'"
+	}
+	reverse_proxy minio:9000
+}
+
+{$SITE_ADDRESS} {
+	import modern_tls
+	import common_headers
+
+	# JSON API. Responses carry session tokens and ciphertext: never cached,
+	# never compressed (no BREACH-style oracle), never framed or rendered.
+	handle /api/* {
+		header {
+			defer
+			Cache-Control "no-store"
+			Content-Security-Policy "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+		}
+		reverse_proxy api:3000
+	}
+	handle /health {
+		header {
+			defer
+			Cache-Control "no-store"
+			Content-Security-Policy "default-src 'none'; frame-ancestors 'none'"
+		}
+		reverse_proxy api:3000
+	}
+
+	# Web client (see web_headers above).
+	handle /assets/* {
+		import web_headers
+		header Cache-Control "public, max-age=31536000, immutable"
+		root * /srv
+		encode zstd gzip
+		# Hashed build output only; a missing file is a 404, never the app shell.
+		file_server
+	}
+	handle {
+		import web_headers
+		header Cache-Control "no-cache"
+		root * /srv
+		encode zstd gzip
+		try_files {path} /index.html
+		file_server
+	}
 }

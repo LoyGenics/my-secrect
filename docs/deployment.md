@@ -1,367 +1,308 @@
 # Deployment — MY SECRET Personal Digital Vault
 
-> **VALIDATION STATUS (updated 17 Nov 2026, branch `feat/deploy-e2e`)**
+> **VALIDATION STATUS (17 Nov 2026, branch `feat/deploy-hardening`)**
 >
-> Two scripts under `infra/docker/` were RUN for real on one Mac
-> (macOS, Docker Desktop 28 / Compose v2.40, arm64) and passed. The sections
-> marked **[RUN]** are backed by those runs (§A). Everything else in this
-> document is still a checklist derived by reading files and has NOT been run:
-> real-domain TLS/Let's Encrypt, managed cloud / R2, off-host or
-> cross-version restores, upgrade/rollback, load/sizing.
+> Everything marked **[RUN]** was executed by a script on ONE developer Mac
+> (macOS 26.6.1 arm64, Docker Desktop 28.5.1, Compose 2.40.0) against a
+> throwaway local stack (`SITE_ADDRESS=localhost`, Caddy's internal CA). Script
+> output is summarised in §A. Nothing here has been deployed to a real domain,
+> a public CA, a cloud provider or production; no external audit exists.
+> Human-controlled steps are listed in §11 as **PENDING**.
 
 ## A. Evidence-backed results [RUN]
 
-Environment: macOS arm64, Docker Compose v2.40.0-desktop.1. Images:
-`caddy:2-alpine`, `postgres:16-alpine`, `redis:7-alpine`, API image built
-from `apps/api/Dockerfile` (ruby 3.3), MinIO `cgr.dev/chainguard/minio:latest`
+Images: `caddy:2-alpine` (Caddy v2.11.9), `postgres:16-alpine`,
+`redis:7-alpine` (7.4.12), API image built from `apps/api/Dockerfile`
+(ruby 3.3.13, Rails 7.2.3.2), MinIO `cgr.dev/chainguard/minio:latest`
 (RELEASE.2026-11-16) and `cgr.dev/chainguard/minio-client:latest`.
 
-### A.1 `infra/docker/smoke.sh` -> exit code 0
+### A.0 Scenario L — `infra/docker/verify-restore.sh` -> PASS (exit 0)
 
-Command: `cd infra/docker && ./smoke.sh`. It generates a throwaway random env
-file (nothing from the repo), then ran and passed:
+Run 17 Nov 2026 16:57 UTC, commit `38ae0e4`, 2 min 14 s (an identical run at
+`0ae3151`, 16:50 UTC, also passed in 1 min 43 s). One command:
+`infra/docker/verify-restore.sh`. It creates its own compose project
+(`a16-scenl`, ports 19543/19580) with random secrets, starts from zero
+volumes, and fails on any mismatch. Observed:
 
-1. compose refuses an empty environment (`${VAR:?}` fail-fast);
-2. `up -d --build` of caddy, api, worker, db, redis, minio, minio-init;
-3. api container healthcheck turns healthy; `rake db:migrate` (3 migrations);
-4. `GET https://localhost:18443/health` through Caddy (internal CA) -> `{"ok":true}`;
-   unauthenticated `GET /api/v1/vaults` -> 401;
-5. bucket exists (created by the one-shot `minio-init`);
-6. `smoke/flow.rb` inside the api container, over HTTPS through Caddy to the real
-   API and real MinIO: real WebAuthn registration (software authenticator =
-   the `webauthn` gem's `FakeClient`; the server verifies real attestation) ->
-   vault create -> blob `upload-session` -> presigned PUT of 1 MiB RANDOM
-   bytes (a stand-in for ciphertext; no crypto is exercised or claimed) ->
-   `complete` -> `download-session` -> presigned GET -> byte equality
-   (sha256) -> passkey step-up -> `DELETE /api/v1/auth/account` (204) -> old
-   token 401 -> MinIO HEAD returns 404 (object deleted);
-7. independent checks: `mc ls --recursive` shows an empty bucket, 0 smoke users in
-   postgres, worker container up with no Sidekiq thread crash in its log;
-8. `docker compose down -v` teardown (no containers/volumes left).
+1. Compose refuses an environment without the required variables.
+2. Deploy: `up --build`, `rake db:migrate` (3 up, 0 down); api healthy,
+   worker healthy (Sidekiq heartbeat), Caddy serves `/health` over TLS.
+3. Hardening (see §B):
+   - API boot refused for `SECRET_KEY_BASE=CHANGE_ME`, a too-short
+     `SECRET_KEY_BASE`, empty `REDIS_URL`, `CORS_ORIGINS=*`, empty `S3_BUCKET`
+     (each error names the variable);
+   - only `caddy` has published ports; `proxy` and `backend` networks are
+     internal; Caddy reaches `api:3000` but not `db:5432`/`redis:6379`; the
+     api container cannot reach the internet;
+   - TLS 1.3 and 1.2 accepted, 1.1 and 1.0 refused; plain HTTP -> 308;
+   - API responses carry HSTS, nosniff, `X-Frame-Options: DENY`,
+     `Referrer-Policy: no-referrer`, `Cache-Control: no-store` and
+     `CSP: default-src 'none'…` exactly once each, no `Server` header;
+     unauthenticated `/api/v1/vaults` -> 401.
+4. A REAL client (`verify-restore/client.ts`: the desktop vault module with
+   libsodium, the desktop SyncEngine + SDK, the shared media pipeline, a
+   WebAuthn software authenticator whose ceremonies the API verifies; TLS
+   verified against Caddy's root CA) registers an account, creates a vault,
+   pushes 4 encrypted items and uploads a 2.5 MiB file as 3 encrypted chunks
+   through `https://s3.localhost:19543`.
+5. `docker compose restart` of every service; a FRESH device (empty storage)
+   restores the vault key envelope with the passphrase, signs in with the
+   passkey, pulls and decrypts 4/4 items (titles + fields identical) and
+   downloads + decrypts the blob (SHA-256 identical).
+6. Fingerprint (21 tables, 35 rows; per table row count + md5 over the rows'
+   text form, so ciphertext bytes are included; 3 objects with sha256), then
+   `backup.sh` (pg_dump -Fc + `mc mirror` + sha256 manifest, 4 files).
+7. `docker compose down -v`: 0 project volumes left; a fresh Postgres has 0 tables.
+8. `restore.sh --yes` (manifest verified, `pg_restore --clean`, `mc mirror`),
+   then the full stack again (new Caddy CA, re-trusted by the client).
+9. Every table: same row count + md5; every object: same key + sha256.
+10. Another fresh device restores the key envelope with the **recovery key**,
+    signs in with the passkey (sign counter checked against the restored
+    row), decrypts 4/4 items and the blob. The pre-backup session token is
+    still accepted.
+11. Account deletion: 403 without step-up, 204 after a passkey step-up;
+    every session token -> 401; 18 account tables at 0 rows; bucket 0
+    objects; 6 audit events kept with `user_id`/`device_id` NULL. The
+    pre-deletion backup still contains the account.
+12. Restoring that backup brings the deleted account back (users=1, 3 objects)
+    — see `docs/privacy.md` §5.
+13. Log scan (`scan-logs.sh`) over 425 lines from all 7 containers, before
+    the destroy and after the restore: 126 fixed needles (every token,
+    WebAuthn challenge/assertion, ciphertext field, encrypted manifest,
+    presigned signature, the passphrase, recovery key and plaintext markers
+    the client saw, plus the env secrets) + 8 pattern rules -> no match;
+    50 structured request lines present.
 
-Not exercised: a browser/native client, TLS from a public CA, MFA, recovery,
-sharing, sync endpoints.
+Not covered: real domain + public CA, off-host backup copies, backups of a
+large data set, restore onto a different host or Postgres/MinIO version,
+timing (RTO/RPO), upgrade/rollback.
 
-### A.2 `infra/docker/backup-restore-proof.sh` -> exit code 0
+### A.1 Web client under the strict CSP — `infra/docker/verify-web-csp.sh` -> PASS (exit 0)
 
-Command: `cd infra/docker && ./backup-restore-proof.sh`. Seeds 3 users, 3
-vaults, 1 blob + part rows via SQL and a 256 KiB random object in MinIO; runs
-`backup.sh`; runs `docker compose down -v` (destroys all volumes) and boots an
-empty stack (asserted: no `users` table, object absent); runs `restore.sh --yes`;
-then compares. Observed: row-count/md5 fingerprint `3/3/1/1
-6d499055e5faaf45bedf444e38b45f96` before and after; object sha256
-`0a90b4d8ce24f03c7b9149468bf445714d912f7182b3527eb506b11440721ccb` before and
-after. Only that one DB shape and one small object were tested (same host,
-same Postgres major version, same MinIO).
+Run 17 Nov 2026 16:50 UTC, commit `0ae3151`, 37 s. Builds `apps/web`
+(`tsc && vite build`; `index.html` has no inline script), boots project
+`a16-csp` (ports 19544/19581) with Caddy serving the build read-only, then:
 
-### A.3 Real problems found by running, and fixed
+- Headers: document CSP enforced (1x, not report-only), HSTS, XFO DENY,
+  nosniff, no-referrer, COOP + CORP same-origin, `no-cache`; `/assets/*`
+  immutable, missing asset -> 404; `s3.<site>` -> sandbox CSP.
+- Chromium (Playwright, `verify-web-csp/browser.mjs`) drives the built app:
+  passkey account registration (CDP virtual authenticator, verified by the
+  API) -> vault creation (libsodium WebAssembly) -> encrypted media upload to
+  the S3 endpoint -> thumbnail decrypted from a `blob:` URL -> decrypted
+  download (bytes identical) -> Security Center -> lock, reload, unlock.
+- **CSP violations during the flow: 0 events, 0 console messages, 0 uncaught
+  page errors.** Negative control: an injected inline `<script>` was blocked
+  and reported (1 event, 1 console line), so the detector works.
+- Log scan of all containers: clean.
 
-- `apps/api/Dockerfile` CMD was `rails server`; the app has no `bin/rails`, so
-  the container ran the Rails app generator and never served. Now `puma`.
-- `require 'rails/all'` pulled in Active Storage, which aborted production
-  boot (`config/storage.yml` missing). `config/application.rb` now requires only
-  the frameworks the API uses.
-- Sidekiq 7.3.9 crashed its scheduler thread with `connection_pool` 3.0.3; the
-  Gemfile now pins `connection_pool ~> 2.4` (lockfile updated: 2.5.5).
-- Production ActiveJob had no queue adapter, so the worker would idle; now `:sidekiq`.
-- No `credentials.yml.enc` exists, so `RAILS_MASTER_KEY` does nothing;
-  Rails needs `SECRET_KEY_BASE` (compose now requires it).
-- Docker Hub `minio/minio` and `minio/mc` are no longer pullable (observed:
-  "pull access denied"); quay.io timed out from this host. Compose now defaults to
-  the Chainguard images and takes `MINIO_IMAGE` / `MC_IMAGE` overrides. Those
-  images are unpinned `:latest` and shell-less, so MinIO has no container
-  healthcheck (the `minio-init` retry gates the api instead). Pin digests for
-  production.
-- Weak S3 defaults removed (`StorageProvider` raises `ConfigError` naming the
-  missing variable; compose requires all `S3_*`); Caddy waits on the api health;
-  the worker has S3 env; the account-deletion storage gap is closed (specs in
-  `apps/api/spec`).
+The policy (from `infra/docker/Caddyfile`, `S3_PUBLIC_ENDPOINT` substituted):
 
-### A.4 Known gap (unresolved)
+```
+default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self';
+img-src 'self' blob:; media-src 'self' blob:; font-src 'self';
+connect-src 'self' https://s3.<site>; manifest-src 'self'; worker-src 'self';
+frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self';
+frame-ancestors 'none'
+```
 
-Presigned URLs are signed against `S3_ENDPOINT` (`http://minio:9000`, a
-compose-internal name). A real browser/desktop client outside the Docker
-network cannot reach that host, so direct-to-MinIO uploads will fail until a
-public S3 endpoint (a Caddy site for MinIO, or R2/S3) is configured. The
-smoke test performs the PUT/GET from inside the network, so it does not cover
-this.
+`'wasm-unsafe-eval'` is needed only for libsodium's WebAssembly; there is no
+`unsafe-inline` and no `unsafe-eval`. Not adopted: `require-trusted-types-for`
+(the shared desktop UI renders markdown HTML via `dangerouslySetInnerHTML`, which a Trusted Types policy would have to cover first).
 
-### A.5 Backup/restore usage and encryption at rest
+### A.2 Regression runs on the hardened stack -> PASS
+
+Re-run 17 Nov 2026 at commit `0ae3151` with `a16-*` project names (ports
+19546/19583 and 19547/19584), `RBENV_VERSION=3.3.6` for the Ruby helpers:
+`tests/media-e2e/run.sh` 9/9 and `infra/docker/smoke.sh` PASS (details in §9).
+The internal networks, Caddy header changes and the production boot check did
+not break presigned uploads, MinIO CORS, WebAuthn or account deletion.
+
+### A.3 Earlier runs (historical)
+
+- 17 Nov 2026, branch `feat/deploy-e2e`: `smoke.sh` and
+  `backup-restore-proof.sh` (SQL-seeded rows + one random object; superseded
+  by scenario L, which uses a real client and checks decryptability).
+- Problems those runs found and fixed: Dockerfile ran the Rails generator
+  instead of Puma; `rails/all` aborted production boot; Sidekiq/connection_pool
+  crash; no ActiveJob adapter; `SECRET_KEY_BASE` (not `RAILS_MASTER_KEY`) is
+  what Rails needs; Docker Hub MinIO images unavailable (Chainguard defaults);
+  weak S3 defaults removed; Caddy waits for api health; worker gets S3 env.
+- Since then (media wiring): presigned URLs are signed for the public
+  `S3_PUBLIC_ENDPOINT` (`https://s3.<site>`, routed by Caddy), so browsers and
+  apps outside the Docker network can upload/download.
+
+### A.4 Found by today's runs and fixed
+
+- Production Rails logged to `log/production.log` inside the container (not
+  visible in `docker logs`), with the client IP and filtered parameters on
+  every request. Now: stdout, one JSON line per request without IP,
+  parameters, query string or body.
+- `encrypted_metadata` / `encrypted_manifest` were not in `filter_parameters`
+  (they would have been printed in a parameters log line). The list is now a
+  broad partial match (`crypt`, `_key`, `token`, `credential`, …) and
+  production does not log parameters at all.
+- Caddy advertised HTTP/3 on UDP 443, which compose does not publish; h3 is
+  now off (`protocols h1 h2`).
+- Caddy's own headers were added next to Rails' (two `X-Frame-Options`, two
+  HSTS values); they are now deferred so Caddy's value replaces the app's.
+
+## B. Hardening in place
+
+| Area | What | Where | Evidence |
+|---|---|---|---|
+| Secrets | Compose `${VAR:?}` for every secret; API/worker refuse to boot on missing/`CHANGE_ME`/short secrets, `*` CORS, invalid S3 config; no code defaults in production | `docker-compose.yml`, `apps/api/config/environments/production.rb`, `config/initializers/storage_config.rb` | A.0 steps 1, 3 |
+| Exposure | Only Caddy publishes ports (80/443) and has egress; `proxy` (caddy, api, minio) and `backend` (api, worker, db, redis, minio) are `internal: true`; MinIO console disabled | `docker-compose.yml` | A.0 step 3 |
+| Containers | `no-new-privileges` on all long-running services; bounded json-file logs | `docker-compose.yml` | config |
+| TLS | TLS 1.2/1.3 only, automatic HTTPS redirect, HSTS 1 year + subdomains (no preload) | `Caddyfile` | A.0 step 3 |
+| Headers | nosniff, XFO DENY, no-referrer, COOP, Permissions-Policy, no `Server`; API: `no-store` + `default-src 'none'` CSP; S3: sandbox CSP; API responses not compressed | `Caddyfile` | A.0, A.1 |
+| Web client | Strict CSP, immutable hashed assets, SPA shell `no-cache` | `Caddyfile` | A.1 |
+| Logs | JSON request line (method, path, status, duration_ms, request_id); no IP/params/query/body; Sidekiq JSON; rescued 4xx not logged with message | `apps/api/config/initializers/logging.rb`, `production.rb` | A.0 step 13 |
+| Health | api: `GET /health` via the container healthcheck (`{"ok":true}`); worker: this container's Sidekiq process heartbeating in Redis; db/redis: native checks | `docker-compose.yml` | A.0 step 2 |
+
+Known limits (not changed here): the API image runs as root (no `USER` in
+`apps/api/Dockerfile`); Redis has no password (reachable only on `backend`);
+MinIO/mc images are unpinned `:latest` (pin digests for production);
+`/health` proves the Rails process answers, not that Postgres/Redis/S3 are
+reachable; Rack::Attack uses a per-process store (`rack_attack.rb`, M2).
+
+## 0. Architecture
+
+| Role | Docker Compose (`infra/docker/`) | Managed cloud (`infra/cloud/`, not run) |
+|---|---|---|
+| TLS / reverse proxy + web client | Caddy 2 (Let's Encrypt or local CA), serves `apps/web/dist` | Managed TLS / CDN; must replicate the Caddy headers + CSP |
+| API | Rails 7.2 / Puma (`apps/api`) | Same image |
+| Worker | Same image, `bundle exec sidekiq` | Second process |
+| Database | Postgres 16 | Managed Postgres 16 with PITR |
+| Queue | Redis 7 | Managed Redis |
+| Object storage | MinIO (public via `s3.<site>`) | R2 / S3 |
+
+The server stores ciphertext + metadata only. Backups still contain account
+metadata (emails, passkey public keys, session IPs/user agents, timestamps,
+sizes): protect them.
+
+## 1. Prerequisites
+
+- Docker + Compose v2; Node >= 20 + `npm ci` (to build the web client).
+- A domain and `s3.<domain>` pointing at the host, TCP 80/443 reachable — PENDING (human).
+- 2 GB RAM / 10 GB disk is an assumption, not a measurement.
+- Lockfiles are committed (`package-lock.json`, `apps/api/Gemfile.lock`).
+
+## 2. Install (self-host)
+
+```bash
+cd infra/docker
+cp .env.example .env            # replace every CHANGE_ME (openssl rand -hex 32 / -hex 64)
+# SITE_ADDRESS=<your domain>, S3_PUBLIC_ENDPOINT=https://s3.<your domain>,
+# WEBAUTHN_RP_ID=<your domain>, WEBAUTHN_ORIGIN=https://<your domain>, CORS_ORIGINS=https://<your domain>
+git status --porcelain -- .env  # must print nothing (.env is gitignored)
+(cd ../.. && npm ci && npm --workspace apps/web run build)   # web client for Caddy
+docker compose up --build -d
+docker compose exec api bundle exec rake db:migrate
+docker compose ps               # api + worker healthy
+curl -fsS https://<your-domain>/health   # {"ok":true}
+```
+
+If a secret is missing or still `CHANGE_ME`, `api`/`worker` exit at boot and
+`docker compose logs api` names the variable.
+
+## 3. Operate
+
+- **Logs:** `docker compose logs -f api worker` — JSON lines; join a 5xx
+  exception to its request by `request_id` (exception lines are tagged with it).
+- **Health:** `docker compose ps` (api + worker `healthy`);
+  `curl -fsS https://<domain>/health`.
+- **Secrets rotation:** edit `.env`, `docker compose up -d --force-recreate api worker`
+  (and `minio` for S3 keys), revoke the old value. No automated rotation.
+- **Verify a change:** `infra/docker/verify-restore.sh` and
+  `infra/docker/verify-web-csp.sh` (both self-contained, throwaway stacks).
+
+## 4. Cloud deployment (not run)
+
+Same env names; see `infra/cloud/README.md`. Before any cutover: a real
+presigned upload against R2/S3 (path-style is hardcoded), egress for api/worker
+to the managed services, the Caddy headers/CSP replicated at the edge, and a
+restore test. All PENDING.
+
+## 5. Secrets management
+
+- Secrets only in `.env` (self-host) or the host's secret store; never in the
+  repo or CI logs. `.env.example` holds placeholders only.
+- Keep an offline copy of `SECRET_KEY_BASE` and the S3 keys, separate from the
+  server and from backups.
+
+## 6. Backup [RUN, A.0]
 
 ```bash
 cd infra/docker
 ENV_FILE=./.env PROJECT=docker ./backup.sh ./backups/$(date -u +%F)   # pg_dump -Fc + mc mirror + sha256 manifest
-ENV_FILE=./.env PROJECT=docker ./restore.sh --yes ./backups/<dir>     # verifies manifest, pg_restore --clean, mc mirror
 ```
 
-The backup is ciphertext blobs plus account metadata (emails, credential
-ids, session digests). `backup.sh` does NOT encrypt and ships no keys. Encrypt
-before the backup leaves the host, with a key kept off the server, for example
-`tar -C backups -c <dir> | age -r <recipient> > backup.tar.age` (age/gpg were
-not run as part of the proof). Also enable disk/volume encryption on the host.
-`backups/` is gitignored.
+The backup holds ciphertext and account metadata and is NOT encrypted by the
+script: encrypt it before it leaves the host with a key kept off the server,
+e.g. `tar -C backups -c <dir> | age -r <recipient> > backup.tar.age` (not run).
+There is **no rotation**: deleted accounts survive in every older backup
+until it is removed. Rotation period and off-host storage — PENDING (human).
 
-## 0. Architecture (as designed, not as observed)
-
-One Rails API backend, two ways to host it. The code does not change —
-only the backing services do.
-
-| Role | Docker Compose (`infra/docker/`) | Managed cloud (`infra/cloud/`) |
-|---|---|---|
-| TLS / reverse proxy | Caddy 2-alpine (Let's Encrypt) | Cloudflare Tunnel / managed TLS + WAF |
-| API | Rails 7.1 / Puma (`apps/api`) | Fly.io / Render / Heroku dyno, or VPS |
-| Worker | Same image, `bundle exec sidekiq` | Second process / worker dyno |
-| Database | Postgres 16-alpine | Neon / Supabase / RDS Postgres 16, PITR |
-| Queue/cache | Redis 7-alpine | Upstash / Redis Cloud / ElastiCache |
-| Object storage | MinIO (S3-compatible) | Cloudflare R2 or AWS S3 |
-
-The server stores ciphertext + metadata only. It never sees plaintext
-or decryption keys — by design. A stolen server backup still does not
-reveal vault content (without the user's keys), but protect backups
-anyway: they contain metadata (item ids, revisions, timestamps, sizes).
-
-## 1. Prerequisites
-
-- [ ] Docker + Docker Compose v2 installed (`docker compose version`).
-- [ ] A domain pointing at the host (required for Caddy/Let's Encrypt TLS).
-- [ ] 2 GB RAM minimum, 10 GB disk to start. *(Assertion from the
-      self-host README, not a measurement — re-check under load.)*
-- [ ] Ports 80/443 reachable from the internet; ports 3000/9000/9001
-      NOT reachable (see §2 — the compose file currently publishes them).
-- [ ] Lockfiles committed: `package-lock.json` and `apps/api/Gemfile.lock`
-      (both missing as of Phase G — see `.github/workflows/ci.yml`).
-      Without them a build resolves dependencies fresh each time.
-- [ ] Git history scanned for secrets (weekly gitleaks job — never run).
-
-## 2. Pre-flight fixes (do these BEFORE the first public run)
-
-These are static findings from `infra/docker/VALIDATION.md`. They are
-not optional hardening — the first two contradict the docs as written.
-
-- [x] **Close the extra ports (compose now publishes only Caddy 80/443; `ports:` for api/MinIO are gone).** Compose publishes `3000:3000` (api)
-      and `9000:9000`/`9001:9001` (MinIO). Remove those `ports:` entries
-      (Caddy reaches the api internally) or bind them to localhost
-      (`127.0.0.1:9001:9001`). Verify with `ss -tlnp` / `nmap` after `up`.
-- [ ] **Set a real domain in the Caddyfile.** Replace `vault.example.com`
-      with your domain in `infra/docker/Caddyfile`. Caddy only obtains a
-      Let's Encrypt certificate when the domain points at the host.
-- [ ] **Add a CSP.** Neither the Caddyfile nor the web client sets a
-      `Content-Security-Policy` (Phase A finding, still open). This needs
-      app-side work — do not ship the web client publicly without it.
-- [x] **[RUN] Remove weak S3 defaults from code (done, see §A.3).** Original finding: `Blobs::StorageProvider`
-      defaults to `S3_ACCESS_KEY='minio'` / `S3_SECRET_KEY='minio123'`
-      when env is empty. Missing env vars currently fail late; add
-      fail-fast env validation (or required-var `${VAR:?}` syntax in
-      compose) and delete the defaults.
-- [x] **Caddy warm-up (fixed: Caddy waits for api healthy):** Caddy `depends_on: [api]` has no health
-      condition, so expect 502s for the first seconds after `up`, or add
-      `depends_on: api: { condition: service_healthy }`.
-- [x] **Worker env (fixed: S3 env added):** the worker service gets no S3 env. Confirm whether
-      Sidekiq jobs need S3 (orphan-blob cleanup, quota, retention) and add
-      the vars if so.
-
-## 3. Docker self-host — install
-
-Run from `infra/docker/`.
+## 7. Restore [RUN, A.0]
 
 ```bash
-cd /Users/loihuynh/Personal/LoyGenics/my-secrect/infra/docker
-cp .env.example .env
-# Edit .env with REAL secrets (placeholders will not work):
-#   POSTGRES_PASSWORD, S3_ACCESS_KEY, S3_SECRET_KEY, SECRET_KEY_BASE, SITE_ADDRESS
-#   Generate each with: openssl rand -hex 32
-#   WEBAUTHN_RP_ID / WEBAUTHN_ORIGIN must match your real domain.
-#   CORS_ORIGINS: exact origins only, never `*`.
-# SITE_ADDRESS in .env sets the Caddy domain (no Caddyfile edit needed).
-
-# NEVER commit .env — .gitignore covers .env / .env.* (verified 17 Nov 2026).
-# Confirm before proceeding:
-git status --porcelain -- infra/docker/.env   # must print nothing
-
-docker compose up --build -d
-docker compose ps            # all services up / healthy
-docker compose logs -f api   # watch Rails boot; no stack trace, no missing-key error
+cd infra/docker
+docker compose stop api worker
+ENV_FILE=./.env PROJECT=docker ./restore.sh --yes ./backups/<dir>   # verifies manifest, pg_restore --clean, mc mirror
+docker compose up -d && docker compose exec api bundle exec rake db:migrate:status
 ```
 
-### 3.1 Database init + migrations
+DESTRUCTIVE for the target database. After restoring an older backup,
+re-delete every account deleted since that backup was taken (there is no
+automatic deletion journal — `docs/privacy.md` §5).
+
+## 8. Upgrade / rollback (not run)
 
 ```bash
-# First boot: create + migrate (db:prepare is idempotent — safe to re-run).
-docker compose exec api bundle exec rake db:migrate
-# Or explicitly:
-docker compose exec api bundle exec rake db:migrate
-docker compose exec api bundle exec rake db:migrate:status   # all "up"
-# Verify the schema matches the models (users, vaults, items, sync history):
-docker compose exec db psql -U vault -d vault_production -c '\dt'
+git pull && (cd ../.. && npm ci && npm --workspace apps/web run build)
+docker compose up --build -d && docker compose exec api bundle exec rake db:migrate
 ```
 
-Expected: migrations apply with no errors; `db:migrate:status` shows
-all migrations `up`. **Never observed — record actual output in §9.**
+Take a backup first. Migrations have not been reviewed for reversibility;
+there is no release tagging. Rollback = previous commit + restore.
 
-### 3.2 Storage (MinIO bucket)
+## 9. Validation run log
 
-```bash
-# Confirm MinIO is healthy and reachable from the api container:
-docker compose exec api curl -fsS http://minio:9000/minio/health/live
-# Confirm the bucket exists (created by the app on first use, or pre-create):
-docker compose exec minio ls /data   # or use the MinIO console on :9001 (localhost only)
-# Confirm a presigned upload round-trips (5-minute TTL, code: PRESIGN_TTL = 300):
-#   1. Create an item / upload a file from the desktop app.
-#   2. Confirm the encrypted chunk object appears under the bucket.
-#   3. Download it from another device and confirm it decrypts.
-```
-
-### 3.3 TLS
-
-```bash
-curl -fsS https://<your-domain>/health   # {"ok":true}
-curl -sI https://<your-domain>/health | grep -i -E 'strict-transport|x-content-type|x-frame|referrer'
-# Expected headers (from Caddyfile): HSTS max-age=31536000, nosniff,
-# X-Frame-Options DENY, Referrer-Policy no-referrer.
-# Also check: http://<your-domain> redirects to https (Caddy default).
-# Also check: certificate is a valid Let's Encrypt cert, not self-signed:
-#   echo | openssl s_client -connect <your-domain>:443 -servername <your-domain> 2>/dev/null | openssl x509 -noout -issuer -dates
-```
-
-For local-only use, comment the domain block out of the Caddyfile and
-use `http://localhost:3000` directly (no TLS on localhost) — never expose
-plain HTTP publicly.
-
-### 3.4 Workers (Sidekiq)
-
-```bash
-docker compose exec worker bundle exec sidekiq --version   # or: ps inside the container
-docker compose logs -f worker   # no crash loop, jobs picked up
-# Trigger a job the app actually schedules (orphan-blob cleanup / retention)
-# and confirm it completes — which jobs exist is unverified; confirm
-# against the job classes in apps/api before relying on this.
-```
-
-### 3.5 Health checks
-
-```bash
-# API liveness (route exists in apps/api/config/routes.rb):
-curl -fsS http://localhost:3000/health          # {"ok":true}
-curl -fsS https://<your-domain>/health         # {"ok":true} via Caddy
-# Container health (compose + Dockerfile HEALTHCHECK):
-docker compose ps                              # db/minio healthy, api/worker up
-docker inspect --format '{{.State.Health.Status}}' $(docker compose ps -q api)
-# Dependencies:
-docker compose exec db pg_isready -U vault -d vault_production
-docker compose exec redis redis-cli ping       # PONG
-docker compose exec minio curl -fsS http://localhost:9000/minio/health/live
-```
-
-Note: `/health` only proves the Rails process answers. It does NOT prove
-the DB, Redis, or MinIO are reachable from the app — check the logs for
-connection errors after boot.
-
-## 4. Cloud deployment (managed services)
-
-Same env names as `.env.example`. See `infra/cloud/README.md`.
-
-- [ ] `DATABASE_URL` — managed Postgres, TLS, `sslmode=require`.
-- [ ] `REDIS_URL` — managed Redis.
-- [ ] `S3_ENDPOINT` — R2: `https://<account>.r2.cloudflarestorage.com`.
-- [ ] `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` — R2 token scoped to
-      that bucket only (Read/Write).
-- [ ] `SECRET_KEY_BASE`, `S3_REGION`, `WEBAUTHN_RP_ID` / `WEBAUTHN_ORIGIN` — must
-      match the real domain.
-- [ ] `CORS_ORIGINS` — exact origins, never `*`.
-- [ ] **R2 path-style check (BLOCKER):** the code hardcodes
-      `force_path_style: true`. Confirm a presigned upload works against
-      a real R2 bucket before cutover; if R2 rejects path-style, change
-      `Blobs::StorageProvider` first (unverified).
-- [ ] R2 bucket versioning on; lifecycle: delete incomplete multipart
-      uploads after 7 days.
-- [ ] Managed Postgres: PITR + daily snapshots; test a restore (§7).
-
-## 5. Secrets management
-
-- Secrets live ONLY in `.env` (self-host) or the host's secret store
-  (cloud: Fly.io/Render/Heroku secrets, never in the repo or in CI logs).
-- `.env` is gitignored (`.env`, `.env.*`, except `!.env.example`).
-  `.env.example` contains placeholders only — verified Phase G.
-- `SECRET_KEY_BASE` (`openssl rand -hex 64`) is required for Rails to
-  boot in production (no credentials file exists). Store a copy offline, separate from the server.
-- Rotate a leaked secret by: updating `.env` / the secret store,
-  `docker compose up -d --force-recreate api worker`, and revoking the
-  old value at the provider. There is no automated rotation.
-- Never print secrets in logs, CI output, or support messages. CI uses
-  only `ci-only-not-a-secret` placeholder values (see
-  `.github/workflows/ci.yml`).
-
-## 6. Backup [RUN]
-
-Use `infra/docker/backup.sh` (see §A.5; exercised by `backup-restore-proof.sh`,
-§A.2). Back up BOTH halves: Postgres and the object bucket. Desktop clients keep
-an encrypted local copy; users should also keep an encrypted vault export
-(`packages/import-export`). Cloud: managed Postgres PITR + daily snapshots and
-bucket versioning (not run here).
-
-## 7. Restore [RUN on one host]
-
-Use `infra/docker/restore.sh --yes <dir>` (§A.5). DESTRUCTIVE: `pg_restore --clean`
-replaces all objects in `vault_production`. Proven only by §A.2 (destroy volumes
--> empty stack -> restore -> identical rows and object bytes). Not tested:
-restore on a different host, a different Postgres/MinIO version, large data,
-or timing. RTO/RPO remain unmeasured.
-
-## 8. Rollback / upgrade
-
-```bash
-git pull
-docker compose up --build -d
-docker compose exec api bundle exec rake db:migrate
-curl -fsS https://<your-domain>/health
-# Rollback: check out the previous release tag/commit, rebuild, migrate.
-# NOTE: Rails migrations in this repo have not been reviewed for
-# reversibility — confirm `db:migrate:status` and that each migration is
-# reversible before relying on rollback. There is no release tagging
-# process yet (see docs/release-readiness.md).
-```
-
-## 9. Deployment validation run log
-
-Fill this in as each step is OBSERVED (date, host, command, output).
-Do not tick boxes from memory.
-
-| Date | Step | Host / env | Command | Observed result |
+| Date (UTC) | What | Commit | Command | Result |
 |---|---|---|---|---|
-| 17 Nov 2026 | §A.1 smoke (up, migrate, health, blob round trip, delete) | macOS arm64, Docker 28 | `./smoke.sh` | PASS, exit 0 |
-| 17 Nov 2026 | §A.2 backup/destroy/restore proof | same | `./backup-restore-proof.sh` | PASS, exit 0 |
-| — | §3 `up --build` (real domain) | — | — | NOT RUN |
-| — | §3.1 migrations | — | — | NOT RUN |
-| — | §3.2 MinIO bucket + presigned round-trip | — | — | NOT RUN |
-| — | §3.3 TLS + headers via Caddy | — | — | NOT RUN |
-| — | §3.4 worker picks up jobs | — | — | NOT RUN |
-| — | §3.5 health checks | — | — | NOT RUN |
-| — | §8 upgrade + rollback | — | — | NOT RUN |
-| — | §4 R2 presigned upload | — | — | NOT RUN |
+| 17 Nov 2026 16:57 | Scenario L (A.0) | `38ae0e4` | `infra/docker/verify-restore.sh` | PASS, exit 0, 2m14s |
+| 17 Nov 2026 16:50 | Scenario L (A.0) | `0ae3151` | `infra/docker/verify-restore.sh` | PASS, exit 0, 1m43s |
+| 17 Nov 2026 16:50 | Web build under CSP (A.1) | `0ae3151` | `infra/docker/verify-web-csp.sh` | PASS, exit 0, 0 CSP violations |
+| 17 Nov 2026 16:55 | Web build under CSP, re-run (same dist) | `e3406a1` | `SKIP_WEB_BUILD=1 infra/docker/verify-web-csp.sh` | PASS, exit 0, 0 CSP violations |
+| 17 Nov 2026 | Media e2e on hardened stack | `0ae3151` | `E2E_PROJECT=a16-media E2E_HTTPS_PORT=19546 E2E_HTTP_PORT=19583 tests/media-e2e/run.sh` | PASS, 9/9 (presigned public URLs, 10 MiB round trip as ciphertext, wrong key + 5 tamper cases rejected, API validation) |
+| 17 Nov 2026 | Compose smoke on hardened stack | `0ae3151` | `SMOKE_PROJECT=a16-smoke SMOKE_HTTPS_PORT=19547 SMOKE_HTTP_PORT=19584 ./smoke.sh` | PASS, exit 0 (WebAuthn registration, CORS preflight, presigned PUT/GET via `s3.<site>`, forged signature 403, step-up + DELETE account 204, object 404 after deletion, bucket empty, 0 user rows) |
+| 17 Nov 2026 | smoke + backup proof (historical) | `feat/deploy-e2e` | `./smoke.sh`, `./backup-restore-proof.sh` | PASS |
+| — | Real domain, Let's Encrypt, real DNS for `s3.<domain>` | — | — | NOT RUN (PENDING) |
+| — | Cloud / R2 presigned upload | — | — | NOT RUN (PENDING) |
+| — | Upgrade + rollback | — | — | NOT RUN |
+| — | Off-host encrypted backup + restore on another host | — | — | NOT RUN (PENDING) |
 
-## 10. Known deployment risks (unresolved)
+## 10. Known deployment risks (open)
 
-- Compose publishes api/MinIO ports publicly (§2) — fix before exposure.
-- No CSP anywhere (web + Caddy).
-- No lockfiles → unreproducible builds.
-- Presigned URL host is the compose-internal MinIO name (§A.4).
-- `Sync::Pull` omits ciphertext (Phase A, gate 5) — even a perfectly
-  deployed server cannot sync today; deployment validation cannot pass
-  end-to-end until the sync bug is fixed in app code.
-- Passkey verification unwired (gate 1) — account auth is not production-safe.
-- No external audit, no backup/restore test, no rollback test.
-- Resource numbers (2 GB RAM / 10 GB disk) are assertions, not measurements.
+- Account-deletion gaps and missing retention scheduling (`docs/privacy.md` §5, §7).
+- API container runs as root; images not digest-pinned; Redis without auth.
+- Rate limiting is per process (no shared store).
+- No load/sizing data; no RTO/RPO; no monitoring/alerting beyond healthchecks.
+- No external security audit.
 
+## 11. Human-controlled steps — all PENDING
 
-## Account deletion and object storage
-
-`Accounts::Delete` deletes every blob part object (ciphertext chunks; the
-encrypted manifest lives in the `blobs` DB row, not in storage) through the
-storage provider BEFORE removing any database row. Decision: **fail closed**.
-If any object delete fails, no DB row is touched, an `account_deletion_storage_failed`
-audit event (counts + error classes only) is written, and the API answers
-`503 storage_unavailable`; the client retries. Because rows keep referencing
-leftovers, orphans are never hidden; S3 deletes are idempotent so retries are safe.
-Residual risk: if the DB step fails after storage deletion succeeded, bytes are
-gone but the account remains; retry completes it. In production the API refuses
-to boot without valid `S3_*` configuration.
+| Step | Owner | Status |
+|---|---|---|
+| Choose hosting (VPS or managed), size it, set up OS patching + firewall | human | PENDING |
+| Register the domain; DNS A/AAAA for `<domain>` and `s3.<domain>` | human | PENDING |
+| Public TLS (Caddy + Let's Encrypt on the real domain; decide on HSTS preload) | human | PENDING |
+| Production secrets generated and stored offline (`.env`, `SECRET_KEY_BASE`, S3 keys) | human | PENDING |
+| SMTP / transactional email (none is integrated in the code today) | human | PENDING |
+| Backup schedule, rotation period, encryption key (age/gpg) custody, off-host copy, restore drill on another host | human | PENDING |
+| Retention periods (backups, sessions, audit events) + job scheduling decision | human | PENDING |
+| Monitoring / alerting / on-call | human | PENDING |
+| Apple Developer + Google Play accounts, signing keys, store listings (`docs/store-prep.md`) | human | PENDING |
+| Privacy policy legal review and publication (`docs/privacy.md`) | human + lawyer | PENDING |
+| External security audit | human | PENDING |
