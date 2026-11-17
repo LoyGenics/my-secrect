@@ -35,7 +35,8 @@ All six review findings fixed (pinned email shown, reviewed revision saved, iden
 ## Independent security review (crypto + sharing): no critical/high
 Medium: sharing UI shows server-supplied email instead of the pinned one (M1); "Save to my vault" saves the latest revision instead of the reviewed one (M2). Low: L1–L6 (vault string cipher has no per-purpose AD; identity registration without step-up/reset; recipient fields not validated; key-exchange check not share-bound; self-test bypassed by 4 raw sodium.ready callers; spec drift). Sharing findings fixed and merged (L1 vault string cipher AD and L5 self-test callers still open).
 
-## QA acceptance (tests/acceptance on test/acceptance, being ported to main)
+## QA acceptance (tests/acceptance, merged into main cb1bca6)
+On main cb1bca6: npm run test:acceptance 45 pass / 3 todo; npm run test:acceptance:e2e 25 pass / 0 fail / 6 todo (todos = known defects, asserted as the correct behaviour). DEFECT-H1 fixed by the auth merge. New deploy blocker L1: compose lacks SMTP_* / MAIL_FROM (infra branch fixing).
 Covered: A, B, D, E, I, K, M. Partial: C, F, H. Pending: G, J, L. Open defects: H1/H2 device revocation (re-check on main), H3 pull 401 not handled, H4 local-only choice not sticky, C1 different vault key pushes unreadable items (high), K3 rollback (high, needs v2 AD + signed events), K2 backup item omission undetected, E1 relations rewritten on save.
 
 ## In progress (agents, each on its own branch)
@@ -43,7 +44,8 @@ Covered: A, B, D, E, I, K, M. Partial: C, F, H. Pending: G, J, L. Open defects: 
 - fix/infra-auth-media: SMTP + mail catcher for test stacks, email step + device proof in smoke/verify-restore/media e2e, tombstone runbook.
 - feat/design-system-adoption: Precision Instrument redesign, responsive, 9 walkthrough bugs, illustrations + motion, QA E1/H4.
 - feat/mobile-secure-storage: SQLCipher store, biometric unlock.
-- test/acceptance-main: QA suites ported to main.
+- fix/auth-revocation: durable device revocation (H2) + self-test callers (L5).
+- fix/backup-integrity: authenticated backup item index (K2).
 - Paused: feat/ios-credential-provider, feat/android-credential-provider (resume after mobile storage lands).
 - Waiting on the user: logo choice.
 
