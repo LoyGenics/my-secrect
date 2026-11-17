@@ -2,7 +2,7 @@
 # Proves the BUILT web client works under the strict Content-Security-Policy
 # Caddy serves (infra/docker/Caddyfile): builds apps/web, boots the compose
 # stack with a throwaway random env (own project, default a16-csp, host ports
-# 19544/19581), checks the static-file headers, then drives the real UI in
+# 19544/19581, test-only Mailpit API on 127.0.0.1:19591), checks the static-file headers, then drives the real UI in
 # Chromium (verify-web-csp/browser.mjs) and fails on any CSP violation.
 # Finally scans every container log for secrets (env secrets + pattern rules).
 #
@@ -17,6 +17,7 @@ COMPOSE_DIR="$HERE"
 PROJECT=${CSP_PROJECT:-a16-csp}
 HTTPS_PORT=${CSP_HTTPS_PORT:-19544}
 HTTP_PORT=${CSP_HTTP_PORT:-19581}
+MAILPIT_PORT=${CSP_MAILPIT_PORT:-19591}
 ORIGIN="https://localhost:$HTTPS_PORT"
 KEEP=${1:-}
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/a16-csp.XXXXXX")
@@ -43,7 +44,7 @@ grep -q '<script>' "$WEB_DIST/index.html" && fail "built index.html has an inlin
 say "   dist: $(ls "$WEB_DIST/assets" | tr '\n' ' ')(no inline script in index.html)"
 
 say "2. boot the stack (Caddy serves $WEB_DIST read-only)"
-write_env "$HTTPS_PORT" "$HTTP_PORT"
+write_env "$HTTPS_PORT" "$HTTP_PORT" "$MAILPIT_PORT"
 dc up -d --build >"$WORK/up.log" 2>&1 || { cat "$WORK/up.log"; fail "compose up"; }
 wait_healthy api
 dc exec -T api bundle exec rake db:migrate >/dev/null

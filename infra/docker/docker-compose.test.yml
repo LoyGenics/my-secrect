@@ -1,0 +1,44 @@
+# TEST-ONLY override for the throwaway stacks (smoke.sh, verify-restore.sh,
+# verify-web-csp.sh, tests/media-e2e/run.sh). NEVER use it in production:
+# Mailpit accepts any SMTP credentials and keeps every message in memory.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml ...
+#
+# Mailpit (MIT, https://mailpit.axllent.org) is the SMTP server the API
+# delivers sign-up codes to. It speaks STARTTLS with a certificate for the
+# host name `mailpit`, issued by a CA that the test script creates for this
+# run only (lib/mail.sh); api/worker trust exactly that CA via SSL_CERT_FILE,
+# so the production mail settings (STARTTLS required, peer verification) run
+# unchanged. Test clients read the code from Mailpit's HTTP API, published on
+# 127.0.0.1 only (MAILPIT_HTTP_PORT), the way a user reads their inbox.
+services:
+  mailpit:
+    image: ${MAILPIT_IMAGE:-ghcr.io/axllent/mailpit:latest}
+    environment:
+      MP_SMTP_TLS_CERT: /tls/mailpit.crt
+      MP_SMTP_TLS_KEY: /tls/mailpit.key
+      MP_SMTP_REQUIRE_STARTTLS: 'true'
+      MP_SMTP_AUTH_ACCEPT_ANY: 'true'
+      MP_MAX_MESSAGES: '1000'
+    volumes:
+      - ${MAIL_TLS_DIR:?MAIL_TLS_DIR is required (lib/mail.sh)}/mailpit.crt:/tls/mailpit.crt:ro
+      - ${MAIL_TLS_DIR:?MAIL_TLS_DIR is required (lib/mail.sh)}/mailpit.key:/tls/mailpit.key:ro
+    ports:
+      - '127.0.0.1:${MAILPIT_HTTP_PORT:?MAILPIT_HTTP_PORT is required}:8025'
+    # backend: the api reaches mailpit:1025. mailtest: lets Docker publish the
+    # HTTP API on loopback (internal networks cannot publish ports).
+    networks: [backend, mailtest]
+  api:
+    environment:
+      SSL_CERT_FILE: /run/test-mail-ca.crt
+    volumes:
+      - ${MAIL_TLS_DIR:?MAIL_TLS_DIR is required (lib/mail.sh)}/ca.crt:/run/test-mail-ca.crt:ro
+    depends_on:
+      mailpit: { condition: service_started }
+  worker:
+    environment:
+      SSL_CERT_FILE: /run/test-mail-ca.crt
+    volumes:
+      - ${MAIL_TLS_DIR:?MAIL_TLS_DIR is required (lib/mail.sh)}/ca.crt:/run/test-mail-ca.crt:ro
+networks:
+  mailtest: {}

@@ -1,8 +1,11 @@
-# Registers a throwaway user through the REAL passkey endpoints (webauthn
-# gem FakeClient = software authenticator, verified by the server) and
+# Registers a throwaway user through the REAL sign-up endpoints (email code
+# from the test mail catcher, then passkey registration: webauthn gem
+# FakeClient = software authenticator, verified by the server, plus an
+# Ed25519 device proof — infra/docker/smoke/signup.rb) and
 # creates a vault. Prints one JSON line {"token":..,"vault_id":..} to stdout
 # for the test runner (never echoed by run.sh). Run from apps/api:
-#   SMOKE_ORIGIN=https://localhost:PORT bundle exec ruby ../../tests/media-e2e/register.rb
+#   SMOKE_ORIGIN=https://localhost:PORT MAILPIT_URL=http://127.0.0.1:PORT \
+#     bundle exec ruby ../../tests/media-e2e/register.rb
 require 'net/http'
 require 'json'
 require 'securerandom'
@@ -11,6 +14,7 @@ require 'openssl'
 require 'forwardable'
 require 'webauthn'
 require 'webauthn/fake_client'
+require_relative '../../infra/docker/smoke/signup'
 
 ORIGIN = ENV.fetch('SMOKE_ORIGIN')
 HOST = URI(ORIGIN).host
@@ -40,11 +44,14 @@ end
 
 email = "media-e2e-#{SecureRandom.hex(6)}@example.test"
 client = WebAuthn::FakeClient.new(ORIGIN)
-code, opts = api(:post, '/auth/passkeys/register', body: { email: email })
-abort("register options: HTTP #{code}") unless code == 200
-credential = client.create(challenge: opts['creation_options']['challenge'], user_verified: true)
-code, reg = api(:post, '/auth/passkeys/verify', body: { email: email, credential: credential, kind: 'registration' })
-abort("register verify: HTTP #{code}") unless code == 200
+# Email code (read from the test mail catcher, MAILPIT_URL) -> ticket ->
+# passkey registration with a device proof, so the session is bound to an
+# active device (vaults/sync/items answer 403 otherwise).
+begin
+  reg, = TestSignup.sign_up(method(:api), client, email, TestSignup::DeviceKey.new)
+rescue StandardError => e
+  abort("sign-up: #{e.message}")
+end
 token = reg['token'] or abort('no token')
 code, vault = api(:post, '/vaults', token: token, body: { encrypted_metadata: Base64.strict_encode64(SecureRandom.random_bytes(48)) })
 abort("vault create: HTTP #{code}") unless code == 201

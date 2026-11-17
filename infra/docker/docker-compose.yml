@@ -4,13 +4,20 @@
 #   api context: ../../apps/api  -> my-secrect/apps/api, Dockerfile there.
 # Secrets come from .env in this folder (copy .env.example first). Never commit .env.
 #
-# Exposure: Caddy is the only service with published ports (80/443) and the
-# only one on a network with outbound access (`edge`, for ACME). Everything
-# else sits on internal-only networks (no host ports, no internet egress):
+# Exposure: Caddy is the only service with published ports (80/443).
+# Outbound access exists on two networks only:
+#   edge    : caddy (ACME / Let's Encrypt)
+#   mail    : api   (SMTP to SMTP_ADDRESS:SMTP_PORT for sign-up codes; the
+#             API sends with deliver_now inside the request). Docker cannot
+#             limit this to one host/port: add a host firewall egress rule.
+# Everything else sits on internal-only networks (no host ports, no egress):
 #   proxy   : caddy, api, minio           (what Caddy may reach)
 #   backend : api, worker, db, redis, minio, minio-init (Caddy cannot reach db/redis)
 # The S3 API is public only via Caddy at s3.${SITE_ADDRESS}. If you swap
 # MinIO for an external S3/R2, api and worker need an egress network too.
+#
+# Throwaway test stacks add docker-compose.test.yml (Mailpit as the SMTP
+# server, with a per-run CA). Never use that override in production.
 #
 # The web client is the Vite build of apps/web (npm --workspace apps/web run
 # build), mounted read-only into Caddy; override the path with WEB_DIST.
@@ -35,6 +42,16 @@ x-app-env: &app-env
   WEBAUTHN_RP_NAME: my-secrect
   WEBAUTHN_ORIGIN: ${WEBAUTHN_ORIGIN:?WEBAUTHN_ORIGIN is required}
   CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS is required}
+  # Sign-up verification codes are emailed; production refuses to boot
+  # without these (apps/api/config/initializers/action_mailer.rb). STARTTLS
+  # with certificate verification, or implicit TLS with SMTP_TLS_MODE=tls.
+  SMTP_ADDRESS: ${SMTP_ADDRESS:?SMTP_ADDRESS is required (SMTP server for sign-up codes)}
+  SMTP_PORT: ${SMTP_PORT:?SMTP_PORT is required}
+  SMTP_USERNAME: ${SMTP_USERNAME:?SMTP_USERNAME is required}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:?SMTP_PASSWORD is required}
+  MAIL_FROM: ${MAIL_FROM:?MAIL_FROM is required (sender address of sign-up codes)}
+  SMTP_TLS_MODE: ${SMTP_TLS_MODE:-}
+  SMTP_AUTHENTICATION: ${SMTP_AUTHENTICATION:-}
 
 services:
   caddy:
@@ -76,7 +93,7 @@ services:
       db: { condition: service_healthy }
       redis: { condition: service_healthy }
       minio-init: { condition: service_completed_successfully }
-    networks: [proxy, backend]
+    networks: [proxy, backend, mail]
     security_opt: ['no-new-privileges:true']
     logging: *logging
     restart: unless-stopped
@@ -162,6 +179,8 @@ services:
 networks:
   # Only Caddy joins this one: published ports + outbound (ACME).
   edge: {}
+  # Only the api joins this one: outbound SMTP for sign-up codes.
+  mail: {}
   proxy: { internal: true }
   backend: { internal: true }
 volumes:

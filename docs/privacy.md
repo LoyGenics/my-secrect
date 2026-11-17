@@ -30,7 +30,7 @@
 | Vault items (logins, notes, identities, keys, …) | Device + server (`item_versions.encrypted_payload` / `encrypted_item_key`) | Client-side libsodium encryption; format in `specs/encryption-format.md` | **VERIFIED (run)**: scenario L pushed 4 items; a fresh device restored the key envelope, pulled them from the server (also after a full backup/destroy/restore) and decrypted identical titles and fields; no plaintext marker appeared in any server log |
 | Files / media | Server object storage (MinIO / S3 / R2), 1 MiB encrypted chunks via 5-minute presigned URLs; encrypted manifest in the `blobs` row | Per-file key wrapped by the Vault Key; the server never sees file name or type | **VERIFIED (run)**: 2.5 MiB file stored as 3 ciphertext chunks, restored, downloaded and decrypted with matching SHA-256 |
 | Master passphrase, recovery key | User only; never sent | — | **CODE** (never in any request); **VERIFIED (run)**: neither value appeared in any container log |
-| Account identity | Server: email, passkey public key + credential id + sign counter | WebAuthn; the server verifies every ceremony | **VERIFIED (run)**: real attestation/assertion verified by the API (software authenticator; Chromium virtual authenticator in the CSP check) |
+| Account identity | Server: email (ownership proven by a mailed 6-digit code before the first passkey), passkey public key + credential id + sign counter, device public keys | WebAuthn + Ed25519 device proof; the server verifies every ceremony | **VERIFIED (run)**: code delivered over verified STARTTLS to a local test mail server and entered by the client; real attestation/assertion verified by the API (software authenticator; Chromium virtual authenticator in the CSP check) |
 | Session metadata | Server `sessions`: token **digest**, expiry, user agent, IP address, step-up state | Raw token shown to the client once; TTL 1 h (`session_tokens.rb`) | **CODE**. Expired/revoked session rows are not purged until account deletion (TODO, §7) |
 | Sync metadata | Server: item ids, revisions, timestamps, device ids, sizes | Plaintext metadata; content stays opaque | **CODE** |
 | Audit events | Server `audit_events`: event type, small metadata (e.g. `{method: "totp"}`, counts), timestamps | No IPs, tokens or content in metadata | **CODE** |
@@ -57,7 +57,9 @@
 
 - No ads SDKs, no third-party analytics, no tracking. Nothing to opt out of.
 - Self-hosted: the operator's own Postgres, Redis and MinIO hold the data;
-  Caddy contacts Let's Encrypt for certificates. No other processors.
+  Caddy contacts Let's Encrypt for certificates. The operator's **SMTP
+  provider** receives the sign-up address and the 6-digit code (one email per
+  sign-up attempt) — a processor to name in the policy; provider choice PENDING.
 - Managed cloud (if used): the chosen Postgres/Redis/object-storage providers
   become processors — PENDING human decision and disclosure.
 
@@ -86,11 +88,18 @@ There is no grace period and no undo.
    and the user retries (CODE; covered by
    `apps/api/spec/requests/api/v1/account_deletion_storage_spec.rb`).
 2. Then, in one database transaction: the user row, sessions, passkeys
-   (authenticators), MFA secret and recovery codes, MFA/passkey/recovery
-   challenges, recovery verifiers, devices, device checkpoints, vaults, items,
-   all item versions (ciphertext history), sync events, blobs and blob parts,
-   key envelopes, and shares the account owns or receives. Run: all 18 of
+   (authenticators), MFA secret and recovery codes, MFA/passkey/recovery/device
+   challenges, sign-up email verifications, recovery verifiers, devices,
+   device checkpoints, vaults, items, all item versions (ciphertext history),
+   sync events, blobs and blob parts, key envelopes, identity key, and vault/
+   item shares the account owns or receives. Run (18 Nov 2026): all 22 of
    these tables at 0 rows afterwards.
+3. In the same transaction a **deletion tombstone** is written
+   (`account_tombstones`: SHA-256 of the account id + deletion time, no email),
+   plus one `[account_tombstone]` log line and an `account_deleted` audit
+   event with no user and no metadata. They exist only so a later backup
+   restore can re-apply the deletion (§5 "Backups"). Run: 1 tombstone row and
+   1 log line.
 
 **What remains on the server after deletion.**
 
@@ -112,33 +121,30 @@ There is no grace period and no undo.
   final. If an operator enables **bucket versioning** (S3/R2), a delete only
   adds a delete marker: the ciphertext stays as a noncurrent version until a
   lifecycle rule expires it — PENDING operator decision (`infra/cloud/README.md`).
+- **Deletion tombstones** — hashed account id + time, kept indefinitely (no
+  retention rule yet — TODO §7). The id is a random UUID, so the hash cannot
+  be linked to a person without a copy of the deleted row.
 - **Backups.** Every backup made before the deletion still contains the whole
   account (DB rows and ciphertext chunks) **until that backup is deleted**.
-  Run: the pre-deletion backup still held the account; **restoring it brought
-  the deleted account and its blob back**. `backup.sh` has no rotation and
-  the server keeps no record of deleted accounts, so after restoring an older
-  backup the operator must delete those accounts again by hand — PENDING
-  (rotation period + post-restore procedure, §7).
+  Run: restoring the pre-deletion backup brought the account and its blob
+  back; following the restore runbook (`docs/deployment.md` §7: export
+  tombstones before the restore, import + reapply after it, before serving)
+  deleted it again, rows and objects. If an operator skips the runbook the
+  account comes back. `backup.sh` has no rotation — PENDING (period, §7).
 
-**Known gaps (code, not fixed here — apps/api is outside this change).**
+**Gaps found on 17 Nov 2026 and their state (18 Nov 2026, code read).**
 
-- A presigned PUT URL issued just before deletion stays valid for up to
-  300 s (`apps/api/app/domains/blobs/storage_provider.rb:33,99`). A chunk
-  uploaded with it after the deletion lands in the bucket with no database
-  row; `OrphanBlobCleanupJob` only walks database rows
-  (`apps/api/app/jobs/orphan_blob_cleanup_job.rb:6`), so that ciphertext is
-  never removed. Fix options: delete by prefix `vaults/<id>/` after the
-  transaction, or a periodic bucket-vs-DB sweep.
-- No record of a completed deletion is kept (`delete.rb` writes an audit
-  event only on storage failure, `delete.rb:44`), so deletions cannot be
-  re-applied after a backup restore without an external list.
-- `OrphanBlobCleanupJob` and `RetentionJob` exist but nothing enqueues them.
-- In development/test (lazy loading) `Blobs.storage_provider` is undefined
-  until `Blobs::StorageProvider` has been autoloaded
-  (`storage_provider.rb:7-11`), so `DELETE /auth/account` returns 500 there
-  and the deletion specs fail when run alone (they pass when
-  `spec/domains/storage_provider_spec.rb` runs first). Production eager-loads
-  and is not affected (verified by the run).
+- Chunk PUT with a still-valid presigned URL (300 s) after the deletion:
+  **closed** — `OrphanBlobCleanupJob` now also deletes objects under
+  `vaults/<vault>/blobs/<blob>/` whose blob row is gone, once older than the
+  presign TTL, and the Sidekiq worker schedules it hourly at boot
+  (`config/initializers/sidekiq.rb`; media e2e checks the schedule). Such a
+  chunk can therefore survive up to about an hour.
+- No record of a completed deletion: **closed** by the tombstones above.
+- Development/test `Blobs.storage_provider` load order: **fixed** on main
+  (commit 8143c0c, not re-run here).
+- Still open: `RetentionJob` (audit events > 1 year, old versions of deleted
+  items) is not scheduled; tombstones and expired sessions have no retention.
 
 **What the user sees** (desktop and web Security Center; strings in
 `packages/i18n/src/en.ts`): a "Delete account" card explaining that the server
@@ -166,7 +172,9 @@ account stays. The **mobile app has no account-deletion UI** (no
 | Deleted items (tombstones) | Tombstone + last version kept for sync; `RetentionJob` would prune older versions 90 days after deletion | Job **not scheduled** — TODO |
 | Expired / revoked sessions (incl. IP, user agent) | Until account deletion | TODO: purge expired sessions after N days |
 | Audit events | Unlinked at account deletion; `RetentionJob` would delete after 1 year | Job **not scheduled** — TODO |
-| Orphaned uploads (> 24 h unfinished) | `OrphanBlobCleanupJob` would delete objects + rows | Job **not scheduled** — TODO |
+| Account deletion tombstones (hashed id + time) | Indefinitely | TODO: keep at least as long as the oldest backup, then purge |
+| Abandoned uploads, orphan objects | `OrphanBlobCleanupJob`, scheduled hourly by the worker | CODE; schedule checked by media e2e |
+| Sign-up email verifications (email, code digest) | Until consumed/expired; deleted with the account | CODE; no purge of stale rows for addresses that never signed up — TODO |
 | Container logs | Docker json-file, 5 × 10 MB per container, rotated; removed with the container | CODE (`docker-compose.yml`); time span depends on traffic |
 | Server backups | Kept until the operator deletes them (no rotation in `backup.sh`) | PENDING: rotation period (e.g. 30 days) — this is the period to publish as "deleted data may persist in backups for up to N days" |
 | Diagnostics | None collected | — |

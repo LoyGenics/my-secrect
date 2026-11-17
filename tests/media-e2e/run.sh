@@ -20,12 +20,20 @@ PROJECT=${E2E_PROJECT:-vmediae2e}
 HTTPS_PORT=${E2E_HTTPS_PORT:-19443}
 HTTP_PORT=${E2E_HTTP_PORT:-19080}
 WEB_PORT=${E2E_WEB_PORT:-5204}
+MAILPIT_PORT=${E2E_MAILPIT_PORT:-19090}
 BROWSER=${E2E_BROWSER:-}
 APP_ORIGIN=https://localhost:$HTTPS_PORT
 [ -n "$BROWSER" ] && APP_ORIGIN=http://localhost:$WEB_PORT
 KEEP=${1:-}
-ENVF=$(mktemp -t vmedia-env.XXXXXX)
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/vmedia.XXXXXX")
+ENVF="$WORK/env"
 rand() { openssl rand -hex "$1"; }
+# Test-only mail catcher (docker-compose.test.yml): the API emails the sign-up
+# code over STARTTLS to Mailpit (CA made for this run); register.rb reads it
+# from MAILPIT_URL.
+. "$COMPOSE_DIR/lib/mail.sh"
+mail_tls "$WORK/mail-tls"
+export MAILPIT_URL="http://127.0.0.1:$MAILPIT_PORT"
 S3_ACCESS="ak$(rand 6)"
 S3_SECRET="$(rand 16)"
 cat >"$ENVF" <<ENV
@@ -42,15 +50,16 @@ HTTPS_PORT=$HTTPS_PORT
 WEBAUTHN_RP_ID=localhost
 WEBAUTHN_ORIGIN=https://localhost:$HTTPS_PORT
 CORS_ORIGINS=$APP_ORIGIN
+$(mail_env "$WORK/mail-tls" "$MAILPIT_PORT")
 ENV
 for v in MINIO_IMAGE MC_IMAGE; do [ -n "${!v:-}" ] && echo "$v=${!v}" >>"$ENVF"; done
-dc() { docker compose --project-directory "$COMPOSE_DIR" -f "$COMPOSE_DIR/docker-compose.yml" --env-file "$ENVF" -p "$PROJECT" "$@"; }
+dc() { docker compose --project-directory "$COMPOSE_DIR" -f "$COMPOSE_DIR/docker-compose.yml" -f "$COMPOSE_DIR/docker-compose.test.yml" --env-file "$ENVF" -p "$PROJECT" "$@"; }
 VITE_PID=""
 cleanup() {
   rc=$?
   [ -n "$VITE_PID" ] && kill "$VITE_PID" 2>/dev/null || true
   [ "$KEEP" = "--keep" ] || dc down -v --remove-orphans >/dev/null 2>&1 || true
-  rm -f "$ENVF"
+  rm -rf "$WORK"
   echo "[media-e2e] exit code $rc"
   exit $rc
 }
@@ -69,7 +78,7 @@ for i in $(seq 1 30); do
   sleep 2
   [ "$i" = 30 ] && { echo "[media-e2e] health via caddy failed"; exit 1; }
 done
-echo "[media-e2e] stack healthy; registering throwaway user (real WebAuthn)"
+echo "[media-e2e] stack healthy; registering throwaway user (email code via Mailpit, real WebAuthn, device proof)"
 REG=$(cd "$ROOT/apps/api" && SMOKE_ORIGIN="https://localhost:$HTTPS_PORT" bundle exec ruby "$HERE/register.rb")
 E2E_TOKEN=$(printf '%s' "$REG" | node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).token)')
 E2E_VAULT_ID=$(printf '%s' "$REG" | node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).vault_id)')
