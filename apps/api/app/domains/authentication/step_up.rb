@@ -37,7 +37,7 @@ module Authentication
       challenge_rec = ::PasskeyChallenge.live.where(email: user.email, kind: 'authentication')
                                              .order(created_at: :desc).first
       raise VerificationError, 'verification failed' unless challenge_rec
-      challenge_rec.consume!
+      raise VerificationError, 'verification failed' unless challenge_rec.consume!
       params = Passkeys.normalize_credential_params(credential)
       Passkeys.verify_authentication(user: user, params: params, challenge: challenge_rec.challenge)
       mark_verified!(session, method: 'passkey')

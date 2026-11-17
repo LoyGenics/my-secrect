@@ -153,7 +153,7 @@ module Authentication
       challenge_rec = PasskeyChallenge.live.where(email: user.email, kind: 'registration')
                                            .order(created_at: :desc).first
       raise VerificationError, 'challenge expired or already used' unless challenge_rec
-      challenge_rec.consume!
+      raise VerificationError, 'challenge expired or already used' unless challenge_rec.consume!
       params = normalize_credential_params(credential)
       verify_registration(user: user, params: params, challenge: challenge_rec.challenge, first_only: false)[:authenticator]
     rescue VerificationError
@@ -182,7 +182,7 @@ module Authentication
         challenge: credential_challenge(params)
       )
       raise VerificationError, 'challenge expired or already used' unless challenge_rec
-      challenge_rec.consume!
+      raise VerificationError, 'challenge expired or already used' unless challenge_rec.consume!
 
       user = User.find_by(email: normalized_email)
       raise VerificationError, 'verification failed' unless user
@@ -289,21 +289,27 @@ module Authentication
       authenticator = user.authenticators.active.find_by(credential_id: provisional.id)
       raise VerificationError, 'verification failed' unless authenticator
 
-      # The gem verifies the signature against the stored key, the
-      # challenge, origin, RP ID, UP/UV flags, and the sign count
-      # (rejects a counter that did not increase — replay protection).
-      provisional.verify(
-        challenge,
-        public_key: authenticator.public_key,
-        sign_count: authenticator.sign_count,
-        user_presence: true,
-        user_verification: true
-      )
-      # Advance the stored counter monotonically. Synced passkeys report
-      # 0 forever (stored stays 0); a real counter only ever increases,
-      # so never write a smaller value back.
-      new_count = provisional.sign_count || 0
-      authenticator.update!(sign_count: new_count) if new_count > authenticator.sign_count
+      # Lock the authenticator row so the sign-count check and the
+      # advance are one atomic step: two concurrent verifications cannot
+      # both accept the same counter. with_lock reloads the row, so the
+      # counter checked below is the committed one.
+      authenticator.with_lock do
+        # The gem verifies the signature against the stored key, the
+        # challenge, origin, RP ID, UP/UV flags, and the sign count
+        # (rejects a counter that did not increase — replay protection).
+        provisional.verify(
+          challenge,
+          public_key: authenticator.public_key,
+          sign_count: authenticator.sign_count,
+          user_presence: true,
+          user_verification: true
+        )
+        # Advance the stored counter monotonically. Synced passkeys report
+        # 0 forever (stored stays 0); a real counter only ever increases,
+        # so never write a smaller value back.
+        new_count = provisional.sign_count || 0
+        authenticator.update!(sign_count: new_count) if new_count > authenticator.sign_count
+      end
       { public_key: authenticator.public_key }
     rescue OpenSSL::PKey::PKeyError
       raise VerificationError, 'verification failed'
