@@ -128,7 +128,8 @@ test('profile A: relation-rich vault (module + item form), one item trashed in t
   ]);
   backup = readFileSync((await download.path())!, 'utf8');
   const doc = JSON.parse(backup);
-  assert.equal(doc.format_version, 2);
+  assert.equal(doc.format_version, 3);
+  assert.equal(typeof doc.item_index?.sealed, 'string', 'authenticated item index present');
   assert.equal(doc.items.length, expected.length, 'live items only');
   for (const marker of ['E Main Bank', 'Nguyễn', '4111111111111111', UI_TITLE, 'has_login', recoveryKey, PASS]) {
     assert.equal(backup.includes(marker), false, `plaintext "${marker}" in the backup file`);
