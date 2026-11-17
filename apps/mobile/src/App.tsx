@@ -1,7 +1,19 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import type { VaultItem } from '../../packages/core/src/types';
+import { SecurityApiClient, clearSessionToken, getValidToken } from '../../packages/sdk/src/security';
+import SignInScreen from './screens/SignInScreen';
+import { API_BASE_URL_KEY } from './screens/SecurityScreen';
+
+/** AsyncStorage-backed token store (same LS_API_TOKEN key as
+ *  desktop/web — one token store, not one per platform). */
+const asyncTokenStore = {
+  getItem: (k: string) => AsyncStorage.getItem(k),
+  setItem: (k: string, v: string) => AsyncStorage.setItem(k, v),
+  removeItem: (k: string) => AsyncStorage.removeItem(k),
+};
 import {
   hasVault, lockVault, isUnlocked, listItems, listTrash, upsertItem,
   deleteItem, restoreItem, permanentlyDeleteItem, toggleFavorite,
@@ -20,7 +32,7 @@ import ItemDetailScreen from './screens/ItemDetailScreen';
 import ItemFormScreen from './screens/ItemFormScreen';
 
 type Tab = 'vault' | 'search' | 'generator' | 'health' | 'settings';
-type Boot = 'loading' | 'onboarding' | 'locked' | 'unlocked';
+type Boot = 'loading' | 'signin' | 'onboarding' | 'locked' | 'unlocked';
 
 const TABS: Array<{ key: Tab; label: string; icon: string }> = [
   { key: 'vault', label: 'Vault', icon: '🔒' },
@@ -49,18 +61,81 @@ export default function App() {
   const [notice, setNotice] = useState('');
   const [autoLock, setAutoLock] = useState<AutoLockMinutes>(5);
   const lastActivity = useRef(Date.now());
+  // --- Account sign-in state (WorkOS scope) --------------------------
+  // Signed-in = a valid (unexpired) session token is stored. When a
+  // server is configured and there is no valid session, the sign-in
+  // screen comes FIRST — before vault onboarding / lock. Vault unlock
+  // (master passphrase) stays a SEPARATE step after sign-in. With no
+  // server configured there is no gate at all.
+  const [apiBaseUrl, setApiBaseUrl] = useState('');
+  const [localOnlyBypass, setLocalOnlyBypass] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   const refresh = useCallback(() => { if (isUnlocked()) { setItems(listItems()); setTrash(listTrash()); } }, []);
 
   useEffect(() => {
     void (async () => {
+      const raw = await AsyncStorage.getItem(API_BASE_URL_KEY);
+      const url = (raw ?? '').trim();
+      setApiBaseUrl(url);
       const exists = await hasVault();
-      setBoot(exists ? 'locked' : 'onboarding');
+      const next: Boot = exists ? 'locked' : 'onboarding';
+      if (url && !localOnlyBypass) {
+        const token = await getValidToken(asyncTokenStore);
+        setBoot(token ? next : 'signin');
+      } else {
+        setBoot(next);
+      }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const doLock = useCallback(() => {
     lockVault(); setItems([]); setTrash([]); setSelectedId(null); setShowForm(false); setEditingItem(null); setShowTrash(false); setShowSecurity(false); setBoot('locked');
+  }, []);
+
+  /** Sign out of the account AND lock the vault. The server session
+   *  is revoked first (revokeCurrentSession); when the server cannot
+   *  confirm — offline, or the session already expired — local
+   *  sign-out still proceeds and the token is cleared regardless.
+   *  Revocation invalidates the server session only; it does NOT
+   *  erase secrets already downloaded or cached offline here. */
+  const handleSignedOut = useCallback(async () => {
+    try {
+      const client = new SecurityApiClient({
+        baseUrl: apiBaseUrl,
+        getToken: () => getValidToken(asyncTokenStore),
+        tokenStore: asyncTokenStore,
+      });
+      await client.revokeCurrentSession();
+    } catch {
+      // Server revocation unconfirmed; local sign-out proceeds.
+    }
+    await clearSessionToken(asyncTokenStore);
+    setLocalOnlyBypass(false);
+    setSessionExpired(false);
+    doLock();
+    setBoot(apiBaseUrl ? 'signin' : 'locked');
+  }, [apiBaseUrl, doLock]);
+
+  /** A 401 anywhere means the session is gone server-side: clear
+   *  the token and send the user back to SignIn with an expiry
+   *  note, never silently retrying with the stale token. */
+  const handleUnauthorized = useCallback(() => {
+    void clearSessionToken(asyncTokenStore);
+    setSessionExpired(true);
+    setLocalOnlyBypass(false);
+    doLock();
+    setBoot(apiBaseUrl ? 'signin' : 'locked');
+  }, [apiBaseUrl, doLock]);
+
+  const handleSignedIn = useCallback((_email: string, _recoverySession: boolean) => {
+    setLocalOnlyBypass(false);
+    setSessionExpired(false);
+    void (async () => {
+      const exists = await hasVault();
+      setBoot(exists ? 'locked' : 'onboarding');
+    })();
   }, []);
 
   // Auto-lock: any touch resets the inactivity clock; a 10s ticker locks
@@ -97,12 +172,38 @@ export default function App() {
   }
   if (boot === 'onboarding') return (<><StatusBar style="light" /><OnboardingScreen onDone={handleUnlocked} /></>);
   if (boot === 'locked') return (<><StatusBar style="light" /><LockScreen onUnlocked={handleUnlocked} /></>);
+  // Account sign-in comes BEFORE the vault whenever a server is
+  // configured and there is no valid session. 'Continue without
+  // signing in' keeps the local vault usable offline.
+  if (boot === 'signin') {
+    return (
+      <View style={styles.screen}>
+        <StatusBar style="light" />
+        <SignInScreen
+          baseUrl={apiBaseUrl}
+          sessionExpired={sessionExpired}
+          onSignedIn={(email, recoverySession) => handleSignedIn(email, recoverySession)}
+          onContinueLocalOnly={() => {
+            setLocalOnlyBypass(true);
+            void (async () => {
+              const exists = await hasVault();
+              setBoot(exists ? 'locked' : 'onboarding');
+            })();
+          }}
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.screen} onTouchStart={markActivity}>
       <StatusBar style="light" />
       {showSecurity ? (
-        <SecurityScreen onClose={() => setShowSecurity(false)} />
+        <SecurityScreen
+          onClose={() => setShowSecurity(false)}
+          onSignedOut={() => void handleSignedOut()}
+          onUnauthorized={handleUnauthorized}
+        />
       ) : showTrash ? (
         <TrashScreen trash={trash} onSelect={(id) => { setSelectedId(id); setShowTrash(false); }} onRestore={(id) => void handleRestore(id)} onPermanentDelete={(id) => void handleDelete(id)} />
       ) : showForm ? (
