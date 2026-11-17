@@ -2,7 +2,7 @@
  * Password generation, strength estimation and reuse detection.
  * All randomness comes from crypto.getRandomValues (CSPRNG).
  */
-import type { VaultItem } from '../../../packages/core/src/types';
+import type { VaultItem } from '../../../../packages/core/src/types';
 
 /**
  * favorite / deleted_at are part of the VaultItem contract in the task spec
@@ -38,10 +38,16 @@ const SYMBOLS = '!@#$%^&*()-_=+[]{};:,.<>?/~';
 const CONSONANTS = 'bcdfghjklmnpqrstvwxz';
 const VOWELS = 'aeiou';
 
+/** Uniform random index in [0, n) via rejection sampling (no modulo bias). */
 function randomIndex(n: number): number {
+  if (n <= 0) throw new Error('randomIndex: n must be positive');
   const buf = new Uint32Array(1);
-  crypto.getRandomValues(buf);
-  return buf[0] % n;
+  // Largest multiple of n that fits in 32 bits; values >= limit are redrawn.
+  const limit = Math.floor(0x100000000 / n) * n;
+  for (;;) {
+    crypto.getRandomValues(buf);
+    if (buf[0] < limit) return buf[0] % n;
+  }
 }
 
 function pick(chars: string): string {
@@ -106,6 +112,53 @@ export function generatePassword(opts: GeneratePasswordOptions): string {
   const chars = [...required];
   while (chars.length < length) chars.push(pick(pool));
   return shuffle(chars).slice(0, length).join('');
+}
+
+/**
+ * Wordlist for passphrase generation. A short built-in list (128 words)
+ * keeps the bundle dependency-free; each word is picked with the CSPRNG
+ * above, so a 4-word passphrase has ~28 bits of entropy per word
+ * (log2(128) = 7) — 4 words ≈ 28 bits is NOT enough for a master
+ * passphrase on its own. Use 6+ words for anything that protects the
+ * vault itself; the UI defaults to 6 and says so.
+ */
+const PASSPHRASE_WORDS = [
+  'amber', 'anchor', 'arch', 'atlas', 'autumn', 'baker', 'bamboo', 'banner',
+  'barrel', 'basin', 'beacon', 'birch', 'bison', 'blade', 'blaze', 'bloom',
+  'bridge', 'bronze', 'brook', 'cabin', 'cactus', 'candle', 'canyon', 'cedar',
+  'cherry', 'cinder', 'citrus', 'cliff', 'cloud', 'cobalt', 'comet', 'copper',
+  'coral', 'crane', 'creek', 'crown', 'crystal', 'cypress', 'daisy', 'delta',
+  'desert', 'dune', 'eagle', 'ember', 'falcon', 'fern', 'fjord', 'flint',
+  'forest', 'frost', 'galaxy', 'garden', 'garnet', 'glacier', 'granite', 'grape',
+  'grove', 'harbor', 'hazel', 'heather', 'heron', 'horizon', 'hunter', 'indigo',
+  'iron', 'island', 'ivory', 'jade', 'juniper', 'kelp', 'lagoon', 'lantern',
+  'larch', 'laurel', 'lavender', 'leaf', 'lichen', 'lilac', 'linden', 'lion',
+  'lotus', 'lumen', 'lunar', 'magnolia', 'maple', 'marble', 'marsh', 'meadow',
+  'melon', 'mercury', 'mesa', 'meteor', 'miller', 'mint', 'mist', 'mosaic',
+  'moss', 'mountain', 'nebula', 'nectar', 'oak', 'oasis', 'ocean', 'olive',
+  'onyx', 'opal', 'orchard', 'otter', 'oyster', 'pearl', 'pebble', 'pepper',
+  'pine', 'plaza', 'prairie', 'quartz', 'raven', 'ridge', 'river', 'robin',
+  'rocket', 'rose', 'ruby', 'sage', 'sail', 'salmon', 'sand', 'sapphire',
+  'sequoia', 'shell', 'silver', 'sierra', 'solar', 'spruce', 'storm', 'summit',
+  'sunset', 'terra', 'thunder', 'timber', 'topaz', 'trail', 'tulip', 'tundra',
+  'valley', 'velvet', 'vine', 'violet', 'voyage', 'walnut', 'willow', 'wind',
+];
+
+export interface PassphraseOptions {
+  words?: number; // default 6
+  separator?: string; // default '-'
+  includeNumber?: boolean; // append a 2-4 digit number, default true
+}
+
+/** Memorable passphrase: N random words + an optional number, CSPRNG-picked. */
+export function generatePassphrase(opts: PassphraseOptions = {}): string {
+  const count = Math.max(3, Math.min(10, Math.floor(opts.words ?? 6)));
+  const sep = opts.separator ?? '-';
+  const words: string[] = [];
+  for (let i = 0; i < count; i++) words.push(PASSPHRASE_WORDS[randomIndex(PASSPHRASE_WORDS.length)]);
+  let out = words.join(sep);
+  if (opts.includeNumber !== false) out += sep + String(10 + randomIndex(90));
+  return out;
 }
 
 export interface PasswordStrength {

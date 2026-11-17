@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { generatePassword } from '../utils/password';
+import { generatePassword, generatePassphrase } from '../utils/password';
 import StrengthMeter from './StrengthMeter';
 
 interface PasswordGeneratorProps {
@@ -36,6 +36,9 @@ export default function PasswordGenerator({ onUse }: PasswordGeneratorProps) {
   const [pronounceable, setPronounceable] = useState(false);
   const [generated, setGenerated] = useState('');
   const [copied, setCopied] = useState(false);
+  const [passphraseWords, setPassphraseWords] = useState(6);
+  const [passphrase, setPassphrase] = useState('');
+  const [passphraseCopied, setPassphraseCopied] = useState(false);
 
   const generate = useCallback(() => {
     setGenerated(
@@ -100,6 +103,42 @@ export default function PasswordGenerator({ onUse }: PasswordGeneratorProps) {
           </div>
         </div>
       )}
+      <div style={{ borderTop: '1px solid #eee', marginTop: 16, paddingTop: 12 }}>
+        <strong>Passphrase</strong>
+        <p style={{ margin: '4px 0 8px', color: '#555' }}>
+          Memorable words, picked with the system CSPRNG. Use 6+ words for a master passphrase.
+        </p>
+        <label style={{ display: 'block' }}>
+          Words: {passphraseWords}
+          <input
+            type="range"
+            min={4}
+            max={8}
+            value={passphraseWords}
+            onChange={(e) => setPassphraseWords(Number(e.target.value))}
+            style={{ display: 'block', width: '100%' }}
+            aria-label="Passphrase word count"
+          />
+        </label>
+        <div style={{ marginTop: 8 }}>
+          <button type="button" onClick={() => { setPassphrase(generatePassphrase({ words: passphraseWords })); setPassphraseCopied(false); }}>
+            Generate passphrase
+          </button>
+        </div>
+        {passphrase && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <code style={{ wordBreak: 'break-all', flex: 1 }}>{passphrase}</code>
+              <button type="button" onClick={async () => setPassphraseCopied(await copyText(passphrase))}>
+                {passphraseCopied ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+            <div style={{ marginTop: 8 }}>
+              <button type="button" onClick={() => onUse(passphrase)}>Use passphrase</button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

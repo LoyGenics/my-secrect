@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import type { VaultItem } from '../../../packages/core/src/types';
+import type { VaultItem } from '../../../../packages/core/src/types';
 import { generateTotp, isValidBase32Secret, type TotpResult } from '../utils/totp';
 import { isFavorite, isTrashed } from '../utils/password';
+import { renderMarkdownToHtml } from '../utils/markdown';
+import { getPasswordHistory, getNoteRevisions, isArchived } from '../utils/itemMeta';
 
 /**
  * favorite / deleted_at are part of the VaultItem contract in the task spec
@@ -18,6 +20,10 @@ interface ItemDetailProps {
   onToggleFavorite: (id: string) => void;
   onClose: () => void;
   onSelectRelated?: (id: string) => void;
+  /** Archive / unarchive (moves the item to / from the Archived view). */
+  onArchive?: (id: string) => void;
+  /** Restore a secure-note revision as the current body. */
+  onRestoreRevision?: (item: VaultItem) => void;
 }
 
 const SENSITIVE_KEYS = new Set(['password', 'private_key', 'key', 'totp_secret']);
@@ -81,6 +87,8 @@ export default function ItemDetail({
   onToggleFavorite,
   onClose,
   onSelectRelated,
+  onArchive,
+  onRestoreRevision,
 }: ItemDetailProps) {
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -131,7 +139,20 @@ export default function ItemDetail({
     }
   };
 
-  const fieldEntries = Object.entries(item.fields ?? {}).filter(([key]) => !isForbiddenKey(key));
+  // Meta fields get their own sections below — never rendered as raw JSON.
+  const META_KEYS = new Set(['password_history', 'revisions', 'archived', 'parent_id']);
+  const fieldEntries = Object.entries(item.fields ?? {}).filter(
+    ([key]) => !isForbiddenKey(key) && !META_KEYS.has(key),
+  );
+  const archived = isArchived(item);
+  const passwordHistory = item.type === 'login' ? getPasswordHistory(item) : [];
+  const revisions = item.type === 'secure_note' ? getNoteRevisions(item) : [];
+  const parentId = typeof item.fields?.parent_id === 'string' ? (item.fields.parent_id as string) : '';
+  const parent = parentId ? allItems.find((c) => c.id === parentId) : undefined;
+  const children =
+    item.type === 'collection'
+      ? allItems.filter((c) => typeof c.fields?.parent_id === 'string' && c.fields.parent_id === item.id)
+      : [];
 
   return (
     <div>
@@ -143,7 +164,22 @@ export default function ItemDetail({
         {item.type}
         {favorite ? ' · ★ Favorite' : ''}
         {trashed ? ' · In trash' : ''}
+        {archived ? ' · 📦 Archived' : ''}
       </p>
+      {parent && (
+        <p style={{ margin: '4px 0' }}>
+          <small>
+            In collection:{' '}
+            {onSelectRelated ? (
+              <button type="button" onClick={() => onSelectRelated(parent.id)} style={{ padding: 0, background: 'none', border: 'none', color: '#1a73e8', cursor: 'pointer', textDecoration: 'underline' }}>
+                {parent.title}
+              </button>
+            ) : (
+              <span>{parent.title}</span>
+            )}
+          </small>
+        </p>
+      )}
       {trashed && (
         <p role="alert" style={{ color: '#c0392b' }}>This item is in the trash.</p>
       )}
@@ -176,7 +212,13 @@ export default function ItemDetail({
             <div key={key} style={{ display: 'flex', gap: 8, alignItems: 'baseline', padding: '4px 0', borderBottom: '1px solid #f0f0f0' }}>
               <dt style={{ width: 140, flexShrink: 0, color: '#555' }}>{prettyLabel(key)}</dt>
               <dd style={{ flex: 1, margin: 0, wordBreak: 'break-all' }}>
-                {sensitive && !isRevealed ? '••••••••' : text}
+                {item.type === 'secure_note' && key === 'body' ? (
+                  <div dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(text) }} />
+                ) : sensitive && !isRevealed ? (
+                  '••••••••'
+                ) : (
+                  text
+                )}
               </dd>
               {sensitive && (
                 <button type="button" onClick={() => setRevealed((prev) => ({ ...prev, [key]: !prev[key] }))}>
@@ -223,6 +265,73 @@ export default function ItemDetail({
 
       {(item.type === 'media' || item.type === 'document') && fieldString(item, 'sha256') && (
         <p><small>Manifest only — file bytes are not stored in this local prototype.</small></p>
+      )}
+
+      {passwordHistory.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <h3 style={{ margin: '0 0 4px' }}>Previous passwords</h3>
+          <p style={{ margin: '0 0 8px' }}><small>Kept encrypted with this item (max 5). The current password is above.</small></p>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>
+            {passwordHistory.map((entry, i) => {
+              const key = `history:${i}`;
+              const shown = Boolean(revealed[key]);
+              return (
+                <li key={i} style={{ marginBottom: 4 }}>
+                  {shown ? <code style={{ wordBreak: 'break-all' }}>{entry.password}</code> : '••••••••'}{' '}
+                  <small>· changed {formatDate(entry.changed_at)}</small>{' '}
+                  <button type="button" onClick={() => setRevealed((prev) => ({ ...prev, [key]: !prev[key] }))}>
+                    {shown ? 'Hide' : 'Show'}
+                  </button>{' '}
+                  <button type="button" onClick={() => void handleCopy(key, entry.password)}>
+                    {copiedKey === key ? 'Copied' : 'Copy'}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
+      {revisions.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <h3 style={{ margin: '0 0 4px' }}>Note revisions</h3>
+          <p style={{ margin: '0 0 8px' }}><small>Previous versions of this note (max 10), kept encrypted with the item.</small></p>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>
+            {revisions.map((rev, i) => (
+              <li key={i} style={{ marginBottom: 8 }}>
+                <div><small>Saved {formatDate(rev.saved_at)}</small></div>
+                <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{rev.body.slice(0, 200)}{rev.body.length > 200 ? '…' : ''}</div>
+                {onRestoreRevision && (
+                  <button
+                    type="button"
+                    onClick={() => onRestoreRevision({ ...item, fields: { ...item.fields, body: rev.body } })}
+                  >
+                    Restore this version
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {children.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <h3 style={{ margin: '0 0 4px' }}>Inside this collection</h3>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>
+            {children.map((child) => (
+              <li key={child.id}>
+                {onSelectRelated ? (
+                  <button type="button" onClick={() => onSelectRelated(child.id)} style={{ padding: 0, background: 'none', border: 'none', color: '#1a73e8', cursor: 'pointer', textDecoration: 'underline' }}>
+                    {child.title} <small>({child.type})</small>
+                  </button>
+                ) : (
+                  <span>{child.title} <small>({child.type})</small></span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       <div style={{ marginTop: 16 }}>
@@ -280,6 +389,11 @@ export default function ItemDetail({
         <button type="button" onClick={() => onToggleFavorite(item.id)}>
           {favorite ? '★ Unfavorite' : '☆ Favorite'}
         </button>
+        {!trashed && onArchive && (
+          <button type="button" onClick={() => onArchive(item.id)}>
+            {archived ? '📦 Unarchive' : '📦 Archive'}
+          </button>
+        )}
         {trashed ? (
           <button type="button" onClick={() => onRestore(item.id)}>Restore</button>
         ) : (

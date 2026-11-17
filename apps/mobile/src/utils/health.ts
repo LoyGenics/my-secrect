@@ -1,4 +1,4 @@
-import type { VaultItem } from '../../../packages/core/src/types';
+import type { VaultItem } from '../../../../packages/core/src/types';
 import { passwordStrength, findReusedPasswords, isTrashed, type ReusedPasswordGroup } from './password';
 
 export interface HealthReport {

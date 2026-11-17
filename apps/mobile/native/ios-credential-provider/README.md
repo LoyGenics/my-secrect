@@ -27,3 +27,14 @@ No extension target, no entitlements file, no Swift code exists yet
 in this repo. The React Native UI in `src/` does not fake AutoFill —
 there is no AutoFill button or flow in the app. This folder is the
 spec + checklist for the native step.
+
+## Phase F update (17 Nov 2026) — skeleton now exists, still NOT working
+The Swift skeleton landed in `native/ios-credential-provider/`:
+`CredentialProviderViewController.swift` (real callbacks + picker UI,
+fill paths end in an explicit `fatalError`), `VaultStore.swift` (real
+App Group row/metadata parsing + real biometrics-gated `DeviceKeyStore`;
+decryption is `fatalError("not implemented")`), `DomainMatching.swift`
+(real, complete origin gate), plus draft entitlements + `Info.plist`.
+Nothing has run in Xcode. The remaining steps are in that folder's
+README.md — Xcode target, App Group, main-app sharing, unlock handoff,
+Associated Domains, passkeys, device testing.

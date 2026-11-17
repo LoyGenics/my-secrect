@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import type { VaultShare, SharePermission } from '../../../packages/core/src/sharing';
-import { canRead, canWrite, isWholeVaultShare, validateShareProposal } from '../../../packages/core/src/sharing';
+import type { VaultShare, SharePermission } from '../../../../packages/core/src/sharing';
+import { canRead, canWrite, isWholeVaultShare, validateShareProposal } from '../../../../packages/core/src/sharing';
 
 /**
  * SharesView — NEW FILE, does not modify App.tsx (another agent owns it).
@@ -11,10 +11,24 @@ import { canRead, canWrite, isWholeVaultShare, validateShareProposal } from '../
  *  - Sharing is modelled, not production-ready: the key-exchange protocol
  *    (HPKE / verified key establishment) is not implemented yet, so the
  *    create form collects the proposal only — the caller must wire the
- *    envelope exchange before any real share is created.
+ *    envelope exchange before any real share is created. The App stores
+ *    proposals as status 'pending' and never as 'active'.
  *  - Revocation removes the envelope + share record. It does NOT erase
  *    copies a recipient already decrypted. That is stated next to the
  *    Revoke button, not hidden in docs.
+ *
+ * Intended real implementation (NOT done — do not present as working):
+ *  - Each user holds an X25519 keypair (libsodium `crypto_box_keypair`).
+ *    The recipient's public key must be verified out of band (fingerprint
+ *    comparison) before use — an unverified key enables MITM.
+ *  - The sharer seals the per-share Item Key with `crypto_box_seal`
+ *    (libsodium sealed box: ephemeral sender key + XChaCha20-Poly1305) to
+ *    the recipient's public key and stores the sealed envelope server-side.
+ *  - The recipient opens it with `crypto_box_seal_open` + their secret
+ *    key, then decrypts shared items exactly like their own vault items.
+ *  - Until that envelope round-trip exists end to end AND is tested
+ *    (wrong-key rejection, tampered-envelope rejection, revocation +
+ *    key rotation), no share may be created with status 'active'.
  */
 
 export interface SharesViewProps {

@@ -29,6 +29,8 @@ export interface SyncEvent {
   item_id: string;
   revision: number;
   operation: SyncOperation;
+  /** True for remote deletes. Tombstone events carry NO ciphertext. */
+  tombstone?: boolean;
   device_id: string;
   signature: string; // device signature over (vault_id, item_id, revision)
   created_at: string;

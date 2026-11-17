@@ -30,8 +30,13 @@ The vault data on the server is already ciphertext, but back up BOTH:
 ```bash
 # Postgres (metadata + ciphertext + sync history)
 docker compose exec db pg_dump -U vault vault_production | gzip > vault-$(date +%F).sql.gz
-# MinIO blobs (encrypted file chunks)
-docker compose exec minio mc mirror --overwrite /data /backup/minio   # or: docker cp the vault_minio volume
+# MinIO blobs (encrypted file chunks) — back up the named volume.
+# NOTE (Phase G fix): the old instruction `docker compose exec minio mc mirror`
+# was wrong — the minio/minio image does not ship the `mc` client.
+# Use the volume copy below, or run mc as a separate container:
+#   docker run --rm -v vault_minio:/data -v "$(pwd)/backup:/backup" alpine \
+#     sh -c 'cp -a /data/. /backup/minio/'
+docker run --rm -v vault_minio:/data -v "$(pwd)/backup:/backup" alpine sh -c 'cp -a /data/. /backup/minio/'
 # Keep backups off-site, encrypted at rest, and test restores.
 ```
 Desktop clients also keep a full encrypted local copy — that is the real
@@ -39,6 +44,11 @@ long-term backup. Export an encrypted vault export from the desktop app
 regularly (packages/import-export, format v1).
 
 ## 5. Restore
+> ⚠️ `docker compose down -v` DELETES all named volumes (Postgres +
+> MinIO + Caddy data). Run it ONLY after you have a verified backup
+> (step 4) and have confirmed the backup files are readable. There is
+> no undo. The restore below has never been tested — see
+> `docs/deployment.md` for the validation checklist.
 ```bash
 docker compose down -v
 # restore the Postgres dump into a fresh db, restore the MinIO volume,

@@ -1,0 +1,11 @@
+[package]
+name = "my-secrect-ssh-agent"
+version = "0.1.0"
+description = "my-secrect SSH agent — scaffold: agent wire protocol only, no keys, no signing yet"
+license = "MIT OR Apache-2.0"
+edition = "2021"
+rust-version = "1.77"
+
+# No dependencies on purpose: std only. Crypto (Ed25519 signing) must come
+# from native/crypto-core once it exposes a signing API — this crate must
+# never hand-roll crypto or pull a second crypto stack.

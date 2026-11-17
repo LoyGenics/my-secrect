@@ -112,3 +112,10 @@ src/options/                Options React UI (Options.tsx, main.tsx, index.html)
 - No login capture of typed credentials (deliberate — see rule 9).
 - No passkey fill yet; passkey items are listed, not filled.
 - Not audited, not production-ready.
+
+## Phase F verification (17 Nov 2026, code read only — still never loaded in Chrome)
+
+- Fixed: `background.ts` now checks the content script's fill reply instead of reporting success when the page refused (iframe / origin mismatch / no password field).
+- Fixed: `domain.ts` now treats IPv6 literals (`::1`, `2001:db8::1`, …) as raw IPs and refuses to fill on them, and punycode confirmation now triggers on an `xn--` label in any position, not just the first label.
+- Fixed: `generatePassword` clamps length to 4–64 (the class-guarantee writes touch indices 0–3); `changePassphrase` rejects an empty new passphrase.
+- Known limitation (by design, not fixed): the content script is injected on demand for a fill only, so login-form detection — and the popup's "Login form detected" banner — only runs right after a fill injection, not on ordinary page loads. Adding a persistent content script would need broader host permissions, so this stays as-is until a deliberate decision is made.

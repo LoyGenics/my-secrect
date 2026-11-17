@@ -1,0 +1,189 @@
+/*
+ * My Secret tokens as CSS custom properties.
+ * Single source of truth alongside tokens.ts — keep the two in sync;
+ * tokens.ts is authoritative for values, this file is the web runtime.
+ *
+ * Theme selection (see src/theme.ts):
+ * - No attribute, or data-theme="dark"   -> dark (default; preserves the
+ *   desktop/web look exactly as it shipped).
+ * - data-theme="light"                    -> light.
+ * - data-theme="system" + prefers-color-scheme: light -> light.
+ * Apps set the attribute on <html> via applyTheme() / initTheme().
+ */
+
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+  --ms-color-scheme: dark;
+  --ms-color-bg-base: #0b0f14;
+  --ms-color-bg-surface: #141519;
+  --ms-color-bg-raised: #1b222c;
+  --ms-color-bg-sunken: #080b0f;
+  --ms-color-bg-input: #18181b;
+  --ms-color-text-primary: #f4f4f5;
+  --ms-color-text-secondary: #d4d4d8;
+  --ms-color-text-muted: #a1a1aa;
+  --ms-color-text-faint: #71717a;
+  --ms-color-text-on-brand: #ffffff;
+  --ms-color-text-on-danger: #ffffff;
+  --ms-color-text-link: #a5b4fc;
+  --ms-color-border-default: #27272a;
+  --ms-color-border-strong: #3f3f46;
+  --ms-color-border-subtle: #1f1f23;
+  --ms-color-brand: #4f46e5;
+  --ms-color-brand-hover: #6366f1;
+  --ms-color-brand-active: #4338ca;
+  --ms-color-brand-soft: rgba(99, 102, 241, 0.2);
+  --ms-color-brand-soft-text: #c7d2fe;
+  --ms-color-brand-focus: #6366f1;
+  --ms-color-danger: #dc2626;
+  --ms-color-danger-hover: #ef4444;
+  --ms-color-danger-soft: rgba(220, 38, 38, 0.18);
+  --ms-color-danger-soft-text: #fecaca;
+  --ms-color-danger-border: rgba(220, 38, 38, 0.6);
+  --ms-color-success: #10b981;
+  --ms-color-success-text: #34d399;
+  --ms-color-success-soft: rgba(16, 185, 129, 0.15);
+  --ms-color-warning: #f59e0b;
+  --ms-color-warning-text: #fbbf24;
+  --ms-color-warning-soft: rgba(245, 158, 11, 0.15);
+  --ms-color-focus-ring: #6366f1;
+  --ms-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --ms-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --ms-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --ms-shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.55);
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+  --ms-color-scheme: light;
+  --ms-color-bg-base: #ffffff;
+  --ms-color-bg-surface: #f4f4f5;
+  --ms-color-bg-raised: #ffffff;
+  --ms-color-bg-sunken: #e4e4e7;
+  --ms-color-bg-input: #ffffff;
+  --ms-color-text-primary: #18181b;
+  --ms-color-text-secondary: #3f3f46;
+  --ms-color-text-muted: #52525b;
+  --ms-color-text-faint: #71717a;
+  --ms-color-text-on-brand: #ffffff;
+  --ms-color-text-on-danger: #ffffff;
+  --ms-color-text-link: #4338ca;
+  --ms-color-border-default: #d4d4d8;
+  --ms-color-border-strong: #a1a1aa;
+  --ms-color-border-subtle: #e4e4e7;
+  --ms-color-brand: #4f46e5;
+  --ms-color-brand-hover: #4338ca;
+  --ms-color-brand-active: #3730a3;
+  --ms-color-brand-soft: rgba(79, 70, 229, 0.1);
+  --ms-color-brand-soft-text: #4338ca;
+  --ms-color-brand-focus: #4f46e5;
+  --ms-color-danger: #dc2626;
+  --ms-color-danger-hover: #b91c1c;
+  --ms-color-danger-soft: rgba(220, 38, 38, 0.08);
+  --ms-color-danger-soft-text: #b91c1c;
+  --ms-color-danger-border: rgba(220, 38, 38, 0.5);
+  --ms-color-success: #059669;
+  --ms-color-success-text: #047857;
+  --ms-color-success-soft: rgba(5, 150, 105, 0.1);
+  --ms-color-warning: #d97706;
+  --ms-color-warning-text: #b45309;
+  --ms-color-warning-soft: rgba(217, 119, 6, 0.1);
+  --ms-color-focus-ring: #4f46e5;
+  --ms-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --ms-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
+  --ms-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.18);
+  --ms-shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.22);
+}
+
+/* System mode: only when the app explicitly opts in with data-theme="system". */
+@media (prefers-color-scheme: light) {
+  [data-theme='system'] {
+    color-scheme: light;
+    --ms-color-scheme: light;
+    --ms-color-bg-base: #ffffff;
+    --ms-color-bg-surface: #f4f4f5;
+    --ms-color-bg-raised: #ffffff;
+    --ms-color-bg-sunken: #e4e4e7;
+    --ms-color-bg-input: #ffffff;
+    --ms-color-text-primary: #18181b;
+    --ms-color-text-secondary: #3f3f46;
+    --ms-color-text-muted: #52525b;
+    --ms-color-text-faint: #71717a;
+    --ms-color-text-on-brand: #ffffff;
+    --ms-color-text-on-danger: #ffffff;
+    --ms-color-text-link: #4338ca;
+    --ms-color-border-default: #d4d4d8;
+    --ms-color-border-strong: #a1a1aa;
+    --ms-color-border-subtle: #e4e4e7;
+    --ms-color-brand: #4f46e5;
+    --ms-color-brand-hover: #4338ca;
+    --ms-color-brand-active: #3730a3;
+    --ms-color-brand-soft: rgba(79, 70, 229, 0.1);
+    --ms-color-brand-soft-text: #4338ca;
+    --ms-color-brand-focus: #4f46e5;
+    --ms-color-danger: #dc2626;
+    --ms-color-danger-hover: #b91c1c;
+    --ms-color-danger-soft: rgba(220, 38, 38, 0.08);
+    --ms-color-danger-soft-text: #b91c1c;
+    --ms-color-danger-border: rgba(220, 38, 38, 0.5);
+    --ms-color-success: #059669;
+    --ms-color-success-text: #047857;
+    --ms-color-success-soft: rgba(5, 150, 105, 0.1);
+    --ms-color-warning: #d97706;
+    --ms-color-warning-text: #b45309;
+    --ms-color-warning-soft: rgba(217, 119, 6, 0.1);
+    --ms-color-focus-ring: #4f46e5;
+    --ms-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
+    --ms-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
+    --ms-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.18);
+    --ms-shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.22);
+  }
+}
+
+/* Shared scale tokens (theme-independent). */
+:root {
+  --ms-font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --ms-font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+  --ms-radius-xs: 4px;
+  --ms-radius-sm: 8px;
+  --ms-radius-md: 12px;
+  --ms-radius-lg: 16px;
+  --ms-radius-xl: 24px;
+  --ms-radius-full: 9999px;
+  --ms-space-1: 4px;
+  --ms-space-2: 8px;
+  --ms-space-3: 12px;
+  --ms-space-4: 16px;
+  --ms-space-5: 20px;
+  --ms-space-6: 24px;
+  --ms-space-8: 32px;
+  --ms-duration-fast: 120ms;
+  --ms-duration-base: 200ms;
+  --ms-duration-slow: 320ms;
+  --ms-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ms-control-height: 40px;
+  --ms-control-height-touch: 48px;
+  --ms-focus-width: 2px;
+  --ms-focus-offset: 2px;
+}
+
+/* Global focus indicator: 2px ring, 2px offset (WCAG 2.4.7 / 1.4.11).
+ * Component CSS in components.css refines this per component; this is the
+ * safety net for any focusable element. */
+:focus-visible {
+  outline: var(--ms-focus-width) solid var(--ms-color-focus-ring);
+  outline-offset: var(--ms-focus-offset);
+}
+
+/* Reduced motion: honor the OS setting everywhere. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

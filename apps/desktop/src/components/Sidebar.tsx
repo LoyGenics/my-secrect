@@ -14,8 +14,11 @@ export type SidebarView =
   | 'all'
   | 'favorites'
   | 'trash'
+  | 'archived'
   | 'health'
   | 'settings'
+  | 'media-gallery'
+  | 'shares'
   | CategoryKey
   | `tag:${string}`;
 
@@ -45,6 +48,7 @@ export interface SidebarCounts {
   all: number;
   favorites: number;
   trash: number;
+  archived: number;
   health: number;
   categories: Record<CategoryKey, number>;
   tags: Record<string, number>;
@@ -55,6 +59,7 @@ export function emptyCounts(): SidebarCounts {
     all: 0,
     favorites: 0,
     trash: 0,
+    archived: 0,
     health: 0,
     categories: {
       credentials: 0,
@@ -124,6 +129,22 @@ export default function Sidebar({
           <button className={`nav-item ${isActive('trash') ? 'nav-item-active' : ''}`} onClick={() => setView('trash')}>
             <span>⌫ Trash</span>
             <CountBadge n={counts.trash} />
+          </button>
+          <button className={`nav-item ${isActive('archived') ? 'nav-item-active' : ''}`} onClick={() => setView('archived')}>
+            <span>📦 Archived</span>
+            <CountBadge n={counts.archived} />
+          </button>
+        </section>
+
+        <section>
+          <div className="px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+            Library
+          </div>
+          <button className={`nav-item ${isActive('media-gallery') ? 'nav-item-active' : ''}`} onClick={() => setView('media-gallery')}>
+            <span>🖼️ Media gallery</span>
+          </button>
+          <button className={`nav-item ${isActive('shares') ? 'nav-item-active' : ''}`} onClick={() => setView('shares')}>
+            <span>↗ Sharing</span>
           </button>
         </section>
 

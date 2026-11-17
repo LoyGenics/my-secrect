@@ -1,7 +1,8 @@
 import React from 'react';
 import { Pressable, Text, View } from 'react-native';
-import type { VaultItem } from '../../../packages/core/src/types';
+import type { VaultItem } from '../../../../packages/core/src/types';
 import { colors } from '../theme';
+import { isArchived } from '../utils/itemMeta';
 
 export const CATEGORY_META: Record<string, { label: string; icon: string }> = {
   credentials: { label: 'Credentials', icon: '🔑' },
@@ -42,7 +43,7 @@ export default function ItemRow({ item, selected, onPress, onToggleFavorite }: {
         <Text style={{ fontSize: 22 }}>{cat.icon}</Text>
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
-        <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }} numberOfLines={1}>{item.title}</Text>
+        <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }} numberOfLines={1}>{item.title}{isArchived(item) ? '  📦' : ''}</Text>
         <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }} numberOfLines={1}>{subtitle}</Text>
       </View>
       <Pressable testID={`favorite-${item.id}`} accessibilityLabel={item.favorite ? 'Remove from favorites' : 'Add to favorites'} accessibilityRole="button" onPress={onToggleFavorite} hitSlop={12}>

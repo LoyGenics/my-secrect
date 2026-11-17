@@ -1,4 +1,5 @@
 export * from './types';
+export * from './sharing';
 
 export function newItemId(): string {
   const b = new Uint8Array(16);

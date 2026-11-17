@@ -4,7 +4,7 @@
  * the user taps "Load example data" on an empty vault; "Clear example
  * data" permanently deletes exactly these ids.
  */
-import type { VaultItem } from '../../../packages/core/src/types';
+import type { VaultItem } from '../../../../packages/core/src/types';
 const now = '2026-11-17T00:00:00.000Z';
 function base(id: string, type: VaultItem['type'], title: string, fields: Record<string, unknown>, tags: string[], relations: VaultItem['relations'] = []): VaultItem {
   return { id, type, schema_version: 1, title, fields, tags, relations, attachments: [], favorite: false, deleted_at: null, created_at: now, updated_at: now };

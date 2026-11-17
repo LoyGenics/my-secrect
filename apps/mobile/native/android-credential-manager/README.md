@@ -27,3 +27,16 @@ Digital Asset Links file exist yet in this repo. The React Native UI
 in `src/` does not fake Credential Manager / Autofill — there is no
 such button or flow in the app. This folder is the spec + checklist
 for the native step.
+
+## Phase F update (17 Nov 2026) — skeleton now exists, still NOT working
+The Kotlin skeleton landed in `native/android-credential-provider/`:
+`MySecrectCredentialProviderService.kt` (real service shape + dispatch;
+both entry points fail closed with protocol-correct "no credential"
+errors), `VaultKeystore.kt` (real AndroidKeyStore device-key code +
+row parsing; wraps nothing yet), `DomainMatching.kt` (real, complete
+origin gate), plus a manifest snippet, an `assetlinks.json` template
+(SHA-256 fingerprint is a placeholder), and a Gradle fragment.
+Nothing has run in Android Studio. The remaining steps are in that
+folder's README.md — Android project, vault handoff, selection UI,
+passkey signing, Digital Asset Links, AutofillService for Android < 14,
+device testing.

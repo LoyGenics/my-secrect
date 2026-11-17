@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import type { ItemType, VaultItem } from '../../../packages/core/src/types';
+import type { ItemType, VaultItem } from '../../../../packages/core/src/types';
 import Field from '../components/Field';
+import StrengthMeter from '../components/StrengthMeter';
+import MarkdownText from '../components/MarkdownText';
 import { colors, styles } from '../theme';
-import { libsodiumAdapter as crypto } from '../../../packages/crypto-adapters/src/index';
+import { libsodiumAdapter as crypto } from '../../../../packages/crypto-adapters/src/index';
 import { generatePassword } from '../utils/password';
+import { getPasswordHistory, appendPasswordHistory, getNoteRevisions, appendNoteRevision } from '../utils/itemMeta';
 
 const TYPES: Array<{ type: ItemType; label: string }> = [
   { type: 'login', label: 'Login' }, { type: 'passkey', label: 'Passkey' },
@@ -51,17 +54,54 @@ export default function ItemFormScreen({ initial, allItems, onSave, onCancel }: 
   const [relationIds, setRelationIds] = useState<string[]>((initial?.relations ?? []).map((r) => r.target_id));
   const [favorite, setFavorite] = useState(initial?.favorite ?? false);
   const [error, setError] = useState('');
+  // Nested collections: a collection may live inside another collection.
+  const [parentId, setParentId] = useState<string>(
+    () => (typeof initial?.fields?.parent_id === 'string' ? (initial.fields.parent_id as string) : ''),
+  );
+  const [showPreview, setShowPreview] = useState(false);
   const setF = (key: string, value: string) => setFields((f) => ({ ...f, [key]: value }));
   const relatable = allItems.filter((i) => i.id !== initial?.id);
+  const parentCandidates = allItems.filter((i) => i.type === 'collection' && i.id !== initial?.id);
 
   function handleSave() {
     if (!title.trim()) { setError('Title is required.'); return; }
     if (type === 'login' && !(fields.username ?? '').trim()) { setError('Username is required for a login.'); return; }
     if (type === 'bank_account' && !(fields.bank_name ?? '').trim()) { setError('Bank name is required.'); return; }
     const now = new Date().toISOString();
+    // Trim string fields and drop empties (previously empty strings were stored as fields).
+    const cleaned: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(fields)) {
+      const t = v.trim();
+      if (t !== '') cleaned[k] = t;
+    }
+    if (initial) {
+      // Carry encrypted metadata the form does not edit, and record
+      // history on change — otherwise every edit would erase them.
+      if (initial.fields?.archived === true) cleaned.archived = true;
+      const prevHistory = getPasswordHistory(initial);
+      if (prevHistory.length > 0) cleaned.password_history = prevHistory;
+      const prevRevisions = getNoteRevisions(initial);
+      if (prevRevisions.length > 0) cleaned.revisions = prevRevisions;
+      if (type === 'login') {
+        const oldPw = typeof initial.fields?.password === 'string' ? (initial.fields.password as string) : '';
+        const newPw = typeof cleaned.password === 'string' ? (cleaned.password as string) : '';
+        if (oldPw && newPw && oldPw !== newPw) cleaned.password_history = appendPasswordHistory(prevHistory, oldPw, now);
+      }
+      if (type === 'secure_note') {
+        const oldBody = typeof initial.fields?.body === 'string' ? (initial.fields.body as string) : '';
+        const newBody = typeof cleaned.body === 'string' ? (cleaned.body as string) : '';
+        if (oldBody && newBody && oldBody !== newBody) cleaned.revisions = appendNoteRevision(prevRevisions, oldBody, now);
+      }
+    }
+    // The parent selector owns parent_id: without the delete below,
+    // clearing the parent would leave the stale value from `fields`.
+    if (type === 'collection') {
+      if (parentId) cleaned.parent_id = parentId;
+      else delete cleaned.parent_id;
+    }
     const item: VaultItem = {
       id: initial?.id ?? newItemId(), type, schema_version: 1, title: title.trim(),
-      fields: { ...fields },
+      fields: cleaned,
       tags: tagsText.split(',').map((t) => t.trim()).filter(Boolean),
       relations: relationIds.map((id) => ({ type: 'related_to', target_id: id })),
       attachments: initial?.attachments ?? [], favorite,
@@ -85,12 +125,42 @@ export default function ItemFormScreen({ initial, allItems, onSave, onCancel }: 
         <View key={fd.key}>
           <Field label={fd.label} testID={`field-${fd.key}`} placeholder={fd.placeholder} secureTextEntry={fd.secret} multiline={fd.multiline} value={fields[fd.key] ?? ''} onChangeText={(v) => setF(fd.key, v)} autoCapitalize="none" autoCorrect={false} />
           {fd.key === 'password' ? (
-            <Pressable testID="generate-password-button" accessibilityLabel="Generate a password" style={[styles.ghostButton, { marginTop: -6, marginBottom: 14 }]} onPress={() => setF('password', generatePassword({ length: 16 }))}>
-              <Text style={styles.ghostButtonText}>Generate password</Text>
-            </Pressable>
+            <View>
+              {fields.password ? <StrengthMeter password={fields.password} /> : null}
+              <Pressable testID="generate-password-button" accessibilityLabel="Generate a password" style={[styles.ghostButton, { marginTop: -6, marginBottom: 14 }]} onPress={() => { try { setF('password', generatePassword({ length: 16 })); } catch (e) { setError(e instanceof Error ? e.message : 'Could not generate a password.'); } }}>
+                <Text style={styles.ghostButtonText}>Generate password</Text>
+              </Pressable>
+            </View>
+          ) : null}
+          {type === 'secure_note' && fd.key === 'body' ? (
+            <View style={{ marginBottom: 14 }}>
+              <Pressable testID="preview-markdown-button" accessibilityLabel="Preview note as Markdown" style={[styles.ghostButton, { marginTop: -6 }]} onPress={() => setShowPreview((v) => !v)}>
+                <Text style={styles.ghostButtonText}>{showPreview ? 'Hide preview' : 'Preview Markdown'}</Text>
+              </Pressable>
+              {showPreview ? (
+                <View style={{ backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 12, marginTop: 10 }}>
+                  <MarkdownText source={fields.body ?? ''} />
+                </View>
+              ) : null}
+            </View>
           ) : null}
         </View>
       ))}
+      {type === 'collection' ? (
+        <View style={{ marginBottom: 14 }}>
+          <Text style={styles.label}>Parent collection (optional — nested folders)</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+            <Pressable testID="parent-none" accessibilityLabel="No parent collection" onPress={() => setParentId('')} style={{ backgroundColor: parentId === '' ? colors.accent : colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, marginRight: 6, marginBottom: 6 }}>
+              <Text style={{ color: parentId === '' ? '#FFF' : colors.text, fontSize: 13, fontWeight: '600' }}>None — top level</Text>
+            </Pressable>
+            {parentCandidates.map((c) => (
+              <Pressable key={c.id} testID={`parent-${c.id}`} accessibilityLabel={`Parent collection ${c.title}`} onPress={() => setParentId(c.id)} style={{ backgroundColor: parentId === c.id ? colors.accent : colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, marginRight: 6, marginBottom: 6 }}>
+                <Text style={{ color: parentId === c.id ? '#FFF' : colors.text, fontSize: 13, fontWeight: '600' }}>{c.title}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      ) : null}
       {type === 'card' ? <Text style={{ color: colors.warn, fontSize: 13, lineHeight: 18, marginBottom: 14 }}>Card metadata only — never enter a CVV or PIN. There is no field for them, by design.</Text> : null}
       <Field label="Tags (comma separated)" testID="item-tags" placeholder="personal, finance" value={tagsText} onChangeText={setTagsText} autoCapitalize="none" />
       <Text style={styles.label}>Custom field</Text>

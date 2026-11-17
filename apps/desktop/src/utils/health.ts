@@ -2,7 +2,7 @@
  * Vault health report: weak and reused login passwords, overall score.
  * Trashed (deleted) items are excluded from every count.
  */
-import type { VaultItem } from '../../../packages/core/src/types';
+import type { VaultItem } from '../../../../packages/core/src/types';
 import {
   passwordStrength,
   findReusedPasswords,

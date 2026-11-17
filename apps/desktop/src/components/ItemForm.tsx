@@ -1,8 +1,15 @@
-import { useState } from 'react';
-import type { ItemType, VaultItem } from '../../../packages/core/src/types';
+import { useEffect, useRef, useState } from 'react';
+import type { ItemType, VaultItem } from '../../../../packages/core/src/types';
 import PasswordGenerator from './PasswordGenerator';
 import StrengthMeter from './StrengthMeter';
 import { isValidBase32Secret } from '../utils/totp';
+import { renderMarkdownToHtml } from '../utils/markdown';
+import {
+  getPasswordHistory,
+  appendPasswordHistory,
+  getNoteRevisions,
+  appendNoteRevision,
+} from '../utils/itemMeta';
 
 interface ItemFormProps {
   initial?: VaultItem | null;
@@ -10,6 +17,13 @@ interface ItemFormProps {
   onSave: (item: VaultItem) => Promise<void> | void;
   onCancel: () => void;
   allItems?: VaultItem[];
+  /**
+   * Autosave hook for secure notes (existing items only): called with the
+   * current item, debounced, WITHOUT closing the form. The caller must
+   * upsert without touching form state (see App.tsx handleAutosaveItem).
+   * When absent, notes save only via the Save button.
+   */
+  onAutosave?: (item: VaultItem) => Promise<void> | void;
 }
 
 type FieldInputType = 'text' | 'password' | 'textarea' | 'date' | 'url';
@@ -177,7 +191,7 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-export default function ItemForm({ initial = null, defaultType = 'login', onSave, onCancel, allItems = [] }: ItemFormProps) {
+export default function ItemForm({ initial = null, defaultType = 'login', onSave, onCancel, allItems = [], onAutosave }: ItemFormProps) {
   const [type, setType] = useState<ItemType>(initial?.type ?? defaultType);
   const [title, setTitle] = useState(initial?.title ?? '');
   const [tagsText, setTagsText] = useState((initial?.tags ?? []).join(', '));
@@ -193,6 +207,20 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
   const [showApiKey, setShowApiKey] = useState(false);
   const [apiKeyCopied, setApiKeyCopied] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Stable id for this form instance: a new item gets its id at mount so
+  // autosave and explicit Save write the same item.
+  const [itemId] = useState(() => initial?.id ?? newItemId());
+  // Nested collections: a collection may live inside another collection.
+  const [parentId, setParentId] = useState<string>(
+    () => (typeof initial?.fields?.parent_id === 'string' ? (initial.fields.parent_id as string) : ''),
+  );
+  // Secure-note Markdown preview.
+  const [showPreview, setShowPreview] = useState(false);
+  // Autosave state (secure notes, existing items only).
+  const [autosaveState, setAutosaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [autosaveAt, setAutosaveAt] = useState('');
+  // Seeded with the as-opened snapshot so merely opening a note does not autosave (and bump its revision) 1.5s later.
+  const lastAutosavedRef = useRef(`${title}\n${fields.body ?? ''}`);
 
   const setField = (key: string, value: string) => {
     setFields((prev) => ({ ...prev, [key]: value }));
@@ -206,6 +234,8 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
     setType(next);
     setFields({});
     setCustomPairs([]);
+    setParentId('');
+    setShowPreview(false);
     setShowPassword(false);
     setShowGenerator(false);
     setShowApiKey(false);
@@ -229,6 +259,104 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
     }));
   };
 
+  /**
+   * Build the item from current form state. `appendHistory` is true only
+   * for an explicit Save: when a login password or a note body changed
+   * vs. the item as opened, the OLD value is prepended to the encrypted
+   * password_history / revisions. Autosave passes false so a long typing
+   * session does not create a revision per pause — the revision is
+   * recorded once, at explicit Save, against the body as opened.
+   * Non-string field values (archived flag, history, revisions) are
+   * carried through untouched — the form only edits string fields, and
+   * dropping them here would silently erase history on every edit.
+   */
+  const buildItem = (appendHistory: boolean): VaultItem => {
+    const now = new Date().toISOString();
+    const cleanedFields: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(fields)) {
+      const trimmed = value.trim();
+      if (trimmed !== '') cleanedFields[key] = trimmed;
+    }
+    if (type === 'custom') {
+      for (const pair of customPairs) {
+        const name = pair.name.trim();
+        const value = pair.value.trim();
+        if (name && value) cleanedFields[name] = value;
+      }
+    }
+    if (initial) {
+      // Carry encrypted metadata the form does not edit.
+      if (initial.fields?.archived === true) cleanedFields.archived = true;
+      const prevHistory = getPasswordHistory(initial);
+      if (prevHistory.length > 0) cleanedFields.password_history = prevHistory;
+      const prevRevisions = getNoteRevisions(initial);
+      if (prevRevisions.length > 0) cleanedFields.revisions = prevRevisions;
+      if (appendHistory && type === 'login') {
+        const oldPw = typeof initial.fields?.password === 'string' ? (initial.fields.password as string) : '';
+        const newPw = typeof cleanedFields.password === 'string' ? (cleanedFields.password as string) : '';
+        if (oldPw && newPw && oldPw !== newPw) {
+          cleanedFields.password_history = appendPasswordHistory(prevHistory, oldPw, now);
+        }
+      }
+      if (appendHistory && type === 'secure_note') {
+        const oldBody = typeof initial.fields?.body === 'string' ? (initial.fields.body as string) : '';
+        const newBody = typeof cleanedFields.body === 'string' ? (cleanedFields.body as string) : '';
+        if (oldBody && newBody && oldBody !== newBody) {
+          cleanedFields.revisions = appendNoteRevision(prevRevisions, oldBody, now);
+        }
+      }
+    }
+    // The parent selector owns parent_id: without the delete below,
+    // clearing the parent would leave the stale value from `fields`.
+    if (type === 'collection') {
+      if (parentId) cleanedFields.parent_id = parentId;
+      else delete cleanedFields.parent_id;
+    }
+    const item: VaultItem = {
+      id: itemId,
+      type,
+      schema_version: 1,
+      title: title.trim(),
+      fields: cleanedFields,
+      tags: tagsText.split(',').map((t) => t.trim()).filter(Boolean),
+      relations: relationIds.map((target_id) => ({ type: 'related_to', target_id })),
+      attachments: initial?.attachments ?? [],
+      created_at: initial?.created_at ?? now,
+      updated_at: now,
+    };
+    item.favorite = favorite;
+    if (initial?.deleted_at) item.deleted_at = initial.deleted_at;
+    return item;
+  };
+
+  const buildRef = useRef(buildItem);
+  buildRef.current = buildItem;
+
+  // Autosave for secure notes (existing items only): 1.5s after the user
+  // stops typing, upsert the note WITHOUT closing the form. The write
+  // goes through onAutosave, which encrypts into the vault — a draft is
+  // never left in plaintext localStorage.
+  const bodyValue = fields.body ?? '';
+  useEffect(() => {
+    if (!initial || type !== 'secure_note' || !onAutosave) return;
+    if (title.trim() === '') return;
+    const snapshot = `${title}\n${bodyValue}`;
+    if (snapshot === lastAutosavedRef.current) return;
+    setAutosaveState('idle');
+    const timer = window.setTimeout(() => {
+      setAutosaveState('saving');
+      void Promise.resolve(onAutosave(buildRef.current(false)))
+        .then(() => {
+          lastAutosavedRef.current = snapshot;
+          setAutosaveAt(new Date().toLocaleTimeString());
+          setAutosaveState('saved');
+        })
+        .catch(() => setAutosaveState('error'));
+    }, 1500);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bodyValue, title, type, initial, onAutosave]);
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (title.trim() === '') {
@@ -246,36 +374,9 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
         return;
       }
     }
-    const now = new Date().toISOString();
-    const cleanedFields: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(fields)) {
-      const trimmed = value.trim();
-      if (trimmed !== '') cleanedFields[key] = trimmed;
-    }
-    if (type === 'custom') {
-      for (const pair of customPairs) {
-        const name = pair.name.trim();
-        const value = pair.value.trim();
-        if (name && value) cleanedFields[name] = value;
-      }
-    }
-    const item: VaultItem = {
-      id: initial?.id ?? newItemId(),
-      type,
-      schema_version: 1,
-      title: title.trim(),
-      fields: cleanedFields,
-      tags: tagsText.split(',').map((t) => t.trim()).filter(Boolean),
-      relations: relationIds.map((target_id) => ({ type: 'related_to', target_id })),
-      attachments: initial?.attachments ?? [],
-      created_at: initial?.created_at ?? now,
-      updated_at: now,
-    };
-    item.favorite = favorite;
-    if (initial?.deleted_at) item.deleted_at = initial.deleted_at;
     setSaving(true);
     try {
-      await onSave(item);
+      await onSave(buildItem(true));
     } finally {
       setSaving(false);
     }
@@ -377,6 +478,29 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
           {type === 'ssh_key' && def.key === 'private_key' && (
             <small className="text-zinc-500">Stored encrypted locally.</small>
           )}
+          {type === 'secure_note' && def.key === 'body' && (
+            <div style={{ marginTop: 8 }}>
+              <button type="button" className="btn-ghost" onClick={() => setShowPreview((v) => !v)}>
+                {showPreview ? 'Hide preview' : 'Preview Markdown'}
+              </button>
+              {showPreview && (
+                <div className="card p-4" style={{ marginTop: 8 }} dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(value) }} />
+              )}
+              {initial && onAutosave && (
+                <p style={{ marginTop: 6 }}>
+                  <small className="text-zinc-500">
+                    {autosaveState === 'saving'
+                      ? 'Autosaving…'
+                      : autosaveState === 'saved'
+                        ? `Autosaved at ${autosaveAt} — saved encrypted into the vault.`
+                        : autosaveState === 'error'
+                          ? 'Autosave failed — press Save to keep your changes.'
+                          : 'Edits autosave 1.5s after you stop typing (encrypted).'}
+                  </small>
+                </p>
+              )}
+            </div>
+          )}
         </div>
       );
     }
@@ -456,6 +580,28 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
       </div>
 
       {FIELD_DEFS[type].map(renderField)}
+
+      {type === 'collection' && (
+        <div style={{ marginTop: 8 }}>
+          <label className="label" htmlFor="item-parent-collection">Parent collection (optional — nested folders)</label>
+          <select
+            id="item-parent-collection"
+            name="item-parent-collection"
+            value={parentId}
+            onChange={(e) => setParentId(e.target.value)}
+            aria-label="Parent collection"
+            className="input"
+          >
+            <option value="">None — top level</option>
+            {allItems
+              .filter((c) => c.type === 'collection' && c.id !== itemId)
+              .map((c) => (
+                <option key={c.id} value={c.id}>{c.title}</option>
+              ))}
+          </select>
+          <p><small className="text-zinc-500">Collections can nest: pick a parent to file this collection inside it.</small></p>
+        </div>
+      )}
 
       {type === 'custom' && (
         <fieldset style={{ marginTop: 12 }}>

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { colors, styles } from '../theme';
-import { generatePassword, passwordStrength } from '../utils/password';
+import { generatePassword, generatePassphrase, passwordStrength } from '../utils/password';
 import StrengthMeter from '../components/StrengthMeter';
 
 export default function GeneratorScreen() {
@@ -14,7 +14,17 @@ export default function GeneratorScreen() {
   const [password, setPassword] = useState('');
   const [copied, setCopied] = useState(false);
   const [passphrase, setPassphrase] = useState('');
-  function generate() { setPassword(generatePassword({ length, symbols, numbers, uppercase, pronounceable })); setCopied(false); }
+  const [genError, setGenError] = useState('');
+  function generate() {
+    setGenError('');
+    try { setPassword(generatePassword({ length, symbols, numbers, uppercase, pronounceable })); setCopied(false); }
+    catch (e) { setGenError(e instanceof Error ? e.message : 'Could not generate a password.'); }
+  }
+  function generatePassphraseValue() {
+    setGenError('');
+    try { setPassphrase(generatePassphrase(6)); }
+    catch (e) { setGenError(e instanceof Error ? e.message : 'Could not generate a passphrase.'); }
+  }
   const toggle = (label: string, value: boolean, onPress: () => void) => (
     <Pressable testID={`gen-toggle-${label}`} accessibilityLabel={label} accessibilityRole="checkbox" accessibilityState={{ checked: value }} onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 8 }}>
       <Text style={{ fontSize: 20, color: value ? colors.accent : colors.faint }}>{value ? '☑' : '☐'}</Text>
@@ -52,10 +62,11 @@ export default function GeneratorScreen() {
           </Pressable>
         </View>
       ) : null}
+      {genError ? <Text testID="generator-error" style={[styles.error, { marginTop: 12 }]}>{genError}</Text> : null}
       <View style={{ marginTop: 24 }}>
         <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700' }}>Passphrase</Text>
-        <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 4 }}>A memorable passphrase (4+ random words) is best for the master passphrase itself.</Text>
-        <Pressable testID="generate-passphrase-button" accessibilityLabel="Generate passphrase" style={[styles.ghostButton, { marginTop: 10 }]} onPress={() => setPassphrase(generatePassword({ pronounceable: true }) + '-' + generatePassword({ pronounceable: true }))}>
+        <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 4 }}>Six random words from a 128-word list, picked with the system CSPRNG. Use 6+ words for the master passphrase itself.</Text>
+        <Pressable testID="generate-passphrase-button" accessibilityLabel="Generate passphrase" style={[styles.ghostButton, { marginTop: 10 }]} onPress={generatePassphraseValue}>
           <Text style={styles.ghostButtonText}>Generate passphrase</Text>
         </Pressable>
         {passphrase ? <Text testID="generated-passphrase" selectable style={{ color: colors.text, fontSize: 16, fontFamily: 'monospace', marginTop: 12 }}>{passphrase}</Text> : null}

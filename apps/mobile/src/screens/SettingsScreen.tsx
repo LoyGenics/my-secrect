@@ -3,7 +3,7 @@ import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import Field from '../components/Field';
 import { colors, styles } from '../theme';
-import { changePassphrase, exportEncrypted, exportPlaintext, wipeVault } from '../vault';
+import { changePassphrase, exportEncrypted, wipeVault } from '../vault';
 
 export type AutoLockMinutes = 1 | 5 | 15 | 0;
 
@@ -16,7 +16,6 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
   const [newConfirm, setNewConfirm] = useState('');
   const [changeError, setChangeError] = useState('');
   const [changeOk, setChangeOk] = useState(false);
-  const [plainArmed, setPlainArmed] = useState(false);
   const [wipeArmed, setWipeArmed] = useState(false);
   const [exported, setExported] = useState('');
 
@@ -29,11 +28,6 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
   }
   async function handleExportEncrypted() {
     try { const json = await exportEncrypted(); setExported(json); await Clipboard.setStringAsync(json); setNotice('Encrypted backup copied to clipboard. It stays encrypted — keep it safe.'); }
-    catch { setNotice('Export failed.'); }
-  }
-  function handleExportPlaintext() {
-    if (!plainArmed) { setPlainArmed(true); return; }
-    try { const json = exportPlaintext(); setExported(json); void Clipboard.setStringAsync(json); setNotice('Plaintext export copied to clipboard. Anyone with it has every secret in readable form — delete it as soon as you are done.'); setPlainArmed(false); }
     catch { setNotice('Export failed.'); }
   }
   async function handleWipe() {
@@ -74,10 +68,7 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
         <Text style={styles.primaryButtonText}>Export encrypted backup</Text>
       </Pressable>
       <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 8 }}>The encrypted backup is copied to the clipboard as JSON. It can only be imported back into this vault. Import is in the desktop app; mobile import is not yet built — see README.</Text>
-      <Pressable testID="export-plaintext-button" accessibilityLabel="Export plaintext" style={[styles.ghostButton, { marginTop: 12, borderColor: plainArmed ? colors.danger : colors.cardBorder }]} onPress={handleExportPlaintext}>
-        <Text style={[styles.ghostButtonText, { color: plainArmed ? colors.danger : colors.text }]}>{plainArmed ? 'Tap again to confirm — plaintext export!' : 'Export plaintext (dangerous)'}</Text>
-      </Pressable>
-      <Text style={{ color: colors.warn, fontSize: 13, lineHeight: 18, marginTop: 8 }}>Plaintext export contains every secret in readable form. Only use it when you explicitly need it, and delete it immediately afterwards.</Text>
+      <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 12 }}>Plaintext export is desktop-only — it is not offered on mobile (a plaintext export copied to the clipboard would linger in clipboard history). Use the desktop app, where it requires an explicit warning acknowledgement first.</Text>
       {exported ? (
         <View style={{ backgroundColor: colors.input, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 12, marginTop: 12 }}>
           <Text style={{ color: colors.muted, fontSize: 12 }}>Last export (first 200 characters):</Text>

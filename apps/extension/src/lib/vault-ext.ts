@@ -226,7 +226,9 @@ export function lockVault(): void {
 /** Re-wrap the Master Key under a new passphrase. Items are untouched (same Master Key). */
 export async function changePassphrase(oldPassphrase: string, newPassphrase: string): Promise<boolean> {
   const keys = await loadKeys();
-  if (!keys || !masterKey) return false;
+  // Phase F fix: reject an empty new passphrase here too (the options page
+  // also validates, but the background must not rely on the caller).
+  if (!keys || !masterKey || !newPassphrase) return false;
   const kek = await crypto.deriveKek(oldPassphrase, fromBase64(keys.salt));
   try {
     // Verify the old passphrase by unwrapping; throws on a wrong one.

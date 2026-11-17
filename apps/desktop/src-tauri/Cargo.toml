@@ -1,0 +1,21 @@
+[package]
+name = "my-secrect"
+version = "0.1.0"
+description = "my-secrect — Personal Digital Vault (Tauri desktop shell)"
+authors = ["LoyGenics"]
+license = "MIT OR Apache-2.0"
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Tauri v2 only. No fs / shell / http / updater plugins are enabled yet on
+# purpose: the vault still stores in localStorage (see README.md), and no
+# plugin permission is granted until the feature that needs it lands.
+tauri = { version = "2", features = [] }
+
+[profile.release]
+lto = true
+codegen-units = 1

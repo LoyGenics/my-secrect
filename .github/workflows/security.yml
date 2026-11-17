@@ -1,0 +1,100 @@
+# MY SECRET — Security scanning (Phase G, 17 Nov 2026)
+#
+# STATUS: NEVER RUN. Written from the repo layout on disk; no scan has
+# ever executed. A green run here is not an audit and does not make the
+# app production-safe (see docs/release-readiness.md, gate 10).
+#
+# Runs on every PR, on push to main, and weekly (full-history secret scan).
+# Git history has NOT been audited — the weekly full-history gitleaks job
+# is the first history scan this repo will ever have.
+
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 3 * * 1' # Mondays 03:00 UTC — full-history secret scan
+
+permissions:
+  contents: read
+  security-events: write # CodeQL SARIF upload
+  pull-requests: write # dependency-review comments
+
+jobs:
+  # ---- 1. Gitleaks: secrets in the working tree (PRs + pushes) ------------
+  gitleaks:
+    name: gitleaks (working tree)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history available if needed
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .github/gitleaks.toml
+
+  # ---- 2. Gitleaks: full git history (weekly only) --------------------------
+  gitleaks-history:
+    name: gitleaks (full history)
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan entire history
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .github/gitleaks.toml
+          GITLEAKS_ARGS: --log-opts=--all
+
+  # ---- 3. Dependency review (PRs only — blocks new vulnerable deps) --------
+  dependency-review:
+    name: dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          # No lockfiles exist yet (Phase A finding). Until package-lock.json
+          # and apps/api/Gemfile.lock are committed, this job can only review
+          # manifests, not the resolved tree — treat its output as partial.
+          allow-licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0
+
+  # ---- 4. CodeQL: JavaScript/TypeScript + Ruby ------------------------------
+  codeql:
+    name: codeql (${{ matrix.language }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, ruby]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+      - uses: github/codeql-action/autobuild@v3
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: '/language:${{ matrix.language }}'
+
+  # ---- 5. Rust audit (cargo-audit) ------------------------------------------
+  cargo-audit:
+    name: cargo audit (crypto-core)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit Rust dependencies
+        working-directory: native/crypto-core
+        run: cargo audit

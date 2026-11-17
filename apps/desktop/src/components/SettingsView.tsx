@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import type { VaultItem } from '../../../../packages/core/src/types';
+import CsvImport from './CsvImport';
 
 export type AutoLockMinutes = 1 | 5 | 15 | 0;
 
@@ -8,7 +10,18 @@ interface SettingsViewProps {
   itemCount: number;
   onExportEncrypted: () => void;
   onExportPlaintext: () => void;
+  /**
+   * Plaintext export is DESKTOP-ONLY. The web client renders this same
+   * SettingsView through the shared desktop App, so it must pass false
+   * here — otherwise the banner's "encrypted-only" claim would be a lie
+   * (see H2: the plaintext button used to be reachable on web).
+   * Defaults to true for the desktop app.
+   */
+  allowPlaintextExport?: boolean;
   onImport: () => void;
+  /** CSV import (1Password / Bitwarden). Optional: hidden when absent. */
+  existingItems?: VaultItem[];
+  onImportCsv?: (items: VaultItem[]) => Promise<void> | void;
   onChangePassphrase: (oldPassphrase: string, newPassphrase: string) => Promise<void>;
   onWipeVault: () => void;
 }
@@ -29,7 +42,10 @@ export default function SettingsView({
   itemCount,
   onExportEncrypted,
   onExportPlaintext,
+  allowPlaintextExport = true,
   onImport,
+  existingItems,
+  onImportCsv,
   onChangePassphrase,
   onWipeVault,
 }: SettingsViewProps) {
@@ -191,37 +207,53 @@ export default function SettingsView({
         <p className="mt-2 text-sm text-zinc-400">
           Encrypted backups stay encrypted — they can only be imported into a vault with the same keys.
         </p>
-        <div className="mt-4 rounded-lg border border-red-900/60 bg-red-950/30 p-4">
-          <h4 className="text-sm font-semibold text-red-200">Export plaintext (dangerous)</h4>
-          <p className="mt-1 text-sm text-zinc-300">
-            This writes every item in readable form — usernames, passwords, API keys, notes —
-            into a plain JSON file. Anyone who gets that file gets everything. Only do this on
-            a device you trust, and delete the file as soon as you are done with it.
-          </p>
-          <label className="mt-3 flex items-start gap-2 text-sm text-zinc-200">
-            <input
-              id="settings-plaintext-ack"
-              name="plaintext-export-ack"
-              type="checkbox"
-              checked={plaintextAck}
-              onChange={(e) => setPlaintextAck(e.target.checked)}
-              className="mt-1 accent-red-600"
-              aria-label="I understand a plaintext export contains all my secrets in readable form"
-            />
-            I understand a plaintext export contains all my secrets in readable form.
-          </label>
-          <button
-            type="button"
-            className="btn-danger mt-3"
-            disabled={!plaintextAck}
-            onClick={() => {
-              onExportPlaintext();
-              setPlaintextAck(false);
-            }}
-          >
-            Export plaintext JSON
-          </button>
-        </div>
+        {allowPlaintextExport ? (
+          <div className="mt-4 rounded-lg border border-red-900/60 bg-red-950/30 p-4">
+            <h4 className="text-sm font-semibold text-red-200">Export plaintext (dangerous — desktop only)</h4>
+            <p className="mt-1 text-sm text-zinc-300">
+              This writes every item in readable form — usernames, passwords, API keys, notes —
+              into a plain JSON file. Anyone who gets that file gets everything. Only do this on
+              a device you trust, and delete the file as soon as you are done with it.
+            </p>
+            <label className="mt-3 flex items-start gap-2 text-sm text-zinc-200">
+              <input
+                id="settings-plaintext-ack"
+                name="plaintext-export-ack"
+                type="checkbox"
+                checked={plaintextAck}
+                onChange={(e) => setPlaintextAck(e.target.checked)}
+                className="mt-1 accent-red-600"
+                aria-label="I understand a plaintext export contains all my secrets in readable form"
+              />
+              I understand a plaintext export contains all my secrets in readable form.
+            </label>
+            <button
+              type="button"
+              className="btn-danger mt-3"
+              disabled={!plaintextAck}
+              onClick={() => {
+                onExportPlaintext();
+                setPlaintextAck(false);
+              }}
+            >
+              Export plaintext JSON
+            </button>
+          </div>
+        ) : (
+          <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-900/60 p-4">
+            <h4 className="text-sm font-semibold text-zinc-200">Plaintext export is disabled here</h4>
+            <p className="mt-1 text-sm text-zinc-400">
+              This client offers encrypted-only export: vault data leaves the browser only in
+              encrypted form. For a plaintext export, use the desktop app — it requires an
+              explicit warning acknowledgement first.
+            </p>
+          </div>
+        )}
+        {existingItems && onImportCsv && (
+          <div className="mt-4 border-t border-zinc-800 pt-4">
+            <CsvImport existingItems={existingItems} onImport={onImportCsv} />
+          </div>
+        )}
       </section>
 
       {/* App info */}

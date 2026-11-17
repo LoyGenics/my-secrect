@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import type { VaultItem } from '../../../packages/core/src/types';
-import type { BlobManifest } from '../../../packages/storage/src/upload';
+import type { VaultItem } from '../../../../packages/core/src/types';
+import type { BlobManifest } from '../../../../packages/storage/src/upload';
 import {
   mediaInfoFromItem,
   formatBytes,

@@ -1,0 +1,32 @@
+# Gitleaks config for MY SECRET (Phase G, 17 Nov 2026).
+# Used by .github/workflows/security.yml (config-path: .github/gitleaks.toml).
+# The default gitleaks rules apply; this file only ADDS repo-specific
+# allowlist entries. Never add a real secret here — allowlist entries are
+# for known non-secret test fixtures only.
+#
+# NOTE: No secret has ever been scanned for in this repo before Phase G.
+# A clean gitleaks run proves nothing about git HISTORY before the scan
+# was introduced unless history is scanned too (security.yml does that
+# with a full-history run on schedule). Git history has NOT been audited.
+
+title = "my-secrect gitleaks config"
+
+[allowlist]
+description = "Known non-secret placeholders / test fixtures."
+# Placeholder values used in docs and .env.example files.
+secrets = [
+  'CHANGE_ME',
+  'REPLACE_ME',
+  'your-.*-here',
+  'ci-only-not-a-secret',
+]
+# DELIBERATELY NOT allowlisted: the weak default S3_SECRET_KEY 'minio123'
+# in apps/api/app/domains/blobs/storage_provider.rb. If gitleaks flags it,
+# remove the default from the code — do NOT silence it here.
+# Test-only paths (fixtures that intentionally look like keys).
+paths = [
+  '''tests/.*''',
+  '''\.github/workflows/.*''',
+  '''docs/.*''',
+  '''infra/.*''',
+]

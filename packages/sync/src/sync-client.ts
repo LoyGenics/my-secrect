@@ -31,7 +31,9 @@ import {
   type SyncCheckpoint,
   type SyncStorage,
 } from './index';
-import { VaultApiClient } from '../../sdk/src/index';
+// Type-only on purpose: the SDK re-exports SyncClient, so this import must
+// be erased at compile time (no runtime cycle SDK -> sync-client -> SDK).
+import type { VaultApiClient } from '../../sdk/src/index';
 import type { VaultItem } from '../../core/src/types';
 
 export interface SyncClientOptions {

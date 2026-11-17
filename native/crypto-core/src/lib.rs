@@ -25,11 +25,19 @@ use thiserror::Error;
 
 pub const CRYPTO_FORMAT_VERSION: u32 = 1;
 
-/// Argon2id parameters, v1. Benchmark before locking: these are the
-/// libsodium SENSITIVE limits; on low-end mobile they may need the
-/// INTERACTIVE set instead. Never lower them silently — bump the version.
-pub const KDF_OPSLIMIT: pwhash::OpsLimit = pwhash::OPSLIMIT_SENSITIVE;
-pub const KDF_MEMLIMIT: pwhash::MemLimit = pwhash::MEMLIMIT_SENSITIVE;
+/// Argon2id parameters, v1 — THE single locked profile for the whole
+/// vault (see specs/key-management.md and specs/encryption-format.md).
+/// These are libsodium's INTERACTIVE limits: OPSLIMIT_INTERACTIVE = 2,
+/// MEMLIMIT_INTERACTIVE = 67108864 bytes (64 MiB), ALG_ARGON2ID13,
+/// salt 16 bytes, output 32 bytes. The TypeScript adapter
+/// (packages/crypto-adapters/src/index.ts, ARGON2ID_PARAMS) uses exactly
+/// these values, so a KEK derived on one platform unwraps keys created
+/// on the other. Phase B fixed this: Rust previously used SENSITIVE,
+/// which produced incompatible KEKs (security-review.md H3).
+/// Never change these values without bumping CRYPTO_FORMAT_VERSION and
+/// writing new test vectors in tests/crypto-vectors/argon2id-vectors.json.
+pub const KDF_OPSLIMIT: pwhash::OpsLimit = pwhash::OPSLIMIT_INTERACTIVE;
+pub const KDF_MEMLIMIT: pwhash::MemLimit = pwhash::MEMLIMIT_INTERACTIVE;
 
 #[derive(Debug, Error)]
 pub enum CryptoError {

@@ -8,6 +8,24 @@ export type ItemType =
   | 'ssh_key' | 'api_key' | 'secure_note' | 'document' | 'media'
   | 'collection' | 'custom';
 
+// Schema versioning (Phase C — see packages/schemas/README.md for the rules).
+// v1 is the only supported version. Unknown versions must be REJECTED by
+// clients, never silently accepted or guessed at.
+export const CURRENT_SCHEMA_VERSION = 1;
+export const SUPPORTED_SCHEMA_VERSIONS: readonly number[] = [1];
+
+export function isSupportedSchemaVersion(version: unknown): version is 1 {
+  return version === 1;
+}
+
+/** Validate an item's schema version. Returns an error string, or null if OK. */
+export function validateItemVersion(item: { schema_version?: unknown }): string | null {
+  if (!isSupportedSchemaVersion(item.schema_version)) {
+    return `unsupported schema_version '${String(item.schema_version)}' (supported: ${SUPPORTED_SCHEMA_VERSIONS.join(', ')})`;
+  }
+  return null;
+}
+
 export interface VaultRelation { type: string; target_id: string; }
 
 export interface VaultItem {

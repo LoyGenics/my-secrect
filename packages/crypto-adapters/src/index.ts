@@ -33,10 +33,17 @@ export interface CryptoAdapter {
 export const sodiumReady: Promise<void> = sodium.ready;
 
 /**
- * Locked Argon2id parameters (see specs/encryption-format.md).
- * These are libsodium's INTERACTIVE limits: OPSLIMIT_INTERACTIVE = 2,
+ * Locked Argon2id parameters (see specs/encryption-format.md and
+ * specs/key-management.md). THE single profile for the whole vault:
+ * libsodium's INTERACTIVE limits: OPSLIMIT_INTERACTIVE = 2,
  * MEMLIMIT_INTERACTIVE = 67108864 bytes (64 MiB), algorithm
  * crypto_pwhash_ALG_ARGON2ID13, salt 16 bytes, output 32 bytes.
+ * The Rust crypto-core (native/crypto-core/src/lib.rs, KDF_OPSLIMIT /
+ * KDF_MEMLIMIT) uses exactly these values. Cross-platform
+ * known-answer vectors: tests/crypto-vectors/argon2id-vectors.json,
+ * asserted by native/crypto-core/tests/vectors.rs and
+ * tests/crypto-vectors/argon2id-vectors.test.mjs. Never change these
+ * values without bumping the format version and regenerating vectors.
  */
 export const ARGON2ID_PARAMS = {
   algorithm: 'argon2id',

@@ -1,0 +1,23 @@
+{
+  "name": "@my-secrect/i18n",
+  "version": "0.1.0",
+  "private": true,
+  "description": "My Secret i18n: English + Vietnamese dictionaries, locale helpers and a tiny React binding. Dependency-free core; React is a peer dependency for src/react.tsx only.",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./react": "./src/react.tsx"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  }
+}

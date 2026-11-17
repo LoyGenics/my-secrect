@@ -1,5 +1,6 @@
-import type { VaultItem } from '../../../packages/core/src/types';
+import type { VaultItem } from '../../../../packages/core/src/types';
 import { isFavorite } from '../utils/password';
+import { isArchived } from '../utils/itemMeta';
 
 interface ItemListProps {
   items: VaultItem[];
@@ -7,6 +8,10 @@ interface ItemListProps {
   onSelect: (id: string) => void;
   onToggleFavorite: (id: string) => void;
   onDelete: (id: string) => void;
+  /** Bulk-selection mode (driven by App.tsx): rows get checkboxes and a tap toggles selection instead of opening the item. */
+  selectionMode?: boolean;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (id: string) => void;
 }
 
 function fieldString(item: VaultItem, key: string): string {
@@ -52,7 +57,7 @@ export function itemSubtitle(item: VaultItem): string {
   }
 }
 
-export default function ItemList({ items, selectedId, onSelect, onToggleFavorite, onDelete }: ItemListProps) {
+export default function ItemList({ items, selectedId, onSelect, onToggleFavorite, onDelete, selectionMode = false, selectedIds, onToggleSelect }: ItemListProps) {
   if (items.length === 0) {
     return (
       <div>
@@ -66,22 +71,36 @@ export default function ItemList({ items, selectedId, onSelect, onToggleFavorite
       {items.map((item) => {
         const favorite = isFavorite(item);
         const subtitle = itemSubtitle(item);
+        const checked = selectedIds?.has(item.id) ?? false;
         return (
           <li
             key={item.id}
-            onClick={() => onSelect(item.id)}
+            onClick={() => {
+              if (selectionMode && onToggleSelect) onToggleSelect(item.id);
+              else onSelect(item.id);
+            }}
             style={{
               cursor: 'pointer',
               padding: '8px 10px',
               borderBottom: '1px solid #eee',
-              background: item.id === selectedId ? '#eef4ff' : 'transparent',
+              background: checked ? '#eef4ff' : item.id === selectedId ? '#eef4ff' : 'transparent',
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {selectionMode && (
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => onToggleSelect?.(item.id)}
+                  onClick={(e) => e.stopPropagation()}
+                  aria-label={`Select ${item.title}`}
+                />
+              )}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div>
                   <strong>{item.title}</strong>{' '}
                   <small style={{ color: '#666' }}>({item.type})</small>
+                  {isArchived(item) && <small style={{ color: '#666' }}> 📦 Archived</small>}
                 </div>
                 {subtitle && (
                   <div style={{ color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

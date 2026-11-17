@@ -1,0 +1,234 @@
+# MY SECRET — Continuous Integration (Phase G, 17 Nov 2026)
+#
+# STATUS: NEVER RUN. This workflow was written from the repo layout on disk
+# (package.json workspaces, apps/api Gemfile, native/crypto-core Cargo.toml).
+# It has never executed on GitHub Actions, on the Mac, or anywhere else.
+# Do NOT claim CI passes until a green run is observed here.
+#
+# Known pre-existing failures to expect on the first run:
+#   - lockfiles job: no package-lock.json and no apps/api/Gemfile.lock exist
+#     yet (Phase A finding). Run `npm install` and `bundle lock` locally
+#     first, commit the lockfiles, then re-run.
+#   - Node tests in tests/ mirror logic in-file instead of importing real
+#     code, so a green node-tests job proves the RULES, not the modules.
+#   - No ESLint/Prettier config exists in the repo, so there is no lint job
+#     yet — typecheck + cargo fmt/clippy are the static checks for now.
+#   - Mobile `expo` builds (EAS) are NOT run in CI; only tsc typecheck.
+#     Store builds need human-owned signing (see docs/store-prep.md).
+#
+# Paths are pinned to this monorepo:
+#   apps/api, apps/desktop, apps/web, apps/extension, apps/mobile,
+#   native/crypto-core, packages/*, tests/* (root `npm test`).
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---- 0. Lockfiles must exist and be committed --------------------------
+  lockfiles:
+    name: lockfiles present
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for committed lockfiles
+        run: |
+          missing=0
+          for f in package-lock.json apps/api/Gemfile.lock; do
+            if [ ! -f "$f" ]; then echo "::error file=$f::Missing lockfile: $f"; missing=1; fi
+          done
+          if [ "$missing" = 1 ]; then
+            echo "Generate them locally, then commit:"
+            echo "  npm install            # creates package-lock.json"
+            echo "  cd apps/api && bundle lock   # creates Gemfile.lock"
+            exit 1
+          fi
+          echo "Lockfiles present."
+
+  # ---- 1. Plain-Node tests (mirror rules; do NOT prove real modules) ------
+  node-tests:
+    name: node tests (tests/)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm install --no-audit --no-fund
+      # Root script covers crypto-vectors, sync-conflicts, compatibility,
+      # recovery, end-to-end. Security tests are NOT in that script yet
+      # (root package.json is owned by another phase), so run them explicitly.
+      - name: Run root npm test
+        run: npm test
+      - name: Run Phase G security tests
+        run: node --test tests/security/
+
+  # ---- 2. TypeScript typecheck (all TS workspaces) ------------------------
+  typecheck:
+    name: typescript typecheck
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm install --no-audit --no-fund
+      - name: Typecheck desktop / web / extension
+        run: |
+          for app in desktop web extension; do
+            echo "--- tsc apps/$app ---"
+            npx tsc --noEmit -p "apps/$app/tsconfig.json"
+          done
+      - name: Typecheck mobile
+        run: npm --workspace apps/mobile run typecheck
+      - name: Typecheck packages with tsconfig
+        run: |
+          for d in packages/*/tsconfig.json; do
+            echo "--- tsc $d ---"
+            npx tsc --noEmit -p "$d"
+          done
+
+  # ---- 3. Production builds (web-facing apps) -----------------------------
+  build-web:
+    name: production builds
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm install --no-audit --no-fund
+      - name: Build desktop
+        run: npm --workspace apps/desktop run build
+      - name: Build web
+        run: npm --workspace apps/web run build
+      - name: Build extension
+        run: npm --workspace apps/extension run build
+      # NOTE: Tauri native bundling and Expo/EAS store builds are NOT done
+      # here (no signing, no Apple/Google accounts in CI). See
+      # docs/store-prep.md. Desktop `tsc && vite build` only validates the
+      # web bundle, not the Tauri shell.
+
+  # ---- 4. Rust crypto-core -------------------------------------------------
+  rust:
+    name: rust crypto-core
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/crypto-core
+      - name: Format check
+        run: cargo fmt --check --manifest-path native/crypto-core/Cargo.toml
+      - name: Clippy (deny warnings)
+        run: cargo clippy --manifest-path native/crypto-core/Cargo.toml --all-targets -- -D warnings
+      - name: Tests (incl. known-answer vectors)
+        run: cargo test --manifest-path native/crypto-core/Cargo.toml
+
+  # ---- 5. Rails API --------------------------------------------------------
+  rails:
+    name: rails api (rspec)
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: vault
+          POSTGRES_PASSWORD: ci-only-not-a-secret
+          POSTGRES_DB: vault_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U vault -d vault_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      RAILS_ENV: test
+      DATABASE_URL: postgres://vault:ci-only-not-a-secret@localhost:5432/vault_test
+      REDIS_URL: redis://localhost:6379/0
+      RAILS_MASTER_KEY: ci-only-not-a-secret
+      S3_ENDPOINT: http://localhost:9000
+      S3_BUCKET: vault-blobs-test
+      S3_ACCESS_KEY: ci-only-not-a-secret
+      S3_SECRET_KEY: ci-only-not-a-secret
+      WEBAUTHN_RP_ID: localhost
+      WEBAUTHN_ORIGIN: http://localhost:3000
+      CORS_ORIGINS: http://localhost:1420
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3.0'
+          bundler-cache: true
+          working-directory: apps/api
+      - name: Prepare test database
+        working-directory: apps/api
+        run: bundle exec rails db:prepare
+      - name: RSpec
+        working-directory: apps/api
+        run: bundle exec rspec
+
+  # ---- 6. API Docker image builds (no push) -------------------------------
+  docker-build:
+    name: api docker build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build apps/api image (validates Dockerfile only)
+        run: docker build -f apps/api/Dockerfile apps/api -t my-secrect-api:ci
+      # NOTE: docker-compose up is NOT run in CI — it needs secrets, a
+      # domain, and a migration run. See docs/deployment.md for the manual
+      # validation checklist. This step only proves the image builds.
+
+  # ---- 7. Dependency audit (advisory until triaged) ------------------------
+  audit:
+    name: dependency audit (advisory)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm install --no-audit --no-fund
+      - name: npm audit (critical+)
+        continue-on-error: true
+        run: npm audit --audit-level=critical
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3.0'
+          working-directory: apps/api
+      - name: bundler-audit
+        continue-on-error: true
+        working-directory: apps/api
+        run: |
+          gem install bundler-audit --no-document
+          bundle audit check --update || true
+      # Advisory on purpose: findings are reported, not gating, until the
+      # first triage pass records a baseline. Promote to gating once the
+      # baseline is clean — do not silently ignore new advisories.

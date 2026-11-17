@@ -1,13 +1,15 @@
 import React, { useMemo, useState } from 'react';
 import { FlatList, Text, TextInput, View } from 'react-native';
-import type { VaultItem } from '../../../packages/core/src/types';
+import type { VaultItem } from '../../../../packages/core/src/types';
 import ItemRow from '../components/ItemRow';
 import { colors, styles } from '../theme';
 import { searchLocal } from '../vault';
+import { isArchived } from '../utils/itemMeta';
 
 export default function SearchScreen({ items, onSelect, onToggleFavorite }: { items: VaultItem[]; onSelect: (id: string) => void; onToggleFavorite: (id: string) => void }) {
   const [q, setQ] = useState('');
-  const results = useMemo(() => searchLocal(q), [q]);
+  // Local search only, and archived items are excluded (find them under Archived).
+  const results = useMemo(() => searchLocal(q).filter((i) => !isArchived(i)), [q]);
   return (
     <View style={styles.screen}>
       <View style={{ padding: 16 }}>

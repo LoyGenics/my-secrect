@@ -36,7 +36,12 @@ export default function App() {
         </details>
       </div>
       <div className="min-h-0 flex-1">
-        <DesktopApp />
+        {/* H2 fix: the web client promises encrypted-only export in the
+            banner above. The shared desktop App gates plaintext export
+            behind this prop, so passing false here is what makes the
+            promise true — Settings hides the plaintext section and the
+            export handler refuses it as a second line of defence. */}
+        <DesktopApp allowPlaintextExport={false} />
       </div>
       <footer className="border-t border-zinc-800 px-4 py-2 text-center text-xs text-zinc-500">
         my-secrect web — local-first, encrypted on this device. Not audited, not production-ready. For sensitive data, use the desktop app.

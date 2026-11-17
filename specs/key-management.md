@@ -11,6 +11,27 @@ Device-protected Key (Keychain/Keystore) wraps bản sao khóa để mở bằng
 ```
 Mỗi tầng wrap bằng AEAD. DEK tách khỏi KEK (OWASP envelope encryption).
 
+## Argon2id — MỘT profile duy nhất cho toàn bộ vault (v1, đã chốt Phase B)
+- Thuật toán: Argon2id (`crypto_pwhash`, `ALG_ARGON2ID13`), libsodium
+  INTERACTIVE: **opslimit = 2** (`OPSLIMIT_INTERACTIVE`), **memlimit =
+  67108864 bytes (64 MiB)** (`MEMLIMIT_INTERACTIVE`), salt **16 bytes**
+  ngẫu nhiên, output **32 bytes**.
+- Áp dụng ở MỌI nơi derive KEK: TypeScript
+  (`packages/crypto-adapters/src/index.ts`, `ARGON2ID_PARAMS`) và Rust
+  (`native/crypto-core/src/lib.rs`, `KDF_OPSLIMIT` / `KDF_MEMLIMIT`).
+  Trước Phase B, Rust dùng SENSITIVE nên KEK hai phía không khớp (H3)
+  — đã sửa về INTERACTIVE theo đúng `specs/encryption-format.md`.
+  Không bao giờ dùng hai profile song song: vault tạo ở một phía phải
+  mở được ở phía còn lại.
+- Test vector dùng chung (không được bịa số):
+  `tests/crypto-vectors/argon2id-vectors.json` — 2 vector KEK Argon2id
+  + 1 vector XChaCha20-Poly1305, tính bằng chính libsodium (xem ghi chú
+  `_generated` trong file). TypeScript assert ở
+  `tests/crypto-vectors/argon2id-vectors.test.mjs`, Rust assert ở
+  `native/crypto-core/tests/vectors.rs`.
+- Đổi tham số = đổi format version + migration + regenerate vector.
+  Không hạ tham số âm thầm.
+
 ## Đăng nhập ≠ Mở khóa vault
 - **Account auth:** WebAuthn/passkey với Rails API, quản lý session + thiết bị.
 - **Vault unlock:** Master Passphrase giải mã Account Master Key trên client.

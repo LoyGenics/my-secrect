@@ -61,6 +61,10 @@ function itemMeta(item: VaultItem): ItemMeta {
 }
 
 function generatePassword(length = 16, symbols = true, numbers = true): string {
+  // Phase F fix: the class-guarantee writes below touch indices 0-3, so a
+  // requested length below 4 used to silently return a LONGER password
+  // than asked for (assigning chars[3] extends the array). Clamp to 4-64.
+  length = Math.min(64, Math.max(4, Math.floor(length) || 16));
   const lower = 'abcdefghjkmnpqrstuvwxyz';
   const upper = 'ABCDEFGHJKMNPQRSTUVWXYZ';
   const digits = '23456789';
@@ -125,7 +129,22 @@ async function handleFill(id: string, confirmed: boolean | undefined): Promise<E
   } catch (e) {
     return { ok: false, error: `Could not inject the fill script: ${e instanceof Error ? e.message : String(e)}` };
   }
-  await chrome.tabs.sendMessage(tab.id, { type: 'ext-fill', username, password, origin });
+  // Phase F fix: the content script can refuse the fill (iframe, origin
+  // mismatch, no password field) via its reply. The old code ignored that
+  // reply and reported success anyway. Check it before claiming a fill.
+  let fillResult: unknown;
+  try {
+    fillResult = await chrome.tabs.sendMessage(tab.id, { type: 'ext-fill', username, password, origin });
+  } catch (e) {
+    return { ok: false, error: `Could not deliver the fill to the page: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  if (!fillResult || typeof fillResult !== 'object' || (fillResult as { ok?: unknown }).ok !== true) {
+    const reason =
+      fillResult && typeof fillResult === 'object' && typeof (fillResult as { error?: unknown }).error === 'string'
+        ? (fillResult as { error: string }).error
+        : 'The page refused the fill.';
+    return { ok: false, error: reason };
+  }
   await resetAutoLock();
   return { ok: true, filled: true };
 }

@@ -10,10 +10,10 @@ Chưa phải đặc tả mật mã đã audit hay production-ready. Xem `specs/`
 - **Không có external security audit.** Không ai được tuyên bố hệ thống này đã audit.
 - **Passkey crypto verification chưa wire xong** (`Authentication::Passkeys` — challenge + anti-replay có thật, nhưng lệnh verify của gem `webauthn` phải hoàn thiện trước production; code hiện tại raise ở production).
 - **Chưa chạy gì hết:** chưa `bundle install`, chưa `rails db:migrate`, chưa `cargo test`, chưa `npm test`, chưa `docker compose up` — vì không chạy được shell trên Mac từ xa. Các lệnh cần chạy trong Terminal ở cuối README.
-- **Không có native iOS/Android credential provider thật** — chỉ có README trong `native/ios-credential-provider/` và `native/android-credential-provider/`.
-- **Không có browser extension autofill** — chỉ có README + quy tắc tách privilege trong `apps/extension/`.
+- **Không có native iOS/Android credential provider thật** — `native/ios-credential-provider/` và `native/android-credential-provider/` đang trống hoàn toàn (không có file nào); chỉ có các README kế hoạch trong `apps/mobile/native/`.
+- **Browser extension autofill ĐÃ triển khai trong code (chưa chạy/test)** — `apps/extension/` có MV3 autofill thật: background giữ key trong RAM, domain-check (`src/lib/domain.ts`), content script inject on-demand, không host permission. Extension dùng vault riêng (chrome.storage.local) cho tới khi sync xong.
 - **Không có production deployment** — chỉ có Docker Compose self-host + hướng dẫn cloud.
-- **Crypto TypeScript vẫn là reference (WebCrypto AES-GCM/PBKDF2)**, chưa thay bằng bindings tới `native/crypto-core` (Rust + libsodium). Chưa dùng dữ liệu thật.
+- **Crypto TypeScript chính đã là libsodium** (Argon2id + XChaCha20-Poly1305 trong `packages/crypto-adapters`, adapter `libsodiumAdapter`); WebCrypto AES-GCM/PBKDF2 chỉ còn là reference adapter, không dùng cho dữ liệu thật. Bindings tới `native/crypto-core` (Rust) vẫn chưa có — và tham số Argon2id đang lệch nhau (TS dùng INTERACTIVE, Rust dùng SENSITIVE), cần chốt trước khi tin dữ liệu thật.
 
 ## Quyết định kiến trúc (đã chốt)
 

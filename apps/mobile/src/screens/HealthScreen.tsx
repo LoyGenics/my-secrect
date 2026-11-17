@@ -1,16 +1,18 @@
 import React from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import type { VaultItem } from '../../../packages/core/src/types';
+import type { VaultItem } from '../../../../packages/core/src/types';
 import { colors, styles } from '../theme';
 import { computeHealth } from '../utils/health';
+import { isArchived } from '../utils/itemMeta';
 
 export default function HealthScreen({ items, onFix }: { items: VaultItem[]; onFix: (item: VaultItem) => void }) {
-  const h = computeHealth(items);
+  // Archived items are excluded from health, like trashed items.
+  const h = computeHealth(items.filter((i) => !isArchived(i)));
   const color = h.score >= 80 ? colors.ok : h.score >= 50 ? colors.warn : colors.danger;
   return (
     <ScrollView style={styles.screen} contentContainerStyle={{ padding: 16 }}>
       <Text style={styles.title}>Security Health</Text>
-      <Text style={styles.subtitle}>Weak and reused passwords, plus cards and documents expiring in the next 30 days. Trashed items are excluded.</Text>
+      <Text style={styles.subtitle}>Weak and reused passwords, plus cards and documents expiring in the next 30 days. Trashed and archived items are excluded.</Text>
       <View style={[styles.card, { marginTop: 16, alignItems: 'center' }]}>
         <Text testID="health-score" accessibilityLabel={`Vault health score ${h.score} out of 100`} style={{ color, fontSize: 44, fontWeight: '800' }}>{h.score}</Text>
         <Text style={{ color: colors.muted, fontSize: 13 }}>out of 100 · {h.total} item(s) checked</Text>

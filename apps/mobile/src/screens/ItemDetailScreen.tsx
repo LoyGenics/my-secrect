@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
-import type { VaultItem } from '../../../packages/core/src/types';
+import type { VaultItem } from '../../../../packages/core/src/types';
 import { colors, styles } from '../theme';
 import { typeLabel } from '../components/ItemRow';
+import MarkdownText from '../components/MarkdownText';
 import { generateTotp } from '../utils/totp';
+import { getPasswordHistory, getNoteRevisions, isArchived } from '../utils/itemMeta';
 
 function FieldRow({ label, value, secret, testID }: { label: string; value: string; secret?: boolean; testID: string }) {
   const [show, setShow] = useState(false);
@@ -37,6 +39,12 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
     tick(); const id = setInterval(tick, 1000); return () => clearInterval(id);
   }, [item.id]);
   const related = (item.relations ?? []).map((r) => allItems.find((i) => i.id === r.target_id)).filter((i): i is VaultItem => !!i);
+  const archived = isArchived(item);
+  const passwordHistory = item.type === 'login' ? getPasswordHistory(item) : [];
+  const revisions = item.type === 'secure_note' ? getNoteRevisions(item) : [];
+  const parentId = typeof f.parent_id === 'string' ? (f.parent_id as string) : '';
+  const parent = parentId ? allItems.find((c) => c.id === parentId) : undefined;
+  const children = item.type === 'collection' ? allItems.filter((c) => typeof c.fields?.parent_id === 'string' && c.fields.parent_id === item.id) : [];
   const entries: Array<[string, string, boolean]> = [];
   const add = (label: string, key: string, secret = false) => { const v = str(key); if (v) entries.push([label, v, secret]); };
   if (item.type === 'login' || item.type === 'passkey') { add('Username', 'username'); add('Password', 'password', true); add('Website', 'url'); add('Credential ID', 'credential_id'); add('RP ID', 'rp_id'); add('Notes', 'notes'); }
@@ -52,7 +60,12 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
     <ScrollView style={styles.screen} contentContainerStyle={{ padding: 16 }}>
       <Pressable testID="detail-back" accessibilityLabel="Back to vault" onPress={onClose} hitSlop={10} style={{ alignSelf: 'flex-start', paddingVertical: 8 }}><Text style={{ color: '#A5B4FC', fontSize: 15 }}>‹ Back</Text></Pressable>
       <Text style={styles.title}>{item.title}</Text>
-      <Text style={{ color: colors.muted, fontSize: 14, marginTop: 4 }}>{typeLabel(item.type)}{item.favorite ? '  ★ Favorite' : ''}{inTrash ? '  • In Trash' : ''}</Text>
+      <Text style={{ color: colors.muted, fontSize: 14, marginTop: 4 }}>{typeLabel(item.type)}{item.favorite ? '  ★ Favorite' : ''}{inTrash ? '  • In Trash' : ''}{archived ? '  • 📦 Archived' : ''}</Text>
+      {parent ? (
+        <Pressable testID="detail-parent" accessibilityLabel={`Open parent collection ${parent.title}`} onPress={() => onSelectRelated(parent.id)} style={{ marginTop: 6 }}>
+          <Text style={{ color: '#A5B4FC', fontSize: 14 }}>In collection: {parent.title} ›</Text>
+        </Pressable>
+      ) : null}
       {str('totp_secret') ? (
         <View style={{ backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 14, padding: 14, marginTop: 16 }}>
           <Text style={styles.label}>Authenticator (TOTP)</Text>
@@ -62,9 +75,55 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
         </View>
       ) : null}
       <View style={{ marginTop: 16 }}>
-        {entries.map(([label, value, secret]) => <FieldRow key={label} label={label} value={value} secret={secret} testID={`field-${label}`} />)}
+        {entries.map(([label, value, secret]) =>
+          item.type === 'secure_note' && label === 'Body' ? (
+            <View key={label} style={{ marginBottom: 14 }}>
+              <Text style={styles.label}>Note</Text>
+              <View style={{ backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 12 }}>
+                <MarkdownText source={value} />
+              </View>
+            </View>
+          ) : (
+            <FieldRow key={label} label={label} value={value} secret={secret} testID={`field-${label}`} />
+          ),
+        )}
         {entries.length === 0 ? <Text style={{ color: colors.muted }}>No fields saved for this item.</Text> : null}
       </View>
+      {passwordHistory.length > 0 ? (
+        <View style={{ marginTop: 20 }}>
+          <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700', marginBottom: 8 }}>Previous passwords</Text>
+          <Text style={{ color: colors.muted, fontSize: 13, marginBottom: 10 }}>Kept encrypted with this item (max 5). The current password is above.</Text>
+          {passwordHistory.map((entry, i) => (
+            <FieldRow key={i} label={`Changed ${new Date(entry.changed_at).toLocaleString()}`} value={entry.password} secret testID={`history-${i}`} />
+          ))}
+        </View>
+      ) : null}
+      {revisions.length > 0 ? (
+        <View style={{ marginTop: 20 }}>
+          <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700', marginBottom: 8 }}>Note revisions</Text>
+          <Text style={{ color: colors.muted, fontSize: 13, marginBottom: 10 }}>Previous versions of this note (max 10). Restoring a revision is done on desktop — here you can copy an old version and paste it into Edit.</Text>
+          {revisions.map((rev, i) => (
+            <View key={i} style={{ backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 8 }}>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>Saved {new Date(rev.saved_at).toLocaleString()}</Text>
+              <Text style={{ color: colors.text, fontSize: 14, lineHeight: 19, marginTop: 6 }} numberOfLines={4}>{rev.body}</Text>
+              <Pressable testID={`revision-copy-${i}`} accessibilityLabel="Copy this revision" style={[styles.ghostButton, { marginTop: 8 }]} onPress={() => { void Clipboard.setStringAsync(rev.body); }}>
+                <Text style={styles.ghostButtonText}>Copy this version</Text>
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      ) : null}
+      {children.length > 0 ? (
+        <View style={{ marginTop: 20 }}>
+          <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700', marginBottom: 8 }}>Inside this collection</Text>
+          {children.map((child) => (
+            <Pressable key={child.id} testID={`child-${child.id}`} accessibilityLabel={`Open ${child.title}`} onPress={() => onSelectRelated(child.id)} style={{ backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 8 }}>
+              <Text style={{ color: colors.text, fontSize: 15, fontWeight: '600' }}>{child.title}</Text>
+              <Text style={{ color: colors.muted, fontSize: 13 }}>{typeLabel(child.type)}</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
       {(item.tags ?? []).length > 0 && (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 }}>{item.tags.map((t) => (<View key={t} style={styles.chip}><Text style={styles.chipText}>#{t}</Text></View>))}</View>
       )}

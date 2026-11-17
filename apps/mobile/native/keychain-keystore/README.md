@@ -33,3 +33,18 @@ the vault without typing the passphrase every time.
 No device key is generated, no Master Key copy is wrapped by any
 device key, and no biometric unlock path bypasses the passphrase
 in this build. Do not claim otherwise.
+
+## Phase F update (17 Nov 2026)
+Still PLANNED, not implemented — nothing above changed: biometrics
+remain presence-only (see `src/screens/LockScreen.tsx`, which says so
+on screen). New scaffolding this plan now points at (also NOT working):
+- iOS: `native/ios-credential-provider/VaultStore.swift` (`DeviceKeyStore`
+  — real Keychain code for a future 32-byte device wrapping key,
+  biometry-gated, device-only; it stores no vault key and wraps nothing
+  yet) + `native/ios-credential-provider/README.md`.
+- Android: `native/android-credential-provider/VaultKeystore.kt` (real
+  AndroidKeyStore AES-256/GCM device key, user-auth-required, invalidated
+  on enrolment change; it wraps nothing yet) +
+  `native/android-credential-provider/README.md`.
+The enrolment flow above is still the design; the device-key generation
++ Master Key wrapping step has not been built.

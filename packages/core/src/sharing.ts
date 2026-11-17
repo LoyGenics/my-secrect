@@ -45,6 +45,20 @@ export interface ShareProposal {
   recipient_id: string;
   permission: SharePermission;
   item_ids: string[];
+  /**
+   * Phase C (H4): REQUIRED. Base64 of the Vault Key (or per-share Item
+   * Key) wrapped for the recipient. The server rejects an ACTIVE share
+   * without it (Sharing::Create) — a keyless active share can never be
+   * decrypted by the recipient.
+   *
+   * HPKE KEY EXCHANGE IS STILL NOT IMPLEMENTED. This field only carries
+   * whatever wrapped key the client supplies; nothing here verifies it
+   * was HPKE-wrapped for this recipient's public key. Sharing is NOT
+   * production-ready until Phase E/F delivers real HPKE key exchange +
+   * recipient key verification. Never present sharing as working
+   * end-to-end until then, and never fake the exchange.
+   */
+  encrypted_key: string;
 }
 
 export function validateShareProposal(p: ShareProposal): string | null {
@@ -52,6 +66,20 @@ export function validateShareProposal(p: ShareProposal): string | null {
   if (!p.recipient_id) return 'recipient_id is required';
   if (p.permission !== 'read' && p.permission !== 'write') return 'permission must be read or write';
   if (!Array.isArray(p.item_ids)) return 'item_ids must be an array (empty = whole vault)';
+  if (!p.encrypted_key || typeof p.encrypted_key !== 'string' || p.encrypted_key.trim() === '') {
+    return 'encrypted_key is required for an active share (wrapped Vault Key for the recipient; HPKE exchange not yet implemented)';
+  }
+  return null;
+}
+
+/**
+ * An ACTIVE share is only usable if it has a key envelope to unwrap.
+ * Returns an error string when the share must not be treated as active,
+ * or null when it is usable (key present — still NOT proof of real HPKE).
+ */
+export function validateShareForActivation(share: VaultShare): string | null {
+  if (share.status !== 'active') return `share is ${share.status}, not active`;
+  if (!share.key_envelope_id) return 'active share has no key envelope — recipient cannot decrypt';
   return null;
 }
 

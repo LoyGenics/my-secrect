@@ -18,9 +18,9 @@
  *    here) maps a seek position to the chunks to fetch + decrypt, so
  *    playback does not need the whole file first.
  */
-import type { VaultItem } from '../../../packages/core/src/types';
-import type { BlobManifest } from '../../../packages/storage/src/upload';
-import { chunkIndexForByteRange, verifyManifest, CHUNK_SIZE } from '../../../packages/storage/src/upload';
+import type { VaultItem } from '../../../../packages/core/src/types';
+import type { BlobManifest } from '../../../../packages/storage/src/upload';
+import { chunkIndexForByteRange, verifyManifest, CHUNK_SIZE } from '../../../../packages/storage/src/upload';
 
 export { chunkIndexForByteRange, verifyManifest, CHUNK_SIZE };
 export type { BlobManifest };

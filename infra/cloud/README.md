@@ -22,9 +22,16 @@ change — only the backing services do.
 - `CORS_ORIGINS` — exact web/desktop origins, never `*`.
 
 ## R2 notes
-- R2 is S3-compatible: the same `aws-sdk-s3` presigned-URL code works;
-  set `force_path_style: true` only for MinIO, R2 accepts the default.
-  (If R2 rejects path-style, remove that option in Blobs::StorageProvider.)
+- R2 is S3-compatible: the same `aws-sdk-s3` presigned-URL code works.
+  Presigned URLs are 5 minutes — confirmed in code
+  (`Blobs::StorageProvider::PRESIGN_TTL = 300`).
+- ⚠️ CORRECTED (Phase G): the old note said to set `force_path_style: true`
+  "only for MinIO". The code hardcodes `force_path_style: true`
+  unconditionally (`apps/api/app/domains/blobs/storage_provider.rb`),
+  so there is no per-provider switch today. Whether R2 accepts
+  path-style URLs from this client is UNVERIFIED — test a presigned
+  upload against a real R2 bucket before any cloud cutover; if R2
+  rejects path-style, the code must be changed first.
 - Enable R2 bucket versioning + object lock off; lifecycle: delete incomplete
   multipart uploads after 7 days (the cleanup job covers the DB side).
 - Presigned URLs are 5 minutes; the client uploads ciphertext directly.

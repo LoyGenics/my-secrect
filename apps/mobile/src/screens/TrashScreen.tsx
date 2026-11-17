@@ -1,6 +1,6 @@
 import React from 'react';
 import { Alert, FlatList, Pressable, Text, View } from 'react-native';
-import type { VaultItem } from '../../../packages/core/src/types';
+import type { VaultItem } from '../../../../packages/core/src/types';
 import ItemRow from '../components/ItemRow';
 import { colors, styles } from '../theme';
 

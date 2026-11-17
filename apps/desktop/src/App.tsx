@@ -24,6 +24,10 @@ import {
 } from './vault';
 import { computeHealth } from './utils/health';
 import { buildExampleItems, isExampleItem } from './utils/exampleData';
+import { isArchived, getNoteRevisions, appendNoteRevision } from './utils/itemMeta';
+import { parseEncryptedExportText } from '../../../packages/import-export/src/index';
+import type { VaultShare, SharePermission } from '../../../packages/core/src/sharing';
+import { revokeShare } from '../../../packages/core/src/sharing';
 import SettingsView, { downloadText, type AutoLockMinutes } from './components/SettingsView';
 import Sidebar, {
   CATEGORIES,
@@ -38,6 +42,8 @@ import ItemList from './components/ItemList';
 import ItemDetail from './components/ItemDetail';
 import ItemForm from './components/ItemForm';
 import PasswordGenerator from './components/PasswordGenerator';
+import MediaView from './components/MediaView';
+import SharesView from './components/SharesView';
 
 /**
  * Desktop shell (Phase 1 prototype) — local-only vault, no server/sync.
@@ -46,9 +52,45 @@ import PasswordGenerator from './components/PasswordGenerator';
  * permanentlyDeleteItem manage it, toggleFavorite flips the flag, and
  * exportEncrypted / importEncrypted move the encrypted store.
  * No autofill, no browser-extension UI.
+ *
+ * The web client renders this same App (apps/web/src/App.tsx). It MUST
+ * pass allowPlaintextExport={false}: plaintext export is desktop-only,
+ * and the web banner promises encrypted-only export. Passing nothing
+ * keeps the desktop default (plaintext allowed behind the Settings
+ * warning + acknowledgement checkbox).
  */
 
 const LS_AUTOLOCK = 'my-secrect.local-vault.autolock-minutes.v1';
+const LS_SHARES = 'my-secrect.local-vault.share-proposals.v1';
+
+/** Share proposals are PENDING only — no key envelope exists, so no share
+ *  is ever active. See SharesView / handleCreateShare. */
+function loadShares(): VaultShare[] {
+  try {
+    const raw = localStorage.getItem(LS_SHARES);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((s): s is VaultShare =>
+        typeof s === 'object' && s !== null &&
+        typeof (s as VaultShare).id === 'string' &&
+        typeof (s as VaultShare).recipient_id === 'string' &&
+        ((s as VaultShare).status === 'pending' || (s as VaultShare).status === 'revoked' || (s as VaultShare).status === 'active'))
+      // Defence in depth: this build has no key-exchange, so a stored
+      // 'active' share cannot have an envelope — downgrade it to pending
+      // rather than ever displaying an active share.
+      .map((s) => (s.status === 'active' ? { ...s, status: 'pending' as const } : s));
+  } catch {
+    return [];
+  }
+}
+
+function newShareId(): string {
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  return 'share_' + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 // AutoLockMinutes (1 | 5 | 15 | 0 = never) is imported from SettingsView.
 
@@ -74,7 +116,9 @@ function passphraseScore(pw: string): { score: number; label: string } {
   return { score, label };
 }
 
-export default function App() {
+export type ItemSort = 'updated' | 'title' | 'created';
+
+export default function App({ allowPlaintextExport = true }: { allowPlaintextExport?: boolean } = {}) {
   const [vaultExists, setVaultExists] = useState<boolean>(() => hasVault());
   const [unlocked, setUnlocked] = useState<boolean>(() => isUnlocked());
   const [items, setItems] = useState<VaultItem[]>(() => (isUnlocked() ? listItems() : []));
@@ -108,6 +152,20 @@ export default function App() {
   const [onboardingError, setOnboardingError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lockTimerRef = useRef<number | null>(null);
+  // Sharing: pending proposals only (no key exchange — see loadShares).
+  const [shares, setShares] = useState<VaultShare[]>(() => loadShares());
+  // List sorting + bulk selection.
+  const [sort, setSort] = useState<ItemSort>('updated');
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [bulkIds, setBulkIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LS_SHARES, JSON.stringify(shares));
+    } catch {
+      // Share proposals are non-critical; a full localStorage must not break the vault.
+    }
+  }, [shares]);
 
   const refresh = useCallback(() => {
     if (isUnlocked()) {
@@ -171,50 +229,64 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [unlocked]);
 
+  // Archived items are hidden from All Items, categories, tags, search
+  // and health — they live in the Archived view until unarchived.
+  const liveItems = useMemo(() => items.filter((i) => !isArchived(i)), [items]);
+  const archivedItems = useMemo(() => items.filter((i) => isArchived(i)), [items]);
+
   const tags = useMemo(() => {
     const set = new Set<string>();
-    items.forEach((i) => (i.tags ?? []).forEach((t) => set.add(t)));
+    liveItems.forEach((i) => (i.tags ?? []).forEach((t) => set.add(t)));
     return [...set].sort();
-  }, [items]);
+  }, [liveItems]);
 
-  const health = useMemo(() => computeHealth(items), [items]);
+  const health = useMemo(() => computeHealth(liveItems), [liveItems]);
 
   const counts = useMemo<SidebarCounts>(() => {
     const c = emptyCounts();
     const stats = getVaultStats();
-    c.all = stats.total;
-    c.favorites = stats.favorites;
+    c.all = liveItems.length;
+    c.favorites = liveItems.filter((i) => i.favorite).length;
     c.trash = stats.trash;
+    c.archived = archivedItems.length;
     c.health = health.weakCount + health.reusedCount;
-    for (const item of items) {
+    for (const item of liveItems) {
       c.categories[categoryForType(item.type)] += 1;
       (item.tags ?? []).forEach((t) => {
         c.tags[t] = (c.tags[t] ?? 0) + 1;
       });
     }
     return c;
-  }, [items, health]);
+  }, [liveItems, archivedItems, health]);
 
   const visibleItems = useMemo(() => {
     let base: VaultItem[];
     if (view === 'trash') base = trash;
-    else if (view === 'favorites') base = items.filter((i) => i.favorite);
-    else if (view === 'health') base = items;
+    else if (view === 'archived') base = archivedItems;
+    else if (view === 'favorites') base = liveItems.filter((i) => i.favorite);
+    else if (view === 'health') base = liveItems;
     else if (view.startsWith('tag:')) {
       const tag = view.slice(4);
-      base = items.filter((i) => (i.tags ?? []).includes(tag));
+      base = liveItems.filter((i) => (i.tags ?? []).includes(tag));
     } else if (view !== 'all') {
       const cat = CATEGORIES.find((c) => c.key === view);
-      base = cat ? items.filter((i) => cat.types.includes(i.type)) : items;
+      base = cat ? liveItems.filter((i) => cat.types.includes(i.type)) : liveItems;
     } else {
-      base = items;
+      base = liveItems;
     }
     const q = searchQuery.trim();
-    if (!q) return base;
-    // searchLocal() searches live items only; intersect with the current view.
-    const matched = new Set(searchLocal(q).map((i) => i.id));
-    return base.filter((i) => matched.has(i.id));
-  }, [view, items, trash, searchQuery]);
+    if (q) {
+      // searchLocal() searches live items only; intersect with the current view.
+      // Archived items are excluded from search (they are not in liveItems).
+      const matched = new Set(searchLocal(q).map((i) => i.id));
+      base = base.filter((i) => matched.has(i.id));
+    }
+    const sorted = [...base];
+    if (sort === 'title') sorted.sort((a, b) => a.title.localeCompare(b.title));
+    else if (sort === 'created') sorted.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    else sorted.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+    return sorted;
+  }, [view, liveItems, archivedItems, trash, searchQuery, sort]);
 
   const selectedItem = useMemo(
     () =>
@@ -313,6 +385,14 @@ export default function App() {
   };
 
   const handleExportPlaintext = () => {
+    // H2 fix: plaintext export is desktop-only. The web client renders
+    // this App with allowPlaintextExport={false}; the Settings UI hides
+    // the button there, and this guard is the second line of defence so
+    // no code path can produce a plaintext file on web.
+    if (!allowPlaintextExport) {
+      setNotice('Plaintext export is disabled on the web client — encrypted-only export is available here. Use the desktop app for a plaintext export.');
+      return;
+    }
     try {
       // SettingsView already required the explicit acknowledgement checkbox.
       downloadText(`my-secrect-plaintext-export-${new Date().toISOString().slice(0, 10)}.json`, exportPlaintext(), 'application/json');
@@ -366,15 +446,138 @@ export default function App() {
   };
 
   const handleImportFile = async (file: File) => {
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      setNotice('Import failed: could not read the file.');
+      return;
+    }
+    // Validate BEFORE touching the vault: wrong format, newer/older
+    // version, malformed rows and plaintext files are all rejected here
+    // with a specific message instead of a generic failure.
+    const { validation } = parseEncryptedExportText(text);
+    if (!validation.ok) {
+      setNotice(`Import failed: ${validation.errors.join(' ')}`);
+      return;
+    }
+    const beforeIds = new Set(listItems(true).map((i) => i.id));
     try {
       // importEncrypted requires an unlocked vault and merges rows by id,
-      // keeping the higher revision; rows this vault cannot decrypt are skipped.
-      await importEncrypted(await file.text());
+      // keeping the higher revision; rows this vault cannot decrypt
+      // (wrong key / tampered AEAD tag) are skipped, never stored.
+      await importEncrypted(text);
       refresh();
-      setNotice('Backup imported.');
+      const after = listItems(true);
+      const newCount = after.filter((i) => !beforeIds.has(i.id)).length;
+      setNotice(
+        `Backup imported: ${validation.itemCount} item(s) in file, ${newCount} new item(s) added. ` +
+          'Rows with an older revision, or that this vault cannot decrypt (wrong key or tampered file), were skipped.' +
+          (validation.warnings.length > 0 ? ` Note: ${validation.warnings.join(' ')}` : ''),
+      );
     } catch (err) {
       setNotice(err instanceof Error ? `Import failed: ${err.message}` : 'Import failed.');
     }
+  };
+
+  const handleImportCsv = async (csvItems: VaultItem[]) => {
+    for (const item of csvItems) await upsertItem(item);
+    refresh();
+    setNotice(`Imported ${csvItems.length} login(s) from CSV. They are tagged “imported”.`);
+  };
+
+  /** Autosave for secure notes: upsert without closing the form. */
+  const handleAutosaveItem = async (item: VaultItem) => {
+    await upsertItem(item);
+    refresh();
+  };
+
+  const handleArchive = async (id: string) => {
+    const item = [...items, ...trash].find((i) => i.id === id);
+    if (!item) return;
+    const archived = isArchived(item);
+    await upsertItem({ ...item, fields: { ...item.fields, archived: !archived } });
+    if (!archived && selectedId === id && view !== 'archived') setSelectedId(null);
+    refresh();
+    setNotice(archived ? 'Item unarchived — back in All Items.' : 'Item archived — find it under Archived.');
+  };
+
+  /** Restore a note revision: the current body becomes a revision first. */
+  const handleRestoreRevision = async (restored: VaultItem) => {
+    const original = items.find((i) => i.id === restored.id);
+    const oldBody = typeof original?.fields?.body === 'string' ? (original.fields.body as string) : '';
+    const newBody = typeof restored.fields?.body === 'string' ? (restored.fields.body as string) : '';
+    const fields = { ...restored.fields };
+    if (oldBody && oldBody !== newBody) {
+      fields.revisions = appendNoteRevision(getNoteRevisions(original ?? restored), oldBody);
+    }
+    await upsertItem({ ...restored, fields });
+    refresh();
+    setSelectedId(restored.id);
+    setNotice('Note restored to the selected revision. The previous version was kept in revision history.');
+  };
+
+  /**
+   * Sharing: record a PENDING proposal only. No key envelope is created
+   * and no share becomes active — HPKE / sealed-box key exchange is not
+   * implemented (see SharesView). A proposal that claimed to be active
+   * would be a lie; the UI shows every proposal as pending.
+   */
+  const handleCreateShare = (proposal: { recipient_id: string; permission: SharePermission; item_ids: string[] }) => {
+    const share: VaultShare = {
+      id: newShareId(),
+      vault_id: 'local',
+      owner_id: 'local',
+      recipient_id: proposal.recipient_id,
+      recipient_label_encrypted: null,
+      permission: proposal.permission,
+      status: 'pending',
+      key_envelope_id: '',
+      item_ids: proposal.item_ids,
+      created_at: new Date().toISOString(),
+      revoked_at: null,
+    };
+    setShares((prev) => [...prev, share]);
+    setNotice('Share proposal saved locally as PENDING — no key was exchanged and no share is active. Sharing is not production-ready until HPKE key exchange is implemented.');
+  };
+
+  const handleRevokeShare = (share: VaultShare) => {
+    setShares((prev) => prev.map((s) => (s.id === share.id ? revokeShare(s) : s)));
+    setNotice('Share revoked. Revocation removes the proposal — it does not erase copies a recipient already decrypted.');
+  };
+
+  const handleBulkFavorite = async () => {
+    const ids = [...bulkIds];
+    for (const id of ids) {
+      const item = items.find((i) => i.id === id);
+      if (item && !item.favorite) await upsertItem({ ...item, favorite: true });
+    }
+    setBulkIds(new Set());
+    setSelectionMode(false);
+    refresh();
+    setNotice(`${ids.length} item(s) added to favorites.`);
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = [...bulkIds];
+    for (const id of ids) {
+      if (view === 'trash') permanentlyDeleteItem(id);
+      else deleteItem(id);
+    }
+    if (selectedId && bulkIds.has(selectedId)) setSelectedId(null);
+    setBulkIds(new Set());
+    setSelectionMode(false);
+    refresh();
+    setNotice(view === 'trash' ? `${ids.length} item(s) permanently deleted.` : `${ids.length} item(s) moved to trash.`);
+  };
+
+  const handleBulkRestore = async () => {
+    const ids = [...bulkIds];
+    for (const id of ids) restoreItem(id);
+    setBulkIds(new Set());
+    setSelectionMode(false);
+    refresh();
+    setNotice(`${ids.length} item(s) restored from trash.`);
   };
 
   const viewTitle =
@@ -384,10 +587,16 @@ export default function App() {
         ? 'Favorites'
         : view === 'trash'
           ? 'Trash'
-          : view === 'health'
-            ? 'Security Health'
-            : view === 'settings'
-              ? 'Settings'
+          : view === 'archived'
+            ? 'Archived'
+            : view === 'media-gallery'
+              ? 'Media gallery'
+              : view === 'shares'
+                ? 'Sharing'
+                : view === 'health'
+                  ? 'Security Health'
+                  : view === 'settings'
+                    ? 'Settings'
               : view.startsWith('tag:')
               ? `#${view.slice(4)}`
               : (CATEGORIES.find((c) => c.key === view)?.label ?? 'Vault');
@@ -395,7 +604,9 @@ export default function App() {
   const emptyMessage =
     view === 'trash'
       ? 'Trash is empty. Deleted items are kept here until you permanently delete them.'
-      : view === 'favorites'
+      : view === 'archived'
+        ? 'Nothing archived. Archive an item from its detail view to hide it here without deleting it.'
+        : view === 'favorites'
         ? 'No favorites yet. Star an item to pin it here.'
         : view === 'health'
           ? 'No items to check yet.'
@@ -567,6 +778,14 @@ export default function App() {
             />
           </div>
           <div className="ml-auto flex items-center gap-2">
+            <label className="flex items-center gap-1.5 text-xs text-zinc-400" htmlFor="header-sort">
+              Sort
+              <select id="header-sort" name="sort" aria-label="Sort items" value={sort} onChange={(e) => setSort(e.target.value as ItemSort)} className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40">
+                <option value="updated">Recently updated</option>
+                <option value="created">Newest first</option>
+                <option value="title">Title A–Z</option>
+              </select>
+            </label>
             <label className="flex items-center gap-1.5 text-xs text-zinc-400" htmlFor="header-auto-lock">
               Auto-lock
               <select id="header-auto-lock" name="auto-lock" aria-label="Auto-lock after" value={autoLockMinutes} onChange={(e) => setAutoLockMinutes(Number(e.target.value) as AutoLockMinutes)} className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40">
@@ -612,18 +831,62 @@ export default function App() {
               itemCount={items.length}
               onExportEncrypted={handleExport}
               onExportPlaintext={handleExportPlaintext}
+              allowPlaintextExport={allowPlaintextExport}
               onImport={() => fileInputRef.current?.click()}
+              existingItems={items}
+              onImportCsv={(csvItems) => void handleImportCsv(csvItems)}
               onChangePassphrase={async (oldP, newP) => { await changePassphrase(oldP, newP); setNotice('Passphrase changed.'); }}
               onWipeVault={handleWipeVault}
             />
           </div>
         ) : view === 'health' ? (
           <div className="min-h-0 flex-1 overflow-y-auto p-5">
-            <HealthView items={items} onFix={(item) => { setView('all'); setSelectedId(item.id); setEditingItem(item); setShowForm(true); }} />
+            <HealthView items={liveItems} onFix={(item) => { setView('all'); setSelectedId(item.id); setEditingItem(item); setShowForm(true); }} />
+          </div>
+        ) : view === 'media-gallery' ? (
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <MediaView
+              items={items}
+              manifests={{}}
+              thumbnailUrls={{}}
+              onSelect={(item) => { setView('all'); setSelectedId(item.id); setShowForm(false); setEditingItem(null); }}
+              onRequestDownload={() => setNotice('Download is not available yet: this prototype stores only the file manifest (name, type, size, SHA-256). File bytes are not stored, so there is nothing to download.')}
+            />
+          </div>
+        ) : view === 'shares' ? (
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <SharesView shares={shares} onCreate={handleCreateShare} onRevoke={handleRevokeShare} />
           </div>
         ) : (
         <div className="flex min-h-0 flex-1">
           <section className="w-80 shrink-0 overflow-y-auto border-r border-zinc-800 p-3">
+            <div className="mb-2 flex items-center gap-2">
+              <button type="button" className="btn-ghost !py-1 text-xs" onClick={() => { setSelectionMode((v) => !v); setBulkIds(new Set()); }}>
+                {selectionMode ? 'Done selecting' : 'Select'}
+              </button>
+              {selectionMode && (
+                <>
+                  <button type="button" className="btn-ghost !py-1 text-xs" onClick={() => setBulkIds(new Set(visibleItems.map((i) => i.id)))}>All</button>
+                  <span className="text-xs text-zinc-400">{bulkIds.size} selected</span>
+                </>
+              )}
+            </div>
+            {selectionMode && bulkIds.size > 0 && (
+              <div className="mb-2 flex flex-wrap gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2">
+                {view !== 'trash' && (
+                  <button type="button" className="btn-ghost !py-1 text-xs" onClick={() => void handleBulkFavorite()}>★ Favorite</button>
+                )}
+                {view === 'trash' ? (
+                  <>
+                    <button type="button" className="btn-ghost !py-1 text-xs" onClick={() => void handleBulkRestore()}>Restore</button>
+                    <button type="button" className="btn-ghost !py-1 text-xs" onClick={() => void handleBulkDelete()}>Delete forever</button>
+                  </>
+                ) : (
+                  <button type="button" className="btn-ghost !py-1 text-xs" onClick={() => void handleBulkDelete()}>Move to trash</button>
+                )}
+                <button type="button" className="btn-ghost !py-1 text-xs" onClick={() => setBulkIds(new Set())}>Clear</button>
+              </div>
+            )}
             {visibleItems.length === 0 ? (
               <div className="px-2 py-8 text-center">
                 <p className="text-sm text-zinc-500">{emptyMessage}</p>
@@ -648,6 +911,15 @@ export default function App() {
                 onSelect={(id: string) => { setSelectedId(id); setShowForm(false); setEditingItem(null); }}
                 onToggleFavorite={handleToggleFavorite}
                 onDelete={handleDelete}
+                selectionMode={selectionMode}
+                selectedIds={bulkIds}
+                onToggleSelect={(id: string) => {
+                  setBulkIds((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(id)) next.delete(id); else next.add(id);
+                    return next;
+                  });
+                }}
               />
             )}
           </section>
@@ -659,6 +931,7 @@ export default function App() {
                 allItems={items}
                 onSave={(item: VaultItem) => void handleSaveItem(item)}
                 onCancel={() => { setShowForm(false); setEditingItem(null); }}
+                onAutosave={(item: VaultItem) => void handleAutosaveItem(item)}
               />
             ) : selectedItem ? (
               <ItemDetail
@@ -670,6 +943,8 @@ export default function App() {
                 onToggleFavorite={() => handleToggleFavorite(selectedItem.id)}
                 onClose={() => setSelectedId(null)}
                 onSelectRelated={(id) => { setSelectedId(id); setShowForm(false); setEditingItem(null); }}
+                onArchive={(id) => void handleArchive(id)}
+                onRestoreRevision={(item: VaultItem) => void handleRestoreRevision(item)}
               />
             ) : (
               <div className="flex h-full flex-col items-center justify-center text-center">

@@ -1,10 +1,15 @@
+@import '../../../packages/ui/src/tokens.css';
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  color-scheme: dark;
-}
+/*
+ * Desktop shell styles. Colors come from the shared tokens
+ * (packages/ui/src/tokens.css, --ms-* variables) — no hardcoded palette
+ * here. The legacy class names (.card/.btn/.input/…) are kept verbatim so
+ * existing components render unchanged; they are token-driven now, so they
+ * follow the light theme too. Default theme is dark, identical to before.
+ */
 
 html,
 body,
@@ -13,27 +18,27 @@ body,
 }
 
 body {
-  background-color: #0b0f14;
-  color: #f4f4f5;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--ms-color-bg-base);
+  color: var(--ms-color-text-primary);
+  font-family: var(--ms-font-sans);
   -webkit-font-smoothing: antialiased;
 }
 
-/* Slim dark scrollbars */
+/* Slim scrollbars, token-driven. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #3f3f46 transparent;
+  scrollbar-color: var(--ms-color-border-strong) transparent;
 }
 *::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 *::-webkit-scrollbar-thumb {
-  background: #3f3f46;
+  background: var(--ms-color-border-strong);
   border-radius: 8px;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: #52525b;
+  background: var(--ms-color-text-faint);
 }
 *::-webkit-scrollbar-track {
   background: transparent;
@@ -41,38 +46,83 @@ body {
 
 @layer components {
   .card {
-    @apply rounded-xl border border-zinc-800 bg-zinc-900/70 shadow-sm;
+    @apply rounded-xl shadow-sm;
+    background-color: var(--ms-color-bg-surface);
+    border: 1px solid var(--ms-color-border-default);
   }
   .btn {
-    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-zinc-100 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-50;
+    color: var(--ms-color-text-primary);
+  }
+  .btn:focus-visible {
+    outline: 2px solid var(--ms-color-focus-ring);
+    outline-offset: 2px;
   }
   .btn-primary {
-    @apply btn bg-indigo-600 hover:bg-indigo-500;
+    @apply btn;
+    background-color: var(--ms-color-brand);
+    color: var(--ms-color-text-on-brand);
+  }
+  .btn-primary:hover {
+    background-color: var(--ms-color-brand-hover);
   }
   .btn-ghost {
-    @apply btn border border-zinc-700 bg-zinc-900 hover:bg-zinc-800;
+    @apply btn;
+    background-color: var(--ms-color-bg-raised);
+    border: 1px solid var(--ms-color-border-strong);
+  }
+  .btn-ghost:hover {
+    background-color: var(--ms-color-bg-surface);
   }
   .btn-danger {
-    @apply btn border border-red-900/60 bg-red-950/60 text-red-200 hover:bg-red-900/60;
+    @apply btn;
+    background-color: var(--ms-color-danger-soft);
+    border: 1px solid var(--ms-color-danger-border);
+    color: var(--ms-color-danger-soft-text);
+  }
+  .btn-danger:hover {
+    filter: brightness(1.15);
   }
   .input {
-    @apply w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40;
+    @apply w-full rounded-lg px-3 py-2 text-sm focus:outline-none;
+    background-color: var(--ms-color-bg-input);
+    border: 1px solid var(--ms-color-border-strong);
+    color: var(--ms-color-text-primary);
+  }
+  .input::placeholder {
+    color: var(--ms-color-text-muted);
+    opacity: 1;
+  }
+  .input:focus {
+    border-color: var(--ms-color-brand-focus);
+    box-shadow: 0 0 0 3px var(--ms-color-brand-soft);
   }
   .label {
-    @apply mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-400;
+    @apply mb-1 block text-xs font-medium uppercase tracking-wide;
+    color: var(--ms-color-text-muted);
   }
   .gradient-subtle {
     background: linear-gradient(135deg, rgba(99, 102, 241, 0.18), rgba(99, 102, 241, 0.02) 45%, transparent 70%);
+    background: linear-gradient(135deg, color-mix(in srgb, var(--ms-color-brand-focus) 18%, transparent), color-mix(in srgb, var(--ms-color-brand-focus) 2%, transparent) 45%, transparent 70%);
   }
   .nav-item {
-    @apply flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500;
+    @apply flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors focus:outline-none;
+    color: var(--ms-color-text-secondary);
+  }
+  .nav-item:hover {
+    background-color: var(--ms-color-bg-surface);
+    color: var(--ms-color-text-primary);
+  }
+  .nav-item:focus-visible {
+    outline: 2px solid var(--ms-color-focus-ring);
+    outline-offset: 2px;
   }
   .nav-item-active {
-    @apply bg-indigo-600/20 text-indigo-200 hover:bg-indigo-600/25;
+    background-color: var(--ms-color-brand-soft);
+    color: var(--ms-color-brand-soft-text);
   }
-}
-
-:focus-visible {
-  outline: 2px solid #6366f1;
-  outline-offset: 2px;
+  .nav-item-active:hover {
+    background-color: var(--ms-color-brand-soft);
+    filter: brightness(1.15);
+  }
 }

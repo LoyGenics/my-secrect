@@ -14,6 +14,16 @@
  *  - The manifest itself is encrypted with the Vault Key before it is
  *    stored (see `buildEncryptedManifest`); the server only ever sees
  *    the encrypted manifest + ciphertext chunks.
+ *  - Phase C (H8): the manifest ALSO carries the per-file key wrapped
+ *    with the Vault Key (`BlobManifest.wrapped_file_key`, via
+ *    `wrapFileKey` / `attachWrappedFileKey`). The server stores the
+ *    encrypted manifest opaquely on the blob row and returns it at
+ *    download time, so a download is decryptable from stored data alone
+ *    (manifest + chunks + the Vault Key the client holds): see
+ *    `downloadBlob`. A blob whose stored manifest is missing — or whose
+ *    manifest has no wrapped key — is refused at Complete / download
+ *    time instead of failing silently later. The server stores the
+ *    WRAPPED key only, never a plaintext File Key.
  *  - Uploads are resumable: `ResumableUpload` tracks uploaded part
  *    numbers and persists them, so an interrupted upload resumes with
  *    only the missing parts. Parts are uploaded with `PUT` to presigned
@@ -38,6 +48,21 @@ export interface ChunkInfo {
   ciphertext_sha256_b64: string; // SHA-256 of the ciphertext bytes
 }
 
+/**
+ * The per-file key, wrapped with the Vault Key (AEAD via the crypto
+ * adapter's wrapKey — XChaCha20-Poly1305, fresh nonce). The SERVER stores
+ * this WRAPPED form only, inside the Vault-Key-encrypted manifest: it
+ * never sees the plaintext File Key. A manifest without this field is
+ * NOT downloadable — the chunks alone are useless without the File Key —
+ * so uploads must attach it (see attachWrappedFileKey) and Complete
+ * refuses blobs whose stored manifest is missing.
+ */
+export interface WrappedFileKey {
+  nonce_b64: string;
+  wrapped_b64: string; // AEAD ciphertext of the 32-byte File Key (+ tag)
+  encryption_version: number; // 1
+}
+
 export interface BlobManifest {
   format_version: number;
   blob_id: string;
@@ -45,6 +70,10 @@ export interface BlobManifest {
   chunk_size: number;
   mime_type: string;
   chunks: ChunkInfo[];
+  /** Wrapped File Key. Optional in the TYPE only so manifests written
+   *  before Phase C still parse; requireWrappedFileKey() enforces it
+   *  for every new upload / download. */
+  wrapped_file_key?: WrappedFileKey;
 }
 
 export interface EncryptedManifest {
@@ -109,6 +138,77 @@ export async function encryptChunks(
     chunks,
     manifest: { format_version: MANIFEST_VERSION, blob_id: blobId, plaintext_size: data.length, chunk_size: CHUNK_SIZE, mime_type: mimeType, chunks: infos },
   };
+}
+
+/**
+ * Wrap the per-file key with the Vault Key. The wrapped form is what
+ * goes into the manifest (and therefore, encrypted, onto the server).
+ * Uses the adapter's wrapKey (AEAD) — never store or transmit the
+ * plaintext File Key.
+ */
+export async function wrapFileKey(
+  fileKey: Uint8Array,
+  vaultKey: Uint8Array,
+  crypto: CryptoAdapter,
+): Promise<WrappedFileKey> {
+  const { nonce, wrapped } = await crypto.wrapKey(vaultKey, fileKey);
+  return { nonce_b64: toBase64(nonce), wrapped_b64: toBase64(wrapped), encryption_version: 1 };
+}
+
+/** Unwrap a manifest's wrapped File Key with the Vault Key. Throws on a bad tag. */
+export async function unwrapFileKey(
+  wrapped: WrappedFileKey,
+  vaultKey: Uint8Array,
+  crypto: CryptoAdapter,
+): Promise<Uint8Array> {
+  return crypto.unwrapKey(vaultKey, fromBase64(wrapped.nonce_b64), fromBase64(wrapped.wrapped_b64));
+}
+
+/**
+ * Attach the wrapped File Key to a manifest before it is encrypted with
+ * buildEncryptedManifest. Call this after encryptChunks, before upload:
+ * a manifest uploaded without the wrapped key can never be downloaded.
+ */
+export async function attachWrappedFileKey(
+  manifest: BlobManifest,
+  fileKey: Uint8Array,
+  vaultKey: Uint8Array,
+  crypto: CryptoAdapter,
+): Promise<BlobManifest> {
+  manifest.wrapped_file_key = await wrapFileKey(fileKey, vaultKey, crypto);
+  return manifest;
+}
+
+/** Throw unless the manifest carries a wrapped File Key (i.e. downloads are possible). */
+export function requireWrappedFileKey(manifest: BlobManifest): WrappedFileKey {
+  if (!manifest.wrapped_file_key?.nonce_b64 || !manifest.wrapped_file_key?.wrapped_b64) {
+    throw new Error('manifest has no wrapped_file_key — this blob cannot be decrypted on download (pre-Phase C upload?)');
+  }
+  return manifest.wrapped_file_key;
+}
+
+/**
+ * Full download path, from stored data alone: decrypt the manifest,
+ * unwrap the File Key, fetch + verify + decrypt every chunk.
+ * `fetchChunk(partNumber)` returns the chunk's nonce + ciphertext bytes
+ * (e.g. from the presigned URLs in a download session). Throws on any
+ * hash mismatch, AEAD failure, or missing wrapped key — a tampered or
+ * incomplete download is never returned.
+ */
+export async function downloadBlob(
+  encryptedManifest: EncryptedManifest,
+  vaultKey: Uint8Array,
+  crypto: CryptoAdapter,
+  fetchChunk: (partNumber: number) => Promise<EncryptedChunk>,
+): Promise<Uint8Array> {
+  const manifest = await decryptManifest(encryptedManifest, vaultKey, crypto);
+  const wrapped = requireWrappedFileKey(manifest);
+  const fileKey = await unwrapFileKey(wrapped, vaultKey, crypto);
+  const chunks: EncryptedChunk[] = [];
+  for (const info of manifest.chunks) {
+    chunks.push(await fetchChunk(info.part_number));
+  }
+  return decryptChunks(chunks, manifest, fileKey, crypto);
 }
 
 /** Encrypt the manifest itself with the Vault Key (server never sees it). */
