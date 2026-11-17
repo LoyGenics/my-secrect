@@ -183,7 +183,8 @@ test('wrong vault key (C created its own vault instead of restoring): nothing un
   await C.call('createItem', { id: lid('k0e'), title: 'K-C foreign-key item', fields: { password: 'c' } });
   const stC = await C.call('startSync');
   const stC2 = await C.call('syncNow');
-  assert.equal(stC2.state, 'error', `C cannot read the account vault: ${JSON.stringify(stC2)} (start: ${JSON.stringify(stC)})`);
+  // C1 fix: the engine detects the foreign Vault Key before any push and halts in an explicit state.
+  assert.equal(stC2.state, 'vault_mismatch', `C cannot read the account vault: ${JSON.stringify(stC2)} (start: ${JSON.stringify(stC)})`);
   assert.deepEqual(await C.titles(), ['K-C foreign-key item'], 'C applied nothing it could not decrypt');
   const before = await A.titles();
   const stA = await A.call('syncNow');
@@ -193,7 +194,7 @@ test('wrong vault key (C created its own vault instead of restoring): nothing un
   }
 });
 
-test('a device whose vault key cannot open the account vault refuses to push into it', { todo: defect('DEFECT-C1: SyncEngine.ensureBinding joins the account\'s oldest server vault without checking it can decrypt it (apps/desktop/src/sync/engine.ts:307-317; vault encrypted_name is never verified). A fresh device that chose "Create vault" instead of "Restore" pushes items no other device can read, and every other device\'s sync stays in error') }, async () => {
+test('a device whose vault key cannot open the account vault refuses to push into it', async () => {
   const w = await wire(lid('k0e'));
   assert.equal(api.psql(`SELECT count(*) FROM items WHERE id='${w}'`), '0', 'C\'s item (encrypted under a different vault key) reached the shared vault');
   const stA = await A.call('syncNow');

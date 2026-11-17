@@ -138,7 +138,7 @@ test('revoking B\'s device: B\'s token is refused on every route (sync pull/push
   assert.equal(api.psql(`SELECT count(*) FROM key_envelopes WHERE recipient_id='${revokedDeviceId}'`), '0');
 });
 
-test('B\'s next SYNC call after the revocation sends it back to sign-in', { todo: defect('DEFECT-H3: a 401 on sync PULL surfaces as a raw sync error ("API 401 ...") and never signs out; only a PUSH 401 matches the /unauthorized \\(401\\)/ check (apps/desktop/src/sync/engine.ts:448; pull errors are pushed as raw messages at packages/sync/src/sync-client.ts:229)') }, async () => {
+test('B\'s next SYNC call after the revocation sends it back to sign-in', async () => {
   const p = B.page;
   await p.getByRole('button', { name: 'Sync now' }).click();
   const outcome = await Promise.race([
@@ -160,7 +160,7 @@ test('B\'s browser returns to sign-in on its next account call ("session expired
   assert.ok(offline.keys && offline.rows, 'revocation is not a remote wipe: the encrypted vault is still on B');
 });
 
-test('"Continue without signing in" right after the session-expired bounce opens the local vault', { todo: defect('DEFECT-H4: the bounce happened in the Security Center view; continuing local-only re-mounts SecurityCenter, its next call 401s, handleUnauthorized resets localOnlyBypass (apps/desktop/src/App.tsx:230-238 with the SecurityCenter onUnauthorized at :1060/:1087) — the user is thrown back to sign-in until a reload') }, async () => {
+test('"Continue without signing in" right after the session-expired bounce opens the local vault', async () => {
   const p = B.page;
   await p.getByRole('button', { name: /Continue without signing in/ }).click();
   await p.getByRole('button', { name: /Lock vault/ }).waitFor({ timeout: 8_000 }).catch(() => undefined);
