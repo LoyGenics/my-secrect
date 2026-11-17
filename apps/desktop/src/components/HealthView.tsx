@@ -1,102 +1,99 @@
 import { useMemo } from 'react';
 import type { VaultItem } from '../../../../packages/core/src/types';
 import { computeHealth } from '../utils/health';
+import { Button, Card, Dial, EmptyState, Led, TypeModule, illustrations } from '../theme';
+import { useTranslation } from '../../../../packages/i18n/src/react';
+import { format } from '../../../../packages/i18n/src/index';
 
 export interface HealthViewProps {
   items: VaultItem[];
   onFix: (item: VaultItem) => void;
 }
 
-function scoreColor(score: number): string {
-  if (score >= 80) return 'text-emerald-400';
-  if (score >= 50) return 'text-amber-400';
-  return 'text-red-400';
-}
-
-function scoreBarColor(score: number): string {
-  if (score >= 80) return 'bg-emerald-500';
-  if (score >= 50) return 'bg-amber-500';
-  return 'bg-red-500';
-}
-
+/**
+ * Watchtower: one instrument dial owns the panel (score as the needle arc,
+ * LED colour by band, LCD readout), with weak and reused passwords listed
+ * beside it, each with a Fix key.
+ */
 export default function HealthView({ items, onFix }: HealthViewProps) {
+  const { dict, tp } = useTranslation();
+  const h = dict.health;
   const report = useMemo(() => computeHealth(items), [items]);
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
+  const tone = report.score >= 80 ? 'ok' : report.score >= 50 ? 'attention' : 'danger';
+  const status = report.score >= 80 ? h.status.ok : report.score >= 50 ? h.status.attention : h.status.danger;
+
+  if (report.total === 0) {
+    return <EmptyState art={illustrations.emptyVault} title={h.title} body={h.emptyHint} />;
+  }
 
   return (
-    <div className="space-y-4">
-      <div className="card gradient-subtle p-5">
-        <div className="flex items-center gap-5">
-          <div className="flex flex-col items-center">
-            <span className={`text-4xl font-bold ${scoreColor(report.score)}`}>{report.score}</span>
-            <span className="text-xs text-zinc-400">/ 100</span>
-          </div>
-          <div className="flex-1">
-            <h2 className="text-base font-semibold text-zinc-100">Vault health</h2>
-            <p className="text-sm text-zinc-400">
-              {report.total} {report.total === 1 ? 'item' : 'items'} checked · {report.weakCount} weak{' '}
-              {report.weakCount === 1 ? 'password' : 'passwords'} · {report.reusedCount} reused{' '}
-              {report.reusedCount === 1 ? 'password' : 'passwords'}
+    <div className="grid gap-4">
+      <Card as="section" padding="lg" aria-labelledby="health-title">
+        <div className="grid items-center gap-6 md:grid-cols-[220px_minmax(0,1fr)]">
+          <Dial value={report.score} label={format(h.dialLabel, report.score)} legend={h.outOf} size={220} className="mx-auto" />
+          <div className="grid gap-2">
+            <h2 id="health-title" className="ms-heading ms-heading--lg">{h.title}</h2>
+            <p className="ms-copy-led ms-legend m-0">
+              <Led tone={tone} /> {status}
             </p>
-            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-zinc-800">
-              <div
-                className={`h-full rounded-full transition-all ${scoreBarColor(report.score)}`}
-                style={{ width: `${Math.max(0, Math.min(100, report.score))}%` }}
-              />
-            </div>
+            <ul className="m-0 grid list-none gap-1 p-0 ms-text-secondary">
+              <li>{tp(h.itemsChecked, report.total)}</li>
+              <li>{tp(h.weakCount, report.weakCount)}</li>
+              <li>{tp(h.reusedCount, report.reusedCount)}</li>
+            </ul>
           </div>
         </div>
-      </div>
+      </Card>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <section className="card p-5">
-          <h3 className="text-sm font-semibold text-zinc-100">Weak passwords</h3>
-          <p className="mt-0.5 text-xs text-zinc-500">
-            Short or low-complexity passwords found in logins and other credential items.
-          </p>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card as="section" aria-labelledby="health-weak">
+          <div className="ms-plate__head">
+            <Led tone={report.weakItems.length ? 'danger' : 'ok'} />
+            <h3 id="health-weak" className="ms-heading ms-heading--md">{h.weakTitle}</h3>
+          </div>
+          <p className="ms-text-sm ms-text-muted mt-0">{h.weakHint}</p>
           {report.weakItems.length === 0 ? (
-            <p className="mt-4 text-sm text-zinc-400">No weak passwords found.</p>
+            <p className="m-0">{h.noWeak}</p>
           ) : (
-            <ul className="mt-3 space-y-2">
+            <ul className="ms-spec__list">
               {report.weakItems.map((item) => (
-                <li key={item.id} className="flex items-center justify-between gap-2 rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2">
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm text-zinc-100">{item.title}</span>
-                    <span className="text-xs text-zinc-500">{item.type}</span>
-                  </span>
-                  <button className="btn-ghost shrink-0 !px-2.5 !py-1.5 !text-xs" onClick={() => onFix(item)}>
-                    Fix
-                  </button>
+                <li key={item.id} className="flex items-center gap-3">
+                  <TypeModule type={item.type} size="sm" />
+                  <span className="min-w-0 flex-1 truncate">{item.title}</span>
+                  <Button size="sm" icon="edit" aria-label={format(h.fixItem, item.title)} onClick={() => onFix(item)}>
+                    {h.fix}
+                  </Button>
                 </li>
               ))}
             </ul>
           )}
-        </section>
+        </Card>
 
-        <section className="card p-5">
-          <h3 className="text-sm font-semibold text-zinc-100">Reused passwords</h3>
-          <p className="mt-0.5 text-xs text-zinc-500">
-            The same password used on more than one item. Change each group to a unique password.
-          </p>
+        <Card as="section" aria-labelledby="health-reused">
+          <div className="ms-plate__head">
+            <Led tone={report.reusedGroups.length ? 'attention' : 'ok'} />
+            <h3 id="health-reused" className="ms-heading ms-heading--md">{h.reusedTitle}</h3>
+          </div>
+          <p className="ms-text-sm ms-text-muted mt-0">{h.reusedHint}</p>
           {report.reusedGroups.length === 0 ? (
-            <p className="mt-4 text-sm text-zinc-400">No reused passwords found.</p>
+            <p className="m-0">{h.noReused}</p>
           ) : (
-            <ul className="mt-3 space-y-3">
+            <ul className="ms-spec__list gap-3">
               {report.reusedGroups.map((group, gi) => (
-                <li key={gi} className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2">
-                  <div className="text-xs font-medium text-zinc-400">
-                    Shared by {group.itemIds.length} {group.itemIds.length === 1 ? 'item' : 'items'}
-                  </div>
-                  <ul className="mt-2 space-y-1.5">
+                <li key={gi}>
+                  <span className="ms-legend block mb-1.5">{tp(h.sharedBy, group.itemIds.length)}</span>
+                  <ul className="ms-spec__list">
                     {group.itemIds.map((id) => {
                       const item = byId.get(id);
                       if (!item) return null;
                       return (
-                        <li key={id} className="flex items-center justify-between gap-2">
-                          <span className="truncate text-sm text-zinc-100">{item.title}</span>
-                          <button className="btn-ghost shrink-0 !px-2.5 !py-1 !text-xs" onClick={() => onFix(item)}>
-                            Fix
-                          </button>
+                        <li key={id} className="flex items-center gap-3">
+                          <TypeModule type={item.type} size="sm" />
+                          <span className="min-w-0 flex-1 truncate">{item.title}</span>
+                          <Button size="sm" icon="edit" aria-label={format(h.fixItem, item.title)} onClick={() => onFix(item)}>
+                            {h.fix}
+                          </Button>
                         </li>
                       );
                     })}
@@ -105,14 +102,8 @@ export default function HealthView({ items, onFix }: HealthViewProps) {
               ))}
             </ul>
           )}
-        </section>
+        </Card>
       </div>
-
-      {report.total === 0 && (
-        <p className="text-sm text-zinc-500">
-          Add some login items and this view will score their passwords.
-        </p>
-      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { VaultItem } from '../../../packages/core/src/types';
 import {
   hasVault,
@@ -64,7 +64,31 @@ import {
 import { VaultApiClient } from '../../../packages/sdk/src/index';
 import { RestoreBackup, RestoreSuccess } from './components/RestoreBackup';
 import { I18nProvider } from '../../../packages/i18n/src/react';
-import { detectLocale } from '../../../packages/i18n/src/index';
+import { detectLocale, format, getDictionary, plural, storeLocale, type Locale, type PluralForms } from '../../../packages/i18n/src/index';
+import {
+  Alert,
+  Button,
+  Card,
+  Checkbox,
+  EmptyState,
+  Field,
+  Icon,
+  IconButton,
+  Input,
+  Kbd,
+  Led,
+  LedStrip,
+  Progress,
+  SecureField,
+  Select,
+  Sheet,
+  copyWithClear,
+  illustrations,
+  initTheme,
+  type IconName,
+  type LedStripState,
+  type LedTone,
+} from './theme';
 
 /**
  * Desktop shell (Phase 1 prototype) — local-only vault, no server/sync.
@@ -155,8 +179,26 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
   const [showForm, setShowForm] = useState(false);
   const [editingItem, setEditingItem] = useState<VaultItem | null>(null);
   const [showRecovery, setShowRecovery] = useState(false);
-  const [showGenerator, setShowGenerator] = useState(false);
   const [generatedPassword, setGeneratedPassword] = useState('');
+  // Phone navigation drawer, unlock "key turn" overlay, KDF busy flags.
+  const [navOpen, setNavOpen] = useState(false);
+  const [keyTurn, setKeyTurn] = useState(false);
+  const [unlocking, setUnlocking] = useState(false);
+  const [creating, setCreating] = useState(false);
+  // One I18nProvider wraps every screen (same tree position, so its state
+  // survives lock/unlock); App mirrors the locale to read strings itself.
+  const [locale, setLocale] = useState<Locale>(() => detectLocale());
+  const dict = useMemo(() => getDictionary(locale), [locale]);
+  const tp = (forms: PluralForms, count: number, ...args: Array<string | number>) => plural(locale, forms, count, ...args);
+  const handleLocaleChange = useCallback((next: Locale) => {
+    storeLocale(next);
+    setLocale(next);
+  }, []);
+  const frame = (node: ReactNode) => (
+    <I18nProvider initialLocale={locale} onLocaleChange={handleLocaleChange}>
+      {node}
+    </I18nProvider>
+  );
   const [autoLockMinutes, setAutoLockMinutes] = useState<AutoLockMinutes>(() => {
     const saved = readJson<number>(LS_AUTOLOCK, 5);
     return saved === 1 || saved === 5 || saved === 15 || saved === 0 ? saved : 5;
@@ -330,6 +372,16 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     }
   }, [shares]);
 
+  useEffect(() => initTheme().dispose, []);
+
+  // Key turn: after a successful unlock the device face plays the LED sweep
+  // and slides away over the instrument panel (CSS; crossfade under reduced motion).
+  useEffect(() => {
+    if (!keyTurn) return;
+    const id = window.setTimeout(() => setKeyTurn(false), 520);
+    return () => window.clearTimeout(id);
+  }, [keyTurn]);
+
   const refresh = useCallback(() => {
     if (isUnlocked()) {
       setItems(listItems());
@@ -355,6 +407,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     setShowForm(false);
     setEditingItem(null);
     setShowPalette(false);
+    setNavOpen(false);
     setPassphrase('');
     setRecoveryInput('');
     setUseRecovery(false);
@@ -492,38 +545,42 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
 
   const handleUnlock = async () => {
     setLockError('');
-    const ok = useRecovery
-      ? recoveryInput.trim()
-        ? await unlockWithRecoveryKey(recoveryInput.trim())
-        : false
-      : passphrase
-        ? await unlockVault(passphrase)
-        : false;
+    setUnlocking(true);
+    let ok = false;
+    try {
+      ok = useRecovery
+        ? recoveryInput.trim()
+          ? await unlockWithRecoveryKey(recoveryInput.trim())
+          : false
+        : passphrase
+          ? await unlockVault(passphrase)
+          : false;
+    } finally {
+      setUnlocking(false);
+    }
     if (ok) {
+      setKeyTurn(true);
       setUnlocked(true);
       setPassphrase('');
       setRecoveryInput('');
       setUseRecovery(false);
       refresh();
     } else {
-      setLockError(
-        useRecovery
-          ? 'That recovery key did not unlock the vault. Check it and try again.'
-          : 'Wrong passphrase, or no vault exists yet.',
-      );
+      setLockError(useRecovery ? dict.lock.wrongRecovery : dict.lock.wrongPassphrase);
     }
   };
 
   const handleCreateVault = async () => {
     setOnboardingError('');
     if (newPass.length < 8) {
-      setOnboardingError('Passphrase must be at least 8 characters.');
+      setOnboardingError(dict.onboarding.tooShort);
       return;
     }
     if (newPass !== newPassConfirm) {
-      setOnboardingError('Passphrases do not match.');
+      setOnboardingError(dict.onboarding.mismatch);
       return;
     }
+    setCreating(true);
     try {
       const { recoveryKey: key } = await createVault(newPass);
       setRecoveryKey(key);
@@ -536,7 +593,9 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
       setOnboardingStep(1);
       refresh();
     } catch (err) {
-      setOnboardingError(err instanceof Error ? err.message : 'Could not create the vault.');
+      setOnboardingError(err instanceof Error ? err.message : dict.onboarding.createFailed);
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -581,9 +640,9 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
       a.download = `my-secrect-backup-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      setNotice('Encrypted backup downloaded. It stays encrypted — keep it safe.');
+      setNotice(dict.notices.exportDone);
     } catch {
-      setNotice('Export failed.');
+      setNotice(dict.notices.exportFailed);
     }
   };
 
@@ -597,15 +656,15 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     // the button there, and this guard is the second line of defence so
     // no code path can produce a plaintext file on web.
     if (!allowPlaintextExport) {
-      setNotice('Plaintext export is disabled on the web client — encrypted-only export is available here. Use the desktop app for a plaintext export.');
+      setNotice(dict.notices.plaintextBlocked);
       return;
     }
     try {
       // SettingsView already required the explicit acknowledgement checkbox.
       downloadText(`my-secrect-plaintext-export-${new Date().toISOString().slice(0, 10)}.json`, exportPlaintext(), 'application/json');
-      setNotice('Plaintext export downloaded. Delete it as soon as you are done — it contains all your secrets in readable form.');
+      setNotice(dict.notices.plaintextDone);
     } catch {
-      setNotice('Plaintext export failed.');
+      setNotice(dict.notices.plaintextFailed);
     }
   };
 
@@ -627,7 +686,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
         () => {
           void changePassphrase(oldP, newP)
             .then(() => {
-              setNotice('Passphrase changed.');
+              setNotice(dict.notices.passphraseChanged);
               resolve();
             })
             .catch(reject);
@@ -644,9 +703,9 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
       }
       refresh();
       setView('all');
-      setNotice('Example data loaded — 12 fake items, one per type. All values are fake; delete them with “Clear example data”.');
+      setNotice(dict.notices.exampleLoaded);
     } catch {
-      setNotice('Could not load example data.');
+      setNotice(dict.notices.exampleFailed);
     }
   };
 
@@ -657,7 +716,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     }
     if (selected && isExampleItem(selected)) setSelectedId(null);
     refresh();
-    setNotice('Example data cleared.');
+    setNotice(dict.notices.exampleCleared);
   };
 
   const handleWipeVault = () => {
@@ -684,7 +743,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     try {
       text = await file.text();
     } catch {
-      setNotice('Import failed: could not read the file.');
+      setNotice(dict.notices.importReadFailed);
       return;
     }
     // Validate BEFORE touching the vault: wrong format, newer/older
@@ -692,7 +751,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     // with a specific message instead of a generic failure.
     const { validation } = parseEncryptedExportText(text);
     if (!validation.ok) {
-      setNotice(`Import failed: ${validation.errors.join(' ')}`);
+      setNotice(format(dict.notices.importFailedWith, validation.errors.join(' ')));
       return;
     }
     const beforeIds = new Set(listItems(true).map((i) => i.id));
@@ -706,19 +765,18 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
       const after = listItems(true);
       const newCount = after.filter((i) => !beforeIds.has(i.id)).length;
       setNotice(
-        `Backup imported: ${validation.itemCount} item(s) in file, ${newCount} new item(s) added. ` +
-          'Rows with an older revision than the stored one were skipped. (A file with any row that fails to decrypt is rejected entirely and nothing is written.)' +
-          (validation.warnings.length > 0 ? ` Note: ${validation.warnings.join(' ')}` : ''),
+        format(dict.notices.backupImported, tp(dict.notices.fileItems, validation.itemCount), tp(dict.notices.newItems, newCount)) +
+          (validation.warnings.length > 0 ? ` ${format(dict.notices.importNote, validation.warnings.join(' '))}` : ''),
       );
     } catch (err) {
-      setNotice(err instanceof Error ? `Import failed: ${err.message}` : 'Import failed.');
+      setNotice(err instanceof Error ? format(dict.notices.importFailedWith, err.message) : dict.notices.importFailed);
     }
   };
 
   const handleImportCsv = async (csvItems: VaultItem[]) => {
     for (const item of csvItems) await upsertItem(item);
     refresh();
-    setNotice(`Imported ${csvItems.length} login(s) from CSV. They are tagged “imported”.`);
+    setNotice(tp(dict.notices.csvImported, csvItems.length));
   };
 
   /** Autosave for secure notes: upsert without closing the form. */
@@ -734,7 +792,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     await upsertItem({ ...item, fields: { ...item.fields, archived: !archived } });
     if (!archived && selectedId === id && view !== 'archived') setSelectedId(null);
     refresh();
-    setNotice(archived ? 'Item unarchived — back in All Items.' : 'Item archived — find it under Archived.');
+    setNotice(archived ? dict.notices.unarchived : dict.notices.archived);
   };
 
   /** Restore a note revision: the current body becomes a revision first. */
@@ -749,7 +807,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     await upsertItem({ ...restored, fields });
     refresh();
     setSelectedId(restored.id);
-    setNotice('Note restored to the selected revision. The previous version was kept in revision history.');
+    setNotice(dict.notices.revisionRestored);
   };
 
   /**
@@ -773,12 +831,12 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
       revoked_at: null,
     };
     setShares((prev) => [...prev, share]);
-    setNotice('Share proposal saved locally as PENDING — no key was exchanged and no share is active. Sharing is not production-ready until HPKE key exchange is implemented.');
+    setNotice(dict.notices.shareSaved);
   };
 
   const handleRevokeShare = (share: VaultShare) => {
     setShares((prev) => prev.map((s) => (s.id === share.id ? revokeShare(s) : s)));
-    setNotice('Share revoked. Revocation removes the proposal — it does not erase copies a recipient already decrypted.');
+    setNotice(dict.notices.shareRevoked);
   };
 
   const handleBulkFavorite = async () => {
@@ -790,7 +848,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     setBulkIds(new Set());
     setSelectionMode(false);
     refresh();
-    setNotice(`${ids.length} item(s) added to favorites.`);
+    setNotice(tp(dict.notices.bulkFavorited, ids.length));
   };
 
   const handleBulkDelete = async () => {
@@ -803,7 +861,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     setBulkIds(new Set());
     setSelectionMode(false);
     refresh();
-    setNotice(view === 'trash' ? `${ids.length} item(s) permanently deleted.` : `${ids.length} item(s) moved to trash.`);
+    setNotice(tp(view === 'trash' ? dict.notices.bulkDeleted : dict.notices.bulkTrashed, ids.length));
   };
 
   const handleBulkRestore = async () => {
@@ -812,44 +870,91 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     setBulkIds(new Set());
     setSelectionMode(false);
     refresh();
-    setNotice(`${ids.length} item(s) restored from trash.`);
+    setNotice(tp(dict.notices.bulkRestored, ids.length));
   };
 
+  const sh = dict.shell;
+  const categoryTitle = (key: string) => (dict.categories as Record<string, string>)[key];
   const viewTitle =
     view === 'all'
-      ? 'All Items'
+      ? sh.allItems
       : view === 'favorites'
-        ? 'Favorites'
+        ? sh.favorites
         : view === 'trash'
-          ? 'Trash'
+          ? sh.trash
           : view === 'archived'
-            ? 'Archived'
+            ? sh.archived
             : view === 'media-gallery'
-              ? 'Media gallery'
+              ? sh.mediaGallery
               : view === 'shares'
-                ? 'Sharing'
+                ? sh.sharing
                 : view === 'health'
-                  ? 'Security Health'
-                  : view === 'settings'
-                    ? 'Settings'
-                    : view === 'security'
-                      ? 'Security Center'
-              : view.startsWith('tag:')
-              ? `#${view.slice(4)}`
-              : (CATEGORIES.find((c) => c.key === view)?.label ?? 'Vault');
+                  ? sh.watchtower
+                  : view === 'generator'
+                    ? sh.generator
+                    : view === 'settings'
+                      ? sh.settings
+                      : view === 'security'
+                        ? sh.securityCenter
+                        : view.startsWith('tag:')
+                          ? `#${view.slice(4)}`
+                          : (categoryTitle(view) ?? sh.allItems);
 
-  const emptyMessage =
-    view === 'trash'
-      ? 'Trash is empty. Deleted items are kept here until you permanently delete them.'
-      : view === 'archived'
-        ? 'Nothing archived. Archive an item from its detail view to hide it here without deleting it.'
-        : view === 'favorites'
-        ? 'No favorites yet. Star an item to pin it here.'
-        : view === 'health'
-          ? 'No items to check yet.'
-          : view.startsWith('tag:')
-            ? `No items tagged “${view.slice(4)}”.`
-            : 'No items in this view yet. Press Cmd/Ctrl+N to add one.';
+  const isListView = !['settings', 'security', 'health', 'generator', 'media-gallery', 'shares'].includes(view);
+
+  /** Navigate: every view change also closes the detail/form (phones pop back to the list). */
+  const go = (v: SidebarView) => {
+    setView(v);
+    setSelectedId(null);
+    setShowForm(false);
+    setEditingItem(null);
+    setNavOpen(false);
+  };
+
+  const emptyListState = () => {
+    const q = searchQuery.trim();
+    if (q) return { art: illustrations.noResults, title: sh.empty.searchTitle, body: format(sh.empty.searchBody, q) };
+    if (view === 'trash') return { art: illustrations.emptyTrash, title: sh.empty.trashTitle, body: sh.empty.trashBody };
+    if (view === 'archived') return { art: illustrations.emptyArchive, title: sh.empty.archivedTitle, body: sh.empty.archivedBody };
+    if (view === 'favorites') return { art: illustrations.emptyFavorites, title: sh.empty.favoritesTitle, body: sh.empty.favoritesBody };
+    if (view.startsWith('tag:')) return { art: illustrations.emptyVault, title: sh.empty.tagTitle, body: format(sh.empty.tagBody, view.slice(4)) };
+    return { art: illustrations.emptyVault, title: sh.empty.allTitle, body: sh.empty.allBody };
+  };
+
+  // ---------- Device face (sign-in gate aside: onboarding, restore, lock) ----------
+  const deviceFace = (opts: {
+    art?: string;
+    artWideOnly?: boolean;
+    led: LedStripState;
+    lede?: string;
+    wide?: boolean;
+    children: ReactNode;
+    footnote?: string;
+  }) => (
+    <div className="ms-device-screen">
+      <div className="ms-device-stage">
+        {opts.art && (
+          <img
+            className={opts.artWideOnly ? 'ms-device__art ms-device__art--wide' : 'ms-device__art'}
+            src={opts.art}
+            alt=""
+            width={200}
+            height={200}
+            decoding="async"
+          />
+        )}
+        <section className={opts.wide ? 'ms-device ms-device--wide' : 'ms-device'} aria-labelledby="device-wordmark">
+          <div className="ms-device__head">
+            <h1 id="device-wordmark" className="ms-device__wordmark">{dict.common.appName}</h1>
+            <LedStrip state={opts.led} />
+          </div>
+          {opts.lede && <p className="ms-device__lede">{opts.lede}</p>}
+          {opts.children}
+          {opts.footnote && <p className="ms-device__foot">{opts.footnote}</p>}
+        </section>
+      </div>
+    </div>
+  );
 
   // ---------- Account sign-in gate ----------
   // When a server is configured and there is no valid session, the
@@ -860,15 +965,13 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
   // at all. Sign-in never unlocks the vault: after it, the user
   // still faces the lock screen / onboarding below.
   if (securityClient && !signedIn && !localOnlyBypass) {
-    return (
-      <I18nProvider initialLocale={detectLocale()}>
-        <SignInScreen
-          security={securityClient}
-          sessionExpired={sessionExpired}
-          onSignedIn={handleSignedIn}
-          onContinueLocalOnly={() => setLocalOnlyBypass(true)}
-        />
-      </I18nProvider>
+    return frame(
+      <SignInScreen
+        security={securityClient}
+        sessionExpired={sessionExpired}
+        onSignedIn={handleSignedIn}
+        onContinueLocalOnly={() => setLocalOnlyBypass(true)}
+      />,
     );
   }
 
@@ -877,154 +980,208 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
   // one-time recovery key must stay on screen until the user acknowledges it
   // (step 1) — gating on !vaultExists alone skipped that screen entirely.
   if (!vaultExists || onboardingStep !== 0) {
+    const o = dict.onboarding;
     const strength = passphraseScore(newPass);
-    return (
-      <div className="flex min-h-full items-center justify-center bg-[#0B0F14] p-6">
-        <div className="card gradient-subtle w-full max-w-md p-6">
-          <h1 className="text-xl font-semibold">my-secrect</h1>
-          <p className="mt-1 text-sm text-zinc-400">
-            Create your local vault. Everything is encrypted on this device.
-          </p>
-          {restoreUi && restoreUi.count === null && <RestoreBackup onRestored={(count) => setRestoreUi({ count })} onCancel={() => setRestoreUi(null)} />}
-          {restoreUi && restoreUi.count !== null && <RestoreSuccess itemCount={restoreUi.count} onContinue={() => { setRestoreUi(null); setVaultExists(true); }} />}
-          {!restoreUi && (<>
-          <div className="mt-4 flex gap-2 text-xs">
-            {['Create passphrase', 'Save recovery key', 'Done'].map((label, i) => (
-              <span
-                key={label}
-                className={`flex-1 rounded-md px-2 py-1.5 text-center ${i === onboardingStep ? 'bg-indigo-600/25 text-indigo-200' : i < onboardingStep ? 'bg-zinc-800 text-zinc-300' : 'bg-zinc-900 text-zinc-500'}`}
-              >
-                {i + 1}. {label}
-              </span>
-            ))}
-          </div>
+    const strengthLabel = dict.strength.levels[strength.score <= 2 ? 'weak' : strength.score <= 4 ? 'fair' : strength.score === 5 ? 'strong' : 'veryStrong'];
+    const steps = [o.steps.create, o.steps.save, o.steps.done];
+    const art = restoreUi
+      ? restoreUi.count === null
+        ? illustrations.restore
+        : illustrations.success
+      : onboardingStep === 0
+        ? illustrations.deviceHero
+        : onboardingStep === 1
+          ? illustrations.recoveryKey
+          : illustrations.success;
+    return frame(
+      deviceFace({
+        art,
+        wide: true,
+        led: onboardingStep === 2 || restoreUi?.count != null ? 'open' : creating ? 'working' : 'locked',
+        lede: o.lede,
+        footnote: o.footnote,
+        children: (
+          <>
+            {restoreUi && restoreUi.count === null && <RestoreBackup onRestored={(count) => setRestoreUi({ count })} onCancel={() => setRestoreUi(null)} />}
+            {restoreUi && restoreUi.count !== null && <RestoreSuccess itemCount={restoreUi.count} onContinue={() => { setRestoreUi(null); setVaultExists(true); }} />}
+            {!restoreUi && (
+              <>
+                <ol className="ms-steps" aria-label={o.stepsLabel}>
+                  {steps.map((label, i) => (
+                    <li key={label} className="ms-steps__item" aria-current={i === onboardingStep ? 'step' : undefined}>
+                      <Led tone={i === onboardingStep ? 'active' : i < onboardingStep ? 'ok' : 'off'} />
+                      <span className="ms-legend">{label}</span>
+                    </li>
+                  ))}
+                </ol>
 
-          {onboardingStep === 0 && (
-            <div className="mt-5 space-y-3">
-              <div>
-                <label className="label" htmlFor="new-pass">Master passphrase</label>
-                <input id="new-pass" name="master-passphrase" type="password" className="input" value={newPass} onChange={(e) => setNewPass(e.target.value)} placeholder="At least 8 characters" autoComplete="new-password" aria-label="Master passphrase" />
-              </div>
-              <div>
-                <label className="label" htmlFor="new-pass-confirm">Confirm passphrase</label>
-                <input id="new-pass-confirm" name="confirm-passphrase" type="password" className="input" value={newPassConfirm} onChange={(e) => setNewPassConfirm(e.target.value)} placeholder="Repeat your passphrase" autoComplete="new-password" aria-label="Confirm passphrase" />
-              </div>
-              <div>
-                <div className="flex justify-between text-xs"><span className="text-zinc-400">Strength</span><span className="text-zinc-200">{newPass ? strength.label : '—'}</span></div>
-                <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-zinc-800">
-                  <div className={`h-full rounded-full ${strength.score <= 2 ? 'bg-red-500' : strength.score <= 4 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${(strength.score / 6) * 100}%` }} />
-                </div>
-              </div>
-              {onboardingError && <p className="text-sm text-red-400">{onboardingError}</p>}
-              <button className="btn-primary w-full" onClick={() => void handleCreateVault()}>Create vault</button>
-              <button className="btn-ghost w-full" onClick={() => setRestoreUi({ count: null })}>Restore from backup</button>
-            </div>
-          )}
+                {onboardingStep === 0 && (
+                  <form className="ms-device__body" onSubmit={(e) => { e.preventDefault(); void handleCreateVault(); }} noValidate>
+                    <Field id="new-pass" label={o.passphrase} className="mb-0">
+                      <SecureField name="master-passphrase" value={newPass} onChange={(e) => setNewPass(e.target.value)} placeholder={o.passphrasePlaceholder} autoComplete="new-password" aria-label={o.passphrase} />
+                    </Field>
+                    <Field id="new-pass-confirm" label={o.confirm} className="mb-0">
+                      <SecureField name="confirm-passphrase" value={newPassConfirm} onChange={(e) => setNewPassConfirm(e.target.value)} placeholder={o.confirmPlaceholder} autoComplete="new-password" aria-label={o.confirm} />
+                    </Field>
+                    <div className="grid gap-1.5">
+                      <div className="flex justify-between">
+                        <span className="ms-legend">{o.strength}</span>
+                        <span className="ms-legend ms-text-secondary">{newPass ? strengthLabel : '—'}</span>
+                      </div>
+                      <Progress
+                        value={(strength.score / 6) * 100}
+                        label={o.strength}
+                        valueText={newPass ? strengthLabel : '—'}
+                        tone={strength.score <= 2 ? 'danger' : strength.score <= 4 ? 'warning' : 'success'}
+                      />
+                    </div>
+                    {onboardingError && <Alert tone="danger" announce>{onboardingError}</Alert>}
+                    <Button type="submit" variant="primary" size="lg" block loading={creating}>
+                      {creating ? o.creating : o.createVault}
+                    </Button>
+                    <Button block icon="restore" onClick={() => setRestoreUi({ count: null })}>
+                      {o.restoreFromBackup}
+                    </Button>
+                  </form>
+                )}
 
-          {onboardingStep === 1 && (
-            <div className="mt-5 space-y-3">
-              <p className="text-sm text-zinc-300">
-                <strong>Save this recovery key — it is shown only once.</strong> It is the
-                only way back in if you forget your passphrase. It is never stored
-                on this device in readable form.
-              </p>
-              <div className="break-all rounded-lg border border-zinc-700 bg-zinc-900 p-3 font-mono text-sm text-zinc-100">
-                {recoveryKey}
-              </div>
-              <button
-                className="btn-ghost w-full"
-                onClick={() => {
-                  void navigator.clipboard?.writeText(recoveryKey).catch(() => undefined);
-                  setRecoveryCopied(true);
-                }}
-              >
-                {recoveryCopied ? 'Copied to clipboard' : 'Copy recovery key'}
-              </button>
-              <label className="flex items-start gap-2 text-sm text-zinc-200">
-                <input type="checkbox" checked={recoveryAck} onChange={(e) => setRecoveryAck(e.target.checked)} className="mt-1 accent-indigo-600" />
-                I have saved my recovery key somewhere safe.
-              </label>
-              <button className="btn-primary w-full" disabled={!recoveryAck} onClick={() => { setRecoveryKey(''); setRecoveryCopied(false); setRecoveryAck(false); setOnboardingStep(2); }}>
-                Done
-              </button>
-            </div>
-          )}
+                {onboardingStep === 1 && (
+                  <div className="ms-device__body">
+                    <p className="m-0">
+                      <strong>{o.saveTitle}</strong> <span className="ms-text-secondary">{o.saveBody}</span>
+                    </p>
+                    <div className="ms-secret-box font-mono">{recoveryKey}</div>
+                    <Button
+                      block
+                      icon={recoveryCopied ? 'check' : 'copy'}
+                      onClick={() => {
+                        void navigator.clipboard?.writeText(recoveryKey).catch(() => undefined);
+                        setRecoveryCopied(true);
+                      }}
+                    >
+                      {recoveryCopied ? o.copied : o.copyKey}
+                    </Button>
+                    <Checkbox checked={recoveryAck} onChange={(e) => setRecoveryAck(e.target.checked)} label={o.ack} />
+                    <Button variant="primary" size="lg" block disabled={!recoveryAck} onClick={() => { setRecoveryKey(''); setRecoveryCopied(false); setRecoveryAck(false); setOnboardingStep(2); }}>
+                      {o.done}
+                    </Button>
+                  </div>
+                )}
 
-          {onboardingStep === 2 && (
-            <div className="mt-5 space-y-3 text-center">
-              <p className="text-2xl">✓</p>
-              <p className="text-sm text-zinc-300">Your vault is created and unlocked. Add your first item to get started.</p>
-              <button className="btn-primary w-full" onClick={() => { setRecoveryKey(''); setOnboardingStep(0); setView('all'); setVaultExists(true); }}>
-                Open vault
-              </button>
-            </div>
-          )}
-          </>)}
-          <p className="mt-4 text-xs text-zinc-500">
-            Prototype: Argon2id + XChaCha20-Poly1305 via libsodium. Not audited — do not treat as production-ready.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // ---------- Lock screen ----------
-  if (!unlocked) {
-    return (
-      <div className="flex min-h-full items-center justify-center bg-[#0B0F14] p-6">
-        <div className="card gradient-subtle w-full max-w-sm p-6">
-          <h1 className="text-xl font-semibold">my-secrect</h1>
-          <p className="mt-1 text-sm text-zinc-400">Your vault is locked. Enter your passphrase to unlock.</p>
-          <form className="mt-5 space-y-3" onSubmit={(e) => { e.preventDefault(); void handleUnlock(); }}>
-            {useRecovery ? (
-              <div>
-                <label className="label" htmlFor="lock-recovery-key">Recovery key</label>
-                <input id="lock-recovery-key" name="recovery-key" type="text" className="input font-mono" value={recoveryInput} onChange={(e) => setRecoveryInput(e.target.value)} placeholder="Paste your recovery key" autoComplete="off" aria-label="Recovery key" autoFocus />
-              </div>
-            ) : (
-              <div>
-                <label className="label" htmlFor="lock-passphrase">Master passphrase</label>
-                <input id="lock-passphrase" name="master-passphrase" type="password" className="input" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} placeholder="Master passphrase" autoComplete="current-password" aria-label="Master passphrase" autoFocus />
-              </div>
+                {onboardingStep === 2 && (
+                  <div className="ms-device__body text-center">
+                    <h2 className="ms-heading ms-heading--lg">{o.readyTitle}</h2>
+                    <p className="ms-text-secondary m-0">{o.readyBody}</p>
+                    <Button variant="primary" size="lg" block icon="unlock" onClick={() => { setRecoveryKey(''); setOnboardingStep(0); setView('all'); setVaultExists(true); }}>
+                      {o.openVault}
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
-            {lockError && <p className="text-sm text-red-400">{lockError}</p>}
-            <button type="submit" className="btn-primary w-full">
-              {useRecovery ? 'Unlock with recovery key' : 'Unlock'}
-            </button>
-          </form>
-          <button
-            className="mt-3 w-full text-center text-sm text-indigo-300 hover:text-indigo-200"
-            onClick={() => { setUseRecovery((v) => !v); setLockError(''); }}
-          >
-            {useRecovery ? 'Use passphrase instead…' : 'Unlock with a recovery key…'}
-          </button>
-        </div>
-      </div>
+          </>
+        ),
+      }),
     );
   }
 
-  // ---------- Unlocked shell ----------
-  // I18nProvider (browser-detected locale) covers only the components
-  // that read it — SecurityCenter and StepUpDialog. The rest of the
-  // shell keeps its hardcoded English strings.
-  return (
-    <I18nProvider initialLocale={detectLocale()}>
-    <div className="flex h-full bg-[#0B0F14] text-zinc-100">
-      <Sidebar
-        view={view}
-        setView={(v) => { setView(v); setSelectedId(null); setShowForm(false); setEditingItem(null); }}
-        counts={counts}
-        tags={tags}
-        onLock={doLock}
-        onExport={handleExport}
-        onImport={() => fileInputRef.current?.click()}
-        onShowRecovery={() => setShowRecovery((v) => !v)}
-      />
+  // ---------- Lock screen: the device face ----------
+  if (!unlocked) {
+    const lk = dict.lock;
+    return frame(
+      deviceFace({
+        art: illustrations.lockHero,
+        artWideOnly: true,
+        led: unlocking ? 'working' : lockError ? 'error' : 'locked',
+        children: (
+          <>
+            <p className="ms-device__lede">
+              <strong className="ms-text-secondary">{lk.status}</strong>
+              <br />
+              {lk.lede}
+            </p>
+            <form className="ms-device__body" onSubmit={(e) => { e.preventDefault(); void handleUnlock(); }}>
+              {useRecovery ? (
+                <Field id="lock-recovery-key" label={lk.recoveryKey} className="mb-0">
+                  <Input name="recovery-key" type="text" mono value={recoveryInput} onChange={(e) => setRecoveryInput(e.target.value)} placeholder={lk.recoveryPlaceholder} autoComplete="off" aria-label={lk.recoveryKey} autoFocus />
+                </Field>
+              ) : (
+                <Field id="lock-passphrase" label={lk.passphrase} className="mb-0">
+                  <SecureField name="master-passphrase" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} autoComplete="current-password" aria-label={lk.passphrase} autoFocus />
+                </Field>
+              )}
+              {lockError && <Alert tone="danger" announce>{lockError}</Alert>}
+              <Button type="submit" variant="primary" size="lg" block icon="unlock" loading={unlocking}>
+                {useRecovery ? lk.unlockWithRecovery : lk.unlock}
+              </Button>
+            </form>
+            <p className="mb-0 mt-3 text-center">
+              <Button variant="link" onClick={() => { setUseRecovery((v) => !v); setLockError(''); }}>
+                {useRecovery ? lk.usePassphrase : lk.useRecoveryKey}
+              </Button>
+            </p>
+          </>
+        ),
+      }),
+    );
+  }
+
+  // ---------- Unlocked shell: rail | topbar + content | phone tab bar ----------
+  const syncTone: LedTone | null =
+    sync.status.state === 'disabled'
+      ? null
+      : sync.status.state === 'idle'
+        ? 'ok'
+        : sync.status.state === 'syncing'
+          ? 'active'
+          : sync.status.state === 'offline'
+            ? 'attention'
+            : 'danger';
+  const syncLabel =
+    sync.status.state === 'idle'
+      ? sh.syncState.ok
+      : sync.status.state === 'syncing'
+        ? sh.syncState.busy
+        : sync.status.state === 'disabled'
+          ? sh.syncState.off
+          : sh.syncState.attention;
+  const pushed = isListView && (showForm || selectedItem !== null);
+  const closeDetail = () => { setSelectedId(null); setShowForm(false); setEditingItem(null); };
+  const newItem = () => { if (!isListView) setView('all'); setEditingItem(null); setShowForm(true); };
+  const rail = (inDrawer: boolean) => (
+    <Sidebar
+      view={view}
+      setView={go}
+      counts={counts}
+      tags={tags}
+      healthScore={liveItems.length > 0 ? health.score : undefined}
+      onLock={doLock}
+      onExport={() => { setNavOpen(false); handleExport(); }}
+      onImport={() => { setNavOpen(false); fileInputRef.current?.click(); }}
+      onShowRecovery={() => { setNavOpen(false); setShowRecovery((v) => !v); }}
+      inDrawer={inDrawer}
+    />
+  );
+  const tab = (key: 'vault' | 'search' | 'generator' | 'watchtower' | 'settings', icon: IconName, current: boolean, onClick: () => void) => (
+    <button type="button" className="ms-tabbar__item" aria-current={current ? 'page' : undefined} onClick={onClick}>
+      <Icon name={icon} size="lg" />
+      <span>{sh.tabs[key]}</span>
+    </button>
+  );
+
+  const emptyList = emptyListState();
+
+  return frame(
+    <div className="ms-app" data-pushed={pushed}>
+      <a href="#ms-main" className="ms-skip-link ms-button ms-button--primary">{sh.skipToContent}</a>
+      {rail(false)}
       <input
         ref={fileInputRef}
         type="file"
         accept="application/json,.json"
         className="hidden"
+        tabIndex={-1}
+        aria-hidden="true"
         onChange={(e) => {
           const f = e.target.files?.[0];
           if (f) void handleImportFile(f);
@@ -1032,71 +1189,58 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
         }}
       />
 
-      <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center gap-3 border-b border-zinc-800 px-5 py-3">
-          <h1 className="text-base font-semibold">{viewTitle}</h1>
-          <div className="relative max-w-md flex-1">
-            <input
-              id="search-items"
-              name="search"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search… (Cmd+K)"
-              className="input !py-1.5"
-              aria-label="Search items"
-              autoComplete="off"
-            />
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <label className="flex items-center gap-1.5 text-xs text-zinc-400" htmlFor="header-sort">
-              Sort
-              <select id="header-sort" name="sort" aria-label="Sort items" value={sort} onChange={(e) => setSort(e.target.value as ItemSort)} className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40">
-                <option value="updated">Recently updated</option>
-                <option value="created">Newest first</option>
-                <option value="title">Title A–Z</option>
-              </select>
-            </label>
-            <label className="flex items-center gap-1.5 text-xs text-zinc-400" htmlFor="header-auto-lock">
-              Auto-lock
-              <select id="header-auto-lock" name="auto-lock" aria-label="Auto-lock after" value={autoLockMinutes} onChange={(e) => setAutoLockMinutes(Number(e.target.value) as AutoLockMinutes)} className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40">
-                <option value={1}>1 min</option>
-                <option value={5}>5 min</option>
-                <option value={15}>15 min</option>
-                <option value={0}>Never</option>
-              </select>
-            </label>
-            <button className="btn-ghost !py-1.5" onClick={() => setShowGenerator((v) => !v)}>Generate password</button>
-            <button className="btn-primary !py-1.5" onClick={() => { setEditingItem(null); setShowForm(true); }}>+ New item</button>
+      <main id="ms-main" className="ms-main" tabIndex={-1}>
+        <header className="ms-topbar">
+          <IconButton className="ms-topbar__menu" icon="menu" label={sh.openMenu} variant="secondary" onClick={() => setNavOpen(true)} />
+          <h1 className="ms-heading ms-heading--md ms-topbar__title">{viewTitle}</h1>
+          {isListView && (
+            <div className="ms-topbar__search">
+              <span className="ms-input-wrap ms-search-field">
+                <span className="ms-search-field__icon" aria-hidden="true"><Icon name="search" /></span>
+                <input
+                  id="search-items"
+                  name="search"
+                  type="search"
+                  className="ms-input"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder={sh.searchPlaceholder}
+                  aria-label={sh.searchLabel}
+                  autoComplete="off"
+                />
+                <button type="button" className="ms-input-wrap__button" aria-label={sh.openSearch} title={sh.openSearch} onClick={() => setShowPalette(true)}>
+                  <Kbd>⌘K</Kbd>
+                </button>
+              </span>
+            </div>
+          )}
+          <div className="ms-topbar__end">
+            {syncTone && (
+              <span className="ms-copy-led ms-legend ms-topbar__wide">
+                <Led tone={syncTone} /> {syncLabel}
+              </span>
+            )}
+            <Button variant="primary" onClick={newItem}>{sh.newItem}</Button>
+            <IconButton className="ms-topbar__phone" icon="lock" label={sh.lockVault} variant="secondary" onClick={doLock} />
           </div>
         </header>
 
-        {notice && (
-          <div className="mx-5 mt-3 flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-200">
-            <span>{notice}</span>
-            <button className="text-zinc-400 hover:text-zinc-100" onClick={() => setNotice('')}>✕</button>
-          </div>
-        )}
-
-        <SyncBar status={sync.status} conflicts={sync.conflicts} onSyncNow={sync.syncNow} onKeepBoth={sync.keepBoth} resolveError={sync.resolveError} />
-
-        {showRecovery && (
-          <div className="mx-5 mt-3 rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
-            Your recovery key was shown only once, when this vault was created, and
-            cannot be displayed again. If you still have it, use it on the lock
-            screen (lock the vault, then “Unlock with a recovery key…”).
-            <button className="ml-3 underline" onClick={() => setShowRecovery(false)}>Close</button>
-          </div>
-        )}
-
-        {showGenerator && (
-          <div className="mx-5 mt-3 card p-4">
-            <PasswordGenerator onUse={(pw: string) => { setGeneratedPassword(pw); void navigator.clipboard?.writeText(pw).catch(() => undefined); }} />
-            {generatedPassword && <p className="mt-2 break-all font-mono text-sm text-zinc-200">{generatedPassword} <span className="text-xs text-zinc-500">(copied to clipboard)</span></p>}
-          </div>
-        )}
+        <div className="ms-notices">
+          {notice && (
+            <Alert tone="info" announce action={<IconButton icon="close" size="sm" label={sh.dismiss} onClick={() => setNotice('')} />}>
+              {notice}
+            </Alert>
+          )}
+          {showRecovery && (
+            <Alert tone="warning" title={sh.recoveryKey} action={<IconButton icon="close" size="sm" label={sh.close} onClick={() => setShowRecovery(false)} />}>
+              {sh.recoveryNotice}
+            </Alert>
+          )}
+          <SyncBar status={sync.status} conflicts={sync.conflicts} onSyncNow={sync.syncNow} onKeepBoth={sync.keepBoth} resolveError={sync.resolveError} />
+        </div>
 
         {view === 'settings' ? (
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="ms-content">
             <SettingsView
               autoLockMinutes={autoLockMinutes}
               onAutoLockChange={setAutoLockMinutes}
@@ -1114,7 +1258,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
             />
           </div>
         ) : view === 'security' ? (
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="ms-content">
             <SecurityCenter
               security={securityClient}
               apiBaseUrl={apiBaseUrl}
@@ -1127,11 +1271,26 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
             />
           </div>
         ) : view === 'health' ? (
-          <div className="min-h-0 flex-1 overflow-y-auto p-5">
-            <HealthView items={liveItems} onFix={(item) => { setView('all'); setSelectedId(item.id); setEditingItem(item); setShowForm(true); }} />
+          <div className="ms-content">
+            <div className="ms-view">
+              <HealthView items={liveItems} onFix={(item) => { setView('all'); setSelectedId(item.id); setEditingItem(item); setShowForm(true); }} />
+            </div>
+          </div>
+        ) : view === 'generator' ? (
+          <div className="ms-content">
+            <div className="ms-view ms-view--narrow grid gap-4">
+              <div>
+                <h2 className="ms-heading ms-heading--lg">{dict.generator.title}</h2>
+                <p className="ms-text-sm ms-text-muted mb-0 mt-1 ms-prose">{dict.generator.lede}</p>
+              </div>
+              {generatedPassword && <Alert tone="success" announce>{dict.generator.usedNotice}</Alert>}
+              <Card padding="lg">
+                <PasswordGenerator onUse={(pw: string) => { setGeneratedPassword(pw); void copyWithClear('generator:use', pw); }} />
+              </Card>
+            </div>
           </div>
         ) : view === 'media-gallery' ? (
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="ms-content">
             <MediaView
               items={items}
               api={mediaApi}
@@ -1140,121 +1299,135 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
             />
           </div>
         ) : view === 'shares' ? (
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="ms-content">
             <SharesView shares={shares} onCreate={handleCreateShare} onRevoke={handleRevokeShare} />
           </div>
         ) : (
-        <div className="flex min-h-0 flex-1">
-          <section className="w-80 shrink-0 overflow-y-auto border-r border-zinc-800 p-3">
-            <div className="mb-2 flex items-center gap-2">
-              <button type="button" className="btn-ghost !py-1 text-xs" onClick={() => { setSelectionMode((v) => !v); setBulkIds(new Set()); }}>
-                {selectionMode ? 'Done selecting' : 'Select'}
-              </button>
-              {selectionMode && (
-                <>
-                  <button type="button" className="btn-ghost !py-1 text-xs" onClick={() => setBulkIds(new Set(visibleItems.map((i) => i.id)))}>All</button>
-                  <span className="text-xs text-zinc-400">{bulkIds.size} selected</span>
-                </>
-              )}
-            </div>
-            {selectionMode && bulkIds.size > 0 && (
-              <div className="mb-2 flex flex-wrap gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2">
-                {view !== 'trash' && (
-                  <button type="button" className="btn-ghost !py-1 text-xs" onClick={() => void handleBulkFavorite()}>★ Favorite</button>
-                )}
-                {view === 'trash' ? (
-                  <>
-                    <button type="button" className="btn-ghost !py-1 text-xs" onClick={() => void handleBulkRestore()}>Restore</button>
-                    <button type="button" className="btn-ghost !py-1 text-xs" onClick={() => void handleBulkDelete()}>Delete forever</button>
-                  </>
+          <div className="ms-content ms-content--split">
+            <div className="ms-split" data-pushed={pushed}>
+              <section className="ms-pane ms-pane--list" aria-label={viewTitle}>
+                <div className="ms-pane__toolbar">
+                  <Button size="sm" aria-pressed={selectionMode} onClick={() => { setSelectionMode((v) => !v); setBulkIds(new Set()); }}>
+                    {selectionMode ? sh.doneSelecting : sh.selectMode}
+                  </Button>
+                  {selectionMode ? (
+                    <>
+                      <Button size="sm" onClick={() => setBulkIds(new Set(visibleItems.map((i) => i.id)))}>{sh.selectAll}</Button>
+                      <span className="ms-legend">{tp(sh.selectedCount, bulkIds.size)}</span>
+                    </>
+                  ) : (
+                    <span className="ml-auto flex min-w-0 items-center gap-2">
+                      <Icon name="sort" size="sm" className="ms-text-muted" />
+                      <Select id="header-sort" name="sort" aria-label={sh.sortLabel} value={sort} onChange={(e) => setSort(e.target.value as ItemSort)}>
+                        <option value="updated">{sh.sortUpdated}</option>
+                        <option value="created">{sh.sortCreated}</option>
+                        <option value="title">{sh.sortTitle}</option>
+                      </Select>
+                    </span>
+                  )}
+                  {selectionMode && bulkIds.size > 0 && (
+                    <div className="flex w-full flex-wrap gap-2">
+                      {view !== 'trash' && <Button size="sm" icon="favorite" onClick={() => void handleBulkFavorite()}>{sh.bulkFavorite}</Button>}
+                      {view === 'trash' ? (
+                        <>
+                          <Button size="sm" icon="restore" onClick={() => void handleBulkRestore()}>{sh.bulkRestore}</Button>
+                          <Button size="sm" variant="danger" icon="trash" onClick={() => void handleBulkDelete()}>{sh.bulkDeleteForever}</Button>
+                        </>
+                      ) : (
+                        <Button size="sm" variant="danger-outline" icon="trash" onClick={() => void handleBulkDelete()}>{sh.bulkMoveToTrash}</Button>
+                      )}
+                      <Button size="sm" variant="ghost" onClick={() => setBulkIds(new Set())}>{sh.clearSelection}</Button>
+                    </div>
+                  )}
+                </div>
+                {visibleItems.length === 0 ? (
+                  <EmptyState
+                    art={emptyList.art}
+                    title={emptyList.title}
+                    body={emptyList.body}
+                    primaryAction={items.length === 0 && view !== 'trash' ? { label: sh.loadExample, icon: 'add', onClick: () => void handleLoadExampleData() } : undefined}
+                    secondaryAction={items.some(isExampleItem) ? { label: sh.clearExample, icon: 'trash', onClick: handleClearExampleData } : undefined}
+                    note={items.length === 0 && view !== 'trash' ? sh.exampleNote : undefined}
+                  />
                 ) : (
-                  <button type="button" className="btn-ghost !py-1 text-xs" onClick={() => void handleBulkDelete()}>Move to trash</button>
+                  <ItemList
+                    items={visibleItems}
+                    selectedId={selectedId}
+                    onSelect={(id: string) => { setSelectedId(id); setShowForm(false); setEditingItem(null); }}
+                    onToggleFavorite={handleToggleFavorite}
+                    onDelete={handleDelete}
+                    selectionMode={selectionMode}
+                    selectedIds={bulkIds}
+                    onToggleSelect={(id: string) => {
+                      setBulkIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(id)) next.delete(id); else next.add(id);
+                        return next;
+                      });
+                    }}
+                  />
                 )}
-                <button type="button" className="btn-ghost !py-1 text-xs" onClick={() => setBulkIds(new Set())}>Clear</button>
-              </div>
-            )}
-            {visibleItems.length === 0 ? (
-              <div className="px-2 py-8 text-center">
-                <p className="text-sm text-zinc-500">{emptyMessage}</p>
-                {items.length === 0 && view !== 'trash' && (
-                  <button type="button" className="btn-ghost mt-4" onClick={() => void handleLoadExampleData()}>
-                    Load example data
-                  </button>
-                )}
-                {items.some(isExampleItem) && (
-                  <button type="button" className="btn-ghost mt-4 ml-2" onClick={handleClearExampleData}>
-                    Clear example data
-                  </button>
-                )}
-                {items.length === 0 && view !== 'trash' && (
-                  <p className="mt-3 text-xs text-zinc-600">Example data is clearly labelled EXAMPLE DATA — every value is fake.</p>
-                )}
-              </div>
-            ) : (
-              <ItemList
-                items={visibleItems}
-                selectedId={selectedId}
-                onSelect={(id: string) => { setSelectedId(id); setShowForm(false); setEditingItem(null); }}
-                onToggleFavorite={handleToggleFavorite}
-                onDelete={handleDelete}
-                selectionMode={selectionMode}
-                selectedIds={bulkIds}
-                onToggleSelect={(id: string) => {
-                  setBulkIds((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(id)) next.delete(id); else next.add(id);
-                    return next;
-                  });
-                }}
-              />
-            )}
-          </section>
+              </section>
 
-          <section className="min-w-0 flex-1 overflow-y-auto p-5">
-            {showForm ? (
-              <ItemForm
-                initial={editingItem ?? undefined}
-                allItems={items}
-                onSave={(item: VaultItem) => void handleSaveItem(item)}
-                onCancel={() => { setShowForm(false); setEditingItem(null); }}
-                onAutosave={(item: VaultItem) => void handleAutosaveItem(item)}
-              />
-            ) : selectedItem ? (
-              <ItemDetail
-                item={selectedItem}
-                allItems={items}
-                onEdit={(item: VaultItem) => { setEditingItem(item); setShowForm(true); }}
-                onDelete={() => handleDelete(selectedItem.id)}
-                onRestore={() => handleRestore(selectedItem.id)}
-                onToggleFavorite={() => handleToggleFavorite(selectedItem.id)}
-                onClose={() => setSelectedId(null)}
-                onSelectRelated={(id) => { setSelectedId(id); setShowForm(false); setEditingItem(null); }}
-                onArchive={(id) => void handleArchive(id)}
-                onRestoreRevision={(item: VaultItem) => void handleRestoreRevision(item)}
-              />
-            ) : (
-              <div className="flex h-full flex-col items-center justify-center text-center">
-                <p className="text-zinc-400">Select an item to view it, or create a new one.</p>
-                <p className="mt-1 text-xs text-zinc-500">Cmd/Ctrl+K to search · Cmd/Ctrl+N for a new item</p>
-                {items.length === 0 && (
-                  <div className="mt-4">
-                    <button type="button" className="btn-ghost" onClick={() => void handleLoadExampleData()}>
-                      Load example data
-                    </button>
-                    <p className="mt-2 text-xs text-zinc-600">Loads 12 fake items, one per type — clearly labelled EXAMPLE DATA.</p>
-                  </div>
+              <section className="ms-pane ms-pane--detail" aria-label={showForm ? (editingItem ? dict.itemForm.editTitle : dict.itemForm.newTitle) : selectedItem ? selectedItem.title : sh.selectPromptTitle}>
+                {pushed && (
+                  <Button variant="ghost" icon="back" className="ms-pane__back" onClick={closeDetail}>
+                    {sh.backToList}
+                  </Button>
                 )}
-                {items.some(isExampleItem) && (
-                  <button type="button" className="btn-ghost mt-4" onClick={handleClearExampleData}>
-                    Clear example data
-                  </button>
+                {showForm ? (
+                  <ItemForm
+                    initial={editingItem ?? undefined}
+                    allItems={items}
+                    onSave={(item: VaultItem) => void handleSaveItem(item)}
+                    onCancel={() => { setShowForm(false); setEditingItem(null); }}
+                    onAutosave={(item: VaultItem) => void handleAutosaveItem(item)}
+                  />
+                ) : selectedItem ? (
+                  <ItemDetail
+                    item={selectedItem}
+                    allItems={items}
+                    onEdit={(item: VaultItem) => { setEditingItem(item); setShowForm(true); }}
+                    onDelete={() => handleDelete(selectedItem.id)}
+                    onRestore={() => handleRestore(selectedItem.id)}
+                    onToggleFavorite={() => handleToggleFavorite(selectedItem.id)}
+                    onClose={() => setSelectedId(null)}
+                    onSelectRelated={(id) => { setSelectedId(id); setShowForm(false); setEditingItem(null); }}
+                    onArchive={(id) => void handleArchive(id)}
+                    onRestoreRevision={(item: VaultItem) => void handleRestoreRevision(item)}
+                  />
+                ) : (
+                  <EmptyState
+                    art={illustrations.selectItem}
+                    title={sh.selectPromptTitle}
+                    body={sh.selectPrompt}
+                    note={
+                      <>
+                        {sh.shortcuts}
+                        {items.length === 0 && <><br />{sh.exampleLoadNote}</>}
+                      </>
+                    }
+                    primaryAction={items.length === 0 ? { label: sh.loadExample, icon: 'add', onClick: () => void handleLoadExampleData() } : undefined}
+                    secondaryAction={items.some(isExampleItem) ? { label: sh.clearExample, icon: 'trash', onClick: handleClearExampleData } : undefined}
+                  />
                 )}
-              </div>
-            )}
-          </section>
-        </div>
+              </section>
+            </div>
+          </div>
         )}
+
+        <nav className="ms-tabbar" aria-label={sh.phoneNav}>
+          {tab('vault', 'items', isListView, () => go('all'))}
+          {tab('search', 'search', false, () => setShowPalette(true))}
+          {tab('generator', 'generate', view === 'generator', () => go('generator'))}
+          {tab('watchtower', 'health', view === 'health', () => go('health'))}
+          {tab('settings', 'settings', view === 'settings', () => go('settings'))}
+        </nav>
       </main>
+
+      <Sheet side="left" flush hideTitle title={sh.navLabel} open={navOpen} onOpenChange={setNavOpen}>
+        {rail(true)}
+      </Sheet>
 
       <SearchPalette
         open={showPalette}
@@ -1275,7 +1448,11 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
         onVerified={() => handleStepUpVerified()}
         onCancel={handleStepUpCancel}
       />
-    </div>
-    </I18nProvider>
+      {keyTurn && (
+        <div className="ms-keyturn" aria-hidden="true">
+          {deviceFace({ led: 'turn', children: <div className="ms-device__body" /> })}
+        </div>
+      )}
+    </div>,
   );
 }

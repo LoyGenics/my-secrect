@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { restoreEncrypted, getVaultStats, lockVault } from '../vault';
 import { describeRestoreError } from './restoreErrors';
+import { Alert, Button, EmptyState, Field, Input, SegmentedControl, illustrations } from '../theme';
+import { useTranslation } from '../../../../packages/i18n/src/react';
 
 /**
  * Fresh-device "Restore backup" flow. Mounted on the onboarding screen.
@@ -17,6 +19,8 @@ export function RestoreBackup({
   onRestored: (itemCount: number) => void;
   onCancel: () => void;
 }) {
+  const { dict } = useTranslation();
+  const r = dict.restore;
   const [file, setFile] = useState<File | null>(null);
   const [mode, setMode] = useState<'passphrase' | 'recovery'>('passphrase');
   const [secret, setSecret] = useState('');
@@ -26,11 +30,11 @@ export function RestoreBackup({
   const submit = async () => {
     setError('');
     if (!file) {
-      setError('Choose a backup file first.');
+      setError(r.chooseFile);
       return;
     }
     if (!secret.trim()) {
-      setError(mode === 'passphrase' ? 'Enter the passphrase for this backup.' : 'Enter the recovery key.');
+      setError(mode === 'passphrase' ? r.enterPassphrase : r.enterRecovery);
       return;
     }
     setBusy(true);
@@ -39,7 +43,7 @@ export function RestoreBackup({
       try {
         text = await file.text();
       } catch {
-        setError('Could not read the selected file. Nothing was restored.');
+        setError(r.readFailed);
         return;
       }
       try {
@@ -57,56 +61,63 @@ export function RestoreBackup({
     }
   };
 
+  const secretLabel = mode === 'passphrase' ? r.backupPassphrase : r.recoveryKey;
+
   return (
-    <div className="mt-5 space-y-3" data-testid="restore-backup">
-      <p className="text-sm text-zinc-300">
-        Restore an encrypted backup (format version 2) onto this device. The file never leaves your device and
-        nothing is overwritten.
-      </p>
-      <div>
-        <label className="label" htmlFor="restore-file">Backup file</label>
-        <input
-          id="restore-file"
+    <div className="ms-device__body" data-testid="restore-backup">
+      <p className="ms-text-sm ms-text-secondary m-0">{r.lede}</p>
+      <Field id="restore-file" label={r.file} className="mb-0">
+        <Input
           type="file"
           accept="application/json,.json"
-          className="input"
           onChange={(e) => { setFile(e.target.files?.[0] ?? null); setError(''); }}
         />
-      </div>
-      <div className="flex gap-2 text-xs" role="radiogroup" aria-label="Credential type">
-        <button type="button" role="radio" aria-checked={mode === 'passphrase'} className={mode === 'passphrase' ? 'btn-primary flex-1' : 'btn-ghost flex-1'} onClick={() => { setMode('passphrase'); setSecret(''); setError(''); }}>Passphrase</button>
-        <button type="button" role="radio" aria-checked={mode === 'recovery'} className={mode === 'recovery' ? 'btn-primary flex-1' : 'btn-ghost flex-1'} onClick={() => { setMode('recovery'); setSecret(''); setError(''); }}>Recovery key</button>
-      </div>
-      <div>
-        <label className="label" htmlFor="restore-secret">{mode === 'passphrase' ? 'Backup passphrase' : 'Recovery key'}</label>
-        <input
-          id="restore-secret"
+      </Field>
+      <SegmentedControl<'passphrase' | 'recovery'>
+        ariaLabel={r.credentialType}
+        value={mode}
+        className="w-full [&>button]:flex-1"
+        options={[
+          { value: 'passphrase', label: r.passphrase },
+          { value: 'recovery', label: r.recoveryKey },
+        ]}
+        onChange={(next) => { setMode(next); setSecret(''); setError(''); }}
+      />
+      <Field id="restore-secret" label={secretLabel} className="mb-0">
+        <Input
           type="password"
-          className="input"
           value={secret}
+          mono={mode === 'recovery'}
           onChange={(e) => setSecret(e.target.value)}
           autoComplete="off"
-          aria-label={mode === 'passphrase' ? 'Backup passphrase' : 'Recovery key'}
+          aria-label={secretLabel}
         />
-      </div>
-      {error && <p role="alert" data-testid="restore-error" className="text-sm text-red-400">{error}</p>}
-      <button className="btn-primary w-full" disabled={busy} onClick={() => void submit()}>
-        {busy ? 'Restoring…' : 'Restore backup'}
-      </button>
-      <button className="btn-ghost w-full" disabled={busy} onClick={onCancel}>Back to create vault</button>
+      </Field>
+      {error && (
+        <Alert tone="danger" announce>
+          <span data-testid="restore-error">{error}</span>
+        </Alert>
+      )}
+      <Button variant="primary" block size="lg" icon="restore" loading={busy} onClick={() => void submit()}>
+        {busy ? r.restoring : r.restore}
+      </Button>
+      <Button block icon="back" disabled={busy} onClick={onCancel}>{r.back}</Button>
     </div>
   );
 }
 
 export function RestoreSuccess({ itemCount, onContinue }: { itemCount: number; onContinue: () => void }) {
+  const { dict, tp } = useTranslation();
+  const r = dict.restore;
   return (
-    <div className="mt-5 space-y-3 text-center" data-testid="restore-success">
-      <p className="text-2xl">✓</p>
-      <p className="text-sm text-zinc-300">
-        Backup restored: {itemCount} {itemCount === 1 ? 'item' : 'items'} decrypted and saved. For your
-        security the vault is locked. Unlock it with your passphrase (or recovery key).
-      </p>
-      <button className="btn-primary w-full" onClick={onContinue}>Continue to unlock</button>
+    <div data-testid="restore-success">
+      <EmptyState
+        art={illustrations.success}
+        title={r.successTitle}
+        body={tp(r.successBody, itemCount)}
+        primaryAction={{ label: r.continue, icon: 'unlock', onClick: onContinue }}
+        className="py-4"
+      />
     </div>
   );
 }
