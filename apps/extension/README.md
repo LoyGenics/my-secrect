@@ -75,7 +75,11 @@ until Phase 2 sync unifies devices. Do not present it as synced.
 
 **MV3 service workers are ephemeral:** Chrome may terminate the worker at
 any time; the in-memory session is then gone and the vault reports locked.
-That is correct behaviour — unlock again.
+That is correct behaviour — unlock again. Keys are deliberately not kept in
+`chrome.storage.session` (it would outlive the worker and be readable by
+every extension page). The auto-lock alarm is browser state and survives a
+restart; a pending save offer does not. Proven by the worker-restart test in
+`e2e/hardening.spec.ts` (CDP `ServiceWorker.stopWorker`).
 
 **libsodium + wasm note:** `libsodium-wrappers-sumo` loads its WebAssembly
 module at runtime. If the worker cannot instantiate wasm under the extension

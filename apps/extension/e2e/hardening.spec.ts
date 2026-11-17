@@ -533,4 +533,68 @@ test.describe.serial('extension hardening in real Chromium', () => {
     expect(await bg({ type: 'unlock', passphrase: PASSPHRASE })).toMatchObject({ ok: true, unlocked: true });
     expect(await currentOffer()).toBeNull();
   });
+
+  // ---- Service worker lifecycle (last: leaves the vault locked) ----
+
+  test('worker killed and restarted: locked, offer gone, alarm kept, storage still restricted, nothing plaintext at rest; auto-lock fires in the new worker', async () => {
+    test.setTimeout(240_000);
+    const AUTOLOCK = 'my-secrect-autolock';
+    const PW_PENDING = 'pw-pending-fixture-4Tb6';
+    const settings = (await bg({ type: 'getSettings' })).settings as Record<string, unknown>;
+    await bg({ type: 'saveSettings', settings: { ...settings, autoLockMinutes: 1 } }); // re-arms the alarm (unlocked)
+    await signIn('pending.test', 'pat', PW_PENDING);
+    expect(await waitForOffer()).toMatchObject({ mode: 'new', username: 'pat' });
+    expect(await badge()).toBe('1');
+    const alarmBefore = await worker().evaluate((n) => chrome.alarms.get(n), AUTOLOCK);
+    expect(alarmBefore?.scheduledTime).toBeGreaterThan(Date.now());
+    expect(await worker().evaluate(() => chrome.storage.session.get(null))).toEqual({});
+    await worker().evaluate(() => { (globalThis as unknown as { __e2eMarker: string }).__e2eMarker = 'before-restart'; });
+
+    // Stop the worker as Chrome does when it is idle (DevTools protocol).
+    const cdp = await ctx.newCDPSession(admin);
+    const versions = new Map<string, { versionId: string; scriptURL: string; runningStatus: string }>();
+    cdp.on('ServiceWorker.workerVersionUpdated', (e) => {
+      for (const v of e.versions) versions.set(v.versionId, v);
+    });
+    await cdp.send('ServiceWorker.enable');
+    const ours = () => [...versions.values()].find((v) => v.scriptURL === `chrome-extension://${extId}/background.js`);
+    await expect.poll(() => ours()?.runningStatus).toBe('running');
+    await cdp.send('ServiceWorker.stopWorker', { versionId: ours()!.versionId });
+    await expect.poll(() => ours()?.runningStatus).toBe('stopped');
+
+    // The next message starts a fresh worker: a new JS realm with no keys.
+    expect((await bg({ type: 'getStatus' })).status).toEqual({ locked: true, vaultExists: true });
+    expect(await worker().evaluate(() => (globalThis as unknown as { __e2eMarker?: string }).__e2eMarker)).toBeUndefined();
+    expect(await bg({ type: 'listAll' })).toEqual({ ok: false, error: 'Vault is locked.' });
+    expect(await bg({ type: 'getItem', id: ids.A })).toEqual({ ok: false, error: 'Vault is locked.' });
+    await openSite(https('example.test'));
+    expect(await bg({ type: 'fill', id: ids.A })).toEqual({ ok: false, error: 'Vault is locked. Unlock it first.' });
+    expect(await values()).toEqual({ user: '', pass: '' });
+    expect(await badge()).toBe(''); // the capture died with the old worker
+
+    // Alarms are browser state: the pre-restart auto-lock alarm is still scheduled.
+    expect(await worker().evaluate((n) => chrome.alarms.get(n), AUTOLOCK)).toEqual(alarmBefore);
+
+    // The new worker re-applied the storage restriction before anything else.
+    const evilTab = await openSite(https('evil.test'));
+    expect(await contentWorldStorage(evilTab)).toEqual({ localGet: STORAGE_DENIED, localSet: STORAGE_DENIED, sessionGet: STORAGE_DENIED });
+
+    // At rest: wrapped keys and ciphertext only. No session storage at all.
+    const raw = await storageText();
+    for (const secret of [PASSPHRASE, recoveryKey, PW_A, PW_A2, PW_B, TOTP_B, PW_NEW, PW_DECLINED, PW_PENDING]) expect(raw).not.toContain(secret);
+    expect(await worker().evaluate(() => chrome.storage.session.get(null))).toEqual({});
+
+    // Unlock in the new worker: no stale offer; auto-lock is re-armed and fires HERE.
+    expect(await bg({ type: 'unlock', passphrase: PASSPHRASE })).toMatchObject({ ok: true, unlocked: true });
+    expect(await currentOffer()).toBeNull();
+    await worker().evaluate(() => { (globalThis as unknown as { __e2eMarker: string }).__e2eMarker = 'after-restart'; });
+    const rearmed = await worker().evaluate((n) => chrome.alarms.get(n), AUTOLOCK);
+    expect(rearmed!.scheduledTime).toBeGreaterThan(alarmBefore!.scheduledTime);
+    await expect
+      .poll(async () => ((await bg({ type: 'getStatus' })).status as { locked: boolean }).locked, { timeout: 100_000, intervals: [2_000] })
+      .toBe(true);
+    // Locked by the alarm in this worker, not by yet another restart.
+    expect(await worker().evaluate(() => (globalThis as unknown as { __e2eMarker?: string }).__e2eMarker)).toBe('after-restart');
+    await bg({ type: 'saveSettings', settings });
+  });
 });
