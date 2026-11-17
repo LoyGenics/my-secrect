@@ -48,11 +48,11 @@ RSpec.describe 'Passkeys API', type: :request do
     [client, credential]
   end
 
-  # Step 1 (authentication). No route exists yet (see
-  # docs/security-review.md), so the domain method is called directly and
-  # step 2 goes through HTTP — the verification under test is the same.
+  # Step 1 (authentication) through the real HTTP route.
   def authentication_challenge_for(address)
-    Authentication::Passkeys.authentication_options(email: address)[:request_options][:challenge]
+    post '/api/v1/auth/passkeys/authenticate', params: { email: address }, as: :json
+    expect(response).to have_http_status(:ok)
+    json_body['request_options']['challenge']
   end
 
   def authenticate_passkey(address: email, client:, sign_count: nil, user_verified: true)
@@ -151,6 +151,17 @@ RSpec.describe 'Passkeys API', type: :request do
       expect(response).to have_http_status(:ok)
       expect(json_body['token']).to start_with('sess_')
       expect(Authenticator.last.sign_count).to eq(1)
+    end
+
+    it 'verifies the exact HTTP-issued challenge when another challenge is live' do
+      client, _credential = register_passkey
+      authentication_challenge_for(email)
+
+      authenticate_passkey(client: client)
+
+      expect(response).to have_http_status(:ok)
+      expect(json_body['token']).to start_with('sess_')
+      expect(PasskeyChallenge.live.where(email: email, kind: 'authentication').count).to eq(1)
     end
 
     it 'rejects a replayed assertion (same sign count as stored)' do

@@ -175,14 +175,18 @@ module Authentication
       raise VerificationError, 'unknown ceremony' unless %w[registration authentication].include?(kind)
 
       normalized_email = email.to_s.strip.downcase
-      challenge_rec = PasskeyChallenge.live.find_by(email: normalized_email, kind: kind)
+      params = normalize_credential_params(credential)
+      challenge_rec = PasskeyChallenge.live.find_by(
+        email: normalized_email,
+        kind: kind,
+        challenge: credential_challenge(params)
+      )
       raise VerificationError, 'challenge expired or already used' unless challenge_rec
       challenge_rec.consume!
 
       user = User.find_by(email: normalized_email)
       raise VerificationError, 'verification failed' unless user
 
-      params = normalize_credential_params(credential)
       verified = case kind
                  when 'registration' then verify_registration(user: user, params: params, challenge: challenge_rec.challenge)
                  when 'authentication' then verify_authentication(user: user, params: params, challenge: challenge_rec.challenge)
@@ -229,6 +233,22 @@ module Authentication
           raise VerificationError, 'credential required'
         end
       hash.deep_stringify_keys
+    end
+
+    # Select the exact stored challenge named by clientDataJSON. This is
+    # only record lookup: WebAuthn::Credential#verify below still validates
+    # the challenge, origin, RP ID, flags, signature, and sign count.
+    def credential_challenge(params)
+      encoded = params.dig('response', 'clientDataJSON')
+      raise VerificationError, 'verification failed' unless encoded.is_a?(String)
+
+      client_data = JSON.parse(WebAuthn::Encoder.new.decode(encoded))
+      challenge = client_data['challenge']
+      raise VerificationError, 'verification failed' unless challenge.is_a?(String) && challenge.present?
+
+      challenge
+    rescue JSON::ParserError, ArgumentError
+      raise VerificationError, 'verification failed'
     end
 
     # Verify an attestation and persist the Authenticator. Returns
@@ -285,6 +305,8 @@ module Authentication
       new_count = provisional.sign_count || 0
       authenticator.update!(sign_count: new_count) if new_count > authenticator.sign_count
       { public_key: authenticator.public_key }
+    rescue OpenSSL::PKey::PKeyError
+      raise VerificationError, 'verification failed'
     end
 
     # Decode a base64url public key (as stored) to raw bytes for
