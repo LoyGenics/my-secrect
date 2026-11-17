@@ -15,6 +15,11 @@ Authoritative over README / implementation-status / release-readiness, which are
 | Sync integrity (locks, replay, rollback, device auth) | fix/sync-integrity | merged; rspec + sync e2e not yet re-run after this merge |
 
 Last full run on main before the last two merges: rspec 131/0, web e2e 13/13, extension e2e 18/18, typecheck all apps, builds desktop/web/extension.
+Re-run 2026-11-18 04:05 on main a7a777c (after desktop storage + sync integrity): npm test 31/0 + 125/0, rspec 170/0, sync e2e 21/0.
+
+## Generated imagery (2026-11-18, Colab A100, runtime deleted after download)
+- Kept: 20 logo/icon concepts × 2 (user to choose), 49 cute soft-3D illustrations × 2, 8 animated loops (opaque + transparent WebP). Unpacked outside the repo at ../my-secrect-assets-inbox; models Qwen-Image + Wan 2.2 TI2V-5B (Apache-2.0), Real-ESRGAN x4plus (BSD-3), BiRefNet (MIT).
+- Discarded: the first grey "product shot" set (dull, and a "Braun" style cue printed that trademark on some renders).
 
 ## Done on branches, not merged yet
 - feat/auth-email-device-binding (email ownership, device proof, rate limits, audit): agent reports rspec 149/0, web e2e 19/19. Merge needs: sync e2e harness must bind a device (sync now requires an active device), infra smoke `register` needs the email step, SMTP env in compose.
