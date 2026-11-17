@@ -12,6 +12,12 @@
  * production bundle can import or select it (Metro does not tree-shake,
  * so exporting it from here shipped it in the mobile bundle).
  *
+ * Item encryption versions (specs/encryption-format.md):
+ *  - v1 (DEFAULT writer): XChaCha20-Poly1305 IETF, AD = null.
+ *  - v2 (primitives only, no app writes it yet): same AEAD, AD binds the
+ *    ciphertext to (purpose, vault_id, item_id, revision). See the
+ *    "Item encryption v2" section below.
+ *
  * Dependency note: `libsodium-wrappers-sumo` must be listed as a
  * dependency of this package (package.json) — this file only imports it.
  * Callers must `await sodiumReady` (or just call the async methods, which
@@ -94,6 +100,44 @@ function assertKeyLength(key: Uint8Array): void {
   if (key.length !== sodium.crypto_aead_xchacha20poly1305_ietf_KEYBYTES) {
     throw new Error(`key must be ${sodium.crypto_aead_xchacha20poly1305_ietf_KEYBYTES} bytes`);
   }
+}
+
+/**
+ * The one XChaCha20-Poly1305 IETF seal every format uses. `ad` is null
+ * for v1 and the v2 binding (itemAdV2) for v2. libsodium treats a null
+ * AD and a zero-length AD identically (adlen 0), so a v1 ciphertext can
+ * never verify under a v2 AD, which is always non-empty.
+ */
+async function sealXChaCha(
+  key: Uint8Array,
+  plaintext: Uint8Array,
+  ad: Uint8Array | null,
+): Promise<{ nonce: Uint8Array; ciphertext: Uint8Array }> {
+  await sodium.ready;
+  assertKeyLength(key);
+  const nonce = sodium.randombytes_buf(sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES);
+  const ciphertext = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(
+    plaintext, ad, null, nonce, key,
+  );
+  return { nonce, ciphertext };
+}
+
+async function openXChaCha(
+  key: Uint8Array,
+  nonce: Uint8Array,
+  ciphertext: Uint8Array,
+  ad: Uint8Array | null,
+): Promise<Uint8Array> {
+  await sodium.ready;
+  assertKeyLength(key);
+  if (nonce.length !== sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES) {
+    throw new Error('nonce must be 24 bytes');
+  }
+  // NOTE: decrypt argument order is (secretNonce, ciphertext,
+  // additionalData, publicNonce, key) — different from encrypt.
+  return sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(
+    null, ciphertext, ad, nonce, key,
+  );
 }
 
 /** Every wrapped key in the hierarchy (AMK, Vault Key, Item Key, File Key) is 32 bytes. */
@@ -205,35 +249,180 @@ export const libsodiumAdapter: CryptoAdapter = {
     return hkdfSha256(ikm, info, length);
   },
   async encrypt(key, plaintext) {
-    await sodium.ready;
-    assertKeyLength(key);
-    const nonce = sodium.randombytes_buf(sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES);
-    const ciphertext = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(
-      plaintext, null, null, nonce, key,
-    );
-    return { nonce, ciphertext };
+    return sealXChaCha(key, plaintext, null);
   },
   async decrypt(key, nonce, ciphertext) {
-    await sodium.ready;
-    assertKeyLength(key);
-    if (nonce.length !== sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES) {
-      throw new Error('nonce must be 24 bytes');
-    }
-    // NOTE: decrypt argument order is (secretNonce, ciphertext,
-    // additionalData, publicNonce, key) — different from encrypt.
-    return sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(
-      null, ciphertext, null, nonce, key,
-    );
+    return openXChaCha(key, nonce, ciphertext, null);
   },
   async wrapKey(wrappingKey, keyToWrap) {
     assertWrappedKeyLength(keyToWrap, 'key to wrap');
-    const { nonce, ciphertext } = await this.encrypt(wrappingKey, keyToWrap);
+    const { nonce, ciphertext } = await sealXChaCha(wrappingKey, keyToWrap, null);
     return { nonce, wrapped: ciphertext };
   },
   async unwrapKey(wrappingKey, nonce, wrapped) {
-    const key = await this.decrypt(wrappingKey, nonce, wrapped);
+    const key = await openXChaCha(wrappingKey, nonce, wrapped, null);
     if (key.length !== WRAPPED_KEY_BYTES) key.fill(0);
     assertWrappedKeyLength(key, 'unwrapped key');
     return key;
   },
 };
+
+// ---------------------------------------------------------------------------
+// Item encryption v2 — AEAD additional data binds each ciphertext to its slot.
+//
+// NOT THE DEFAULT. Every app still writes v1 (DEFAULT_ITEM_ENCRYPTION_VERSION).
+// Switching a caller to v2 needs the coordinated rollout in
+// specs/encryption-format.md ("v2 migration plan"): a stable vault_id in
+// the key envelope, the sync revision known at encrypt time, backup and
+// native storage readers that understand encryption_version 2.
+//
+// Why: v1 uses AD = null, so the AEAD tag says nothing about WHICH item,
+// vault, revision or purpose a ciphertext belongs to. v1 relies on the
+// decrypted JSON id check (callers) and on key separation; it cannot
+// stop a malicious server or storage layer from relabelling an old
+// ciphertext with a newer revision (rollback), and any Vault-Key
+// ciphertext of a 32-byte plaintext the attacker knows (e.g. a device
+// name of exactly 32 bytes) would unwrap as a valid "item key". v2 puts
+// all of that under the tag.
+//
+// AD layout (all integers big-endian; no separators, every variable
+// field is length-prefixed so the encoding is injective):
+//
+//   AD = u32(len(label))    || label            (ASCII, see ITEM_AD_V2_LABELS)
+//     || u32(len(vault_id)) || vault_id         (UTF-8, 1..1024 bytes)
+//     || u32(len(item_id))  || item_id          (UTF-8, 1..1024 bytes)
+//     || u64(revision)                          (0..2^53-1)
+//
+// The label differs for the payload and for the wrapped item key, so a
+// wrapped key never opens as a payload or the reverse, and neither opens
+// as any v1 (null-AD) Vault-Key ciphertext. Byte layout on disk/wire is
+// unchanged from v1 (nonce(24) || ciphertext+tag); the version lives in
+// the existing `encryption_version` field. Relabelling a v2 row as v1
+// fails closed (a v2 tag never verifies with null AD).
+// Mirrored byte-for-byte by native/crypto-core `item_ad_v2`; shared
+// vectors: tests/crypto-vectors/item-v2-vectors.json.
+// ---------------------------------------------------------------------------
+
+export const ITEM_ENCRYPTION_V1 = 1 as const;
+export const ITEM_ENCRYPTION_V2 = 2 as const;
+/** The version every writer uses today. Do not change without the migration plan. */
+export const DEFAULT_ITEM_ENCRYPTION_VERSION = ITEM_ENCRYPTION_V1;
+
+export const ITEM_AD_V2_LABELS = {
+  payload: 'my-secrect/item-payload/v2',
+  keyWrap: 'my-secrect/item-key-wrap/v2',
+} as const;
+export type ItemAdV2Purpose = keyof typeof ITEM_AD_V2_LABELS;
+
+/** Where a v2 ciphertext belongs. Ids are compared byte-for-byte (no Unicode normalisation). */
+export interface ItemBindingV2 {
+  vaultId: string;
+  itemId: string;
+  revision: number;
+}
+
+/** Upper bound on vault_id / item_id, in UTF-8 bytes. Real ids are UUID-sized. */
+export const ITEM_AD_V2_MAX_ID_BYTES = 1024;
+
+/**
+ * Reject lone UTF-16 surrogates. TextEncoder would silently turn them
+ * into U+FFFD, so two different JS strings could produce the same AD
+ * bytes; Rust `&str` cannot hold them at all. Hand-rolled (not
+ * String#isWellFormed / TextDecoder) because Hermes on mobile lacks both
+ * in some versions.
+ */
+function assertWellFormedUtf16(s: string, what: string): void {
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const next = s.charCodeAt(i + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) throw new Error(`${what} contains a lone surrogate`);
+      i++;
+    } else if (c >= 0xdc00 && c <= 0xdfff) {
+      throw new Error(`${what} contains a lone surrogate`);
+    }
+  }
+}
+
+function boundIdBytes(value: unknown, what: string): Uint8Array {
+  if (typeof value !== 'string') throw new Error(`${what} must be a string`);
+  assertWellFormedUtf16(value, what);
+  const bytes = new TextEncoder().encode(value);
+  if (bytes.length < 1 || bytes.length > ITEM_AD_V2_MAX_ID_BYTES) {
+    throw new Error(`${what} must be 1..${ITEM_AD_V2_MAX_ID_BYTES} UTF-8 bytes`);
+  }
+  return bytes;
+}
+
+/**
+ * Build the v2 additional data for one item slot. Throws on an empty or
+ * oversized id or a revision that is not a safe non-negative integer
+ * (2^53-1 is the largest value both JS and the Rust side represent).
+ */
+export function itemAdV2(purpose: ItemAdV2Purpose, binding: ItemBindingV2): Uint8Array {
+  const label = ITEM_AD_V2_LABELS[purpose];
+  if (label === undefined) throw new Error('unknown item AD purpose');
+  const labelBytes = new TextEncoder().encode(label);
+  const vaultId = boundIdBytes(binding.vaultId, 'vault_id');
+  const itemId = boundIdBytes(binding.itemId, 'item_id');
+  const { revision } = binding;
+  if (!Number.isSafeInteger(revision) || revision < 0) {
+    throw new Error('revision must be an integer in 0..2^53-1');
+  }
+  const parts = [labelBytes, vaultId, itemId];
+  const ad = new Uint8Array(parts.reduce((n, p) => n + 4 + p.length, 0) + 8);
+  const view = new DataView(ad.buffer);
+  let offset = 0;
+  for (const part of parts) {
+    view.setUint32(offset, part.length, false);
+    ad.set(part, offset + 4);
+    offset += 4 + part.length;
+  }
+  // u64 big-endian from a safe integer: high 32 bits, then low 32 bits.
+  view.setUint32(offset, Math.floor(revision / 4294967296), false);
+  view.setUint32(offset + 4, revision % 4294967296, false);
+  return ad;
+}
+
+/** v2 item payload encrypt: XChaCha20-Poly1305 under the Item Key, AD = itemAdV2('payload', binding). */
+export async function encryptItemPayloadV2(
+  itemKey: Uint8Array,
+  plaintext: Uint8Array,
+  binding: ItemBindingV2,
+): Promise<{ nonce: Uint8Array; ciphertext: Uint8Array }> {
+  return sealXChaCha(itemKey, plaintext, itemAdV2('payload', binding));
+}
+
+/** v2 item payload decrypt. Throws when the tag fails OR the binding differs from the writer's. */
+export async function decryptItemPayloadV2(
+  itemKey: Uint8Array,
+  nonce: Uint8Array,
+  ciphertext: Uint8Array,
+  binding: ItemBindingV2,
+): Promise<Uint8Array> {
+  return openXChaCha(itemKey, nonce, ciphertext, itemAdV2('payload', binding));
+}
+
+/** v2 Item Key wrap under the Vault Key, AD = itemAdV2('keyWrap', binding). */
+export async function wrapItemKeyV2(
+  vaultKey: Uint8Array,
+  itemKey: Uint8Array,
+  binding: ItemBindingV2,
+): Promise<{ nonce: Uint8Array; wrapped: Uint8Array }> {
+  assertWrappedKeyLength(itemKey, 'item key');
+  const { nonce, ciphertext } = await sealXChaCha(vaultKey, itemKey, itemAdV2('keyWrap', binding));
+  return { nonce, wrapped: ciphertext };
+}
+
+/** v2 Item Key unwrap. Throws on a bad tag, a binding mismatch, or a non-32-byte result. */
+export async function unwrapItemKeyV2(
+  vaultKey: Uint8Array,
+  nonce: Uint8Array,
+  wrapped: Uint8Array,
+  binding: ItemBindingV2,
+): Promise<Uint8Array> {
+  const key = await openXChaCha(vaultKey, nonce, wrapped, itemAdV2('keyWrap', binding));
+  if (key.length !== WRAPPED_KEY_BYTES) key.fill(0);
+  assertWrappedKeyLength(key, 'unwrapped item key');
+  return key;
+}
