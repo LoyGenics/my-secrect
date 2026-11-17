@@ -908,6 +908,12 @@ export const en = {
     errorConflict: 'The share changed in the meantime. Open it again to see the latest version.',
     errorGeneric: 'Something went wrong ({0}).',
   },
+  backup: {
+    itemListUnverified:
+      'Integrity of the item list not verifiable — this backup was made with an older version. Check that every item you expect is there.',
+    itemListMismatch:
+      'This backup’s item list does not match its authenticated index: an item was removed, added or changed. Nothing was restored. Do not trust this file; use another copy.',
+  },
 } as const;
 
 /**

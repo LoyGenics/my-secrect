@@ -908,4 +908,10 @@ export const vi: Dictionary = {
     errorConflict: 'Chia sẻ đã thay đổi trong lúc đó. Hãy mở lại để xem phiên bản mới nhất.',
     errorGeneric: 'Đã xảy ra lỗi ({0}).',
   },
+  backup: {
+    itemListUnverified:
+      'Không thể xác minh tính toàn vẹn của danh sách mục — bản sao lưu này được tạo bằng phiên bản cũ. Hãy kiểm tra xem có đủ mọi mục bạn mong đợi không.',
+    itemListMismatch:
+      'Danh sách mục của bản sao lưu này không khớp với chỉ mục đã xác thực: có mục bị xóa, thêm hoặc thay đổi. Không có gì được khôi phục. Đừng tin tệp này; hãy dùng bản sao khác.',
+  },
 };
