@@ -28,6 +28,10 @@ export interface VirtualAuthenticator {
   credentials(): Promise<Array<{ credentialId: string; signCount: number; isResidentCredential: boolean }>>;
   /** Forget every credential (simulates a device with no passkey). */
   clearCredentials(): Promise<void>;
+  /** Raw credential records (incl. private keys) — only for cloning into another virtual authenticator. */
+  exportCredentials(): Promise<any[]>;
+  /** Import credential records exported from another virtual authenticator (a "synced passkey"). */
+  importCredentials(credentials: any[]): Promise<void>;
   /** Toggle whether the authenticator reports user verification as successful. */
   setUserVerified(isUserVerified: boolean): Promise<void>;
   /** Toggle automatic presence simulation (false = ceremonies hang until timeout). */
@@ -65,6 +69,13 @@ export async function newVirtualAuthenticator(
       return credentials.map((c: any) => ({
         credentialId: c.credentialId, signCount: c.signCount, isResidentCredential: c.isResidentCredential,
       }));
+    },
+    async exportCredentials() {
+      const { credentials } = await cdp.send('WebAuthn.getCredentials', { authenticatorId });
+      return credentials;
+    },
+    async importCredentials(credentials: any[]) {
+      for (const credential of credentials) await cdp.send('WebAuthn.addCredential', { authenticatorId, credential });
     },
     async clearCredentials() { await cdp.send('WebAuthn.clearCredentials', { authenticatorId }); },
     async setUserVerified(isUserVerified: boolean) {
@@ -231,3 +242,68 @@ export async function nextTotp(secretBase32: string, lastStep: number | null): P
   while (wanted > nowStep() + 1) await new Promise((r) => setTimeout(r, 1000));
   return { code: totpAtStep(secretBase32, wanted), step: wanted };
 }
+
+
+// ---------------------------------------------------------------- composite flows
+
+/** Register an account, create the vault, land in the unlocked shell on the Security Center. */
+export async function signedInWithVault(page: Page, opts: { passphrase?: string; email?: string } = {}) {
+  const email = opts.email ?? uniqueEmail();
+  const passphrase = opts.passphrase ?? DEFAULT_PASSPHRASE;
+  await registerAccountViaUi(page, email);
+  const recoveryKey = await createVaultViaUi(page, passphrase);
+  await openSecurityCenter(page);
+  return { email, passphrase, recoveryKey };
+}
+
+/**
+ * A second, independent browser (own context => own localStorage and own
+ * virtual authenticator) that holds a copy of `from`'s passkeys, like a
+ * synced passkey on another device. Caller closes `context`.
+ */
+export async function secondBrowser(browser: import('@playwright/test').Browser, apiUrl: string, from: VirtualAuthenticator) {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.addInitScript(([key, url]) => {
+    try { if (localStorage.getItem(key) === null) localStorage.setItem(key, url); } catch { /* ignore */ }
+  }, [LS_API_BASE_URL, `${apiUrl}/api`]);
+  const authenticator = await newVirtualAuthenticator(page);
+  await authenticator.importCredentials(await from.exportCredentials());
+  return { context, page, authenticator };
+}
+
+/**
+ * Model a passkey provider that syncs a credential between two devices:
+ * copy `from`'s credentials (including the advanced signCount) over `to`.
+ * Without this the two virtual authenticators' counters diverge and the
+ * server's clone-detection (WebAuthn signCount must increase) correctly
+ * rejects the lagging one.
+ */
+export async function syncCredentials(from: VirtualAuthenticator, to: VirtualAuthenticator): Promise<void> {
+  const creds = await from.exportCredentials();
+  await to.clearCredentials();
+  await to.importCredentials(creds);
+}
+
+/** The server-verified step-up dialog (Security Center). */
+export function stepUpDialog(page: Page) {
+  return page.getByRole('dialog');
+}
+
+export async function stepUpWithPasskey(page: Page): Promise<void> {
+  const dialog = stepUpDialog(page);
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('radio', { name: 'Use a passkey' }).check();
+  await dialog.getByRole('button', { name: 'Use a passkey' }).click();
+  await expect(dialog).toBeHidden();
+}
+
+export async function stepUpWithTotp(page: Page, code: string): Promise<void> {
+  const dialog = stepUpDialog(page);
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('radio', { name: 'Authenticator code' }).check();
+  await dialog.getByRole('textbox', { name: 'Authenticator code' }).fill(code);
+  await dialog.getByRole('button', { name: 'Verify it’s you' }).click();
+}
+
+export const SESSIONS_API = '/api/v1/auth/sessions';

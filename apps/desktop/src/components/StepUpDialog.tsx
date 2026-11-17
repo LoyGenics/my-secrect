@@ -10,6 +10,17 @@ import { serializeGetCredential, toRequestOptions } from '../utils/webauthn';
 /**
  * StepUpDialog — fresh verification before a sensitive action.
  *
+ * Two modes:
+ *   - local (default): offers the master passphrase, TOTP and passkey.
+ *     Used for LOCAL sensitive actions (export, change passphrase, wipe),
+ *     where the passphrase check is enough.
+ *   - serverOnly: offers ONLY passkey and TOTP. Server-side step-up
+ *     (passkey add/remove, MFA disable, session revocation, account
+ *     deletion, ...) is verified BY THE SERVER; the master passphrase is
+ *     checked locally and never reaches the server, so it can never
+ *     satisfy it. Offering it would only produce a dialog that "succeeds"
+ *     and a server that still answers 403.
+ *
  * Offered methods, in order:
  *   (i)   re-enter the master passphrase (always available while the
  *         vault is unlocked; verified with verifyPassphrase, which
@@ -41,7 +52,10 @@ export interface StepUpDialogProps {
   open: boolean;
   /** Null when no API base URL is configured: TOTP / passkey are hidden. */
   security: SecurityApiClient | null;
-  verifyPassphrase: (passphrase: string) => Promise<boolean>;
+  /** Required unless serverOnly. */
+  verifyPassphrase?: (passphrase: string) => Promise<boolean>;
+  /** Only passkey / TOTP (server-verified); no passphrase option. */
+  serverOnly?: boolean;
   /** 'export' shows the export-specific reason line; otherwise the generic body. */
   reason?: 'export';
   onVerified: (method: StepUpMethod) => void;
@@ -65,16 +79,17 @@ export default function StepUpDialog({
   open,
   security,
   verifyPassphrase,
+  serverOnly = false,
   reason,
   onVerified,
   onCancel,
 }: StepUpDialogProps) {
   const { dict } = useTranslation();
   const s = dict.security;
-  const [method, setMethod] = useState<StepUpMethod>('passphrase');
+  const x = dict.securityActions;
+  const [method, setMethod] = useState<StepUpMethod>(serverOnly ? 'passkey' : 'passphrase');
   const [passphrase, setPassphrase] = useState('');
   const [totpCode, setTotpCode] = useState('');
-  const [email, setEmail] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -98,6 +113,7 @@ export default function StepUpDialog({
     setError('');
     setBusy(true);
     try {
+      if (!verifyPassphrase) throw new Error('no passphrase verifier');
       const ok = await verifyPassphrase(passphrase);
       setPassphrase('');
       if (ok) onVerified('passphrase');
@@ -130,7 +146,8 @@ export default function StepUpDialog({
     setError('');
     setBusy(true);
     try {
-      const { request_options } = await security.passkeyAuthenticateOptions(email.trim());
+      // Options for the signed-in account (no email to type or leak).
+      const { request_options } = await security.stepUpPasskeyOptions();
       const cred = await navigator.credentials.get({
         publicKey: toRequestOptions(request_options),
       });
@@ -159,25 +176,27 @@ export default function StepUpDialog({
           {s.stepUpTitle}
         </h2>
         <p className="mt-1 text-sm text-zinc-400">
-          {reason === 'export' ? s.exportRequiresStepUp : s.stepUpBody}
+          {serverOnly ? x.stepUpServerBody : reason === 'export' ? s.exportRequiresStepUp : s.stepUpBody}
         </p>
 
         <fieldset className="mt-4 space-y-2">
           <legend className="label" id="step-up-method-legend">
             {s.stepUp}
           </legend>
-          <label className="flex items-center gap-2 text-sm text-zinc-200">
-            <input
-              type="radio"
-              name="step-up-method"
-              value="passphrase"
-              checked={method === 'passphrase'}
-              onChange={() => setMethod('passphrase')}
-              className="accent-indigo-600"
-              aria-label={s.stepUpPassphraseLabel}
-            />
-            {s.stepUpPassphrase}
-          </label>
+          {!serverOnly && (
+            <label className="flex items-center gap-2 text-sm text-zinc-200">
+              <input
+                type="radio"
+                name="step-up-method"
+                value="passphrase"
+                checked={method === 'passphrase'}
+                onChange={() => setMethod('passphrase')}
+                className="accent-indigo-600"
+                aria-label={s.stepUpPassphraseLabel}
+              />
+              {s.stepUpPassphrase}
+            </label>
+          )}
           {canUseServerMethods && (
             <label className="flex items-center gap-2 text-sm text-zinc-200">
               <input
@@ -209,7 +228,7 @@ export default function StepUpDialog({
           )}
         </fieldset>
 
-        {method === 'passphrase' && (
+        {method === 'passphrase' && !serverOnly && (
           <form
             className="mt-4 space-y-3"
             onSubmit={(e) => {
@@ -276,37 +295,12 @@ export default function StepUpDialog({
             {!webauthn ? (
               <p className="rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
                 WebAuthn is not available in this browser or build, so a passkey cannot be used
-                here. Use your master passphrase instead.
+                here.{serverOnly ? '' : ' Use your master passphrase instead.'}
               </p>
             ) : (
-              <form
-                className="space-y-3"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void verifyWithPasskey();
-                }}
-              >
-                <div>
-                  <label className="label" htmlFor="step-up-passkey-email">
-                    Account email
-                  </label>
-                  <input
-                    id="step-up-passkey-email"
-                    name="step-up-passkey-email"
-                    type="email"
-                    className="input"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@example.com"
-                    autoComplete="email"
-                    aria-label="Account email"
-                    autoFocus
-                  />
-                </div>
-                <button type="submit" className="btn-primary w-full" disabled={busy || !email.trim()}>
-                  {s.stepUpPasskeyLabel}
-                </button>
-              </form>
+              <button type="button" className="btn-primary w-full" disabled={busy} onClick={() => void verifyWithPasskey()}>
+                {s.stepUpPasskeyLabel}
+              </button>
             )}
           </div>
         )}

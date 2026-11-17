@@ -4,7 +4,6 @@ import { useTranslation } from '../../../../packages/i18n/src/react';
 import { formatDate, type Dictionary } from '../../../../packages/i18n/src/index';
 import {
   ApiError,
-  LS_API_TOKEN,
   isStepUpRequired,
   isUnauthorized,
   type ActivityEvent,
@@ -15,6 +14,10 @@ import {
 } from '../../../../packages/sdk/src/security';
 import { fromBase64Url, sha256, toBase64 } from '../../../../packages/crypto-adapters/src/index';
 import { serializeCreateCredential, toCreationOptions } from '../utils/webauthn';
+import StepUpDialog from './StepUpDialog';
+
+/** localStorage prefix for the device signing key (private half, encrypted under the Vault Key). */
+const LS_DEVICE_KEY_PREFIX = 'my-secrect:device-key:';
 
 /**
  * SecurityCenter — account security for a server-backed account.
@@ -37,10 +40,10 @@ import { serializeCreateCredential, toCreationOptions } from '../utils/webauthn'
  *   (d) Security activity — the server's event list, shown as-is.
  *       Nothing is ever invented here; an empty list renders empty.
  *   (e) Delete account — DELETE /v1/auth/account via guarded(), so a
- *       403 step_up_required re-prompts through the existing step-up
- *       dialog and the delete does not proceed. The security
- *       dictionary has no slot for this action, so its labels are
- *       plain English (same exception as the WebAuthn note).
+ *       403 step_up_required opens the server step-up dialog (passkey /
+ *       TOTP, verified by the server) and the delete does not proceed
+ *       until it succeeds. Labels live in the `securityActions`
+ *       dictionary section (the 65-key `security` section is frozen).
  *
  * Account auth is SEPARATE from vault unlock: signing in does not
  * unlock the vault, and the server never sees vault keys or contents.
@@ -77,8 +80,6 @@ export interface SecurityCenterProps {
   /** Vault-Key encryption for device display names (server sees only ciphertext). */
   encryptWithVaultKey: (plaintext: string) => Promise<string>;
   decryptWithVaultKey: (encoded: string) => Promise<string>;
-  /** Open the App's step-up dialog, then run `run` on success. */
-  requestStepUp: (run: () => void, opts?: { reason?: 'export'; onCancel?: () => void }) => void;
   /** Email of the signed-in account (display only). */
   signedInEmail?: string;
   /** Sign out: revokes the current server session, clears the
@@ -88,12 +89,20 @@ export interface SecurityCenterProps {
    *  session is gone server-side. App clears the token and shows
    *  the sign-in gate again; this screen never silently retries. */
   onUnauthorized?: () => void;
+  /** Called after the server confirmed account deletion (204). App
+   *  clears the stored session + email and returns to the sign-in gate;
+   *  the local vault is NOT erased. */
+  onAccountDeleted?: () => void;
 }
 
 type LoadStatus = 'not-configured' | 'loading' | 'ready' | 'error';
 
-function describeError(err: unknown, s: Dictionary['security']): string {
-  if (err instanceof ApiError) return `${s.error} (HTTP ${err.status})`;
+function describeError(err: unknown, dict: Dictionary): string {
+  const s = dict.security;
+  if (err instanceof ApiError) {
+    if (err.status === 422 && err.message.includes('last_authenticator')) return dict.securityActions.lastPasskeyBlocked;
+    return `${s.error} (HTTP ${err.status})`;
+  }
   if (err instanceof TypeError) return s.offline;
   return err instanceof Error ? err.message : s.error;
 }
@@ -116,13 +125,14 @@ export default function SecurityCenter({
   apiBaseUrl,
   encryptWithVaultKey,
   decryptWithVaultKey,
-  requestStepUp,
   signedInEmail,
   onSignOut,
   onUnauthorized,
+  onAccountDeleted,
 }: SecurityCenterProps) {
   const { dict, locale } = useTranslation();
   const s = dict.security;
+  const x = dict.securityActions;
   const [status, setStatus] = useState<LoadStatus>(security ? 'loading' : 'not-configured');
   const [loadError, setLoadError] = useState('');
   const [passkeys, setPasskeys] = useState<PasskeyAuthenticator[]>([]);
@@ -132,9 +142,12 @@ export default function SecurityCenter({
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
-  // Step-up re-prompt state (shared by every server action below).
-  const [stepUpNotice, setStepUpNotice] = useState('');
-  const [stepUpRetry, setStepUpRetry] = useState<(() => void) | null>(null);
+  // Server step-up: when the server answers 403 step_up_required this
+  // screen opens its OWN serverOnly dialog (passkey / TOTP, verified by
+  // the server) and re-runs the refused action once it succeeds. The
+  // App-level dialog (passphrase) is for local actions and cannot
+  // satisfy the server.
+  const [stepUpRetry, setStepUpRetry] = useState<(() => Promise<void>) | null>(null);
 
   // (a) passkeys
   const [passkeyBusy, setPasskeyBusy] = useState(false);
@@ -164,6 +177,8 @@ export default function SecurityCenter({
   const [sessionMessage, setSessionMessage] = useState('');
   const [confirmRevokeSessionId, setConfirmRevokeSessionId] = useState<string | null>(null);
   const [confirmRevokeOthers, setConfirmRevokeOthers] = useState(false);
+  const [enrollName, setEnrollName] = useState('');
+  const [enrollBusy, setEnrollBusy] = useState(false);
 
   // (c) recovery verifier
   const [recoveryKeyInput, setRecoveryKeyInput] = useState('');
@@ -196,9 +211,11 @@ export default function SecurityCenter({
 
   /**
    * Run a server action. On 403 `step_up_required` the action does NOT
-   * proceed: the step-up notice appears with a Verify button that
-   * re-runs the action through the App's step-up dialog, then runs
-   * onSuccess. Any other failure surfaces as an error string.
+   * proceed: the serverOnly step-up dialog opens and, once the server
+   * has verified a passkey / TOTP, the action runs again (and may
+   * prompt again if the server still refuses). Any other failure
+   * surfaces as an error string. Resolves true only when `fn` ran to
+   * completion in THIS call.
    */
   const guarded = async (
     fn: () => Promise<void>,
@@ -211,20 +228,13 @@ export default function SecurityCenter({
       return true;
     } catch (err) {
       if (isStepUpRequired(err)) {
-        setStepUpNotice(s.stepUpExpired);
-        setStepUpRetry(() => () =>
-          requestStepUp(() => {
-            void fn()
-              .then(() => onSuccess?.())
-              .catch((e2: unknown) => setError(describeError(e2, s)));
-          }),
-        );
+        setStepUpRetry(() => async () => { await guarded(fn, setError, onSuccess); });
         return false;
       }
       // A 401 here means the session died mid-action: hand back to
       // SignIn via App instead of showing a dead-end error.
       if (isUnauthorized(err)) onUnauthorized?.();
-      setError(describeError(err, s));
+      setError(describeError(err, dict));
       return false;
     }
   };
@@ -269,14 +279,14 @@ export default function SecurityCenter({
     else { failures += 1; firstError ??= act.reason; }
     if (failures === 4) {
       setStatus('error');
-      setLoadError(describeError(firstError, s));
+      setLoadError(describeError(firstError, dict));
       // Every call answered 401: the session is gone server-side
       // (revoked or expired). Hand the user back to SignIn via App;
       // never retry here with the same stale token.
       if (isUnauthorized(firstError)) onUnauthorized?.();
     } else {
       setStatus('ready');
-      if (failures > 0) setLoadError(describeError(firstError, s));
+      if (failures > 0) setLoadError(describeError(firstError, dict));
     }
   };
 
@@ -300,32 +310,25 @@ export default function SecurityCenter({
     setPasskeyError('');
     setPasskeyMessage('');
     setPasskeyBusy(true);
-    try {
-      const { creation_options } = await security.passkeyAddOptions();
-      const cred = await navigator.credentials.create({
-        publicKey: toCreationOptions(creation_options),
-      });
-      if (!cred) throw new Error('no credential returned');
-      const res = await security.passkeyAddVerify(serializeCreateCredential(cred as PublicKeyCredential));
-      if (res?.rotated_token) {
-        try {
-          localStorage.setItem(LS_API_TOKEN, res.rotated_token);
-        } catch {
-          // Token rotation could not be persisted; the next call will be unauthenticated.
-        }
-      }
-      setPasskeyMessage(s.passkeyAdded);
-      await loadAll();
-    } catch (err) {
-      if (isStepUpRequired(err)) {
-        setStepUpNotice(s.stepUpExpired);
-        setStepUpRetry(() => () => requestStepUp(() => { void handleAddPasskey(); }));
-      } else {
-        setPasskeyError(describeError(err, s));
-      }
-    } finally {
-      setPasskeyBusy(false);
-    }
+    await guarded(
+      async () => {
+        // The server requires step-up on /add/options, so a refusal
+        // happens BEFORE any authenticator prompt. The rotated session
+        // token in the verify response is adopted by the client.
+        const { creation_options } = await security.passkeyAddOptions();
+        const cred = await navigator.credentials.create({
+          publicKey: toCreationOptions(creation_options),
+        });
+        if (!cred) throw new Error('no credential returned');
+        await security.passkeyAddVerify(serializeCreateCredential(cred as PublicKeyCredential));
+      },
+      setPasskeyError,
+      () => {
+        setPasskeyMessage(s.passkeyAdded);
+        void loadAll();
+      },
+    );
+    setPasskeyBusy(false);
   };
 
   const handleRemovePasskey = async (id: string) => {
@@ -333,12 +336,11 @@ export default function SecurityCenter({
     setConfirmRemovePasskeyId(null);
     setPasskeyError('');
     setPasskeyMessage('');
-    const ok = await guarded(
+    await guarded(
       async () => { await security.removePasskey(id); },
       setPasskeyError,
-      () => setPasskeyMessage(s.passkeyRemoved),
+      () => { setPasskeyMessage(s.passkeyRemoved); void loadAll(); },
     );
-    if (ok) void loadAll();
   };
 
   // --- (a) MFA ---------------------------------------------------------------
@@ -351,7 +353,7 @@ export default function SecurityCenter({
       const res = await security.mfaEnroll();
       setMfaSecret({ otpauth_url: res.otpauth_url, secret: res.secret });
     } catch (err) {
-      setMfaError(describeError(err, s));
+      setMfaError(describeError(err, dict));
     } finally {
       setMfaBusy(false);
     }
@@ -362,7 +364,12 @@ export default function SecurityCenter({
     setMfaError('');
     setMfaBusy(true);
     await guarded(
-      async () => { await security.mfaConfirm(mfaCode.trim()); },
+      async () => {
+        const res = await security.mfaConfirm(mfaCode.trim());
+        // Recovery codes are returned ONCE, here. Shown once, kept in
+        // component state only, never persisted.
+        setRecoveryCodes(res.recovery_codes ?? []);
+      },
       setMfaError,
       () => {
         setMfaState('enabled');
@@ -378,15 +385,16 @@ export default function SecurityCenter({
     if (!security) return;
     setConfirmDisableMfa(false);
     setMfaError('');
-    const ok = await guarded(
+    await guarded(
       async () => { await security.mfaDisable(); },
       setMfaError,
       () => {
         setMfaState('disabled');
         setMfaMessage(s.mfaDisabled);
+        setRecoveryCodes(null);
+        void loadAll();
       },
     );
-    if (ok) void loadAll();
   };
 
   const handleRegenerateCodes = async () => {
@@ -411,7 +419,7 @@ export default function SecurityCenter({
     if (!name) return;
     setDeviceError('');
     setDeviceMessage('');
-    const ok = await guarded(
+    await guarded(
       async () => {
         const encrypted = await encryptWithVaultKey(name);
         await security.updateDevice(device.id, { name_encrypted: encrypted });
@@ -421,49 +429,86 @@ export default function SecurityCenter({
         setDisplayNames((prev) => ({ ...prev, [device.id]: name }));
         setRenameDeviceId(null);
         setRenameValue('');
+        void loadAll();
       },
     );
-    if (ok) void loadAll();
   };
 
   const handleToggleTrust = async (device: DeviceInfo) => {
     if (!security) return;
     setDeviceError('');
-    const ok = await guarded(
+    await guarded(
       async () => { await security.updateDevice(device.id, { trusted: !device.trusted }); },
       setDeviceError,
+      () => void loadAll(),
     );
-    if (ok) void loadAll();
   };
 
-  /** No device-delete endpoint exists in the contract: revoking a
-   *  device revokes every server session bound to its device_id. */
+  /** DELETE /v1/devices/:id — the server marks the device revoked and
+   *  ends its server sessions. It does NOT erase data already on that
+   *  device. If the current session belongs to that device, the next
+   *  load answers 401 and App returns to sign-in. */
   const handleRevokeDevice = async (device: DeviceInfo) => {
     if (!security) return;
     setDeviceError('');
     setDeviceMessage('');
-    const ok = await guarded(
+    await guarded(
+      async () => { await security.revokeDevice(device.id); },
+      setDeviceError,
+      () => { setDeviceMessage(x.deviceRevoked); void loadAll(); },
+    );
+  };
+
+  /** Enroll THIS browser: a fresh Ed25519 device key pair; only the
+   *  public key and a Vault-Key-encrypted name are sent. The private
+   *  half is stored encrypted under the Vault Key (never in clear) and
+   *  zero-filled in memory. Enrolling grants no vault access. */
+  const handleEnrollDevice = async () => {
+    if (!security) return;
+    const name = enrollName.trim();
+    if (!name) return;
+    setDeviceError('');
+    setDeviceMessage('');
+    setEnrollBusy(true);
+    let privateKey: Uint8Array | null = null;
+    await guarded(
       async () => {
-        const list = await security.listSessions();
-        const mine = (list.sessions ?? []).filter((sess) => sess.device_id === device.id);
-        for (const sess of mine) await security.revokeSession(sess.id);
-        // Zero sessions bound to this device: nothing to revoke; the
-        // reload below shows the unchanged state. No message is faked.
+        await sodium.ready;
+        const seed = sodium.randombytes_buf(32);
+        const kp = sodium.crypto_sign_seed_keypair(seed);
+        seed.fill(0);
+        privateKey = kp.privateKey;
+        const res = await security.enrollDevice({
+          public_key: toBase64(kp.publicKey),
+          name_encrypted: await encryptWithVaultKey(name),
+          platform: typeof navigator !== 'undefined' ? navigator.platform || 'web' : 'web',
+        });
+        const id = res?.device?.id;
+        if (id) {
+          try {
+            localStorage.setItem(LS_DEVICE_KEY_PREFIX + id, await encryptWithVaultKey(toBase64(kp.privateKey)));
+          } catch {
+            // Without local storage the device record still exists; no key is kept in clear.
+          }
+        }
       },
       setDeviceError,
+      () => { setEnrollName(''); setDeviceMessage(x.deviceEnrolled); void loadAll(); },
     );
-    if (ok) void loadAll();
+    (privateKey as Uint8Array | null)?.fill(0);
+    setEnrollBusy(false);
   };
 
   const handleRevokeSession = async (id: string) => {
     if (!security) return;
     setConfirmRevokeSessionId(null);
     setSessionError('');
-    const ok = await guarded(
+    setSessionMessage('');
+    await guarded(
       async () => { await security.revokeSession(id); },
       setSessionError,
+      () => { setSessionMessage(x.sessionRevoked); void loadAll(); },
     );
-    if (ok) void loadAll();
   };
 
   const handleRevokeOthers = async () => {
@@ -471,11 +516,12 @@ export default function SecurityCenter({
     setConfirmRevokeOthers(false);
     setSessionError('');
     setSessionMessage('');
-    const ok = await guarded(
-      async () => { await security.revokeOtherSessions(); },
+    let revoked = 0;
+    await guarded(
+      async () => { revoked = (await security.revokeOtherSessions())?.revoked_count ?? 0; },
       setSessionError,
+      () => { setSessionMessage(x.othersRevoked.replace('{n}', String(revoked))); void loadAll(); },
     );
-    if (ok) void loadAll();
   };
 
   // --- (c) Recovery verifier ---------------------------------------------------
@@ -488,8 +534,12 @@ export default function SecurityCenter({
     let privateKey: Uint8Array | null = null;
     try {
       await sodium.ready;
-      seed = fromBase64Url(recoveryKeyInput.trim());
-      if (seed.length !== 32) throw new Error('recovery key must be 32 bytes');
+      try {
+        seed = fromBase64Url(recoveryKeyInput.trim());
+      } catch {
+        throw new Error(x.recoveryKeyInvalid);
+      }
+      if (seed.length !== 32) throw new Error(x.recoveryKeyInvalid);
       const keypair = sodium.crypto_sign_seed_keypair(seed);
       privateKey = keypair.privateKey;
       const publicKeyB64 = toBase64(keypair.publicKey);
@@ -525,18 +575,13 @@ export default function SecurityCenter({
       async () => { await security.deleteAccount(); },
       setDeleteAccountError,
       () => {
-        try {
-          localStorage.removeItem(LS_API_TOKEN);
-        } catch {
-          // The server session is already gone; a storage failure does not keep it alive.
-        }
         setPasskeys([]);
         setSessions([]);
         setDevices([]);
         setActivity([]);
-        setDeleteAccountMessage(
-          'Server account deleted. That account’s sessions no longer work. The local vault on this device was not erased.',
-        );
+        setDeleteAccountMessage(x.accountDeleted);
+        // App clears the stored token + email and shows the sign-in gate.
+        onAccountDeleted?.();
       },
     );
     setDeleteAccountBusy(false);
@@ -561,31 +606,11 @@ export default function SecurityCenter({
               {dict.signin.signOut}
             </button>
             <span className="text-xs text-zinc-500">
-              Signing out revokes this server session and locks the vault. It does not erase secrets already downloaded on this device.
+              {x.signOutNote}
             </span>
           </div>
         )}
       </div>
-
-      {stepUpNotice && (
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-sm text-amber-200" role="alert">
-          <span>{stepUpNotice}</span>
-          {stepUpRetry && (
-            <button
-              type="button"
-              className="btn-primary !py-1 text-xs"
-              onClick={() => {
-                const retry = stepUpRetry;
-                setStepUpRetry(null);
-                setStepUpNotice('');
-                retry();
-              }}
-            >
-              {s.stepUp}
-            </button>
-          )}
-        </div>
-      )}
 
       {status === 'not-configured' && (
         <section className="card p-5" aria-labelledby="security-not-configured-heading">
@@ -876,6 +901,31 @@ export default function SecurityCenter({
                 ))}
               </ul>
             )}
+            <p className="mt-3 text-xs text-zinc-500">{x.deviceRevokeNote}</p>
+            <form
+              className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900/60 p-3"
+              onSubmit={(e) => { e.preventDefault(); void handleEnrollDevice(); }}
+            >
+              <p className="text-xs text-zinc-400">{x.enrollDeviceBody}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <div className="min-w-0 flex-1">
+                  <label className="label" htmlFor="security-enroll-name">{x.enrollDeviceName}</label>
+                  <input
+                    id="security-enroll-name"
+                    name="enroll-device-name"
+                    type="text"
+                    className="input"
+                    value={enrollName}
+                    onChange={(e) => setEnrollName(e.target.value)}
+                    autoComplete="off"
+                    aria-label={x.enrollDeviceName}
+                  />
+                </div>
+                <button type="submit" className="btn-primary self-end" disabled={enrollBusy || !enrollName.trim()}>
+                  {x.enrollDevice}
+                </button>
+              </div>
+            </form>
             {deviceError && <p role="alert" className="mt-2 text-sm text-red-400">{deviceError}</p>}
             {deviceMessage && <p role="status" className="mt-2 text-sm text-zinc-400">{deviceMessage}</p>}
 
@@ -958,7 +1008,7 @@ export default function SecurityCenter({
             >
               <div>
                 <label className="label" htmlFor="security-recovery-key">
-                  {s.recoveryVerifier}
+                  {x.recoveryKeyLabel}
                 </label>
                 <input
                   id="security-recovery-key"
@@ -968,7 +1018,7 @@ export default function SecurityCenter({
                   value={recoveryKeyInput}
                   onChange={(e) => setRecoveryKeyInput(e.target.value)}
                   autoComplete="off"
-                  aria-label={s.recoveryVerifier}
+                  aria-label={x.recoveryKeyLabel}
                 />
               </div>
               <button type="submit" className="btn-primary" disabled={recoveryBusy || !recoveryKeyInput.trim() || !security}>
@@ -1015,18 +1065,13 @@ export default function SecurityCenter({
           {/* (e) Delete account. Dictionary has no keys for this action. */}
           <section className="card p-5" aria-labelledby="security-delete-account-heading">
             <h3 id="security-delete-account-heading" className="text-base font-semibold">
-              Delete account
+              {x.deleteAccount}
             </h3>
-            <p className="mt-1 text-sm text-zinc-400">
-              Permanently deletes this server account, its sessions, and its vault metadata.
-              The local vault on this device is not erased. The server requires a fresh verification.
-            </p>
+            <p className="mt-1 text-sm text-zinc-400">{x.deleteAccountBody}</p>
             <div className="mt-3">
               {confirmDeleteAccount ? (
                 <span className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm text-zinc-300">
-                    Delete this server account permanently?
-                  </span>
+                  <span className="text-sm text-zinc-300">{x.deleteAccountConfirm}</span>
                   <button
                     type="button"
                     className="btn-ghost"
@@ -1051,7 +1096,7 @@ export default function SecurityCenter({
                   disabled={deleteAccountBusy || !security}
                   onClick={() => setConfirmDeleteAccount(true)}
                 >
-                  Delete account
+                  {x.deleteAccount}
                 </button>
               )}
             </div>
@@ -1064,6 +1109,18 @@ export default function SecurityCenter({
       <p className="text-xs text-zinc-500">
         {s.title} · {apiBaseUrl ? apiBaseUrl : s.notConfigured}
       </p>
+
+      <StepUpDialog
+        open={stepUpRetry !== null}
+        security={security}
+        serverOnly
+        onVerified={() => {
+          const retry = stepUpRetry;
+          setStepUpRetry(null);
+          if (retry) void retry();
+        }}
+        onCancel={() => setStepUpRetry(null)}
+      />
     </div>
   );
 }

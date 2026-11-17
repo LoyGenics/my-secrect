@@ -200,8 +200,13 @@ export interface PasskeyAuthenticator {
   credential_id_prefix: string;
   sign_count: number;
   created_at: string;
+  /** Always null for entries returned by listPasskeys() (revoked ones are filtered out). */
+  revoked_at?: string | null;
 }
 
+/** ACTIVE passkeys only. The wire response is `{ passkeys: [...] }` and
+ *  also contains revoked authenticators; listPasskeys() filters those
+ *  out and exposes the rest under `authenticators`. */
 export interface PasskeyListResponse {
   authenticators: PasskeyAuthenticator[];
 }
@@ -272,6 +277,8 @@ export interface PasskeyAuthenticateOptionsResponse {
 export interface SessionInfo {
   id: string;
   device_id: string;
+  /** True for the 15-minute session minted by recovery-key sign-in. */
+  recovery_session?: boolean;
   user_agent: string;
   ip_address: string;
   created_at: string;
@@ -290,7 +297,11 @@ export interface DeviceInfo {
   name?: string | null;
   platform?: string | null;
   user_agent?: string | null;
+  /** Derived by listDevices() from the wire field `trusted_at`. */
   trusted?: boolean;
+  /** Wire field: when the device was marked trusted (null = not trusted). */
+  trusted_at?: string | null;
+  revoked_at?: string | null;
   last_seen_at?: string | null;
   created_at?: string | null;
   current?: boolean;
@@ -389,8 +400,9 @@ export class SecurityApiClient {
   }
 
   // --- Passkeys ------------------------------------------------------------
-  listPasskeys(): Promise<PasskeyListResponse> {
-    return this.req<PasskeyListResponse>('/v1/auth/passkeys');
+  async listPasskeys(): Promise<PasskeyListResponse> {
+    const raw = await this.req<{ passkeys?: PasskeyAuthenticator[] }>('/v1/auth/passkeys');
+    return { authenticators: (raw?.passkeys ?? []).filter((p) => !p.revoked_at) };
   }
 
   /** Options for registering a new passkey (WebAuthn creation). */
@@ -504,8 +516,8 @@ export class SecurityApiClient {
   /** Revoke every session except the current one. Step-up required.
    *  Revocation invalidates server sessions only — it does NOT erase
    *  secrets already downloaded or stored offline on those devices. */
-  revokeOtherSessions(): Promise<void> {
-    return this.del<void>('/v1/auth/sessions/others');
+  revokeOtherSessions(): Promise<{ revoked_count: number; current_session_id?: string }> {
+    return this.del<{ revoked_count: number; current_session_id?: string }>('/v1/auth/sessions/others');
   }
 
   /** Sign out of THIS device: find the session flagged `current`
@@ -528,8 +540,15 @@ export class SecurityApiClient {
   }
 
   // --- Devices ---------------------------------------------------------------
-  listDevices(): Promise<DeviceListResponse> {
-    return this.req<DeviceListResponse>('/v1/devices');
+  /** Active (non-revoked) devices. The wire shape carries `trusted_at`;
+   *  `trusted` is derived from it so callers do not re-implement that. */
+  async listDevices(): Promise<DeviceListResponse> {
+    const raw = await this.req<DeviceListResponse>('/v1/devices');
+    return {
+      devices: (raw?.devices ?? [])
+        .filter((d) => !d.revoked_at)
+        .map((d) => ({ ...d, trusted: !!d.trusted_at })),
+    };
   }
 
   /** Rename (name_encrypted is Vault-Key-encrypted, opaque to the
@@ -541,9 +560,19 @@ export class SecurityApiClient {
     });
   }
 
-  /** Enroll this device. Step-up required server-side. */
-  enrollDevice(): Promise<unknown> {
-    return this.post('/v1/devices/enroll');
+  /** Enroll a device record. Step-up required server-side.
+   *  `public_key` is the device's Ed25519 verify key (base64); only the
+   *  PUBLIC key is sent. `name_encrypted` is Vault-Key-encrypted. Enrolling
+   *  grants no vault access — the vault still needs the passphrase. */
+  enrollDevice(body: { public_key: string; name_encrypted?: string; platform?: string }): Promise<{ device: DeviceInfo }> {
+    return this.post<{ device: DeviceInfo }>('/v1/devices/enroll', body);
+  }
+
+  /** Revoke a device: the server marks it revoked and ends its server
+   *  sessions (and rotates key envelopes). This does NOT erase data
+   *  already downloaded or stored offline on that device. */
+  revokeDevice(id: string): Promise<void> {
+    return this.del<void>(`/v1/devices/${encodeURIComponent(id)}`);
   }
 
   // --- Step-up ---------------------------------------------------------------
@@ -552,7 +581,13 @@ export class SecurityApiClient {
     return this.post('/v1/auth/step-up/totp', { code });
   }
 
-  /** Verify a step-up with a passkey assertion (after authenticate options). */
+  /** Options for a passkey step-up of the CURRENT session (no email needed:
+   *  the server uses the signed-in account). */
+  stepUpPasskeyOptions(): Promise<PasskeyAuthenticateOptionsResponse> {
+    return this.post<PasskeyAuthenticateOptionsResponse>('/v1/auth/step-up/passkey/options');
+  }
+
+  /** Verify a step-up with a passkey assertion (after stepUpPasskeyOptions). */
   stepUpPasskey(credential: unknown): Promise<unknown> {
     return this.post('/v1/auth/step-up/passkey', { credential });
   }

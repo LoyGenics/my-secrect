@@ -238,6 +238,17 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     setSessionExpired(false);
   }, []);
 
+  // The server confirmed account deletion: drop the (now dead) session and
+  // email and return to the sign-in gate. The local vault is NOT erased.
+  const handleAccountDeleted = useCallback(() => {
+    void clearSessionToken(webTokenStore());
+    try { localStorage.removeItem(LS_ACCOUNT_EMAIL); } catch { /* non-critical */ }
+    setAccountEmail('');
+    setSignedIn(false);
+    setLocalOnlyBypass(false);
+    setSessionExpired(false);
+  }, []);
+
   const handleUnauthorized = useCallback(() => {
     // A 401 means the stored session is gone server-side (revoked
     // or expired). Clear it locally and send the user back to
@@ -1079,10 +1090,10 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
               apiBaseUrl={apiBaseUrl}
               encryptWithVaultKey={encryptWithVaultKey}
               decryptWithVaultKey={decryptWithVaultKey}
-              requestStepUp={requestStepUp}
               signedInEmail={accountEmail}
               onSignOut={() => void handleSignOut()}
               onUnauthorized={handleUnauthorized}
+              onAccountDeleted={handleAccountDeleted}
             />
           </div>
         ) : view === 'health' ? (
