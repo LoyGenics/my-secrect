@@ -9,13 +9,55 @@ module Accounts
   # foreign-key order with delete_all / update_all, which does not load
   # token digests or vault ciphertext. No email, token, or ciphertext
   # is written to the log.
+  #
+  # Object storage: every blob part object (the ciphertext chunks; the
+  # manifest lives encrypted in the blobs row, not in storage) of the
+  # user's vaults is deleted through StorageProvider#delete BEFORE any
+  # database row is removed, inside the row lock. If any storage delete
+  # fails, nothing in the database is touched, an audit event is written
+  # (counts + error class only; never keys' contents or credentials) and
+  # StorageDeletionError is raised so the caller can retry. Storage
+  # deletes are idempotent, so a retry re-deletes safely. Trade-off: if the
+  # DB step fails after storage succeeded, the bytes are already gone but
+  # the account remains; the user simply retries deletion.
   module Delete
+    class StorageDeletionError < StandardError; end
+
     module_function
 
+    # Returns the set of keys deleted so far (skip-list for the second pass).
+    def delete_storage_objects!(user:, vault_ids:, already_deleted: [])
+      keys = BlobPart.joins(:blob).where(blobs: { vault_id: vault_ids }).pluck(:object_key) - already_deleted
+      return already_deleted if keys.empty?
+
+      provider = Blobs::StorageProvider.new
+      failed = 0
+      error_classes = []
+      keys.each do |key|
+        provider.delete(object_key: key)
+      rescue StandardError => e
+        failed += 1
+        error_classes << e.class.name
+      end
+      return already_deleted | keys if failed.zero?
+
+      Audit::Log.call(user: user, event_type: 'account_deletion_storage_failed',
+                      metadata: { failed_objects: failed, total_objects: keys.size, error_classes: error_classes.uniq })
+      raise StorageDeletionError, "#{failed} of #{keys.size} storage objects could not be deleted; account not deleted, retry"
+    end
+
     def call(user:)
+      # Pass 1 runs OUTSIDE the DB transaction so a failure's audit event
+      # is not rolled back with it. Pass 2 (inside the lock) only catches
+      # parts created between pass 1 and the lock.
+      pre_vault_ids = user.vaults.pluck(:id)
+      deleted = pre_vault_ids.empty? ? [] : delete_storage_objects!(user: user, vault_ids: pre_vault_ids)
+
       user.with_lock do
         device_ids = user.devices.pluck(:id)
         vault_ids = user.vaults.pluck(:id)
+
+        delete_storage_objects!(user: user, vault_ids: vault_ids, already_deleted: deleted) unless vault_ids.empty?
 
         user.sessions.delete_all
         MfaChallenge.where(user_id: user.id).delete_all

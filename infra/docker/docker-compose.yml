@@ -8,14 +8,16 @@ services:
   caddy:
     image: caddy:2-alpine
     ports:
-      - '80:80'
-      - '443:443'
+      - '${HTTP_PORT:-80}:80'
+      - '${HTTPS_PORT:-443}:443'
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - vault_caddy_data:/data
       - vault_caddy_config:/config
     depends_on:
       api: { condition: service_healthy }
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?SITE_ADDRESS is required (your domain, or localhost for a local run)}
     restart: unless-stopped
   api:
     build:
@@ -26,15 +28,15 @@ services:
       DATABASE_URL: postgres://vault:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/vault_production
       REDIS_URL: redis://redis:6379/0
       S3_ENDPOINT: http://minio:9000
-      S3_BUCKET: ${S3_BUCKET:-vault-blobs}
-      S3_REGION: us-east-1
+      S3_BUCKET: ${S3_BUCKET:?S3_BUCKET is required}
+      S3_REGION: ${S3_REGION:?S3_REGION is required}
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}
       S3_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY is required}
-      RAILS_MASTER_KEY: ${RAILS_MASTER_KEY:?RAILS_MASTER_KEY is required}
-      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-localhost}
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:?SECRET_KEY_BASE is required}
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:?WEBAUTHN_RP_ID is required}
       WEBAUTHN_RP_NAME: my-secrect
-      WEBAUTHN_ORIGIN: ${WEBAUTHN_ORIGIN:-https://localhost}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:1420}
+      WEBAUTHN_ORIGIN: ${WEBAUTHN_ORIGIN:?WEBAUTHN_ORIGIN is required}
+      CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS is required}
     # No host ports. Other containers reach this process as api:3000.
     # force_ssl redirects plain HTTP, so the probe sends the same forwarded
     # proto Caddy sends and requires the /health body {"ok":true}.
@@ -47,7 +49,7 @@ services:
     depends_on:
       db: { condition: service_healthy }
       redis: { condition: service_started }
-      minio: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
     restart: unless-stopped
   worker:
     build:
@@ -59,11 +61,11 @@ services:
       DATABASE_URL: postgres://vault:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/vault_production
       REDIS_URL: redis://redis:6379/0
       S3_ENDPOINT: http://minio:9000
-      S3_BUCKET: ${S3_BUCKET:-vault-blobs}
-      S3_REGION: us-east-1
+      S3_BUCKET: ${S3_BUCKET:?S3_BUCKET is required}
+      S3_REGION: ${S3_REGION:?S3_REGION is required}
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}
       S3_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY is required}
-      RAILS_MASTER_KEY: ${RAILS_MASTER_KEY:?RAILS_MASTER_KEY is required}
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:?SECRET_KEY_BASE is required}
     # Image HEALTHCHECK curls :3000. Sidekiq does not listen there.
     healthcheck: { disable: true }
     depends_on:
@@ -84,15 +86,31 @@ services:
     healthcheck: { test: ['CMD', 'redis-cli', 'ping'], interval: 5s, timeout: 3s, retries: 10 }
     restart: unless-stopped
   minio:
-    image: minio/minio:latest
+    # Docker Hub minio/minio is no longer published; override MINIO_IMAGE
+    # (e.g. quay.io/minio/minio:<release>) if you prefer the upstream image,
+    # but it must provide the `minio` binary as entrypoint args below.
+    image: ${MINIO_IMAGE:-cgr.dev/chainguard/minio:latest}
     command: server /data --console-address ':9001'
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}
       MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:?S3_SECRET_KEY is required}
     # No host ports. Other containers reach the S3 API as minio:9000.
+    # Image is shell-less, so no container healthcheck; minio-init (mc retries)
+    # gates the api instead.
     volumes: [vault_minio:/data]
-    healthcheck: { test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live'], interval: 5s, timeout: 3s, retries: 10 }
     restart: unless-stopped
+  # One-shot: creates the bucket if missing (idempotent). mc reads the
+  # alias from MC_HOST_local; credentials come from the same required env as
+  # everything else. mc image has no shell, so readiness is handled by
+  # restart: on-failure (retries until MinIO answers).
+  minio-init:
+    image: ${MC_IMAGE:-cgr.dev/chainguard/minio-client:latest}
+    depends_on:
+      minio: { condition: service_started }
+    environment:
+      MC_HOST_local: http://${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}:${S3_SECRET_KEY:?S3_SECRET_KEY is required}@minio:9000
+    command: ['mb', '--ignore-existing', 'local/${S3_BUCKET:?S3_BUCKET is required}']
+    restart: on-failure:60
 volumes:
   vault_pgdata: {}
   vault_minio: {}

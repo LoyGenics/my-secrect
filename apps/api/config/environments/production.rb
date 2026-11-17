@@ -8,6 +8,8 @@ Rails.application.configure do
   config.log_tags = [:request_id]
   config.active_record.dump_schema_after_migration = false
   config.force_ssl = true
+  # Background jobs run in the separate `worker` (sidekiq) container.
+  config.active_job.queue_adapter = :sidekiq
   # Never log ciphertext or key material, even at debug level.
   config.filter_parameters += %i[encrypted_payload encrypted_item_key encrypted_key signature]
 end
