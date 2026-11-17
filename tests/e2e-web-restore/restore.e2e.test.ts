@@ -1,7 +1,7 @@
 /**
  * Real-browser E2E for the "Restore backup" flow (apps/web -> shared desktop App).
  *
- * Boots its own Vite dev server on port 5203, drives real Chromium via
+ * Boots its own Vite preview server (port E2E_RESTORE_WEB_PORT, default 5203), drives real Chromium via
  * Playwright, creates a vault, exports an encrypted backup THROUGH THE UI
  * (real download), then restores into fresh browser contexts (empty
  * localStorage) and runs negative cases. Nothing is mocked: real Argon2id,
@@ -19,7 +19,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'playwrig
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
-const PORT = 5203;
+const PORT = Number(process.env.E2E_RESTORE_WEB_PORT ?? 5203);
 const URL_BASE = `http://127.0.0.1:${PORT}/`;
 const PASS = 'correct horse battery staple 42';
 const LS_KEYS = 'my-secrect.local-vault.v1.keys';
@@ -41,7 +41,7 @@ async function waitForServer(): Promise<void> {
     } catch { /* not up yet */ }
     await new Promise((r) => setTimeout(r, 500));
   }
-  throw new Error('vite did not start on 5203');
+  throw new Error(`vite did not start on ${PORT}`);
 }
 
 before(async () => {
