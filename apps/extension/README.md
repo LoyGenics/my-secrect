@@ -146,19 +146,56 @@ src/lib/vault-ext.ts        Extension vault (Argon2id + XChaCha20, chrome.storag
 src/lib/domain.ts           Origin/domain matching + fill gate
 src/lib/messages.ts         Popup <-> background protocol
 src/lib/settings.ts         Settings load/save (chrome.storage.local)
+src/lib/password.ts         Password generator (rejection sampling, as desktop/mobile)
 src/popup/                  Popup React UI (Popup.tsx, main.tsx, index.html, popup.css)
-src/content/content.ts      On-demand fill + form detection (values never leave the page)
+src/content/content.ts      On-demand fill, form detection, submit capture (rule 11)
 src/options/                Options React UI (Options.tsx, main.tsx, index.html)
+e2e/                        Real-Chromium Playwright specs + firefox-probe.mjs
+tests/                      Unit tests (npm --workspace apps/extension test)
 ```
+
+## Tests
+
+```sh
+npm --workspace apps/extension test       # unit: domain gate, manifest, TOTP, generator, recovery key
+npm --workspace apps/extension run test:e2e
+```
+
+`test:e2e` runs in real Chromium: `extension.spec.ts` (onboarding, fill and
+refusals, TOTP, lock/unlock, auto-lock), `hardening.spec.ts` (sender and
+storage isolation attacks, hostile markup, save/update/decline, worker
+restart) and `build-output.spec.ts` (production `dist/`). The e2e copy of the
+manifest adds host permissions only because automation cannot click the
+toolbar to grant `activeTab` (see `e2e/fixtures.ts`).
+
+## Firefox — not supported (tested on Firefox 151, 18 Nov 2026)
+
+Method: `e2e/firefox-probe.mjs` installs the built extension into real
+Firefox over WebDriver BiDi and drives the real popup/options pages.
+
+- **The production build does not install:** "background.service_worker is
+  currently disabled. Add background.scripts."
+- With `background.scripts` added (test copy only): installs; popup and
+  options render; create vault, lock, unlock, wrong recovery key refused,
+  save login work; no plaintext in storage. **Fill is refused** (fail
+  closed): Firefox has no `storage.local.setAccessLevel`, so content scripts
+  could read extension storage, and injection is never done in that case.
+- Not tested in Firefox: the popup UI flows, save offer, auto-lock, worker
+  (event page) restarts, any automated suite.
+- Needed for real support: both `background.service_worker` and
+  `background.scripts` in the manifest, a `browser_specific_settings.gecko`
+  id, a Firefox answer to storage isolation from content scripts, and a
+  Firefox e2e suite.
 
 ## Status / honest gaps
 
-- **Not tested in a real browser yet.** Nothing here has been loaded in
-  Chrome: `npm run build` has not run on the Mac (no shell access), the
-  extension has not been loaded unpacked, and no fill has been exercised
-  end-to-end. The first load in Chrome is the real verification step.
-- No sync with desktop/web yet (separate vault, see above).
-- No login capture of typed credentials (deliberate — see rule 9).
+- Chromium only (see Firefox above). Verified by the e2e suites listed under Tests.
+- No sync with desktop/web yet (separate vault; plan in `SYNC-PLAN.md`).
+  Encrypted backup restore on the options page is the supported way in.
+- Login capture needs the content script on the tab (popup opened or a
+  fill there); there is no always-on capture without host permissions.
+- Field detection does not look inside shadow DOM, and a field covered by
+  another element still counts as visible.
 - No passkey fill yet; passkey items are listed, not filled.
 - Not audited, not production-ready.
 
@@ -167,4 +204,4 @@ src/options/                Options React UI (Options.tsx, main.tsx, index.html)
 - Fixed: `background.ts` now checks the content script's fill reply instead of reporting success when the page refused (iframe / origin mismatch / no password field).
 - Fixed: `domain.ts` now treats IPv6 literals (`::1`, `2001:db8::1`, …) as raw IPs and refuses to fill on them, and punycode confirmation now triggers on an `xn--` label in any position, not just the first label.
 - Fixed: `generatePassword` clamps length to 4–64 (the class-guarantee writes touch indices 0–3); `changePassphrase` rejects an empty new passphrase.
-- Known limitation (by design, not fixed): the content script is injected on demand for a fill only, so login-form detection — and the popup's "Login form detected" banner — only runs right after a fill injection, not on ordinary page loads. Adding a persistent content script would need broader host permissions, so this stays as-is until a deliberate decision is made.
+- Known limitation (by design, not fixed): the content script is injected on demand for a fill only, so login-form detection — and the popup's "Login form detected" banner — only runs right after a fill injection, not on ordinary page loads. Adding a persistent content script would need broader host permissions, so this stays as-is until a deliberate decision is made. (18 Nov: the popup now also injects it when opened on a tab, for save offers — still no host permissions.)
