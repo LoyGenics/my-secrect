@@ -430,3 +430,88 @@ test('a throwing decrypt callback on an upsert is rejected, never skipped or app
   assert.equal(local.get('item_1'), state);
   assert.equal(local.get('item_1').item, localItem);
 });
+
+test('stale delete at or behind base on a clean local item is skipped, not tombstoned', async () => {
+  for (const revision of [5, 4]) {
+    const localItem = item('item_1', 'synced', '2026-11-17T01:00:00.000Z');
+    const state = { item: localItem, revision: 5, baseRevision: 5 };
+    const local = new Map([['item_1', state]]);
+
+    const result = await applyRemoteEvents([del({ revision })], local, neverDecrypt);
+
+    assert.deepEqual(result.tombstones, []);
+    assert.deepEqual(result.applied, []);
+    assert.deepEqual(result.conflicts, []);
+    assert.deepEqual(result.rejected, []);
+    assert.equal(result.skipped.length, 1);
+    assert.equal(result.skipped[0].item_id, 'item_1');
+    assert.equal(result.skipped[0].reason, 'stale tombstone: revision at or behind synced base');
+    assert.equal(local.get('item_1'), state);
+    assert.equal(local.get('item_1').item, localItem);
+    assert.equal(local.get('item_1').item.deleted_at, undefined);
+  }
+});
+
+test('pending local edit (base 5, local 8) with remote delete at 7 is a delete_vs_update conflict, both retained, no tombstone', async () => {
+  // Delete.revision (7) is behind local.revision (8) but ahead of base (5):
+  // a concurrent delete, so the conflict check must win over the stale check.
+  const localItem = item('item_1', 'three local edits', '2026-11-17T03:00:00.000Z');
+  const state = { item: localItem, revision: 8, baseRevision: 5 };
+  const local = new Map([['item_1', state]]);
+
+  const result = await applyRemoteEvents([del({ revision: 7 })], local, neverDecrypt);
+
+  assert.deepEqual(result.tombstones, []);
+  assert.deepEqual(result.applied, []);
+  assert.deepEqual(result.skipped, []);
+  assert.deepEqual(result.rejected, []);
+  assert.equal(result.conflicts.length, 1);
+  const c = result.conflicts[0];
+  assert.equal(c.kind, 'delete_vs_update');
+  assert.equal(c.item_id, 'item_1');
+  assert.equal(c.local_revision, 8);
+  assert.equal(c.remote_revision, 7);
+  assert.equal(c.base_revision, 5);
+  assert.equal(c.local, localItem);
+  assert.equal(c.remote.deleted_at, '2026-11-17T04:00:00.000Z');
+  assert.equal(c.resolution, 'unresolved');
+  // Local content is still the live item.
+  assert.equal(local.get('item_1'), state);
+  assert.equal(local.get('item_1').item, localItem);
+  assert.equal(local.get('item_1').item.title, 'three local edits');
+  assert.equal(local.get('item_1').item.deleted_at, undefined);
+  assert.equal(local.get('item_1').revision, 8);
+});
+
+test('remote delete for an item with no local copy records a tombstone and does not throw', async () => {
+  const local = new Map();
+
+  const result = await applyRemoteEvents([del({ revision: 3, item_id: 'item_unknown' })], local, neverDecrypt);
+
+  assert.deepEqual(result.tombstones, ['item_unknown']);
+  assert.deepEqual(result.applied, []);
+  assert.deepEqual(result.skipped, []);
+  assert.deepEqual(result.conflicts, []);
+  assert.deepEqual(result.rejected, []);
+  assert.equal(local.size, 0);
+});
+
+test('PINNED CURRENT BEHAVIOR: already-deleted local item + newer remote delete tombstones with no conflict record', async () => {
+  // Pins current behavior, not a requirement. The local item already has
+  // deleted_at set, so it is not a "pending local edit" and no
+  // delete_vs_update conflict is recorded. A newer remote delete is then
+  // tombstoned. Both sides deleted, so they agree on the outcome and no
+  // live content is lost. If this ever changes, review it deliberately.
+  const deletedItem = { ...item('item_1', 'deleted locally', '2026-11-17T03:00:00.000Z'), deleted_at: '2026-11-17T03:00:00.000Z' };
+  const state = { item: deletedItem, revision: 6, baseRevision: 5 };
+  const local = new Map([['item_1', state]]);
+
+  const result = await applyRemoteEvents([del({ revision: 7 })], local, neverDecrypt);
+
+  assert.deepEqual(result.tombstones, ['item_1']);
+  assert.deepEqual(result.conflicts, []);
+  assert.deepEqual(result.skipped, []);
+  assert.deepEqual(result.applied, []);
+  assert.deepEqual(result.rejected, []);
+  assert.equal(local.has('item_1'), false);
+});
