@@ -170,7 +170,7 @@ export default function App() {
   if (boot === 'loading') {
     return (<View style={[styles.screen, { alignItems: 'center', justifyContent: 'center' }]}><ActivityIndicator size="large" color={colors.accent} /><Text style={{ color: colors.muted, marginTop: 12 }}>Loading vault…</Text><StatusBar style="light" /></View>);
   }
-  if (boot === 'onboarding') return (<><StatusBar style="light" /><OnboardingScreen onDone={handleUnlocked} /></>);
+  if (boot === 'onboarding') return (<><StatusBar style="light" /><OnboardingScreen onDone={handleUnlocked} onRestored={() => setBoot('locked')} /></>);
   if (boot === 'locked') return (<><StatusBar style="light" /><LockScreen onUnlocked={handleUnlocked} /></>);
   // Account sign-in comes BEFORE the vault whenever a server is
   // configured and there is no valid session. 'Continue without
