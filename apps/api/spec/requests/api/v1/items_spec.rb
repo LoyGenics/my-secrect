@@ -19,6 +19,20 @@ RSpec.describe 'Items API', type: :request do
     expect(json['item']['current_version']['encrypted_item_key']).to eq(item_key)
   end
 
+  it 'returns 409 on a stale base_revision and does not append another event' do
+    item_id = SecureRandom.uuid
+    put "/api/v1/vaults/#{vault.id}/items/#{item_id}", params: { base_revision: 0, encrypted_payload: ciphertext, encrypted_item_key: item_key, encryption_version: 1 }, headers: headers, as: :json
+    expect(response).to have_http_status(:ok)
+    expect {
+      put "/api/v1/vaults/#{vault.id}/items/#{item_id}", params: { base_revision: 0, encrypted_payload: ciphertext, encrypted_item_key: item_key, encryption_version: 1 }, headers: headers, as: :json
+    }.not_to change { SyncEvent.where(vault_id: vault.id).count }
+    expect(response).to have_http_status(:conflict)
+    body = JSON.parse(response.body)
+    expect(body['error']).to eq('revision_conflict')
+    expect(body['current_revision']).to eq(1)
+    expect(Item.find(item_id).current_revision).to eq(1)
+  end
+
   it 'creates a tombstone on delete and hides the item from live reads' do
     item_id = SecureRandom.uuid
     put "/api/v1/vaults/#{vault.id}/items/#{item_id}", params: { base_revision: 0, encrypted_payload: ciphertext, encrypted_item_key: item_key }, headers: headers, as: :json

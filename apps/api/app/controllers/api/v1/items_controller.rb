@@ -2,6 +2,10 @@ module Api
   module V1
     # Encrypted items only. Every response field is ciphertext / opaque id.
     # The server never returns (or stores) a title, tag, type or relation.
+    #
+    # update/destroy go through Sync::Push so sequence assignment takes the
+    # same per-vault row lock as POST sync/push. Ciphertext rules are
+    # unchanged; a stale base_revision is still 409.
     class ItemsController < ApplicationController
       # GET /v1/vaults/:vault_id/items/:id
       def show
@@ -12,19 +16,24 @@ module Api
       # PUT /v1/vaults/:vault_id/items/:id — same semantics as sync push:
       # revision-checked, append-only version, 409 on stale base_revision.
       def update
-        result = EncryptedRecords::Upsert.call(
+        result = Sync::Push.call(
           vault: vault, item_id: params[:id], base_revision: params[:base_revision],
-          encrypted_payload: params[:encrypted_payload], encrypted_item_key: params[:encrypted_item_key],
+          operation: 'upsert', encrypted_payload: params[:encrypted_payload],
+          encrypted_item_key: params[:encrypted_item_key],
           encryption_version: params[:encryption_version], device: current_device
         )
         render json: result, status: :ok
-      rescue EncryptedRecords::Upsert::RevisionConflict => e
+      rescue Sync::Push::RevisionConflict => e
         render json: { error: 'revision_conflict', current_revision: e.current_revision }, status: :conflict
       end
 
       # DELETE — creates an encrypted tombstone (recoverable), not a hard delete.
       def destroy
-        result = EncryptedRecords::Delete.call(vault: vault, item_id: params[:id], device: current_device)
+        result = Sync::Push.call(
+          vault: vault, item_id: params[:id], base_revision: params[:base_revision],
+          operation: 'delete', encrypted_payload: nil, encrypted_item_key: nil,
+          device: current_device
+        )
         render json: result, status: :ok
       end
 
