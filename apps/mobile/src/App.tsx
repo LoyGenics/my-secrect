@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
-import type { VaultItem } from '../../packages/core/src/types';
-import { SecurityApiClient, clearSessionToken, getValidToken } from '../../packages/sdk/src/security';
+import type { VaultItem } from '../../../packages/core/src/types';
+import { SecurityApiClient, clearSessionToken, getValidToken } from '../../../packages/sdk/src/security';
 import SignInScreen from './screens/SignInScreen';
 import { API_BASE_URL_KEY } from './screens/SecurityScreen';
 

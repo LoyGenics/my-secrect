@@ -17,7 +17,7 @@
  * Apps are NOT wired in by this package (another agent owns apps/) —
  * see README.md for the one-line integration.
  */
-import type { PullResponse, PushRequest, SyncEvent } from '../../sync/src/index';
+import type { PullResponse, PushRequest } from '../../sync/src/index';
 import { SyncClient } from '../../sync/src/sync-client';
 // NOTE on the import graph: packages/sync/src/sync-client.ts references
 // VaultApiClient from this file ONLY as a type (erased at compile time),

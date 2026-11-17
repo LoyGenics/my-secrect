@@ -211,4 +211,11 @@ export const en = {
   },
 } as const;
 
-export type Dictionary = typeof en;
+/**
+ * Same key structure as `en`, but every leaf is a plain `string`. `en` keeps
+ * its literal types (useful for key autocomplete); other locales only have
+ * to match the shape, not the English wording.
+ */
+type DeepString<T> = { -readonly [K in keyof T]: T[K] extends string ? string : DeepString<T[K]> };
+
+export type Dictionary = DeepString<typeof en>;

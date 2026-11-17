@@ -86,7 +86,7 @@ export function applyTheme(mode: ThemeMode, options?: { persist?: boolean }): Th
 export function initTheme(): { mode: ThemeMode; resolved: ThemeName; dispose: () => void } {
   const mode = getStoredTheme() ?? DEFAULT_THEME_MODE;
   const resolved = applyTheme(mode, { persist: false });
-  let dispose = () => undefined;
+  let dispose: () => void = () => undefined;
   try {
     if (mode === 'system' && typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
       const mq = window.matchMedia('(prefers-color-scheme: light)');

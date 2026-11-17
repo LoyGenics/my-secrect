@@ -22,7 +22,7 @@ export interface TotpResult {
 }
 
 /** Decode a base32 string (RFC 4648, A-Z2-7, case-insensitive, spaces ignored). */
-export function decodeBase32(input: string): Uint8Array {
+export function decodeBase32(input: string): Uint8Array<ArrayBuffer> {
   const cleaned = input.replace(/[\s=]/g, '').toUpperCase();
   if (!/^[A-Z2-7]*$/.test(cleaned)) {
     throw new Error('Invalid base32 character');
