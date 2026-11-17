@@ -38,17 +38,14 @@ object DomainMatching {
         null
     }
 
-    /** IPv4 (`1.2.3.4`) or IPv6 (any colon — hosts arrive bare, no brackets). */
-    fun isIpLiteral(host: String): Boolean {
-        if (':' in host) return true
-        val parts = host.split(".")
-        if (parts.size != 4) return false
-        return parts.all { part ->
-            val n = part.toIntOrNull() ?: return@all false
-            // Reject leading zeros ("01") and out-of-range octets.
-            part == n.toString() && n in 0..255
-        }
-    }
+    private val IPV4 = Regex("^(\\d{1,3}\\.){3}\\d{1,3}$")
+
+    /**
+     * Any dotted quad of 1–3 digit parts (including `010.0.0.1`, which
+     * inet_aton reads as octal) or IPv6 (any colon — hosts arrive bare, no
+     * brackets). Same rule as `isIpHost` in domain.ts.
+     */
+    fun isIpLiteral(host: String): Boolean = ':' in host || IPV4.matches(host)
 
     fun domainsMatch(pageHost: String, itemHost: String): Boolean {
         val p = normalizeHost(pageHost)

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The Credential Manager provider exists only on Android 14+ (values-v34 turns it on). -->
+    <bool name="my_secrect_credential_provider_enabled">false</bool>
+    <string name="my_secrect_provider_prompt_title">Unlock my-secrect</string>
+    <string name="my_secrect_provider_prompt_subtitle">Sign in as %1$s on %2$s</string>
+    <string name="my_secrect_provider_prompt_cancel">Cancel</string>
+    <string name="my_secrect_provider_error_not_enrolled">Open my-secrect and enable biometric unlock.</string>
+    <string name="my_secrect_provider_error_key_invalidated">Your biometrics changed, so biometric unlock was turned off. Open my-secrect and unlock with your passphrase.</string>
+    <string name="my_secrect_provider_error_lockout">Too many failed attempts. Try again later.</string>
+    <string name="my_secrect_provider_error_not_found">my-secrect has no matching login for this app or site.</string>
+    <string name="my_secrect_provider_error_failed">my-secrect could not unlock this login.</string>
+</resources>

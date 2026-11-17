@@ -21,7 +21,8 @@
       ["expo-sqlite", { "useSQLCipher": true }],
       ["react-native-libsodium", {}],
       "./plugins/with-mobile-storage",
-      "./plugins/with-ios-credential-provider"
+      "./plugins/with-ios-credential-provider",
+      "./plugins/with-android-credential-provider"
     ]
   }
 }

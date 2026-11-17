@@ -1,0 +1,4 @@
+e2e-caller/build/
+e2e-caller/.gradle/
+e2e-caller/local.properties
+e2e-caller/.kotlin/
