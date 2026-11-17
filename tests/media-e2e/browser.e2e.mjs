@@ -62,10 +62,14 @@ page.on('request', (r) => { const b = r.postDataBuffer(); if (b) outgoing.push({
 await page.goto(APP, { timeout: 30000 });
 console.log('[browser] app loaded');
 process.on('uncaughtException', async (e) => { try { await page.screenshot({ path: path.join(SHOT, 'media-view-failure.png') }); } catch {} throw e; });
-// Create a fresh local vault (passphrase onboarding; it lands directly in the app).
+// Create a fresh local vault. Onboarding stays on the one-time recovery-key
+// screen until the user acknowledges it (step 1), then shows Done (step 2).
 await page.getByLabel('Master passphrase').fill('correct horse battery staple 42');
 await page.getByLabel('Confirm passphrase').fill('correct horse battery staple 42');
 await page.getByRole('button', { name: 'Create vault' }).click();
+await page.getByLabel('I have saved my recovery key somewhere safe.').check();
+await page.getByRole('button', { name: 'Done', exact: true }).click();
+await page.getByRole('button', { name: 'Open vault' }).click();
 await page.getByRole('button', { name: /Media gallery/ }).click();
 await page.getByRole('button', { name: 'Upload encrypted file…' }).or(page.getByText('Upload encrypted file…')).first().waitFor();
 console.log('[browser] media gallery open, upload control visible (api configured)');
