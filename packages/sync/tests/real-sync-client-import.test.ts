@@ -340,3 +340,93 @@ test('base 3 / local 5 / remote 4 is still a conflict and both versions are reta
   assert.equal(local.get('item_1').revision, 5);
   assert.equal(local.get('item_1').baseRevision, 3);
 });
+
+function del(overrides) {
+  return {
+    id: 'evt_del',
+    vault_id: 'vault_1',
+    sequence: 9,
+    item_id: 'item_1',
+    revision: 5,
+    operation: 'delete',
+    device_id: 'device_b',
+    signature: 'opaque-not-authenticated',
+    created_at: '2026-11-17T04:00:00.000Z',
+    ...overrides,
+  };
+}
+
+const neverDecrypt = async () => { throw new Error('decrypt must not be called for a delete'); };
+
+test('delete at baseRevision with a pending local edit is stale history: edit preserved, no tombstone', async () => {
+  // Server delete increments the revision, so a new delete is always > base.
+  const localItem = item('item_1', 'pending local edit', '2026-11-17T03:00:00.000Z');
+  const state = { item: localItem, revision: 6, baseRevision: 5 };
+  const local = new Map([['item_1', state]]);
+
+  const result = await applyRemoteEvents([del({ revision: 5 })], local, neverDecrypt);
+
+  assert.deepEqual(result.tombstones, []);
+  assert.deepEqual(result.applied, []);
+  assert.deepEqual(result.conflicts, []);
+  assert.equal(result.skipped.length, 1);
+  assert.equal(result.skipped[0].reason, 'stale tombstone: revision at or behind synced base');
+  assert.equal(local.get('item_1'), state);
+  assert.equal(local.get('item_1').item, localItem);
+  assert.equal(local.get('item_1').item.deleted_at, undefined);
+  assert.equal(local.get('item_1').revision, 6);
+});
+
+test('delete newer than baseRevision with a pending local edit is a delete_vs_update conflict, both retained', async () => {
+  const localItem = item('item_1', 'pending local edit', '2026-11-17T03:00:00.000Z');
+  const state = { item: localItem, revision: 6, baseRevision: 5 };
+  const local = new Map([['item_1', state]]);
+
+  // Concurrent delete 5 -> 6 while local also went 5 -> 6.
+  const result = await applyRemoteEvents([del({ revision: 6 })], local, neverDecrypt);
+
+  assert.deepEqual(result.tombstones, []);
+  assert.equal(result.conflicts.length, 1);
+  const c = result.conflicts[0];
+  assert.equal(c.kind, 'delete_vs_update');
+  assert.equal(c.local_revision, 6);
+  assert.equal(c.remote_revision, 6);
+  assert.equal(c.base_revision, 5);
+  assert.equal(c.local, localItem);
+  assert.equal(c.remote.deleted_at, '2026-11-17T04:00:00.000Z');
+  assert.equal(c.resolution, 'unresolved');
+  assert.equal(local.get('item_1'), state);
+  assert.equal(local.get('item_1').item, localItem);
+});
+
+test('delete newer than base with a clean local item (no pending edit) is applied as a tombstone', async () => {
+  const state = { item: item('item_1', 'synced', '2026-11-17T01:00:00.000Z'), revision: 5, baseRevision: 5 };
+  const local = new Map([['item_1', state]]);
+
+  const result = await applyRemoteEvents([del({ revision: 6 })], local, neverDecrypt);
+
+  assert.deepEqual(result.tombstones, ['item_1']);
+  assert.deepEqual(result.conflicts, []);
+  assert.deepEqual(result.skipped, []);
+  assert.equal(local.has('item_1'), false);
+});
+
+test('a throwing decrypt callback on an upsert is rejected, never skipped or applied', async () => {
+  const localItem = item('item_1', 'synced', '2026-11-17T01:00:00.000Z');
+  const state = { item: localItem, revision: 2, baseRevision: 2 };
+  const local = new Map([['item_1', state]]);
+
+  const result = await applyRemoteEvents(
+    [upsert({ revision: 3, sequence: 4 })],
+    local,
+    async () => { throw new Error('AEAD tag mismatch'); },
+  );
+
+  assert.equal(result.rejected.length, 1);
+  assert.equal(result.rejected[0].item_id, 'item_1');
+  assert.deepEqual(result.skipped, []);
+  assert.deepEqual(result.applied, []);
+  assert.deepEqual(result.conflicts, []);
+  assert.equal(local.get('item_1'), state);
+  assert.equal(local.get('item_1').item, localItem);
+});
