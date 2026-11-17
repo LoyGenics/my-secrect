@@ -1,7 +1,8 @@
 package com.loygenics.mysecrect.provider
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.goterl.lazysodium.SodiumAndroid
+import com.sun.jna.Native
+import com.sun.jna.NativeLong
 import org.json.JSONObject
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -10,7 +11,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Real libsodium (lazysodium-android) on a device/emulator against
+ * The app's real libsodium.so (react-native-libsodium) on a device/emulator against
  * (a) the shared vectors in tests/crypto-vectors/argon2id-vectors.json and
  * (b) a vault produced by the real TS crypto (fixtures/generate-fixture.ts).
  */
@@ -46,18 +47,28 @@ class VaultCryptoTest {
         expectError(FillError.Code.CORRUPT) { VaultCrypto.aeadDecrypt(hex(v.getString("key_hex")), hex(v.getString("nonce_hex")), ct) }
     }
 
-    /** Library check: the bundled libsodium derives the shared Argon2id KEKs (the provider itself never derives a KEK). */
+    /** Test-only binding: the provider itself never derives a KEK. */
+    private object Pwhash {
+        init { Native.register(Pwhash::class.java, "sodium") }
+
+        @JvmStatic external fun crypto_pwhash(
+            out: ByteArray, outlen: Long, passwd: ByteArray, passwdlen: Long, salt: ByteArray,
+            opslimit: Long, memlimit: NativeLong, alg: Int,
+        ): Int
+    }
+
+    /** Library check: the libsodium the provider loads derives the shared Argon2id KEKs. */
     @Test fun bundledLibsodiumMatchesSharedArgon2idVectors() {
         val a = vectors.getJSONObject("argon2id")
-        val sodium = SodiumAndroid()
+        Libsodium.sodium_init()
         val list = a.getJSONArray("vectors")
         for (i in 0 until list.length()) {
             val v = list.getJSONObject(i)
             val out = ByteArray(a.getInt("output_bytes"))
             val pw = v.getString("passphrase").toByteArray(Charsets.UTF_8)
-            val rc = sodium.crypto_pwhash(
+            val rc = Pwhash.crypto_pwhash(
                 out, out.size.toLong(), pw, pw.size.toLong(), hex(v.getString("salt_hex")),
-                a.getLong("opslimit"), com.sun.jna.NativeLong(a.getLong("memlimit")), 2, // crypto_pwhash_ALG_ARGON2ID13
+                a.getLong("opslimit"), NativeLong(a.getLong("memlimit")), 2, // crypto_pwhash_ALG_ARGON2ID13
             )
             assertEquals(0, rc)
             assertArrayEquals(hex(v.getString("kek_hex")), out)

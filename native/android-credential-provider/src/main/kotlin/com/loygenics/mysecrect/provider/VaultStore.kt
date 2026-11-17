@@ -75,7 +75,11 @@ internal class VaultStore private constructor(private val db: SQLiteDatabase) : 
          */
         fun open(location: VaultLocation): VaultStore {
             if (!location.dbFile.isFile) throw FillError(FillError.Code.NOT_AVAILABLE, "my-secrect has no vault on this device yet.")
-            System.loadLibrary("sqlcipher")
+            try {
+                System.loadLibrary("sqlcipher")
+            } catch (e: LinkageError) {
+                throw FillError(FillError.Code.NOT_AVAILABLE, "my-secrect could not load SQLCipher.")
+            }
             val lsk = readLocalStorageKey(location)
             val keyPragma = rawKeyPragma(lsk)
             lsk.fill(0)

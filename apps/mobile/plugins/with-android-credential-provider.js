@@ -11,8 +11,10 @@
  *     launcher `<queries>` entry so the provider can read a calling app's
  *     `asset_statements` (Digital Asset Links);
  *  3. adds the Gradle dependencies (androidx.credentials, androidx.biometric,
- *     lazysodium-android + JNA, SQLCipher) and test dependencies, plus R8
- *     keep rules for the JNA / SQLCipher native bindings.
+ *     JNA, SQLCipher) and test dependencies, plus R8 keep rules for the JNA /
+ *     SQLCipher native bindings. libsodium itself is the app's own
+ *     libsodium.so from react-native-libsodium (one copy per APK), reached
+ *     through JNA; the provider fails closed if it is missing.
  *
  * Generated android/ is gitignored (specs/mobile-local-store.md §7); this
  * plugin is the only way the provider gets into the app.
@@ -28,7 +30,8 @@ const ACTIVITY = 'com.loygenics.mysecrect.provider.GetPasswordActivity';
 const ENABLED = '@bool/my_secrect_credential_provider_enabled';
 const MARK_BEGIN = '// @generated begin my-secrect-android-credential-provider';
 const MARK_END = '// @generated end my-secrect-android-credential-provider';
-const PROGUARD_MARK = '# my-secrect-android-credential-provider';
+const PROGUARD_MARK = '# begin my-secrect-android-credential-provider';
+const PROGUARD_END = '# end my-secrect-android-credential-provider';
 
 const GRADLE_BLOCK = `${MARK_BEGIN} (with-android-credential-provider.js; do not edit)
 android {
@@ -40,7 +43,6 @@ dependencies {
     implementation "androidx.credentials:credentials:1.5.0"
     implementation "androidx.biometric:biometric:1.1.0"
     implementation "androidx.fragment:fragment:1.8.6"
-    implementation "com.goterl:lazysodium-android:5.1.0@aar"
     implementation "net.java.dev.jna:jna:5.14.0@aar"
     implementation "net.zetetic:sqlcipher-android:4.6.1@aar"
     implementation "androidx.sqlite:sqlite:2.4.0"
@@ -60,9 +62,10 @@ ${MARK_END}
 const PROGUARD_RULES = `
 ${PROGUARD_MARK}
 -keep class com.sun.jna.** { *; }
--keep class com.goterl.lazysodium.** { *; }
+-keep class com.loygenics.mysecrect.provider.Libsodium { *; }
 -keep class net.zetetic.database.** { *; }
 -dontwarn java.awt.**
+${PROGUARD_END}
 `;
 
 /**
@@ -112,8 +115,10 @@ function withProviderFiles(config) {
     removeOwnResources(path.join(appSrc, 'main', 'res'));
     for (const [from, to] of COPIES) copyTree(path.join(PROVIDER_ROOT, 'src', from), path.join(appSrc, to));
     const proguard = path.join(cfg.modRequest.platformProjectRoot, 'app', 'proguard-rules.pro');
-    const rules = fs.existsSync(proguard) ? fs.readFileSync(proguard, 'utf8') : '';
-    if (!rules.includes(PROGUARD_MARK)) fs.writeFileSync(proguard, rules + PROGUARD_RULES);
+    let rules = fs.existsSync(proguard) ? fs.readFileSync(proguard, 'utf8') : '';
+    const start = rules.indexOf(`\n${PROGUARD_MARK}`);
+    if (start !== -1) rules = rules.slice(0, start) + rules.slice(rules.indexOf(PROGUARD_END, start) + PROGUARD_END.length + 1);
+    fs.writeFileSync(proguard, rules + PROGUARD_RULES);
     return cfg;
   }]);
 }

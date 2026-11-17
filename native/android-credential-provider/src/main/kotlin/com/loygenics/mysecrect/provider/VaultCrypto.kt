@@ -3,8 +3,6 @@ package com.loygenics.mysecrect.provider
 import android.util.Base64
 import android.util.JsonReader
 import android.util.JsonToken
-import com.goterl.lazysodium.Sodium
-import com.goterl.lazysodium.SodiumAndroid
 import java.io.ByteArrayInputStream
 import java.io.InputStreamReader
 import org.json.JSONObject
@@ -12,7 +10,7 @@ import org.json.JSONObject
 /**
  * The vault key chain of specs/encryption-format.md v1, decrypt side only:
  * AMK --unwrap--> Vault Key --unwrap--> Item Key --decrypt--> VaultItem JSON.
- * XChaCha20-Poly1305 IETF through libsodium (lazysodium-android), AD null,
+ * XChaCha20-Poly1305 IETF through the app's libsodium ([Libsodium]), AD null,
  * standard base64 with the 24-byte nonce stored separately — the encodings
  * apps/mobile/src/vault.ts writes (StoredKeys, StoredRow).
  *
@@ -31,8 +29,6 @@ internal object VaultCrypto {
 
     class StoredKeys(val wrappedVault: String, val wrappedVaultNonce: String)
 
-    private val sodium: Sodium by lazy { SodiumAndroid() }
-
     /** `crypto_aead_xchacha20poly1305_ietf_decrypt` with AD null. Throws CORRUPT on any failure. */
     fun aeadDecrypt(key: ByteArray, nonce: ByteArray, ciphertext: ByteArray): ByteArray {
         if (key.size != KEY_BYTES || nonce.size != NONCE_BYTES || ciphertext.size < TAG_BYTES) {
@@ -40,9 +36,13 @@ internal object VaultCrypto {
         }
         val out = ByteArray(ciphertext.size - TAG_BYTES)
         val outLen = LongArray(1)
-        val rc = sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(
-            out, outLen, null, ciphertext, ciphertext.size.toLong(), null, 0L, nonce, key,
-        )
+        val rc = try {
+            Libsodium.crypto_aead_xchacha20poly1305_ietf_decrypt(
+                out, outLen, null, ciphertext, ciphertext.size.toLong(), null, 0L, nonce, key,
+            )
+        } catch (e: LinkageError) {
+            throw FillError(FillError.Code.NOT_AVAILABLE, "my-secrect could not load libsodium.")
+        }
         if (rc != 0 || outLen[0] != out.size.toLong()) {
             out.fill(0)
             throw FillError.corrupt("an encrypted value")
