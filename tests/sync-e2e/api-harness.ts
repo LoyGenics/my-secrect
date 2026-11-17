@@ -15,16 +15,24 @@ export const PORT = Number(process.env.SYNC_E2E_PORT ?? 3102);
 export const DB = process.env.SYNC_E2E_DB ?? 'vault_e2e_sync';
 export const WEB_ORIGIN = process.env.SYNC_E2E_WEB_ORIGIN ?? 'http://localhost:5202';
 export const RP_ID = 'localhost';
+// Local default: the Homebrew Postgres unix socket in /tmp. CI sets
+// POSTGRES_HOST=localhost (TCP, trust auth) and POSTGRES_USER.
+const PG_HOST = process.env.POSTGRES_HOST ?? '/tmp';
+const PG_PORT = process.env.POSTGRES_PORT ?? '5432';
+function pgUser(): string { return process.env.POSTGRES_USER ?? execFileSync('whoami').toString().trim(); }
+function pgArgs(): string[] { return ['-h', PG_HOST, '-p', PG_PORT, '-U', pgUser(), '-d', DB]; }
 
 function railsEnv(): NodeJS.ProcessEnv {
-  const user = process.env.POSTGRES_USER ?? execFileSync('whoami').toString().trim();
+  const user = pgUser();
   return {
     ...process.env,
     RBENV_VERSION: process.env.RBENV_VERSION ?? '3.3.6',
     POSTGRES_USER: user,
-    POSTGRES_HOST: '/tmp',
+    POSTGRES_HOST: PG_HOST,
     RAILS_ENV: 'development',
-    DATABASE_URL: `postgresql:///${DB}?host=/tmp`,
+    DATABASE_URL: PG_HOST.startsWith('/')
+      ? `postgresql:///${DB}?host=${PG_HOST}`
+      : `postgresql://${user}@${PG_HOST}:${PG_PORT}/${DB}`,
     WEBAUTHN_ORIGIN: WEB_ORIGIN,
     WEBAUTHN_RP_ID: RP_ID,
     CORS_ORIGINS: WEB_ORIGIN,
@@ -32,12 +40,12 @@ function railsEnv(): NodeJS.ProcessEnv {
 }
 
 export function psql(sql: string): string {
-  return execFileSync('psql', ['-h', '/tmp', '-d', DB, '-At', '-F', '|', '-c', sql], { encoding: 'utf8' }).trim();
+  return execFileSync('psql', [...pgArgs(), '-At', '-F', '|', '-c', sql], { encoding: 'utf8' }).trim();
 }
 
 /** Full data-only dump: grep this for plaintext markers. */
 export function pgDump(): string {
-  return execFileSync('pg_dump', ['-h', '/tmp', '-d', DB, '--data-only', '--inserts'], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  return execFileSync('pg_dump', [...pgArgs(), '--data-only', '--inserts'], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
 }
 
 export interface RunningApi { baseUrl: string; apiBase: string; logPath: string; stop(): Promise<void> }

@@ -65,7 +65,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Install npm dependencies
@@ -90,7 +90,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Install npm dependencies
@@ -118,7 +118,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Install npm dependencies
@@ -142,7 +142,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Install npm dependencies
@@ -153,6 +153,60 @@ jobs:
         run: npm --workspace apps/web run build
       - name: Run restore e2e against the built web app
         run: npx tsx --test tests/e2e-web-restore/restore.e2e.test.ts
+
+  # ---- 3c. Real-stack e2e: Rails API + Postgres + Chromium ---------------
+  # Web auth/security-center (virtual WebAuthn authenticator), two-client
+  # sync against the real API, and the MV3 extension in real Chromium.
+  e2e-real-stack:
+    name: e2e ${{ matrix.suite }} (real stack)
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [web-auth, sync, extension]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: vault
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U vault"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      POSTGRES_USER: vault
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: '5432'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+          working-directory: apps/api
+      - name: Install Postgres client tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Install npm dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+      - name: Web auth e2e
+        if: matrix.suite == 'web-auth'
+        run: npm run test:e2e:web
+      - name: Two-client sync e2e
+        if: matrix.suite == 'sync'
+        run: npm run test:sync-e2e
+      - name: Extension e2e
+        if: matrix.suite == 'extension'
+        run: |
+          npm --workspace apps/extension run build
+          xvfb-run -a npm --workspace apps/extension run test:e2e
 
   # ---- 4. Rust crypto-core -------------------------------------------------
   rust:
@@ -245,7 +299,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Install npm dependencies
