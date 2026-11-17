@@ -21,17 +21,18 @@ import Security
 ///   (`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`). It never stores a
 ///   vault key, a passphrase, or a credential.
 ///
-/// WHAT IS NOT DONE (fatalError, by design — see README.md)
+/// WHAT IS NOT DONE (fail closed — see README.md)
 /// - The main app does NOT write `vault-rows.json` or
 ///   `vault-metadata.json` into the App Group yet, so `readRows()` /
 ///   `readMetadata()` throw `.storeUnavailable` in practice today.
 /// - Decryption is NOT implemented: the extension never receives the Vault
-///   Key. `credential(for:)` deliberately crashes with a clear message
-///   rather than returning a fake or empty credential. The unlock handoff
-///   (main app unlocks, hands a single-item decryption to the extension)
-///   is the remaining design + Xcode work.
-/// - No credential is ever stored in plaintext. Do not "fix" the
-///   fatalError by writing passwords to the Keychain.
+///   Key. `credential(for:)` throws `.notImplemented` rather than returning
+///   a fake or empty credential. The unlock handoff (main app unlocks,
+///   hands a single-item decryption to the extension) is the remaining
+///   design + Xcode work.
+/// - No credential is ever stored in plaintext. Do not "fix" the missing
+///   decryption by writing passwords to the Keychain or by returning an
+///   empty credential.
 
 public enum VaultStoreError: Error, Equatable {
     case storeUnavailable(String)
@@ -149,10 +150,11 @@ public final class VaultStore {
     /// NOT IMPLEMENTED. Decrypting one item needs the Vault Key, which the
     /// extension does not have and must never be given in bulk. The
     /// remaining work is the unlock handoff from the main app (see
-    /// README.md). This crashes loudly on purpose — never return an empty
-    /// or fabricated credential, and never write plaintext to the Keychain.
-    public func credential(for identity: ASPasswordCredentialIdentity) -> ASPasswordCredential {
-        fatalError("not implemented: my-secrect credential decryption — the Credential Provider extension has no Vault Key yet. The main app must hand over a single-item decryption after unlock (see native/ios-credential-provider/README.md). Identity requested: \(identity.recordIdentifier ?? "?")")
+    /// README.md). Throws `.notImplemented` so AutoFill can cancel —
+    /// never return an empty or fabricated credential, and never write
+    /// plaintext to the Keychain.
+    public func credential(for identity: ASPasswordCredentialIdentity) throws -> ASPasswordCredential {
+        throw VaultStoreError.notImplemented("not implemented: my-secrect credential decryption — the Credential Provider extension has no Vault Key yet. The main app must hand over a single-item decryption after unlock (see native/ios-credential-provider/README.md). Identity requested: \(identity.recordIdentifier ?? "?")")
     }
 }
 
