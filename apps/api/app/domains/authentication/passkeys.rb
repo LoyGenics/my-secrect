@@ -50,10 +50,23 @@ module Authentication
   # 'registration' verification is only accepted when the user has NO
   # active authenticator yet (i.e. account creation with its FIRST
   # passkey). Once an account has a passkey, adding another one must go
-  # through an authenticated add-passkey flow (NOT yet implemented — see
-  # docs/security-review.md Phase B remaining work). Without this guard,
-  # anyone who knows an email address could register a passkey for that
-  # account and take it over.
+  # through the authenticated add-passkey flow
+  # (add_registration_options / verify_addition, step-up required).
+  # Without this guard, anyone who knows an email address could
+  # register a passkey for that account and take it over.
+  #
+  # The user row is still created at options time in the unauthenticated
+  # registration flow (registration_options): the row is inert until step
+  # 2 verifies a real attestation — no session is issued before then —
+  # and changing it would break the existing register/verify contract.
+  # The authenticated add flow (add_registration_options) never creates
+  # a user row: the user already exists and is taken from the session,
+  # never from a client-supplied email.
+  #
+  # MFA gate: when the user has MFA enabled, verify() with kind
+  # 'authentication' does NOT issue a session. It returns
+  # { mfa_required: true, mfa_token: } instead; the client completes the
+  # login via Authentication::Totp.complete_mfa_login.
   #
   # The WebAuthn user handle is base64url(user.id bytes): stable, opaque,
   # 48 chars, under the 64-byte limit, and needs no extra column. The
@@ -93,9 +106,8 @@ module Authentication
     end
 
     # Step 1 (authentication): request options + stored challenge.
-    # No route exposes this yet (see docs/security-review.md — the
-    # coordinator must add `post 'auth/passkeys/authenticate'`); until
-    # then the domain method is used directly (e.g. by specs).
+    # Exposed as POST /v1/auth/passkeys/authenticate, and reused for
+    # step-up passkey verification (StepUp.verify_passkey).
     # Unknown emails still get options with an empty allow-list and a
     # stored challenge, so the response does not leak account existence;
     # step 2 will fail for them with a generic error.
@@ -112,11 +124,52 @@ module Authentication
       { request_options: options.as_json }
     end
 
+    # Step 1 (authenticated add): creation options for a user that already
+    # exists. No user row is created here and no client-supplied email is
+    # trusted — the caller passes the session user. The challenge is
+    # stored kind 'registration' under the user's own email, excluding
+    # the credential ids the user already has.
+    def add_registration_options(user:)
+      options = WebAuthn::Credential.options_for_create(
+        user: { id: webauthn_user_id(user), name: user.email, display_name: user.email },
+        exclude: user.authenticators.active.pluck(:credential_id),
+        authenticator_selection: { user_verification: USER_VERIFICATION },
+        timeout: OPTIONS_TIMEOUT_MS
+      )
+      PasskeyChallenge.create!(email: user.email, challenge: options.challenge, kind: 'registration', expires_at: Time.current + CHALLENGE_TTL)
+      { creation_options: options.as_json }
+    end
+
+    # Step 2 (authenticated add): verify an attestation and bind it to the
+    # authenticated user. Same gem verification as verify_registration
+    # but WITHOUT the first-passkey-only guard (the caller is already
+    # authenticated + stepped up, so the takeover guard does not apply).
+    # Issues NO session token — the controller rotates the session
+    # instead. Returns the persisted Authenticator.
+    def verify_addition(user:, credential:)
+      raise VerificationError, 'credential required' if credential.blank?
+      # Most recent live challenge: the unauthenticated registration flow
+      # can also hold a 'registration' challenge for this email.
+      challenge_rec = PasskeyChallenge.live.where(email: user.email, kind: 'registration')
+                                           .order(created_at: :desc).first
+      raise VerificationError, 'challenge expired or already used' unless challenge_rec
+      challenge_rec.consume!
+      params = normalize_credential_params(credential)
+      verify_registration(user: user, params: params, challenge: challenge_rec.challenge, first_only: false)[:authenticator]
+    rescue VerificationError
+      raise
+    rescue WebAuthn::Error, ArgumentError, TypeError, NoMethodError, RuntimeError
+      raise VerificationError, 'verification failed'
+    end
+
     # Step 2: verify an attestation (kind 'registration') or an assertion
     # (kind 'authentication') and, on success only, issue a session token.
     # The challenge is consumed first, so every attempt — valid or not —
-    # burns it exactly once.
-    def verify(email:, credential:, kind:, user_agent: nil)
+    # burns it exactly once. When kind is 'authentication' and the user
+    # has MFA enabled, no session is issued: the result is
+    # { mfa_required: true, mfa_token: } and the login completes via
+    # Authentication::Totp.complete_mfa_login.
+    def verify(email:, credential:, kind:, user_agent: nil, ip_address: nil)
       raise VerificationError, 'credential required' if credential.blank?
       kind = kind.to_s
       raise VerificationError, 'unknown ceremony' unless %w[registration authentication].include?(kind)
@@ -136,8 +189,12 @@ module Authentication
                  end
 
       device = user.devices.active.first || Devices::Enroll.call(user: user, public_key: decoded_public_key(verified[:public_key]), name_encrypted: nil)
-      token = SessionTokens.issue(user: user, device: device)
       Audit::Log.call(user: user, device: device, event_type: "passkey_#{kind}_verified")
+      if kind == 'authentication' && user.mfa_enabled?
+        mfa_token = MfaTokens.issue(user: user, device: device)
+        return { mfa_required: true, mfa_token: mfa_token, user_id: user.id }
+      end
+      token = SessionTokens.issue(user: user, device: device, user_agent: user_agent, ip_address: ip_address)
       { token: token, user_id: user.id, device_id: device.id, expires_in: SessionTokens::TTL_SECONDS }
     rescue VerificationError
       raise
@@ -175,18 +232,21 @@ module Authentication
     end
 
     # Verify an attestation and persist the Authenticator. Returns
-    # { public_key: } (base64url, as the gem returns it) for device binding.
-    def verify_registration(user:, params:, challenge:)
+    # { public_key:, authenticator: } (public_key is base64url, as the
+    # gem returns it, for device binding). With first_only: true (the
+    # unauthenticated endpoint) a second passkey is refused — see the
+    # module comment. verify_addition passes first_only: false.
+    def verify_registration(user:, params:, challenge:, first_only: true)
       # See the module comment: no second passkey via this unauthenticated
       # endpoint once the account already has one.
-      raise VerificationError, 'verification failed' if user.authenticators.active.exists?
+      raise VerificationError, 'verification failed' if first_only && user.authenticators.active.exists?
 
       webauthn_credential = WebAuthn::Credential.from_create(params)
       webauthn_credential.verify(challenge, user_presence: true, user_verification: true)
       raise VerificationError, 'verification failed' if webauthn_credential.id.blank? || webauthn_credential.public_key.blank?
 
       begin
-        user.authenticators.create!(
+        authenticator = user.authenticators.create!(
           credential_id: webauthn_credential.id,
           public_key: webauthn_credential.public_key,
           sign_count: webauthn_credential.sign_count || 0
@@ -194,7 +254,7 @@ module Authentication
       rescue ActiveRecord::RecordInvalid, ActiveRecord::RecordNotUnique
         raise VerificationError, 'verification failed'
       end
-      { public_key: webauthn_credential.public_key }
+      { public_key: webauthn_credential.public_key, authenticator: authenticator }
     end
 
     # Verify an assertion against the STORED public key / sign count of

@@ -21,6 +21,9 @@ import {
   changePassphrase,
   wipeVault,
   getVaultStats,
+  verifyPassphrase,
+  encryptWithVaultKey,
+  decryptWithVaultKey,
 } from './vault';
 import { computeHealth } from './utils/health';
 import { buildExampleItems, isExampleItem } from './utils/exampleData';
@@ -44,6 +47,11 @@ import ItemForm from './components/ItemForm';
 import PasswordGenerator from './components/PasswordGenerator';
 import MediaView from './components/MediaView';
 import SharesView from './components/SharesView';
+import SecurityCenter from './components/SecurityCenter';
+import StepUpDialog from './components/StepUpDialog';
+import { SecurityApiClient, isStepUpFresh, LS_API_TOKEN } from '../../../packages/sdk/src/security';
+import { I18nProvider } from '../../../packages/i18n/src/react';
+import { detectLocale } from '../../../packages/i18n/src/index';
 
 /**
  * Desktop shell (Phase 1 prototype) — local-only vault, no server/sync.
@@ -62,6 +70,10 @@ import SharesView from './components/SharesView';
 
 const LS_AUTOLOCK = 'my-secrect.local-vault.autolock-minutes.v1';
 const LS_SHARES = 'my-secrect.local-vault.share-proposals.v1';
+/** API base URL for the account server. Empty = local-only: no
+ *  SecurityApiClient is constructed and the Security Center shows its
+ *  not-configured state. The server never sees vault content. */
+const LS_API_BASE_URL = 'my-secrect:api-base-url';
 
 /** Share proposals are PENDING only — no key envelope exists, so no share
  *  is ever active. See SharesView / handleCreateShare. */
@@ -158,6 +170,76 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
   const [sort, setSort] = useState<ItemSort>('updated');
   const [selectionMode, setSelectionMode] = useState(false);
   const [bulkIds, setBulkIds] = useState<Set<string>>(new Set());
+  // Account server (local-first): the client exists only when a base URL
+  // is configured. The token getter reads the stored account session
+  // token, if a sign-in flow has stored one; otherwise calls go out
+  // without Authorization and the server answers 401.
+  const [apiBaseUrl, setApiBaseUrl] = useState<string>(() => {
+    try {
+      return localStorage.getItem(LS_API_BASE_URL) ?? '';
+    } catch {
+      return '';
+    }
+  });
+  const securityClient = useMemo<SecurityApiClient | null>(() => {
+    const base = apiBaseUrl.trim();
+    if (!base) return null;
+    return new SecurityApiClient({
+      baseUrl: base,
+      getToken: async () => {
+        try {
+          return localStorage.getItem(LS_API_TOKEN);
+        } catch {
+          return null;
+        }
+      },
+    });
+  }, [apiBaseUrl]);
+  // Step-up (10-minute window, STEP_UP_WINDOW_MS in the SDK): a pending
+  // action runs only after a fresh verification. requestStepUp runs the
+  // action at once when the window is still fresh, otherwise it opens
+  // the dialog and runs it on success. Cancelling never runs it.
+  const [stepUpVerifiedAt, setStepUpVerifiedAt] = useState<number | null>(null);
+  const [stepUpOpen, setStepUpOpen] = useState(false);
+  const [stepUpReason, setStepUpReason] = useState<'export' | undefined>(undefined);
+  const stepUpPendingRef = useRef<{ run: () => void; onCancel?: () => void } | null>(null);
+  const requestStepUp = useCallback(
+    (run: () => void, opts?: { reason?: 'export'; onCancel?: () => void }) => {
+      if (isStepUpFresh(stepUpVerifiedAt)) {
+        run();
+        return;
+      }
+      stepUpPendingRef.current = { run, onCancel: opts?.onCancel };
+      setStepUpReason(opts?.reason);
+      setStepUpOpen(true);
+    },
+    [stepUpVerifiedAt],
+  );
+  const handleStepUpVerified = useCallback(() => {
+    setStepUpVerifiedAt(Date.now());
+    setStepUpOpen(false);
+    setStepUpReason(undefined);
+    const pending = stepUpPendingRef.current;
+    stepUpPendingRef.current = null;
+    pending?.run();
+  }, []);
+  const handleStepUpCancel = useCallback(() => {
+    setStepUpOpen(false);
+    setStepUpReason(undefined);
+    const pending = stepUpPendingRef.current;
+    stepUpPendingRef.current = null;
+    pending?.onCancel?.();
+  }, []);
+  const handleApiBaseUrlChange = useCallback((url: string) => {
+    setApiBaseUrl(url);
+    try {
+      const trimmed = url.trim();
+      if (trimmed) localStorage.setItem(LS_API_BASE_URL, trimmed);
+      else localStorage.removeItem(LS_API_BASE_URL);
+    } catch {
+      // API URL persistence is non-critical; a full localStorage must not break the vault.
+    }
+  }, []);
 
   useEffect(() => {
     try {
@@ -369,7 +451,12 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     setSelectedId(item.id);
   };
 
-  const handleExport = () => {
+  // Step-up gate: an export runs ONLY after a fresh verification (the
+  // dialog offers the master passphrase, plus TOTP / passkey when a
+  // server is configured). This one gate covers every export entry
+  // point — the sidebar button and the Settings backup buttons both
+  // call handleExport / handleExportPlaintext below.
+  const doExportEncrypted = () => {
     try {
       const blob = new Blob([exportEncrypted()], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -384,7 +471,11 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     }
   };
 
-  const handleExportPlaintext = () => {
+  const handleExport = () => {
+    requestStepUp(doExportEncrypted, { reason: 'export' });
+  };
+
+  const doExportPlaintext = () => {
     // H2 fix: plaintext export is desktop-only. The web client renders
     // this App with allowPlaintextExport={false}; the Settings UI hides
     // the button there, and this guard is the second line of defence so
@@ -401,6 +492,33 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
       setNotice('Plaintext export failed.');
     }
   };
+
+  const handleExportPlaintext = () => {
+    requestStepUp(doExportPlaintext, { reason: 'export' });
+  };
+
+  /**
+   * Change-passphrase goes through step-up first (the dialog's
+   * passphrase check is in addition to the form's own
+   * current-passphrase check inside changePassphrase). The returned
+   * promise settles only after verification + change, so SettingsView
+   * can show its success / error state; cancelling the dialog rejects
+   * it and nothing is changed.
+   */
+  const handleChangePassphraseRequest = (oldP: string, newP: string) =>
+    new Promise<void>((resolve, reject) => {
+      requestStepUp(
+        () => {
+          void changePassphrase(oldP, newP)
+            .then(() => {
+              setNotice('Passphrase changed.');
+              resolve();
+            })
+            .catch(reject);
+        },
+        { onCancel: () => reject(new Error('Step-up cancelled.')) },
+      );
+    });
 
   const handleLoadExampleData = async () => {
     try {
@@ -597,6 +715,8 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
                   ? 'Security Health'
                   : view === 'settings'
                     ? 'Settings'
+                    : view === 'security'
+                      ? 'Security Center'
               : view.startsWith('tag:')
               ? `#${view.slice(4)}`
               : (CATEGORIES.find((c) => c.key === view)?.label ?? 'Vault');
@@ -738,7 +858,11 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
   }
 
   // ---------- Unlocked shell ----------
+  // I18nProvider (browser-detected locale) covers only the components
+  // that read it — SecurityCenter and StepUpDialog. The rest of the
+  // shell keeps its hardcoded English strings.
   return (
+    <I18nProvider initialLocale={detectLocale()}>
     <div className="flex h-full bg-[#0B0F14] text-zinc-100">
       <Sidebar
         view={view}
@@ -835,8 +959,20 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
               onImport={() => fileInputRef.current?.click()}
               existingItems={items}
               onImportCsv={(csvItems) => void handleImportCsv(csvItems)}
-              onChangePassphrase={async (oldP, newP) => { await changePassphrase(oldP, newP); setNotice('Passphrase changed.'); }}
-              onWipeVault={handleWipeVault}
+              onChangePassphrase={handleChangePassphraseRequest}
+              onWipeVault={() => requestStepUp(handleWipeVault)}
+              apiBaseUrl={apiBaseUrl}
+              onApiBaseUrlChange={handleApiBaseUrlChange}
+            />
+          </div>
+        ) : view === 'security' ? (
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <SecurityCenter
+              security={securityClient}
+              apiBaseUrl={apiBaseUrl}
+              encryptWithVaultKey={encryptWithVaultKey}
+              decryptWithVaultKey={decryptWithVaultKey}
+              requestStepUp={requestStepUp}
             />
           </div>
         ) : view === 'health' ? (
@@ -981,6 +1117,15 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
           setEditingItem(null);
         }}
       />
+      <StepUpDialog
+        open={stepUpOpen}
+        security={securityClient}
+        verifyPassphrase={verifyPassphrase}
+        reason={stepUpReason}
+        onVerified={() => handleStepUpVerified()}
+        onCancel={handleStepUpCancel}
+      />
     </div>
+    </I18nProvider>
   );
 }

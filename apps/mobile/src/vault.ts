@@ -147,6 +147,47 @@ export async function unlockWithRecoveryKey(recoveryKey: string): Promise<boolea
   } catch { clearMemory(); return false; }
 }
 
+/**
+ * Verify a passphrase WITHOUT disturbing the in-memory session: derives
+ * the KEK and unwraps the Master Key into a throwaway copy, then
+ * zero-fills it. Used for step-up prompts (export / change passphrase /
+ * wipe) so a wrong entry can never lock a vault that is already open —
+ * unlike unlockVault(), which clears memory on failure. Never stores
+ * the passphrase.
+ */
+export async function verifyPassphrase(passphrase: string): Promise<boolean> {
+  const keys = await loadKeys(); if (!keys) return false;
+  try {
+    const kek = await crypto.deriveKek(passphrase, fromBase64(keys.salt));
+    const master = await crypto.unwrapKey(kek, fromBase64(keys.wrapped_master_nonce), fromBase64(keys.wrapped_master));
+    kek.fill(0); master.fill(0);
+    return true;
+  } catch { return false; }
+}
+
+/**
+ * Encrypt / decrypt short display strings (e.g. device names) with the
+ * in-memory Vault Key, as nonce-prefixed base64 (24-byte nonce ||
+ * ciphertext) — the same envelope layout exportEncrypted() uses for item
+ * payloads. The server stores name_encrypted opaquely and can never
+ * decrypt it. encrypt throws when the vault is locked; decrypt returns
+ * null when locked, tampered with, or malformed.
+ */
+export async function encryptWithVaultKey(text: string): Promise<string> {
+  if (!vaultKey) throw new Error('vault locked');
+  await sodiumReady;
+  const { nonce, ciphertext } = await crypto.encrypt(vaultKey, Buffer.from(text, 'utf8'));
+  return toBase64(concat(nonce, ciphertext));
+}
+export async function decryptWithVaultKey(encoded: string): Promise<string | null> {
+  if (!vaultKey) return null;
+  try {
+    const { nonce, rest } = splitNoncePrefixed(encoded);
+    const plaintext = await crypto.decrypt(vaultKey, nonce, rest);
+    return Buffer.from(plaintext).toString('utf8');
+  } catch { return null; }
+}
+
 export async function changePassphrase(oldPassphrase: string, newPassphrase: string): Promise<void> {
   if (!newPassphrase || newPassphrase.length < 8) throw new Error('new passphrase must be at least 8 characters');
   const keys = await loadKeys(); if (!keys) throw new Error('no vault exists');

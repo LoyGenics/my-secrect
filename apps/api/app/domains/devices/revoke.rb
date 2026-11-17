@@ -3,6 +3,9 @@ module Devices
     module_function
     # Revoking a device: mark revoked, revoke its sessions, and schedule
     # key-envelope rotation so its wrapped vault key stops working.
+    # Revocation invalidates server sessions and rotates key envelopes
+    # only — it does NOT erase secrets already downloaded/offline on
+    # that device.
     def call(device:)
       device.update!(revoked_at: Time.current)
       Session.where(device: device).update_all(revoked_at: Time.current)

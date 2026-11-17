@@ -29,7 +29,9 @@
 | Sync (client) | 🔨 Implemented, untested; unwired | `packages/sync/*`; no app imports it | Wire `SyncClient` into desktop/mobile after pull fix; add E2E harness |
 | Blobs (presigned sessions) | 🔨 Implemented, untested; 🟡 incomplete | `app/domains/blobs/*` | Cap `part_count`, enforce quota, verify sizes on complete |
 | Sharing (API + model) | 🟡 Partial | `sharing/create|revoke.rb`, `core/sharing.ts` | Implement HPKE; reject null `encrypted_key`; add recipient keys |
-| Recovery (server) | 🏗️ Scaffold only | `recovery/challenge.rb` (stateless stub) | Store challenges, add verify endpoint, or remove endpoint |
+| Recovery (server) | 🔨 Implemented, untested | `recovery/challenge.rb` (persisted: digest + ciphertext, 5-min TTL, max 5 attempts) + `verify.rb` (real Ed25519 via RbNaCl) + `verifiers.rb`; `POST /v1/recovery/verify` issues a 15-min recovery session; H5 FIXED (§9 security-review) | `bundle install` (rotp/rbnacl) + `db:migrate` + `rspec spec/requests/api/v1/security_spec.rb` |
+| MFA / step-up / sessions (WorkOS scope) | 🔨 Implemented, untested | `Authentication::Totp` (ROTP, ±1 drift, replay check, recovery codes as digests), `StepUp` (10-min window), `Sessions`, `MfaTokens`; `AuthController` (authenticate/mfa-verify/step-up/activity), `PasskeysController`, `MfaController`, `SessionsController`; migration 20261117000003 | Same verification commands as above; no UI yet |
+| Passkey management | 🔨 Implemented, untested | `POST /v1/auth/passkeys/authenticate`, `GET /v1/auth/passkeys`, `POST /v1/auth/passkeys/add/options|verify` (step-up, rotates token), `DELETE /v1/auth/passkeys/:id` (last-passkey guard) | Same as above |
 | Quota/billing | 🏗️ Scaffold only | `billing/quota.rb` never called | Call from upload-session + sync push, or delete the claim |
 | Jobs (orphan cleanup, quota, retention) | 🔨 Implemented, untested | `app/jobs/*` (4 files) | Schedule + verify; note quota job only logs |
 
@@ -58,7 +60,7 @@
 | Infra docker (Caddy+api+worker+PG+Redis+MinIO) | 🏗️ Scaffold only | `infra/docker/*`; never run | `docker compose up --build`, migrate, health check |
 | Infra cloud/self-host | 🏗️ Docs only | `infra/cloud|self-host/README.md` | Validate against a real deployment |
 | Node tests (8 files) | 🟡 Partial; ⛔ mirrors, not tests | All `.mjs` tests re-implement logic in-file | Rewrite to import real TS (tsx/vitest) + libsodium vectors |
-| RSpec (sync/items/models) | 🟡 Partial | `spec/requests/api/v1/*`, `spec/models/*` | Add auth/passkey/recovery/blob/share/device specs; run |
+| RSpec (sync/items/models) | 🟡 Partial | `spec/requests/api/v1/*`, `spec/models/*` + new `spec/requests/api/v1/security_spec.rb` (MFA/step-up/recovery/sessions/devices/activity; real FakeClient + ROTP + RbNaCl, no crypto mocks) | Run `bundle exec rspec` — nothing has run yet |
 | Specs (`specs/*.md`) | 🔨 Written; drift noted | 5 files | Fix sync-protocol "signed events" + secretstream claims to match code |
 | Root README | 🟡 Stale in 3 bullets (fixed this audit) | See § "README fixes" | Fix remaining stale app READMEs in Phase B |
 | External security audit | 🔴 Missing | None | Commission after Critical/High are fixed |
@@ -85,8 +87,7 @@
    (INTERACTIVE) vs `native/crypto-core/src/lib.rs` (SENSITIVE).
 6. **Sharing has no key exchange** — `sharing/create.rb:9-14` accepts null
    `encrypted_key`; no HPKE; no recipient keys.
-7. **Server recovery is a stub** — `recovery/challenge.rb` (stateless),
-   no verify endpoint.
+7. **Server recovery is a stub** — **FIXED 17 Nov 2026** (WorkOS scope): challenges persisted + Ed25519 verify + recovery sessions; see the WorkOS section below and security-review §9. Trusted-device transfer still unimplemented.
 8. **Local storage unencrypted at rest; 3 separate vaults** — desktop
    localStorage, mobile AsyncStorage, extension chrome.storage; no
    SQLCipher/Keychain; `createVault` overwrites without guard.
@@ -156,3 +157,50 @@ curl -fsS http://localhost:3000/health
 
 Also: `git status` in the repo root to confirm only `docs/` + `README.md`
 changed in this audit (no code was touched).
+
+## WorkOS-inspired security features (17 Nov 2026)
+
+> Backend only (Rails API). Nothing has been built, tested, or run on
+> the Mac. Strict scope: passkeys/MFA/recovery, trusted devices &
+> sessions, step-up auth, activity. No SSO/SCIM/FGA/OAuth/risk engines.
+> Account auth stays separate from vault unlock; revocation does not
+> erase secrets already downloaded/offline on a device.
+
+### New endpoints (all under `/api/v1`, existing routes untouched)
+
+| Endpoint | Notes |
+|---|---|
+| `POST auth/passkeys/authenticate` | Login request options + stored challenge |
+| `GET auth/passkeys` | List (credential_id prefix, created_at, sign_count, revoked_at) |
+| `POST auth/passkeys/add/options`, `POST auth/passkeys/add/verify` | Authenticated add, step-up required, rotates session token |
+| `DELETE auth/passkeys/:id` | Revoke; step-up required; 422 if last passkey and MFA off |
+| `POST auth/mfa/enroll`, `POST auth/mfa/confirm` | TOTP enrol; secret + otpauth URL returned once; confirm issues 10 recovery codes once + rotates token |
+| `POST auth/mfa/disable`, `POST auth/mfa/recovery_codes` | Step-up required; rotate token |
+| `POST auth/mfa/verify` | `{ mfa_token, code }` completes an MFA login (TOTP or recovery code) |
+| `POST auth/step-up/totp`, `POST auth/step-up/passkey`, `POST auth/step-up/passkey/options` | 10-min window; failed attempts audit `step_up_failed` |
+| `GET auth/activity` | Newest audit events, max 50 |
+| `GET auth/sessions`, `DELETE auth/sessions/:id`, `DELETE auth/sessions/others` | Revoke-others is step-up required, never touches the current session |
+| `PATCH devices/:id` | Rename + trust/untrust (trust requires step-up); enrol now requires step-up, accepts `platform:` |
+| `POST recovery/challenges` | Persisted challenge (was a stateless stub) |
+| `POST recovery/verify` | Real Ed25519 signature check; issues 15-min recovery session |
+| `GET recovery/verifiers`, `POST recovery/verifiers` | Register (step-up, revokes previous, rotates token); list returns fingerprints only |
+
+### New tables / columns (migration `20261117000003`, schema v2026_11_17_000003)
+
+- `sessions`: `step_up_verified_at`, `step_up_method`, `recovery_session`, `user_agent`, `ip_address`
+- `devices`: `platform`, `trusted_at`
+- `users`: `mfa_enabled`, `totp_secret_ciphertext`, `totp_last_step`, `totp_confirmed_at`
+- New: `recovery_challenges`, `recovery_verifiers`, `recovery_codes`, `mfa_challenges` (incl. `device_id`, so the pending login binds its device)
+- `audit_events.metadata` (jsonb, default `{}`)
+
+### New gems
+
+- `rotp` (~> 6.3), `rbnacl` (~> 7.1). Run `bundle install` before `rspec`.
+
+### Still not done
+
+- Nothing has run: first `bundle install && rails db:migrate && bundle exec rspec` (incl. new `spec/requests/api/v1/security_spec.rb`) is still pending; no external audit.
+- Rack::Attack cache store still unconfigured (M2); throttles are now mounted (previously defined but never mounted) and disabled in test.
+- Session tokens are not bound to IP/device fingerprint (L2 partial: `user_agent`/`ip_address` are now recorded and listed).
+- Trusted-device transfer still unimplemented; no Unified Security Center UI yet (API only); activity feed has no pagination beyond capped `limit`.
+- The unauthenticated registration flow still creates the user row at options time (deliberate, documented in `passkeys.rb`).

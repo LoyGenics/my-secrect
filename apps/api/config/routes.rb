@@ -6,7 +6,24 @@ Rails.application.routes.draw do
       # Account + device authentication (WebAuthn/passkeys). NOT vault unlock.
       post 'auth/passkeys/register', to: 'auth#register_passkey'
       post 'auth/passkeys/verify', to: 'auth#verify_passkey'
-      resources :devices, only: %i[index create destroy] do
+      post 'auth/passkeys/authenticate', to: 'auth#authenticate_passkey'
+      get 'auth/passkeys', to: 'passkeys#index'
+      post 'auth/passkeys/add/options', to: 'passkeys#add_options'
+      post 'auth/passkeys/add/verify', to: 'passkeys#add_verify'
+      delete 'auth/passkeys/:id', to: 'passkeys#destroy'
+      post 'auth/mfa/verify', to: 'auth#verify_mfa'
+      post 'auth/mfa/enroll', to: 'mfa#enroll'
+      post 'auth/mfa/confirm', to: 'mfa#confirm'
+      post 'auth/mfa/disable', to: 'mfa#disable'
+      post 'auth/mfa/recovery_codes', to: 'mfa#regenerate_codes'
+      post 'auth/step-up/totp', to: 'auth#step_up_totp'
+      post 'auth/step-up/passkey/options', to: 'auth#step_up_passkey_options'
+      post 'auth/step-up/passkey', to: 'auth#step_up_passkey'
+      get 'auth/activity', to: 'auth#activity'
+      get 'auth/sessions', to: 'sessions#index'
+      delete 'auth/sessions/others', to: 'sessions#revoke_others'
+      delete 'auth/sessions/:id', to: 'sessions#destroy'
+      resources :devices, only: %i[index create update destroy] do
         post :enroll, on: :collection
       end
 
@@ -23,6 +40,9 @@ Rails.application.routes.draw do
 
       resources :shares, only: %i[create destroy]
       post 'recovery/challenges', to: 'recovery#create_challenge'
+      post 'recovery/verify', to: 'recovery#verify'
+      get 'recovery/verifiers', to: 'recovery#verifiers'
+      post 'recovery/verifiers', to: 'recovery#register_verifier'
     end
   end
 end

@@ -12,7 +12,10 @@ module MySecrectApi
     config.active_record.schema_format = :ruby
     # The API never serves HTML. All responses are JSON, all payloads are
     # ciphertext + opaque ids. No plaintext vault content is ever logged.
-    config.filter_parameters += %i[password encrypted_payload encrypted_item_key encrypted_key]
+    config.filter_parameters += %i[password encrypted_payload encrypted_item_key encrypted_key totp_secret code recovery_code signature mfa_token challenge]
+    # Mount Rack::Attack so the throttles in config/initializers/rack_attack.rb
+    # actually run (they were defined but never mounted before).
+    config.middleware.use Rack::Attack
     config.generators do |g|
       g.test_framework :rspec, request_specs: true
       g.fixture_replacement :factory_bot, dir: 'spec/factories'

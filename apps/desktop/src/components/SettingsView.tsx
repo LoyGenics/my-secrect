@@ -24,6 +24,14 @@ interface SettingsViewProps {
   onImportCsv?: (items: VaultItem[]) => Promise<void> | void;
   onChangePassphrase: (oldPassphrase: string, newPassphrase: string) => Promise<void>;
   onWipeVault: () => void;
+  /**
+   * Account server base URL ('' = local-only). The App persists it to
+   * localStorage 'my-secrect:api-base-url' and builds the
+   * SecurityApiClient from it. The server never sees vault content —
+   * only ciphertext and opaque ids.
+   */
+  apiBaseUrl: string;
+  onApiBaseUrlChange: (url: string) => void;
 }
 
 function downloadText(filename: string, text: string, type: string): void {
@@ -48,6 +56,8 @@ export default function SettingsView({
   onImportCsv,
   onChangePassphrase,
   onWipeVault,
+  apiBaseUrl,
+  onApiBaseUrlChange,
 }: SettingsViewProps) {
   const [oldPass, setOldPass] = useState('');
   const [newPass, setNewPass] = useState('');
@@ -104,7 +114,8 @@ export default function SettingsView({
         <p className="mt-1 text-sm text-zinc-400">
           Your current passphrase is verified first. The master key is re-wrapped under the new
           passphrase — your items are not re-encrypted and nothing is lost. Your recovery key
-          still works after the change.
+          still works after the change. A fresh verification (step-up) is asked for before the
+          change runs.
         </p>
         <form className="mt-4 space-y-3" onSubmit={(e) => void handleChangePassphrase(e)}>
           <div>
@@ -181,6 +192,30 @@ export default function SettingsView({
         </div>
       </section>
 
+      {/* Account server (Security Center) */}
+      <section className="card p-5" aria-labelledby="settings-server-heading">
+        <h3 id="settings-server-heading" className="text-base font-semibold">Account server</h3>
+        <p className="mt-1 text-sm text-zinc-400">
+          Optional. Set the API base URL to use passkeys, two-factor authentication, trusted
+          devices and sessions in the Security Center. The server never sees vault content —
+          only ciphertext and opaque ids. Leave it empty to stay local-only.
+        </p>
+        <div className="mt-3">
+          <label className="label" htmlFor="settings-api-base-url">API base URL</label>
+          <input
+            id="settings-api-base-url"
+            name="api-base-url"
+            type="url"
+            className="input font-mono"
+            value={apiBaseUrl}
+            onChange={(e) => onApiBaseUrlChange(e.target.value)}
+            placeholder="https://… (empty = local-only)"
+            autoComplete="off"
+            aria-label="API base URL, empty means local-only"
+          />
+        </div>
+      </section>
+
       {/* Recovery key */}
       <section className="card p-5" aria-labelledby="settings-recovery-heading">
         <h3 id="settings-recovery-heading" className="text-base font-semibold">Recovery key</h3>
@@ -206,6 +241,8 @@ export default function SettingsView({
         </div>
         <p className="mt-2 text-sm text-zinc-400">
           Encrypted backups stay encrypted — they can only be imported into a vault with the same keys.
+          Exports need a fresh verification first: you will be asked to re-enter your master
+          passphrase (or a second factor, when a server is configured) before the file is written.
         </p>
         {allowPlaintextExport ? (
           <div className="mt-4 rounded-lg border border-red-900/60 bg-red-950/30 p-4">
@@ -273,7 +310,7 @@ export default function SettingsView({
         <p className="mt-1 text-sm text-zinc-300">
           This permanently deletes every item, the encrypted store and the wrapped keys on this
           device. It cannot be undone. An encrypted backup is the only way back — make one first
-          if you want to keep anything.
+          if you want to keep anything. A fresh verification (step-up) is asked for before wiping.
         </p>
         {!wipeArmed ? (
           <button type="button" className="btn-danger mt-3" onClick={() => setWipeArmed(true)}>

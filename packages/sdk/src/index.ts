@@ -175,6 +175,25 @@ export interface CreateSyncClientOptions {
  * already bound to a VaultApiClient: `client.syncAll()` pushes the
  * offline queue, then pulls + applies remote events.
  */
+// --- Account security (passkeys / MFA / sessions / devices / step-up) ---
+// Lives in ./security.ts, which imports ApiError from this file only as a
+// value used inside methods (never at module top level), so the cycle is
+// safe: by the time any SecurityApiClient method runs, ApiError is defined.
+export { SecurityApiClient, STEP_UP_WINDOW_MS, isStepUpFresh, isStepUpRequired, LS_API_TOKEN } from './security';
+export type {
+  PasskeyAuthenticator,
+  PasskeyListResponse,
+  MfaEnrollResponse,
+  RecoveryCodesResponse,
+  SessionInfo,
+  SessionListResponse,
+  DeviceInfo,
+  DeviceListResponse,
+  ActivityEvent,
+  ActivityResponse,
+  RecoveryChallengeResponse,
+} from './security';
+
 export function createSyncClient(opts: CreateSyncClientOptions): SyncClient {
   const api = new VaultApiClient({ baseUrl: opts.baseUrl, getToken: opts.getToken });
   return new SyncClient(api, {

@@ -15,6 +15,7 @@ import GeneratorScreen from './screens/GeneratorScreen';
 import HealthScreen from './screens/HealthScreen';
 import SettingsScreen, { type AutoLockMinutes } from './screens/SettingsScreen';
 import TrashScreen from './screens/TrashScreen';
+import SecurityScreen from './screens/SecurityScreen';
 import ItemDetailScreen from './screens/ItemDetailScreen';
 import ItemFormScreen from './screens/ItemFormScreen';
 
@@ -44,6 +45,7 @@ export default function App() {
   const [showForm, setShowForm] = useState(false);
   const [editingItem, setEditingItem] = useState<VaultItem | null>(null);
   const [showTrash, setShowTrash] = useState(false);
+  const [showSecurity, setShowSecurity] = useState(false);
   const [notice, setNotice] = useState('');
   const [autoLock, setAutoLock] = useState<AutoLockMinutes>(5);
   const lastActivity = useRef(Date.now());
@@ -58,7 +60,7 @@ export default function App() {
   }, []);
 
   const doLock = useCallback(() => {
-    lockVault(); setItems([]); setTrash([]); setSelectedId(null); setShowForm(false); setEditingItem(null); setShowTrash(false); setBoot('locked');
+    lockVault(); setItems([]); setTrash([]); setSelectedId(null); setShowForm(false); setEditingItem(null); setShowTrash(false); setShowSecurity(false); setBoot('locked');
   }, []);
 
   // Auto-lock: any touch resets the inactivity clock; a 10s ticker locks
@@ -99,7 +101,9 @@ export default function App() {
   return (
     <View style={styles.screen} onTouchStart={markActivity}>
       <StatusBar style="light" />
-      {showTrash ? (
+      {showSecurity ? (
+        <SecurityScreen onClose={() => setShowSecurity(false)} />
+      ) : showTrash ? (
         <TrashScreen trash={trash} onSelect={(id) => { setSelectedId(id); setShowTrash(false); }} onRestore={(id) => void handleRestore(id)} onPermanentDelete={(id) => void handleDelete(id)} />
       ) : showForm ? (
         <ItemFormScreen initial={editingItem ?? undefined} allItems={items} onSave={(item) => void handleSaveItem(item)} onCancel={clearSelection} />
@@ -114,14 +118,14 @@ export default function App() {
       ) : tab === 'health' ? (
         <HealthScreen items={items} onFix={(item) => { setEditingItem(item); setShowForm(true); }} />
       ) : (
-        <SettingsScreen autoLock={autoLock} onAutoLockChange={setAutoLock} onLock={doLock} onWiped={() => setBoot('onboarding')} notice={notice} setNotice={setNotice} onViewTrash={() => setShowTrash(true)} />
+        <SettingsScreen autoLock={autoLock} onAutoLockChange={setAutoLock} onLock={doLock} onWiped={() => setBoot('onboarding')} notice={notice} setNotice={setNotice} onViewTrash={() => setShowTrash(true)} onViewSecurity={() => setShowSecurity(true)} />
       )}
-      {notice && !showForm && !selectedItem && !showTrash ? (
+      {notice && !showForm && !selectedItem && !showTrash && !showSecurity ? (
         <Pressable testID="app-notice" accessibilityLabel="Dismiss notice" onPress={() => setNotice('')} style={{ backgroundColor: colors.card, borderTopColor: colors.cardBorder, borderTopWidth: 1, padding: 10 }}>
           <Text style={{ color: '#A5B4FC', fontSize: 13, textAlign: 'center' }}>{notice} — tap to dismiss</Text>
         </Pressable>
       ) : null}
-      {!showForm && !selectedItem && !showTrash ? (
+      {!showForm && !selectedItem && !showTrash && !showSecurity ? (
         <View style={{ flexDirection: 'row', borderTopColor: colors.cardBorder, borderTopWidth: 1, backgroundColor: colors.card, paddingBottom: 20, paddingTop: 8 }}>
           {TABS.map((t) => (
             <Pressable key={t.key} testID={`tab-${t.key}`} accessibilityLabel={`${t.label} tab`} accessibilityRole="tab" accessibilityState={{ selected: tab === t.key }} onPress={() => { setTab(t.key); clearSelection(); }} style={{ flex: 1, alignItems: 'center', minHeight: 48, justifyContent: 'center' }}>

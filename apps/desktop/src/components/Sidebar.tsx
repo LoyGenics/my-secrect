@@ -17,6 +17,7 @@ export type SidebarView =
   | 'archived'
   | 'health'
   | 'settings'
+  | 'security'
   | 'media-gallery'
   | 'shares'
   | CategoryKey
@@ -182,6 +183,9 @@ export default function Sidebar({
           </div>
           <button className={`nav-item ${isActive('settings') ? 'nav-item-active' : ''}`} onClick={() => setView('settings')}>
             <span>⚙ Settings</span>
+          </button>
+          <button className={`nav-item ${isActive('security') ? 'nav-item-active' : ''}`} onClick={() => setView('security')}>
+            <span>🛡 Security Center</span>
           </button>
         </section>
 

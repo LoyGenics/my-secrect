@@ -280,6 +280,69 @@ export async function unlockWithRecoveryKey(recoveryKey: string): Promise<boolea
 }
 
 /**
+ * Verify a passphrase WITHOUT unlocking or locking anything: derive its
+ * KEK and try unwrapping the stored Account Master Key. The AEAD tag
+ * decides — a wrong passphrase fails the unwrap and returns false.
+ *
+ * This is the check step-up uses, and it deliberately does NOT call
+ * unlockVault: unlockVault's failure path calls clearMemory(), which
+ * would LOCK the vault (wiping the in-memory keys and items) after a
+ * single mistyped step-up passphrase. verifyPassphrase never touches
+ * the in-memory keys; every derived value is zero-filled here.
+ */
+export async function verifyPassphrase(passphrase: string): Promise<boolean> {
+  if (!passphrase) return false;
+  const keys = loadKeys();
+  if (!keys) return false;
+  try {
+    const kek = await crypto.deriveKek(passphrase, fromBase64(keys.salt));
+    let master: Uint8Array;
+    try {
+      master = await crypto.unwrapKey(
+        kek,
+        fromBase64(keys.wrapped_master_nonce),
+        fromBase64(keys.wrapped_master),
+      );
+    } catch {
+      kek.fill(0);
+      return false;
+    }
+    kek.fill(0);
+    master.fill(0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Encrypt a short display string (e.g. a device name) under the
+ * in-memory Vault Key and return base64 `nonce (24B) || ciphertext` —
+ * the same construction as the export format. The server stores the
+ * result opaquely; only a client holding the Vault Key can read it.
+ * Throws when the vault is locked. The plaintext string itself is a
+ * JS string and cannot be zero-filled; callers clear their input state.
+ */
+export async function encryptWithVaultKey(plaintext: string): Promise<string> {
+  if (!vaultKey) throw new Error('vault locked');
+  await sodiumReady;
+  const { nonce, ciphertext } = await crypto.encrypt(
+    vaultKey,
+    new TextEncoder().encode(plaintext),
+  );
+  return toBase64(concat(nonce, ciphertext));
+}
+
+/** Decrypt a value produced by encryptWithVaultKey. Throws when the
+ *  vault is locked or the value is undecryptable under this Vault Key. */
+export async function decryptWithVaultKey(encoded: string): Promise<string> {
+  if (!vaultKey) throw new Error('vault locked');
+  const { nonce, rest } = splitNoncePrefixed(encoded);
+  const plaintext = await crypto.decrypt(vaultKey, nonce, rest);
+  return new TextDecoder().decode(plaintext);
+}
+
+/**
  * Change the master passphrase. Verifies the OLD passphrase first
  * (derives its KEK and unwraps the Account Master Key — a wrong old
  * passphrase fails the AEAD unwrap and nothing is changed), then

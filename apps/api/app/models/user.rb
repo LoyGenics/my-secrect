@@ -6,6 +6,11 @@ class User < ApplicationRecord
   has_many :shares, foreign_key: :recipient_id, dependent: :destroy
   has_many :owned_shares, class_name: 'Share', foreign_key: :owner_id, dependent: :destroy
   has_many :audit_events, dependent: :nullify
+  has_many :sessions, dependent: :destroy
+  has_many :recovery_challenges, dependent: :destroy
+  has_many :recovery_verifiers, dependent: :destroy
+  has_many :recovery_codes, dependent: :destroy
+  has_many :mfa_challenges, dependent: :destroy
 
   validates :email, presence: true, uniqueness: { case_sensitive: false },
                     format: { with: URI::MailTo::EMAIL_REGEXP }

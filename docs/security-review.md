@@ -128,7 +128,7 @@ No key rotation beyond that exists.
 | H2 | **Web plaintext export reachable despite "encrypted-only" claim.** Web reuses the desktop App wholesale, including Settings plaintext export (ack checkbox only). The banner + web README claim otherwise. | `apps/web/src/App.tsx:1,6-9`; `apps/desktop/src/App.tsx:616-618`; `SettingsView.tsx:195-222` |
 | H3 | **Argon2id parameter split TS vs Rust.** **FIXED in Phase B (§8).** Rust now uses INTERACTIVE (2 / 64 MiB), identical to TS; shared known-answer vectors asserted in both suites. No vaults existed yet (nothing ever ran), so no migration was needed. | `packages/crypto-adapters/src/index.ts` (`ARGON2ID_PARAMS`); `native/crypto-core/src/lib.rs` (`KDF_OPSLIMIT/MEMLIMIT`) |
 | H4 | **Sharing without key exchange.** `Sharing::Create` accepts null `encrypted_key` and creates an ACTIVE share; no recipient keypair infrastructure exists. A share can exist that nobody can decrypt — or that was created with a key the server/creator invented. | `apps/api/app/domains/sharing/create.rb:9-14`; `packages/core/src/sharing.ts` ("HPKE not implemented") |
-| H5 | **Recovery server flow is a stub.** **REMAINS — not touched in Phase B** (the recovery domain lives outside the Phase B security scope: `apps/api/app/domains/recovery/`, `recovery_controller.rb`). Challenge is still never stored or verified; no verify endpoint; trusted-device transfer unimplemented. Only the local recovery key works. Fix design is sketched in §8. | `apps/api/app/domains/recovery/challenge.rb`; `recovery_controller.rb` |
+| H5 | **Recovery server flow is a stub.** **FIXED 17 Nov 2026 (§9).** Challenges are now persisted (`recovery_challenges`: SHA-256 digest + MessageEncryptor ciphertext, 5-min TTL, single-use, max 5 attempts); `POST /v1/recovery/verify` checks a real Ed25519 signature against a registered verifier key and only then issues a 15-min recovery session; unknown emails get the same response shape (no existence leak). Remaining: trusted-device transfer still unimplemented; no external audit; nothing has run. | `apps/api/app/domains/recovery/challenge.rb`, `verify.rb`, `verifiers.rb`; `recovery_controller.rb` |
 | H6 | **Local storage is not encrypted at rest.** Wrapped keys + ciphertext in localStorage / AsyncStorage / chrome.storage.local. No SQLCipher, no Keychain/Keystore. A stolen unlocked-device image or localStorage read exposes the wrapped keys to offline passphrase brute force (Argon2id INTERACTIVE only). `createVault` also overwrites an existing vault without a guard. | `apps/desktop/src/vault.ts` (localStorage backend; `createVault`); `apps/mobile/src/vault.ts`; `apps/extension/src/lib/vault-ext.ts` |
 | H7 | **Sync/device signatures never verified.** `signature` is accepted by push, dropped by `Upsert`, never stored; the "signed events" claim in the sync spec is false. Any authenticated device can push any item into any vault it can access. | `apps/api/app/domains/sync/push.rb`; `encrypted_records/upsert.rb`; `db/schema.rb` (`sync_events.signature`) |
 | H8 | **Blob upload abuse surface.** `part_count` is uncapped (attacker can request millions of presigned URLs + DB rows); per-user quota (`Billing::Quota`) is never called by any controller; `Complete` checks only that parts exist, not sizes; client 1 MiB vs server 8 MiB parts; **no wrapped File Key is stored anywhere**, so downloads cannot be decrypted. | `apps/api/app/domains/blobs/upload_session.rb:8-15`, `complete.rb`; `packages/storage/src/upload.ts` (`BlobManifest` has no key field) |
@@ -245,33 +245,25 @@ the checks (M5, below).
 
 ### Remaining (Phase B did not fix these)
 
-- **H5 — server recovery still a stub (High).** Lives outside the
-  Phase B security scope, so it was NOT edited:
-  `apps/api/app/domains/recovery/challenge.rb` returns a challenge
-  that is never stored; `recovery_controller.rb` has no verify action.
-  Fix design (for the coordinator): persist challenges server-side
-  (new `recovery_challenges` table: email, challenge base64url,
-  kind, expires_at 5 min, consumed_at — same pattern as
-  `PasskeyChallenge`), add `POST /api/v1/recovery/challenges/:id/verify`
-  that verifies a client proof (e.g. a signature with the recovery
-  key) against the stored challenge and only then issues a
-  single-use recovery token; never issue a token without verification;
-  the server must never be able to derive a vault key from recovery.
-  Until then, treat the current endpoint as issuing an unusable
-  challenge. Trusted-device transfer is still unimplemented.
+- **H5 — server recovery still a stub (High).** **FIXED 17 Nov 2026
+  (§9, WorkOS-inspired scope).** Challenges are persisted
+  (`recovery_challenges`: digest + ciphertext, 5-min TTL, single-use,
+  max 5 attempts) and `POST /v1/recovery/verify` verifies a real
+  Ed25519 signature against a registered verifier before issuing a
+  15-min recovery session. Trusted-device transfer is still
+  unimplemented.
 - **H7 — sync/device signatures still never verified (High).**
   Outside Phase B scope (`apps/api/app/domains/sync/`,
   `encrypted_records/`); unchanged. Any authenticated device can
   still push any item into any vault it can access.
-- **No route for `authentication_options`.** Add (coordinator,
-  outside Phase B scope): in `config/routes.rb`,
-  `post 'auth/passkeys/authenticate', to: 'auth#authenticate_passkey'`;
-  in `AuthController`, an `authenticate_passkey` action that calls
-  `Authentication::Passkeys.authentication_options(email: params[:email])`
-  and renders it. Until then, login has no challenge endpoint.
-- **No authenticated add-passkey flow.** A user with a passkey cannot
-  add a second one (refused by design — see C1 guard). Needs an
-  authenticated endpoint + route (coordinator).
+- **No route for `authentication_options`.** **FIXED 17 Nov 2026
+  (§9).** `POST /v1/auth/passkeys/authenticate` →
+  `AuthController#authenticate_passkey` calls
+  `Authentication::Passkeys.authentication_options`.
+- **No authenticated add-passkey flow.** **FIXED 17 Nov 2026 (§9).**
+  `POST /v1/auth/passkeys/add/options` + `/add/verify` (step-up
+  required, session rotated on success); the unauthenticated
+  registration endpoint still refuses a second passkey by design.
 - **M5 partially remains.** Node tests still cannot import the TS
   adapter (`node --test` has no TS loader); the new libsodium tests
   call libsodium directly with the adapter's exact parameters, and the
@@ -304,3 +296,44 @@ Production env needed before any real use: `WEBAUTHN_ORIGIN` =
 the exact public origin (e.g. `https://vault.example.com`) and
 `WEBAUTHN_RP_ID` = its registrable domain; defaults are
 localhost-only.
+
+## 9. WorkOS-inspired security scope (17 Nov 2026)
+
+> Strict scope only: passkeys/MFA/recovery, trusted devices &
+> sessions, step-up auth, activity. No SSO, SCIM, FGA, OAuth, or
+> risk engines. Nothing below has been built, tested, or run on the
+> Mac — the new RSpec suite needs its first run in Terminal.
+> Account auth stays separate from vault unlock throughout: sessions
+> never decrypt vault content.
+
+### Threats addressed and mitigations as implemented
+
+| Threat | Mitigation (as built) |
+|---|---|
+| Session theft | Bearer tokens are opaque (`sess_` + 64 hex), only SHA-256 digests stored; 1 h TTL; `user_agent`/`ip_address` recorded per session and shown in the session list; any privilege change (MFA enable/disable, passkey add/remove, recovery verifier register, recovery-code regenerate) rotates the session token (`SessionTokens.rotate`) so a stolen pre-change token dies. |
+| Step-up bypass | Privileged actions require a second-factor verification bound to the CURRENT session within the last 10 min (`Authentication::StepUp`, `WINDOW = 10.minutes`); otherwise 403 `{ error: 'step_up_required' }`. Step-up is per-session, is never inherited from login (completing MFA at login does NOT mark step-up), and is verified by real TOTP/recovery-code checks or a real passkey assertion against the stored key. |
+| Recovery abuse | Challenges are persisted single-use with a 5-min TTL, SHA-256 digest + MessageEncryptor ciphertext only (raw bytes never stored); max 5 failed attempts then the challenge is consumed; verification is a real Ed25519 signature (`RbNaCl::VerifyKey`) over the exact challenge bytes against a registered verifier; every failure is the same generic 401; unknown emails get an identical response shape with a nil `challenge_id` (no existence leak); success issues only a 15-min recovery session, never a vault key. |
+| MFA replay | TOTP verified with ±1-step drift, then the code's step is rejected when `<= totp_last_step` (the stored step only ever advances); the pending MFA token is single-use and burns on first use even when the second factor fails; recovery codes are single-use, stored as SHA-256 digests only, compared constant-time, consumed under a row lock. |
+| Recovery-code theft | Codes are generated from an unambiguous alphabet, shown once, stored as digests only; regeneration (step-up required) replaces all existing codes and rotates the session token; use is audited (`mfa_recovery_code_used`). |
+| Account lockout | Removing the last active passkey is refused with 422 while MFA is disabled; the recovery session path (Ed25519 verifier) is a second way back in. |
+| Revocation not working | Revoking a session/device invalidates the server session immediately and rotates key envelopes for the device. Revocation does NOT erase secrets already downloaded/offline on that device — stated in `SessionTokens`, `Devices::Revoke`, and the controllers, not as remote wipe. |
+
+### What changed (code)
+
+- Migration `20261117000003` + `schema.rb` (v2026_11_17_000003): sessions gain `step_up_verified_at`, `step_up_method`, `recovery_session`, `user_agent`, `ip_address`; devices gain `platform`, `trusted_at`; users gain `mfa_enabled`, `totp_secret_ciphertext`, `totp_last_step`, `totp_confirmed_at`; new tables `recovery_challenges`, `recovery_verifiers`, `recovery_codes`, `mfa_challenges`; `audit_events.metadata` (jsonb).
+- Gems: `rotp` (TOTP), `rbnacl` (Ed25519). `filter_parameters` extended with `totp_secret`, `code`, `recovery_code`, `signature`, `mfa_token`, `challenge`.
+- New domains: `Authentication::Totp`, `Authentication::StepUp`, `Authentication::Sessions`, `Authentication::MfaTokens`, `Authentication::SecretEncryptor`, `Recovery::Verify`, `Recovery::Verifiers`; `Recovery::Challenge` rewritten (persisted); `SessionTokens` gains `rotate` + richer `issue`/`verify` (now returns the session record); `ApplicationController` exposes `current_session` + `require_step_up!`.
+- New endpoints: `POST /v1/auth/passkeys/authenticate`, `GET /v1/auth/passkeys`, `POST /v1/auth/passkeys/add/options|verify`, `DELETE /v1/auth/passkeys/:id`, `POST /v1/auth/mfa/enroll|confirm|disable`, `POST /v1/auth/mfa/recovery_codes`, `POST /v1/auth/mfa/verify`, `POST /v1/auth/step-up/totp|passkey(|/options)`, `GET /v1/auth/activity`, `GET /v1/auth/sessions`, `DELETE /v1/auth/sessions/:id|others`, `PATCH /v1/devices/:id`, `POST /v1/recovery/verify`, `GET|POST /v1/recovery/verifiers`. Devices enrol now requires step-up and accepts `platform:`.
+- New audit events: `passkey_added/removed`, `mfa_enabled/disabled`, `mfa_recovery_code_used`, `mfa_recovery_codes_regenerated`, `mfa_verified`, `session_revoked`, `sessions_revoked_others`, `device_trusted/untrusted`, `recovery_verified`, `recovery_verifier_registered`, `step_up_verified`, `step_up_failed` (metadata `{ method }` only — never the code).
+- Rack::Attack: throttles added for MFA verify (5/60 s per IP), recovery verify (5/60 s), step-up (10/60 s), passkey add (10/60 s). The middleware is now actually mounted (`config.middleware.use Rack::Attack`) and disabled in test so request specs are not throttled.
+- New spec: `spec/requests/api/v1/security_spec.rb` (real FakeClient passkeys, real ROTP codes, real RbNaCl signatures; no crypto mocks).
+
+### Remaining (not done)
+
+- **C2 remains.** No external security audit; nothing has ever run on the Mac. First green `bundle exec rspec` is the next gate, not a release signal.
+- **M2 remains.** Rack::Attack cache store still unconfigured — throttles are per-process, in-memory, reset on restart, no cross-worker sharing (needs Redis `cache.store`).
+- **L2 partially remains.** Sessions now record `user_agent`/`ip_address`, but tokens are still not bound to an IP or device fingerprint — a stolen token works from anywhere until expiry/revocation; 1 h TTL + rotation are the mitigations.
+- Trusted-device transfer (recovery kind `trusted_device`) is still unimplemented; only the `recovery_key` (Ed25519) kind verifies.
+- No Unified Security Center UI exists yet — the API surface above is the backend for it; the client still needs one interface for auth methods, trusted devices, sessions, recovery settings, and activity.
+- `GET /v1/auth/activity` has no pagination beyond a capped `limit` (max 50).
+- The unauthenticated registration flow still creates the user row at options time (deliberate, documented in `passkeys.rb`); only the authenticated add flow avoids it.
