@@ -9,10 +9,23 @@
  * Android needs nothing here: SQLCipher via expo-sqlite, biometric deps and
  * USE_BIOMETRIC via modules/device-key.
  */
-const { withEntitlementsPlist, withInfoPlist } = require('expo/config-plugins');
+const { withEntitlementsPlist, withInfoPlist, withPodfile } = require('expo/config-plugins');
 
 const APP_GROUP = 'group.com.loygenics.my-secrect';
 const KEYCHAIN_ACCESS_GROUP = '$(AppIdentifierPrefix)com.loygenics.my-secrect.shared';
+
+// Toolchain workaround, not storage: fmt 11 (pulled in by react-native
+// 0.76.9) fails to compile as C++20 with Xcode 26's clang ("call to
+// consteval function ... is not a constant expression"). Build only the fmt
+// pod as C++17, where fmt does not use consteval.
+const FMT_MARKER = '# with-mobile-storage: fmt as C++17';
+const FMT_PATCH = `
+    ${FMT_MARKER}
+    installer.pods_project.targets.each do |t|
+      next unless t.name == 'fmt'
+      t.build_configurations.each { |c| c.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17' }
+    end
+`;
 
 function addUnique(target, key, value) {
   const list = Array.isArray(target[key]) ? target[key] : [];
@@ -28,6 +41,17 @@ module.exports = function withMobileStorage(config) {
   });
   config = withInfoPlist(config, (c) => {
     c.modResults.MySecrectKeychainAccessGroup = KEYCHAIN_ACCESS_GROUP;
+    return c;
+  });
+  config = withPodfile(config, (c) => {
+    const src = c.modResults.contents;
+    if (src.includes(FMT_MARKER)) return c;
+    // After react_native_post_install(...), which sets every pod to C++20.
+    const call = src.indexOf('react_native_post_install(');
+    const close = call < 0 ? -1 : src.indexOf('\n    )\n', call);
+    if (close < 0) throw new Error('with-mobile-storage: Podfile has no react_native_post_install(...) call');
+    const at = close + '\n    )\n'.length;
+    c.modResults.contents = src.slice(0, at) + FMT_PATCH + src.slice(at);
     return c;
   });
   return config;
