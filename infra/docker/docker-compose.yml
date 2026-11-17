@@ -3,6 +3,7 @@
 # Build contexts are relative to THIS compose file (infra/docker).
 #   api context: ../../apps/api  -> my-secrect/apps/api, Dockerfile there.
 # Secrets come from .env in this folder (copy .env.example first). Never commit .env.
+# Host publish is Caddy 80/443 only. api:3000 and minio:9000 stay on the Compose network.
 services:
   caddy:
     image: caddy:2-alpine
@@ -13,7 +14,8 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - vault_caddy_data:/data
       - vault_caddy_config:/config
-    depends_on: [api]
+    depends_on:
+      api: { condition: service_healthy }
     restart: unless-stopped
   api:
     build:
@@ -21,19 +23,27 @@ services:
       dockerfile: Dockerfile
     environment:
       RAILS_ENV: production
-      DATABASE_URL: postgres://vault:${POSTGRES_PASSWORD}@db:5432/vault_production
+      DATABASE_URL: postgres://vault:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/vault_production
       REDIS_URL: redis://redis:6379/0
       S3_ENDPOINT: http://minio:9000
       S3_BUCKET: ${S3_BUCKET:-vault-blobs}
       S3_REGION: us-east-1
-      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
-      S3_SECRET_KEY: ${S3_SECRET_KEY}
-      RAILS_MASTER_KEY: ${RAILS_MASTER_KEY}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY is required}
+      RAILS_MASTER_KEY: ${RAILS_MASTER_KEY:?RAILS_MASTER_KEY is required}
       WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-localhost}
       WEBAUTHN_RP_NAME: my-secrect
       WEBAUTHN_ORIGIN: ${WEBAUTHN_ORIGIN:-https://localhost}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:1420}
-    ports: ['3000:3000']
+    # No host ports. Other containers reach this process as api:3000.
+    # force_ssl redirects plain HTTP, so the probe sends the same forwarded
+    # proto Caddy sends and requires the /health body {"ok":true}.
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS -H "X-Forwarded-Proto: https" http://127.0.0.1:3000/health | grep -Fqx "{\"ok\":true}"']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     depends_on:
       db: { condition: service_healthy }
       redis: { condition: service_started }
@@ -46,16 +56,24 @@ services:
     command: bundle exec sidekiq
     environment:
       RAILS_ENV: production
-      DATABASE_URL: postgres://vault:${POSTGRES_PASSWORD}@db:5432/vault_production
+      DATABASE_URL: postgres://vault:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/vault_production
       REDIS_URL: redis://redis:6379/0
-      RAILS_MASTER_KEY: ${RAILS_MASTER_KEY}
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: ${S3_BUCKET:-vault-blobs}
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY is required}
+      RAILS_MASTER_KEY: ${RAILS_MASTER_KEY:?RAILS_MASTER_KEY is required}
     depends_on:
       db: { condition: service_healthy }
       redis: { condition: service_started }
     restart: unless-stopped
   db:
     image: postgres:16-alpine
-    environment: { POSTGRES_USER: vault, POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}, POSTGRES_DB: vault_production }
+    environment:
+      POSTGRES_USER: vault
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: vault_production
     volumes: [vault_pgdata:/var/lib/postgresql/data]
     healthcheck: { test: ['CMD-SHELL', 'pg_isready -U vault -d vault_production'], interval: 5s, timeout: 5s, retries: 12 }
     restart: unless-stopped
@@ -66,8 +84,10 @@ services:
   minio:
     image: minio/minio:latest
     command: server /data --console-address ':9001'
-    environment: { MINIO_ROOT_USER: ${S3_ACCESS_KEY}, MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY} }
-    ports: ['9000:9000', '9001:9001']
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:?S3_SECRET_KEY is required}
+    # No host ports. Other containers reach the S3 API as minio:9000.
     volumes: [vault_minio:/data]
     healthcheck: { test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live'], interval: 5s, timeout: 3s, retries: 10 }
     restart: unless-stopped
