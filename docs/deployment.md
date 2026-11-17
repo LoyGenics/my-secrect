@@ -351,3 +351,17 @@ Do not tick boxes from memory.
 - Passkey verification unwired (gate 1) — account auth is not production-safe.
 - No external audit, no backup/restore test, no rollback test.
 - Resource numbers (2 GB RAM / 10 GB disk) are assertions, not measurements.
+
+
+## Account deletion and object storage
+
+`Accounts::Delete` deletes every blob part object (ciphertext chunks; the
+encrypted manifest lives in the `blobs` DB row, not in storage) through the
+storage provider BEFORE removing any database row. Decision: **fail closed**.
+If any object delete fails, no DB row is touched, an `account_deletion_storage_failed`
+audit event (counts + error classes only) is written, and the API answers
+`503 storage_unavailable`; the client retries. Because rows keep referencing
+leftovers, orphans are never hidden; S3 deletes are idempotent so retries are safe.
+Residual risk: if the DB step fails after storage deletion succeeded, bytes are
+gone but the account remains; retry completes it. In production the API refuses
+to boot without valid `S3_*` configuration.

@@ -66,6 +66,10 @@ export interface QueuedPush extends PushRequest {
   queued_at: string; // ISO 8601
   attempts: number;
   last_error?: string;
+  /** Local revision of the item at enqueue time (lets the app tell, after a
+   *  successful push, whether a newer local edit happened meanwhile). The
+   *  SyncClient never sends this field to the server. */
+  local_revision?: number;
 }
 
 export interface SyncCheckpoint {
@@ -127,7 +131,7 @@ export function saveQueue(storage: SyncStorage, queue: QueuedPush[]): void {
  * the older ciphertext is superseded locally, never pushed twice), but the
  * queue keeps FIFO order for different items. Returns the new queue.
  */
-export function enqueuePush(storage: SyncStorage, req: PushRequest): QueuedPush[] {
+export function enqueuePush(storage: SyncStorage, req: PushRequest & { local_revision?: number }): QueuedPush[] {
   const queue = loadQueue(storage).filter((q) => q.item_id !== req.item_id);
   const entry: QueuedPush = { ...req, queued_at: new Date().toISOString(), attempts: 0 };
   queue.push(entry);
@@ -137,6 +141,20 @@ export function enqueuePush(storage: SyncStorage, req: PushRequest): QueuedPush[
 
 export function removeQueuedPush(storage: SyncStorage, itemId: string): QueuedPush[] {
   const queue = loadQueue(storage).filter((q) => q.item_id !== itemId);
+  saveQueue(storage, queue);
+  return queue;
+}
+
+/**
+ * Remove a queued push ONLY if the queue still holds that exact entry.
+ * If the user edited the item again while the push was in flight,
+ * `enqueuePush` replaced the entry with a newer one; removing by item id
+ * would silently drop that newer edit from the queue.
+ */
+export function removeQueuedPushEntry(storage: SyncStorage, entry: QueuedPush): QueuedPush[] {
+  const queue = loadQueue(storage).filter(
+    (q) => !(q.item_id === entry.item_id && q.queued_at === entry.queued_at && q.encrypted_payload === entry.encrypted_payload && q.operation === entry.operation),
+  );
   saveQueue(storage, queue);
   return queue;
 }
@@ -244,6 +262,15 @@ export function saveConflicts(storage: SyncStorage, conflicts: SyncConflict[]): 
   storage.set(SYNC_CONFLICTS_KEY, JSON.stringify(conflicts));
 }
 
+/** Append conflicts, keeping the existing record when the id is already present
+ *  (a re-pulled event must not duplicate or reset a conflict the user has seen). */
+export function appendConflicts(storage: SyncStorage, incoming: SyncConflict[]): void {
+  const existing = loadConflicts(storage);
+  const known = new Set(existing.map((c) => c.id));
+  const fresh = incoming.filter((c) => !known.has(c.id));
+  if (fresh.length > 0) saveConflicts(storage, [...existing, ...fresh]);
+}
+
 // ---------------------------------------------------------------------------
 // Applying remote events — verify first, apply second
 // ---------------------------------------------------------------------------
@@ -256,7 +283,7 @@ export interface LocalItemState {
 export interface ApplyResult {
   applied: string[]; // item ids applied cleanly
   skipped: Array<{ item_id: string; reason: string }>; // stale / duplicate / no payload
-  rejected: Array<{ item_id: string; reason: string }>; // AEAD tag failed — never applied
+  rejected: Array<{ item_id: string; reason: string; sequence?: number }>; // AEAD tag failed — never applied
   conflicts: SyncConflict[];
   tombstones: string[]; // item ids tombstoned by a remote delete
   nextCursor: string | null;
@@ -286,11 +313,23 @@ function samePlaintext(a: VaultItem, b: VaultItem): boolean {
  * decrypt callback. Order: events are applied in sequence order.
  * Returns what happened per item so the UI can show it honestly.
  */
+export interface ApplyOptions {
+  /**
+   * Whether a decrypted item belongs to the event it came with. Default:
+   * `item.id === event.item_id`. Apps whose local item ids are not the wire
+   * (UUID) ids pass a stricter check built on `wireItemId` — it must still
+   * bind the AEAD-verified item id to the event's item id.
+   */
+  itemMatchesEvent?: (item: VaultItem, event: SyncEvent) => boolean;
+}
+
 export async function applyRemoteEvents(
   events: SyncEvent[],
   localById: Map<string, LocalItemState>,
   decrypt: RemoteDecrypt,
+  options: ApplyOptions = {},
 ): Promise<ApplyResult> {
+  const itemMatchesEvent = options.itemMatchesEvent ?? ((item: VaultItem, event: SyncEvent) => item.id === event.item_id);
   const result: ApplyResult = { applied: [], skipped: [], rejected: [], conflicts: [], tombstones: [], nextCursor: nextCursor(events) };
   const ordered = [...events].sort((a, b) => a.sequence - b.sequence);
 
@@ -368,12 +407,13 @@ export async function applyRemoteEvents(
     let remoteItem: VaultItem;
     try {
       remoteItem = await decrypt(event);
-    } catch {
-      result.rejected.push({ item_id: event.item_id, reason: 'AEAD verification failed — ciphertext rejected, nothing applied' });
+    } catch (err) {
+      const detail = err instanceof Error && err.message ? ` (${err.message})` : '';
+      result.rejected.push({ item_id: event.item_id, sequence: event.sequence, reason: `AEAD verification failed — ciphertext rejected, nothing applied${detail}` });
       continue;
     }
-    if (remoteItem.id !== event.item_id) {
-      result.rejected.push({ item_id: event.item_id, reason: 'decrypted item id does not match event item id' });
+    if (!itemMatchesEvent(remoteItem, event)) {
+      result.rejected.push({ item_id: event.item_id, sequence: event.sequence, reason: 'decrypted item id does not match event item id' });
       continue;
     }
 
@@ -413,4 +453,35 @@ export async function applyRemoteEvents(
 
 export function nextCursor(events: SyncEvent[]): string | null {
   return events.length ? String(events[events.length - 1].sequence) : null;
+}
+
+// ---------------------------------------------------------------------------
+// Wire item ids — the server's item ids are UUIDs; local ids may not be
+// ---------------------------------------------------------------------------
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+export function isUuid(value: string): boolean {
+  return UUID_RE.test(value);
+}
+
+/**
+ * Map a local item id to the id sent to the server (`items.id` is a UUID).
+ * UUID ids pass through unchanged. Any other id (e.g. the legacy
+ * `item_<24 hex>` form, or example ids) maps to a deterministic UUID:
+ * the first 16 bytes of SHA-256("my-secrect.item-id.v1:" + id) with the
+ * version (5) and variant bits set. FROZEN: changing this would orphan
+ * every already-synced item. The server sees only this hash, never more.
+ */
+export async function wireItemId(
+  itemId: string,
+  sha256: (bytes: Uint8Array) => Promise<Uint8Array>,
+): Promise<string> {
+  const lower = itemId.toLowerCase();
+  if (UUID_RE.test(lower)) return lower;
+  const digest = await sha256(new TextEncoder().encode(`my-secrect.item-id.v1:${itemId}`));
+  const b = Uint8Array.from(digest.subarray(0, 16));
+  b[6] = (b[6] & 0x0f) | 0x50;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const hex = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }

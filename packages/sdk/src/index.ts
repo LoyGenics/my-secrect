@@ -87,7 +87,12 @@ export class VaultApiClient {
     }
     return res.json();
   }
-  listVaults() { return this.req('/v1/vaults'); }
+  listVaults(): Promise<{ vaults: Array<{ id: string; key_version: number; created_at: string }> }> { return this.req('/v1/vaults'); }
+  /** Create the account's server-side vault record. `encryptedMetadata` must
+   *  already be ciphertext (client-encrypted); the server stores it opaquely. */
+  createVault(encryptedMetadata: string): Promise<{ vault: { id: string; key_version: number; created_at: string } }> {
+    return this.req('/v1/vaults', { method: 'POST', body: JSON.stringify({ encrypted_metadata: encryptedMetadata }) });
+  }
   getItem(vaultId: string, itemId: string) { return this.req(`/v1/vaults/${vaultId}/items/${itemId}`); }
   putItem(vaultId: string, itemId: string, body: unknown) { return this.req(`/v1/vaults/${vaultId}/items/${itemId}`, { method: 'PUT', body: JSON.stringify(body) }); }
 
@@ -132,6 +137,10 @@ export {
   loadConflicts,
   saveConflicts,
   resolveConflictKeepBoth,
+  appendConflicts,
+  removeQueuedPushEntry,
+  wireItemId,
+  isUuid,
   detectConflict,
   detectDeleteConflict,
   localStorageSyncStorage,
@@ -168,6 +177,9 @@ export interface CreateSyncClientOptions {
   saveLocalItem: (item: import('../../core/src/types').VaultItem, revision: number) => void;
   /** Persist a remote tombstone locally. */
   deleteLocalItem: (itemId: string, revision: number) => void;
+  onPushed?: import('../../sync/src/sync-client').SyncClientOptions['onPushed'];
+  itemMatchesEvent?: import('../../sync/src/sync-client').SyncClientOptions['itemMatchesEvent'];
+  maxPullPages?: number;
 }
 
 /**
@@ -185,6 +197,9 @@ export function createSyncClient(opts: CreateSyncClientOptions): SyncClient {
     getLocalState: opts.getLocalState,
     saveLocalItem: opts.saveLocalItem,
     deleteLocalItem: opts.deleteLocalItem,
+    onPushed: opts.onPushed,
+    itemMatchesEvent: opts.itemMatchesEvent,
+    maxPullPages: opts.maxPullPages,
   });
 }
 

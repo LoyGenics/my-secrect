@@ -61,6 +61,7 @@ export type ExtRequest =
   | { type: 'exportEncrypted' }
   | { type: 'changePassphrase'; oldPassphrase: string; newPassphrase: string }
   | { type: 'wipeVault' }
+  | { type: 'restoreBackup'; json: string; passphrase?: string; recoveryKey?: string }
   | { type: 'generatePassword'; length?: number; symbols?: boolean; numbers?: boolean }
   | { type: 'getPendingForm' };
 
@@ -78,6 +79,7 @@ export type ExtResponse =
   | { ok: true; json: string }
   | { ok: true; changed: boolean; error?: string }
   | { ok: true; password: string }
+  | { ok: true; restoredCount: number }
   | { ok: true; pending: PendingForm | null }
   | { ok: false; error: string; needsConfirmation?: string };
 

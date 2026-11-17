@@ -37,6 +37,7 @@ import {
 } from '../../../packages/crypto-adapters/src/index';
 
 import type { VaultItem } from '../../../packages/core/src/types';
+import type { LocalItemState, PushRequest, SyncEvent } from '../../../packages/sync/src/index';
 import {
   buildEncryptedExport,
   parseEncryptedExportText,
@@ -77,6 +78,9 @@ interface StoredRow {
   wrapped_item_key: string; // base64, Vault-Key-wrapped Item Key (ciphertext only)
   wrapped_nonce: string; // base64, 24 bytes
   deleted_at?: string | null; // tombstone; null/undefined = live
+  /** Last server revision this device has synced for the item. Absent = never synced (0).
+   *  `revision > base_revision` means a local change is pending push. */
+  base_revision?: number;
 }
 
 interface StoredKeys {
@@ -341,6 +345,21 @@ export async function decryptWithVaultKey(encoded: string): Promise<string> {
 }
 
 /**
+ * Run `fn` with a COPY of the in-memory Vault Key (zero-filled afterwards).
+ * Used by the media pipeline, which wraps a per-file File Key under the
+ * Vault Key and decrypts the encrypted manifest. Throws when locked.
+ */
+export async function withVaultKey<T>(fn: (key: Uint8Array) => Promise<T>): Promise<T> {
+  if (!vaultKey) throw new Error('vault locked');
+  const copy = vaultKey.slice();
+  try {
+    return await fn(copy);
+  } finally {
+    copy.fill(0);
+  }
+}
+
+/**
  * Change the master passphrase. Verifies the OLD passphrase first
  * (derives its KEK and unwraps the Account Master Key — a wrong old
  * passphrase fails the AEAD unwrap and nothing is changed), then
@@ -454,9 +473,11 @@ export async function upsertItem(item: VaultItem): Promise<void> {
     wrapped_item_key: toBase64(wrapped.wrapped),
     wrapped_nonce: toBase64(wrapped.nonce),
     deleted_at: null,
+    base_revision: existing?.base_revision,
   };
   saveRows([...rows.filter((r) => r.id !== stored.id), row]);
   unlockedItems = [...unlockedItems.filter((i) => i.id !== stored.id), stored];
+  emitMutation({ kind: 'upsert', id: stored.id });
 }
 
 /** Tombstone: keep the encrypted row, mark it deleted (trash). Restorable. */
@@ -466,10 +487,12 @@ export function deleteItem(id: string): void {
   const row = rows.find((r) => r.id === id);
   if (row) {
     row.deleted_at = now;
+    row.revision += 1; // a delete is a local change: it must be pushed as a tombstone
     saveRows(rows);
   }
   const item = unlockedItems.find((i) => i.id === id);
   if (item) item.deleted_at = now;
+  if (row) emitMutation({ kind: 'delete', id });
 }
 
 export function restoreItem(id: string): void {
@@ -477,15 +500,18 @@ export function restoreItem(id: string): void {
   const row = rows.find((r) => r.id === id);
   if (row) {
     row.deleted_at = null;
+    row.revision += 1; // restoring is a local change: pushed as an upsert of the kept ciphertext
     saveRows(rows);
   }
   const item = unlockedItems.find((i) => i.id === id);
   if (item) item.deleted_at = null;
+  if (row) emitMutation({ kind: 'restore', id });
 }
 
 export function permanentlyDeleteItem(id: string): void {
   saveRows(loadRows().filter((r) => r.id !== id));
   unlockedItems = unlockedItems.filter((i) => i.id !== id);
+  emitMutation({ kind: 'purge', id });
 }
 
 /**
@@ -648,9 +674,12 @@ export async function importEncrypted(json: string): Promise<void> {
   }
   const nextRows = loadRows().map((row) => ({ ...row }));
   let nextItems = [...unlockedItems];
+  const written: string[] = [];
   for (const { item, row } of opened) {
     const existing = nextRows.find((r) => r.id === row.id);
     if (existing && existing.revision >= row.revision) continue;
+    written.push(row.id);
+    if (existing?.base_revision !== undefined) row.base_revision = existing.base_revision;
     const idx = nextRows.findIndex((r) => r.id === row.id);
     if (idx >= 0) nextRows[idx] = row;
     else nextRows.push(row);
@@ -658,6 +687,7 @@ export async function importEncrypted(json: string): Promise<void> {
   }
   saveRows(nextRows);
   unlockedItems = nextItems;
+  for (const id of written) emitMutation({ kind: 'upsert', id });
 }
 
 export type VaultRestoreSecret =
@@ -774,4 +804,185 @@ export function getVaultStats(): { total: number; favorites: number; trash: numb
     favorites: live.filter((i) => i.favorite).length,
     trash: unlockedItems.filter((i) => isDeleted(i)).length,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Sync adapter — everything packages/sync needs from the local vault.
+//
+// Wire format (frozen v1, same as the export format): encrypted_payload =
+// base64(nonce24 || XChaCha20-Poly1305 ciphertext of the VaultItem JSON),
+// encrypted_item_key = base64(nonce24 || Vault-Key-wrapped Item Key). Both
+// are produced at write time by upsertItem; sync NEVER re-encrypts and
+// NEVER sends a key or plaintext. A pulled row is stored with the server's
+// ciphertext unchanged.
+//
+// Per-row bookkeeping: `revision` is the local revision counter and
+// `base_revision` the last server revision synced. revision > base_revision
+// = a local change waiting to be pushed.
+// ---------------------------------------------------------------------------
+export interface VaultMutation {
+  kind: 'upsert' | 'delete' | 'restore' | 'purge';
+  id: string;
+}
+
+const mutationListeners = new Set<(m: VaultMutation) => void>();
+
+/** Subscribe to local writes (the sync layer enqueues pushes from here). */
+export function onVaultMutation(listener: (m: VaultMutation) => void): () => void {
+  mutationListeners.add(listener);
+  return () => { mutationListeners.delete(listener); };
+}
+
+function emitMutation(m: VaultMutation): void {
+  for (const listener of mutationListeners) {
+    try {
+      listener(m);
+    } catch (err) {
+      // A failing listener must never be swallowed, and must not break the
+      // vault write that already succeeded: surface it as an uncaught error.
+      queueMicrotask(() => { throw err; });
+    }
+  }
+}
+
+/** Ids of every stored row, including trash (tombstones). */
+export function listRowIds(): string[] {
+  return loadRows().map((r) => r.id);
+}
+
+/** Local state in the shape packages/sync expects, keyed by `keyOf(localId)`. */
+export function getSyncLocalState(keyOf: (localId: string) => string): Map<string, LocalItemState> {
+  const out = new Map<string, LocalItemState>();
+  const byId = new Map(unlockedItems.map((i) => [i.id, i] as const));
+  for (const row of loadRows()) {
+    const item = byId.get(row.id);
+    if (!item) continue;
+    out.set(keyOf(row.id), { item, revision: row.revision, baseRevision: row.base_revision ?? 0 });
+  }
+  return out;
+}
+
+export type SyncPushDraft = Omit<PushRequest, 'vault_id'> & { local_revision: number };
+
+/**
+ * The push for a locally changed row, or null when there is nothing to push
+ * (row gone, already synced, or a delete of an item the server never saw).
+ * `wireId` is the server-side item id. Ciphertext is copied from the row.
+ */
+export function buildSyncPush(id: string, wireId: string): SyncPushDraft | null {
+  const row = loadRows().find((r) => r.id === id);
+  if (!row) return null;
+  const base = row.base_revision ?? 0;
+  if (row.revision <= base) return null;
+  if (row.deleted_at) {
+    if (base === 0) return null; // never reached the server: nothing to tombstone there
+    return { item_id: wireId, base_revision: base, encrypted_payload: '', encrypted_item_key: '', encryption_version: 1, operation: 'delete', local_revision: row.revision };
+  }
+  return {
+    item_id: wireId,
+    base_revision: base,
+    encrypted_payload: toBase64(concat(fromBase64(row.nonce), fromBase64(row.ciphertext))),
+    encrypted_item_key: toBase64(concat(fromBase64(row.wrapped_nonce), fromBase64(row.wrapped_item_key))),
+    encryption_version: 1,
+    operation: 'upsert',
+    local_revision: row.revision,
+  };
+}
+
+/** The server accepted a push at `serverRevision`. Returns 'dirty' when the
+ *  row was edited again after the pushed version was built. */
+export function markPushed(id: string, serverRevision: number, pushedLocalRevision: number): 'clean' | 'dirty' | 'gone' {
+  const rows = loadRows();
+  const row = rows.find((r) => r.id === id);
+  if (!row) return 'gone';
+  row.base_revision = serverRevision;
+  let state: 'clean' | 'dirty' = 'clean';
+  if (row.revision === pushedLocalRevision) {
+    row.revision = serverRevision;
+  } else {
+    row.revision = Math.max(row.revision, serverRevision + 1);
+    state = 'dirty';
+  }
+  saveRows(rows);
+  return state;
+}
+
+/**
+ * Decrypt + AEAD-verify one pulled event with the in-memory Vault Key.
+ * Throws on any failure (wrong key, tampered bytes, unsupported
+ * encryption_version, malformed JSON); the caller reports it. Writes nothing.
+ */
+export async function decryptSyncEvent(event: SyncEvent): Promise<VaultItem> {
+  if (!vaultKey) throw new Error('vault locked');
+  if (event.encryption_version !== 1) {
+    throw new Error(`unsupported encryption_version ${String(event.encryption_version)}`);
+  }
+  if (!event.encrypted_payload || !event.encrypted_item_key) throw new Error('event has no ciphertext');
+  const payload = splitNoncePrefixed(event.encrypted_payload);
+  const wrapped = splitNoncePrefixed(event.encrypted_item_key);
+  let itemKey: Uint8Array | null = null;
+  try {
+    itemKey = await crypto.unwrapKey(vaultKey, wrapped.nonce, wrapped.rest);
+    const plaintext = await crypto.decrypt(itemKey, payload.nonce, payload.rest);
+    const item = JSON.parse(new TextDecoder().decode(plaintext)) as VaultItem;
+    if (typeof item !== 'object' || item === null || typeof item.id !== 'string') {
+      throw new Error('decrypted payload is not a vault item');
+    }
+    return item;
+  } finally {
+    itemKey?.fill(0);
+  }
+}
+
+/** Store a remote item (already verified by decryptSyncEvent) with the
+ *  server's ciphertext unchanged, as synced at `revision`. */
+export function storeRemoteItem(item: VaultItem, revision: number, event: SyncEvent): void {
+  if (!vaultKey) throw new Error('vault locked');
+  if (!event.encrypted_payload || !event.encrypted_item_key) throw new Error('event has no ciphertext');
+  const payload = splitNoncePrefixed(event.encrypted_payload);
+  const wrapped = splitNoncePrefixed(event.encrypted_item_key);
+  const live: VaultItem = { ...item, deleted_at: null };
+  const row: StoredRow = {
+    id: live.id,
+    revision,
+    base_revision: revision,
+    nonce: toBase64(payload.nonce),
+    ciphertext: toBase64(payload.rest),
+    wrapped_item_key: toBase64(wrapped.rest),
+    wrapped_nonce: toBase64(wrapped.nonce),
+    deleted_at: null,
+  };
+  const rows = loadRows();
+  saveRows([...rows.filter((r) => r.id !== live.id), row]);
+  unlockedItems = [...unlockedItems.filter((i) => i.id !== live.id), live];
+}
+
+/** A remote delete: move the item to trash (restorable), synced at `revision`. */
+export function storeRemoteTombstone(id: string, revision: number): void {
+  const rows = loadRows();
+  const row = rows.find((r) => r.id === id);
+  if (!row) return;
+  row.deleted_at = new Date().toISOString();
+  row.base_revision = revision;
+  row.revision = revision;
+  saveRows(rows);
+  const item = unlockedItems.find((i) => i.id === id);
+  if (item) item.deleted_at = row.deleted_at;
+}
+
+/**
+ * After the user resolved a conflict: re-base the local row on the remote
+ * revision it conflicted with and mark it as a pending change, so the next
+ * push (base = remoteRevision) is accepted by the server. The local content
+ * is unchanged — nothing is discarded.
+ */
+export function rebaseForPush(id: string, remoteRevision: number): void {
+  const rows = loadRows();
+  const row = rows.find((r) => r.id === id);
+  if (!row) throw new Error('rebase: item not found locally');
+  const base = Math.max(row.base_revision ?? 0, remoteRevision);
+  row.base_revision = base;
+  row.revision = Math.max(row.revision, base + 1);
+  saveRows(rows);
+  emitMutation({ kind: 'upsert', id });
 }

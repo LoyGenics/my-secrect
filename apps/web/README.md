@@ -60,7 +60,7 @@ always visible.
 
 - No browser autofill — the web client never fills credentials into other
   sites or forms. (Autofill lives in `apps/extension`, not here.)
-- No file/media upload — attachments cannot be added from the browser.
+- File/media upload is enabled and shares the desktop code (`MediaView`): files are split into 1 MiB chunks and encrypted in the tab (XChaCha20-Poly1305 v1, per-file File Key wrapped by the Vault Key) before only ciphertext is PUT to presigned storage URLs. It needs an account server (API base URL + sign-in) and a storage endpoint whose CORS allows this origin (the compose stack sets `MINIO_API_CORS_ALLOW_ORIGIN` from `CORS_ORIGINS`). Limits: whole file in browser memory (256 MiB max); plaintext exists in tab memory while encrypting/decrypting/previewing; downloads go through the browser download manager; no cross-reload upload resume. A compromised web origin could read these files after unlock — the reason the banner stays.
 - Export is encrypted-only — vault data leaves the browser only in
   encrypted form; there is no plaintext export.
 

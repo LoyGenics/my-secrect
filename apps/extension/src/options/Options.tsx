@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ExtRequest, ExtResponse } from '../lib/messages';
+import RestoreBackupExt from './RestoreBackupExt';
 import { DEFAULT_SETTINGS, type AutoLockMinutes, type ExtSettings } from '../lib/settings';
 
 /**
@@ -24,6 +25,7 @@ export default function Options() {
   const [allowedText, setAllowedText] = useState('');
   const [blockedText, setBlockedText] = useState('');
   const [locked, setLocked] = useState(true);
+  const [vaultExists, setVaultExists] = useState(true);
   const [oldPass, setOldPass] = useState('');
   const [newPass, setNewPass] = useState('');
   const [newPassConfirm, setNewPassConfirm] = useState('');
@@ -39,7 +41,7 @@ export default function Options() {
       setLoaded(true);
     });
     void send({ type: 'getStatus' }).then((res) => {
-      if (res.ok && 'status' in res) setLocked(res.status.locked);
+      if (res.ok && 'status' in res) { setLocked(res.status.locked); setVaultExists(res.status.vaultExists); }
     });
   }, []);
 
@@ -101,6 +103,8 @@ export default function Options() {
       </header>
       {notice && <p className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-200" role="status">{notice}</p>}
       {error && <p className="rounded-lg border border-red-900 bg-red-950/50 px-3 py-2 text-sm text-red-300" role="alert">{error}</p>}
+
+      <RestoreBackupExt vaultExists={vaultExists} onRestored={() => setVaultExists(true)} />
 
       <section className="card space-y-4" aria-label="Autofill settings">
         <h2 className="font-semibold">Autofill</h2>

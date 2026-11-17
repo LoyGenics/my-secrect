@@ -11,8 +11,8 @@ module EncryptedRecords
           deleted_at: item.deleted_at,
           current_version: version ? {
             revision: version.revision,
-            encrypted_payload: version.encrypted_payload,
-            encrypted_item_key: version.encrypted_item_key,
+            encrypted_payload: Base64.strict_encode64(version.encrypted_payload),
+            encrypted_item_key: Base64.strict_encode64(version.encrypted_item_key),
             encryption_version: version.encryption_version
           } : nil
         }

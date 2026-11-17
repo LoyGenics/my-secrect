@@ -24,3 +24,10 @@ tests/e2e-web/test-results/
 tests/e2e-web/.logs/
 tests/e2e-web/screenshots/
 playwright-report/
+tests/sync-e2e/.out/
+tests/e2e-web-restore/screenshots/
+
+# impeccable decision-page runtime state
+.impeccable/questions/
+.impeccable/review/
+.claude/launch.json

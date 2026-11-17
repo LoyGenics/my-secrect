@@ -49,6 +49,8 @@ import MediaView from './components/MediaView';
 import SharesView from './components/SharesView';
 import SecurityCenter from './components/SecurityCenter';
 import StepUpDialog from './components/StepUpDialog';
+import { useSync } from './sync/useSync';
+import SyncBar from './sync/SyncBar';
 import SignInScreen from './components/SignInScreen';
 import {
   SecurityApiClient,
@@ -59,6 +61,8 @@ import {
   getValidTokenSync,
   webTokenStore,
 } from '../../../packages/sdk/src/security';
+import { VaultApiClient } from '../../../packages/sdk/src/index';
+import { RestoreBackup, RestoreSuccess } from './components/RestoreBackup';
 import { I18nProvider } from '../../../packages/i18n/src/react';
 import { detectLocale } from '../../../packages/i18n/src/index';
 
@@ -165,6 +169,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
   // Onboarding (only when no vault exists yet):
   // 0 create passphrase, 1 show recovery key once, 2 done.
   const [onboardingStep, setOnboardingStep] = useState(0);
+  const [restoreUi, setRestoreUi] = useState<null | { count: number | null }>(null);
   const [newPass, setNewPass] = useState('');
   const [newPassConfirm, setNewPassConfirm] = useState('');
   const [recoveryKey, setRecoveryKey] = useState('');
@@ -203,6 +208,13 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
       getToken: () => getValidToken(store),
       tokenStore: store,
     });
+  }, [apiBaseUrl]);
+  // Encrypted media upload/download client (same base URL + expiry-aware token as above).
+  const mediaApi = useMemo(() => {
+    const base = apiBaseUrl.trim().replace(/\/+$/, '');
+    if (!base) return null;
+    const store = webTokenStore();
+    return new VaultApiClient({ baseUrl: base, getToken: () => getValidToken(store) });
   }, [apiBaseUrl]);
   // --- Account sign-in state (WorkOS scope) --------------------------
   // Signed-in = a valid (unexpired) session token is stored. The
@@ -324,6 +336,15 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
       setTrash(listTrash());
     }
   }, []);
+
+  // Sync (packages/sync via SDK): runs only while signed in AND unlocked.
+  const sync = useSync({
+    enabled: signedIn && unlocked && !localOnlyBypass,
+    apiBaseUrl,
+    accountEmail,
+    onItemsChanged: refresh,
+    onUnauthorized: handleUnauthorized,
+  });
 
   const doLock = useCallback(() => {
     lockVault();
@@ -506,7 +527,9 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     try {
       const { recoveryKey: key } = await createVault(newPass);
       setRecoveryKey(key);
-      setVaultExists(true);
+      // vaultExists flips only when onboarding finishes ("Open vault"): the
+      // onboarding branch below must stay mounted to show the one-time
+      // recovery key. Flipping it here unmounted it and the key was never shown.
       setUnlocked(true);
       setNewPass('');
       setNewPassConfirm('');
@@ -862,6 +885,9 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
           <p className="mt-1 text-sm text-zinc-400">
             Create your local vault. Everything is encrypted on this device.
           </p>
+          {restoreUi && restoreUi.count === null && <RestoreBackup onRestored={(count) => setRestoreUi({ count })} onCancel={() => setRestoreUi(null)} />}
+          {restoreUi && restoreUi.count !== null && <RestoreSuccess itemCount={restoreUi.count} onContinue={() => { setRestoreUi(null); setVaultExists(true); }} />}
+          {!restoreUi && (<>
           <div className="mt-4 flex gap-2 text-xs">
             {['Create passphrase', 'Save recovery key', 'Done'].map((label, i) => (
               <span
@@ -891,6 +917,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
               </div>
               {onboardingError && <p className="text-sm text-red-400">{onboardingError}</p>}
               <button className="btn-primary w-full" onClick={() => void handleCreateVault()}>Create vault</button>
+              <button className="btn-ghost w-full" onClick={() => setRestoreUi({ count: null })}>Restore from backup</button>
             </div>
           )}
 
@@ -927,11 +954,12 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
             <div className="mt-5 space-y-3 text-center">
               <p className="text-2xl">✓</p>
               <p className="text-sm text-zinc-300">Your vault is created and unlocked. Add your first item to get started.</p>
-              <button className="btn-primary w-full" onClick={() => { setOnboardingStep(0); setView('all'); }}>
+              <button className="btn-primary w-full" onClick={() => { setRecoveryKey(''); setOnboardingStep(0); setView('all'); setVaultExists(true); }}>
                 Open vault
               </button>
             </div>
           )}
+          </>)}
           <p className="mt-4 text-xs text-zinc-500">
             Prototype: Argon2id + XChaCha20-Poly1305 via libsodium. Not audited — do not treat as production-ready.
           </p>
@@ -1049,6 +1077,8 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
           </div>
         )}
 
+        <SyncBar status={sync.status} conflicts={sync.conflicts} onSyncNow={sync.syncNow} onKeepBoth={sync.keepBoth} resolveError={sync.resolveError} />
+
         {showRecovery && (
           <div className="mx-5 mt-3 rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
             Your recovery key was shown only once, when this vault was created, and
@@ -1104,10 +1134,9 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
           <div className="min-h-0 flex-1 overflow-y-auto">
             <MediaView
               items={items}
-              manifests={{}}
-              thumbnailUrls={{}}
+              api={mediaApi}
+              onItemsChanged={() => setItems(listItems())}
               onSelect={(item) => { setView('all'); setSelectedId(item.id); setShowForm(false); setEditingItem(null); }}
-              onRequestDownload={() => setNotice('Download is not available yet: this prototype stores only the file manifest (name, type, size, SHA-256). File bytes are not stored, so there is nothing to download.')}
             />
           </div>
         ) : view === 'shares' ? (

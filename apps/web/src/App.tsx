@@ -29,7 +29,7 @@ export default function App() {
           <ul className="mt-1 list-disc pl-5 text-xs text-amber-200/90">
             <li>If the code served to this browser is compromised, secrets can be read after unlock.</li>
             <li>No browser autofill — this client never fills credentials into other sites or forms.</li>
-            <li>No file/media upload — attachments cannot be added from the browser.</li>
+            <li>Files are encrypted in this tab before upload (same code as desktop), so a file&apos;s plaintext sits in browser memory while it is encrypted, decrypted or previewed, and a downloaded file is handed to the browser&apos;s download manager. Upload/download needs an account server whose storage allows this origin (CORS); files are limited to 256 MiB.</li>
             <li>Export is encrypted-only — vault data leaves the browser only in encrypted form; there is no plaintext export here.</li>
             <li>Best on a wide screen. On narrow screens the sidebar stacks above the item list.</li>
           </ul>
