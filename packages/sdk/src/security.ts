@@ -64,10 +64,19 @@ export interface TokenStore {
   removeItem(key: string): void | Promise<void>;
 }
 
+/** The synchronous subset of TokenStore (localStorage). Assignable to
+ *  TokenStore; getValidTokenSync requires it so an async store can never
+ *  be passed where a sync read is assumed. */
+export interface SyncTokenStore extends TokenStore {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
 /** A localStorage-backed TokenStore (desktop/web). Every access is
  *  guarded: a full or blocked localStorage must never throw into a
  *  sign-in flow. */
-export function webTokenStore(): TokenStore {
+export function webTokenStore(): SyncTokenStore {
   return {
     getItem: (key) => {
       try { return localStorage.getItem(key); } catch { return null; }
@@ -118,7 +127,7 @@ export async function getValidToken(store: TokenStore, now: number = Date.now())
 
 /** Synchronous version for desktop boot (localStorage only): the
  *  same expiry rule as getValidToken, without awaiting. */
-export function getValidTokenSync(store: { getItem(key: string): string | null }, now: number = Date.now()): string | null {
+export function getValidTokenSync(store: Pick<SyncTokenStore, 'getItem'> & Partial<Pick<SyncTokenStore, 'removeItem'>>, now: number = Date.now()): string | null {
   let token: string | null = null;
   try { token = store.getItem(LS_API_TOKEN); } catch { return null; }
   if (!token) return null;
