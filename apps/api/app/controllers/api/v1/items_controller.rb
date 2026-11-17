@@ -39,6 +39,10 @@ module Api
         render json: result, status: :ok
       rescue Sync::Push::RevisionConflict => e
         render json: { error: 'revision_conflict', current_revision: e.current_revision }, status: :conflict
+      rescue ArgumentError => e
+        # Same contract as SyncController#push: invalid signature base64
+        # is a request error, not a 500. The signature is not authenticated.
+        render json: { error: 'invalid_request', message: e.message }, status: :unprocessable_entity
       end
 
       private

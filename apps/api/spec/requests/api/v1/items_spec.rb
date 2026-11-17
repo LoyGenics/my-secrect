@@ -70,6 +70,36 @@ RSpec.describe 'Items API', type: :request do
     expect(body.to_s.downcase).not_to include('verified')
   end
 
+  it 'returns 422 for an invalid delete signature and does not tombstone the item' do
+    item_id = SecureRandom.uuid
+    put "/api/v1/vaults/#{vault.id}/items/#{item_id}", params: { base_revision: 0, encrypted_payload: ciphertext, encrypted_item_key: item_key }, headers: headers, as: :json
+    expect(response).to have_http_status(:ok)
+    expect {
+      delete "/api/v1/vaults/#{vault.id}/items/#{item_id}", params: { base_revision: 1, signature: '@@@not-base64@@@' }, headers: headers, as: :json
+    }.not_to change { SyncEvent.where(vault_id: vault.id).count }
+    expect(response).to have_http_status(:unprocessable_entity)
+    body = JSON.parse(response.body)
+    expect(body['error']).to eq('invalid_request')
+    expect(body['message']).to eq('invalid signature encoding')
+    expect(Item.find(item_id).deleted_at).to be_nil
+    get "/api/v1/vaults/#{vault.id}/items/#{item_id}", headers: headers
+    expect(response).to have_http_status(:ok)
+  end
+
+  it 'returns 409 when a delete omits base_revision and does not append an event' do
+    item_id = SecureRandom.uuid
+    put "/api/v1/vaults/#{vault.id}/items/#{item_id}", params: { base_revision: 0, encrypted_payload: ciphertext, encrypted_item_key: item_key }, headers: headers, as: :json
+    expect(response).to have_http_status(:ok)
+    expect {
+      delete "/api/v1/vaults/#{vault.id}/items/#{item_id}", headers: headers, as: :json
+    }.not_to change { SyncEvent.where(vault_id: vault.id).count }
+    expect(response).to have_http_status(:conflict)
+    body = JSON.parse(response.body)
+    expect(body['error']).to eq('revision_conflict')
+    expect(body['current_revision']).to eq(1)
+    expect(Item.find(item_id).deleted_at).to be_nil
+  end
+
   it 'does not let another user read the vault' do
     other = create(:user)
     get "/api/v1/vaults/#{vault.id}/items/#{SecureRandom.uuid}", headers: auth_headers_for(other)
