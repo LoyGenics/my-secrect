@@ -3,9 +3,10 @@
  *
  * Implemented in code (NOT run end-to-end, NOT audited). Deferred by
  * design in the architecture until personal key management is stable:
- * sharing is modelled here so the UI + API have a real shape, but the
- * app must not present sharing as production-ready until the key-exchange
- * protocol (HPKE / verified key establishment) is implemented and tested.
+ * sharing is modelled here so the UI + API have a real shape. Sharing is
+ * not live: this module does not implement HPKE, crypto_box, or any wrap.
+ * A proposal can be recorded as pending without encrypted_key.
+ * Activation fails closed because no verified wrap exists.
  *
  * How sharing works, cryptographically:
  *  - The sharer wraps the Vault Key (or a per-share Item Key) with the
@@ -46,41 +47,61 @@ export interface ShareProposal {
   permission: SharePermission;
   item_ids: string[];
   /**
-   * Phase C (H4): REQUIRED. Base64 of the Vault Key (or per-share Item
-   * Key) wrapped for the recipient. The server rejects an ACTIVE share
-   * without it (Sharing::Create) — a keyless active share can never be
-   * decrypted by the recipient.
-   *
-   * HPKE KEY EXCHANGE IS STILL NOT IMPLEMENTED. This field only carries
-   * whatever wrapped key the client supplies; nothing here verifies it
-   * was HPKE-wrapped for this recipient's public key. Sharing is NOT
-   * production-ready until Phase E/F delivers real HPKE key exchange +
-   * recipient key verification. Never present sharing as working
-   * end-to-end until then, and never fake the exchange.
+   * Optional on a pending proposal. When present it is an unverified
+   * opaque blob, not proof of a wrap. Omitted, null, or blank is valid
+   * for a proposal: the proposal stays pending and is not activated.
+   * Activation is a separate check and fails closed — no recipient
+   * public key, HPKE, or crypto_box verification exists. Sharing is not live.
    */
-  encrypted_key: string;
+  encrypted_key?: string | null;
 }
 
+/** Pending-proposal check. encrypted_key is optional and is never treated
+ *  as a verified wrap. Returns an error string, or null when the proposal
+ *  may be recorded as pending. */
 export function validateShareProposal(p: ShareProposal): string | null {
   if (!p.vault_id) return 'vault_id is required';
   if (!p.recipient_id) return 'recipient_id is required';
   if (p.permission !== 'read' && p.permission !== 'write') return 'permission must be read or write';
   if (!Array.isArray(p.item_ids)) return 'item_ids must be an array (empty = whole vault)';
-  if (!p.encrypted_key || typeof p.encrypted_key !== 'string' || p.encrypted_key.trim() === '') {
-    return 'encrypted_key is required for an active share (wrapped Vault Key for the recipient; HPKE exchange not yet implemented)';
+  if (p.encrypted_key != null && typeof p.encrypted_key !== 'string') {
+    return 'encrypted_key must be a string when provided';
   }
   return null;
 }
 
+/** Record a proposal as pending. Never returns status active, even when
+ *  encrypted_key is present — that blob is not a verified wrap. Throws the
+ *  proposal validation error; callers must surface it. */
+export function recordPendingProposal(
+  proposal: ShareProposal,
+  meta: { id: string; owner_id: string; created_at: string },
+): VaultShare {
+  const err = validateShareProposal(proposal);
+  if (err) throw new Error(err);
+  return {
+    id: meta.id,
+    vault_id: proposal.vault_id,
+    owner_id: meta.owner_id,
+    recipient_id: proposal.recipient_id,
+    recipient_label_encrypted: null,
+    permission: proposal.permission,
+    status: 'pending',
+    key_envelope_id: '',
+    item_ids: proposal.item_ids.slice(),
+    created_at: meta.created_at,
+    revoked_at: null,
+  };
+}
+
 /**
- * An ACTIVE share is only usable if it has a key envelope to unwrap.
- * Returns an error string when the share must not be treated as active,
- * or null when it is usable (key present — still NOT proof of real HPKE).
+ * Activation requires a verified wrap. Verification does not exist, so
+ * this always fails closed. A key envelope id or any opaque blob is not
+ * proof the share can be activated. Never returns null.
  */
 export function validateShareForActivation(share: VaultShare): string | null {
-  if (share.status !== 'active') return `share is ${share.status}, not active`;
-  if (!share.key_envelope_id) return 'active share has no key envelope — recipient cannot decrypt';
-  return null;
+  const id = share.id ? ` ${share.id}` : '';
+  return `activation rejected for share${id}: no verified key wrap exists`;
 }
 
 export function canRead(share: VaultShare): boolean {
