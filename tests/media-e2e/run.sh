@@ -4,6 +4,8 @@
 # PUBLIC endpoints only (Caddy: https://localhost:PORT and https://s3.localhost:PORT).
 # Needs docker, node >= 20 + tsx (npm ci), ruby 3.3 + bundle in apps/api.
 # Usage: tests/media-e2e/run.sh [--keep]
+#   E2E_TESTS="<files>"  -> run only these node test files (default: media + devices)
+#   E2E_LARGE_MIB=96     -> size of the large-file streaming test in devices.e2e.test.mts
 #   E2E_BROWSER=1 tests/media-e2e/run.sh   -> instead of the node test, serve apps/web
 #   (vite, port E2E_WEB_PORT=5204) and drive the real MediaView in Chromium
 #   (Playwright) against the stack: tests/media-e2e/browser.e2e.mjs.
@@ -87,5 +89,7 @@ else
     E2E_TOKEN="$E2E_TOKEN" E2E_VAULT_ID="$E2E_VAULT_ID" NODE_TLS_REJECT_UNAUTHORIZED=0 \
     E2E_S3_ENDPOINT="https://s3.localhost:$HTTPS_PORT" E2E_S3_BUCKET=vault-blobs \
     E2E_S3_ACCESS_KEY="$S3_ACCESS" E2E_S3_SECRET_KEY="$S3_SECRET" \
-    npx tsx --test --test-concurrency=1 tests/media-e2e/media.e2e.test.mts
+    E2E_MINIO_CONTAINER="$(dc ps -q minio)" E2E_DB_CONTAINER="$(dc ps -q db)" \
+    E2E_REDIS_CONTAINER="$(dc ps -q redis)" E2E_WORKER_CONTAINER="$(dc ps -q worker)" \
+    npx tsx --test --test-concurrency=1 ${E2E_TESTS:-tests/media-e2e/media.e2e.test.mts tests/media-e2e/devices.e2e.test.mts}
 fi
