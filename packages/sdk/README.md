@@ -72,7 +72,7 @@ detect 409s. Nothing in this package logs request bodies.
 const session = await api.createBlobUploadSession(vaultId, { blob_id, part_count, ciphertext_size, encrypted_manifest });
 // PUT each ciphertext chunk to session.parts[i].url, then:
 await api.completeBlobUpload(blob_id, parts.map(p => ({ part_number: p.part_number, ciphertext_size: p.ciphertext_size, ciphertext_sha256_b64: p.hash })));
-const dl = await api.createBlobDownloadSession(blob_id); // includes encrypted_manifest — see packages/storage downloadBlob()
+const dl = await api.createBlobDownloadSession(blob_id); // includes encrypted_manifest — see packages/storage downloadFile()
 ```
 
 The encrypted manifest carries the wrapped File Key; downloads are

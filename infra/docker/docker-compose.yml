@@ -3,7 +3,8 @@
 # Build contexts are relative to THIS compose file (infra/docker).
 #   api context: ../../apps/api  -> my-secrect/apps/api, Dockerfile there.
 # Secrets come from .env in this folder (copy .env.example first). Never commit .env.
-# Host publish is Caddy 80/443 only. api:3000 and minio:9000 stay on the Compose network.
+# Host publish is Caddy 80/443 only. api:3000 and minio:9000 stay on the Compose network;
+# the S3 API is exposed publicly only via Caddy at s3.${SITE_ADDRESS}.
 services:
   caddy:
     image: caddy:2-alpine
@@ -28,6 +29,8 @@ services:
       DATABASE_URL: postgres://vault:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/vault_production
       REDIS_URL: redis://redis:6379/0
       S3_ENDPOINT: http://minio:9000
+      # Origin clients use for presigned URLs (Caddy s3.<SITE_ADDRESS> -> minio:9000).
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?S3_PUBLIC_ENDPOINT is required (public origin of the S3 API, e.g. https://s3.your-domain)}
       S3_BUCKET: ${S3_BUCKET:?S3_BUCKET is required}
       S3_REGION: ${S3_REGION:?S3_REGION is required}
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}
@@ -61,6 +64,8 @@ services:
       DATABASE_URL: postgres://vault:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/vault_production
       REDIS_URL: redis://redis:6379/0
       S3_ENDPOINT: http://minio:9000
+      # Origin clients use for presigned URLs (Caddy s3.<SITE_ADDRESS> -> minio:9000).
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?S3_PUBLIC_ENDPOINT is required (public origin of the S3 API, e.g. https://s3.your-domain)}
       S3_BUCKET: ${S3_BUCKET:?S3_BUCKET is required}
       S3_REGION: ${S3_REGION:?S3_REGION is required}
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}
@@ -94,7 +99,13 @@ services:
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}
       MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:?S3_SECRET_KEY is required}
-    # No host ports. Other containers reach the S3 API as minio:9000.
+      # Browser PUT/GET of presigned URLs: MinIO answers the CORS preflight
+      # and adds Access-Control-Allow-Origin / Expose-Headers (incl. ETag).
+      # Exact origins only (comma-separated), same list as the API CORS.
+      MINIO_API_CORS_ALLOW_ORIGIN: ${CORS_ORIGINS:?CORS_ORIGINS is required}
+    # No host ports. The API/worker reach S3 as minio:9000; external clients
+    # reach it only through Caddy at s3.${SITE_ADDRESS} (host-based routing,
+    # because SigV4 presigned URLs sign the Host header).
     # Image is shell-less, so no container healthcheck; minio-init (mc retries)
     # gates the api instead.
     volumes: [vault_minio:/data]

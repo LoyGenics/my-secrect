@@ -2,7 +2,8 @@
 # Compose end-to-end smoke test. Brings the stack up with a THROWAWAY random
 # env (no secrets from the repo), migrates, round-trips a blob through real
 # MinIO via the real API (real WebAuthn registration with a software
-# authenticator), deletes the account, asserts the MinIO object is gone, and
+# authenticator) -- the presigned PUT/GET go to the PUBLIC s3.<site> endpoint
+# FROM THE HOST (outside the compose network) -- deletes the account, asserts the MinIO object is gone, and
 # tears everything down (including volumes).  Usage: ./smoke.sh [--keep]
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -16,6 +17,7 @@ rand() { openssl rand -hex "$1"; }
 cat >"$ENVF" <<ENV
 POSTGRES_PASSWORD=$(rand 16)
 S3_BUCKET=vault-blobs
+S3_PUBLIC_ENDPOINT=https://s3.localhost:$HTTPS_PORT
 S3_REGION=us-east-1
 S3_ACCESS_KEY=ak$(rand 6)
 S3_SECRET_KEY=$(rand 16)
@@ -76,7 +78,8 @@ set -a; . "$ENVF"; set +a
 dc run --rm --no-deps minio-init ls "local/$S3_BUCKET" >/dev/null
 echo "[smoke]    ok"
 echo "[smoke] 7. authenticated flow (real WebAuthn registration -> blob round trip -> delete account)"
-dc exec -T -e SMOKE_ORIGIN="https://localhost:$HTTPS_PORT" api bundle exec ruby - <smoke/flow.rb
+# Runs on the HOST (gems from apps/api), reaching only the published Caddy port.
+( cd ../../apps/api && SMOKE_ORIGIN="https://localhost:$HTTPS_PORT" bundle exec ruby "$OLDPWD/smoke/flow.rb" )
 echo "[smoke] 8. independent post-checks"
 left=$(dc run --rm --no-deps minio-init ls --recursive "local/$S3_BUCKET" | wc -l | tr -d ' ')
 [ "$left" = 0 ] || { echo "[smoke] FAIL: $left objects left in bucket"; exit 1; }
