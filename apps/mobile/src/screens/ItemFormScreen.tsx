@@ -103,7 +103,8 @@ export default function ItemFormScreen({ initial, allItems, onSave, onCancel }: 
       id: initial?.id ?? newItemId(), type, schema_version: 1, title: title.trim(),
       fields: cleaned,
       tags: tagsText.split(',').map((t) => t.trim()).filter(Boolean),
-      relations: relationIds.map((id) => ({ type: 'related_to', target_id: id })),
+      // Keep existing relation types; only newly linked items default to related_to.
+      relations: relationIds.map((id) => (initial?.relations ?? []).find((r) => r.target_id === id) ?? { type: 'related_to', target_id: id }),
       attachments: initial?.attachments ?? [], favorite,
       created_at: initial?.created_at ?? now, updated_at: now,
     };

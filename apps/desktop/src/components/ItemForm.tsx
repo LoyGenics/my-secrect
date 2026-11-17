@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ItemType, VaultItem } from '../../../../packages/core/src/types';
 import PasswordGenerator from './PasswordGenerator';
+import { buildRelations } from './itemFormRelations';
 import StrengthMeter from './StrengthMeter';
 import {
   Alert,
@@ -301,7 +302,7 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
       title: title.trim(),
       fields: cleanedFields,
       tags: tagsText.split(',').map((t) => t.trim()).filter(Boolean),
-      relations: relationIds.map((target_id) => ({ type: 'related_to', target_id })),
+      relations: buildRelations(initial?.relations, relationIds),
       attachments: initial?.attachments ?? [],
       created_at: initial?.created_at ?? now,
       updated_at: now,

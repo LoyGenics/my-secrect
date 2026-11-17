@@ -63,6 +63,7 @@ import {
 } from '../../../packages/sdk/src/security';
 import { VaultApiClient } from '../../../packages/sdk/src/index';
 import { RestoreBackup, RestoreSuccess } from './components/RestoreBackup';
+import { afterUnauthorized, shouldShowSignInGate } from './authGate';
 import { I18nProvider } from '../../../packages/i18n/src/react';
 import { detectLocale, format, getDictionary, plural, storeLocale, type Locale, type PluralForms } from '../../../packages/i18n/src/index';
 import {
@@ -306,14 +307,19 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     setSessionExpired(false);
   }, []);
 
+  // Mirror of the local-only choice for callbacks created once (handleUnauthorized).
+  const localOnlyBypassRef = useRef(localOnlyBypass);
+  localOnlyBypassRef.current = localOnlyBypass;
   const handleUnauthorized = useCallback(() => {
     // A 401 means the stored session is gone server-side (revoked
     // or expired). Clear it locally and send the user back to
-    // SignIn; never retry with the same stale token.
+    // SignIn; never retry with the same stale token. A user who chose
+    // local-only keeps that choice for the session (afterUnauthorized).
     void clearSessionToken(webTokenStore());
-    setSignedIn(false);
-    setLocalOnlyBypass(false);
-    setSessionExpired(true);
+    const next = afterUnauthorized({ signedIn: false, localOnlyBypass: localOnlyBypassRef.current, sessionExpired: false });
+    setSignedIn(next.signedIn);
+    setLocalOnlyBypass(next.localOnlyBypass);
+    setSessionExpired(next.sessionExpired);
   }, []);
   // Step-up (10-minute window, STEP_UP_WINDOW_MS in the SDK): a pending
   // action runs only after a fresh verification. requestStepUp runs the
@@ -961,7 +967,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
   // features signed out. With no server configured there is no gate
   // at all. Sign-in never unlocks the vault: after it, the user
   // still faces the lock screen / onboarding below.
-  if (securityClient && !signedIn && !localOnlyBypass) {
+  if (securityClient && shouldShowSignInGate(true, { signedIn, localOnlyBypass, sessionExpired })) {
     return frame(
       <SignInScreen
         security={securityClient}
