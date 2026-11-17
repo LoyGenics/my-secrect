@@ -238,6 +238,17 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     setSessionExpired(false);
   }, []);
 
+  // The server confirmed account deletion: drop the (now dead) session and
+  // email and return to the sign-in gate. The local vault is NOT erased.
+  const handleAccountDeleted = useCallback(() => {
+    void clearSessionToken(webTokenStore());
+    try { localStorage.removeItem(LS_ACCOUNT_EMAIL); } catch { /* non-critical */ }
+    setAccountEmail('');
+    setSignedIn(false);
+    setLocalOnlyBypass(false);
+    setSessionExpired(false);
+  }, []);
+
   const handleUnauthorized = useCallback(() => {
     // A 401 means the stored session is gone server-side (revoked
     // or expired). Clear it locally and send the user back to
@@ -838,8 +849,11 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     );
   }
 
-  // ---------- Onboarding (no vault yet) ----------
-  if (!vaultExists) {
+  // ---------- Onboarding (no vault yet, or still on the recovery-key / done steps) ----------
+  // The vault exists and is unlocked as soon as createVault returns, but the
+  // one-time recovery key must stay on screen until the user acknowledges it
+  // (step 1) — gating on !vaultExists alone skipped that screen entirely.
+  if (!vaultExists || onboardingStep !== 0) {
     const strength = passphraseScore(newPass);
     return (
       <div className="flex min-h-full items-center justify-center bg-[#0B0F14] p-6">
@@ -903,7 +917,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
                 <input type="checkbox" checked={recoveryAck} onChange={(e) => setRecoveryAck(e.target.checked)} className="mt-1 accent-indigo-600" />
                 I have saved my recovery key somewhere safe.
               </label>
-              <button className="btn-primary w-full" disabled={!recoveryAck} onClick={() => setOnboardingStep(2)}>
+              <button className="btn-primary w-full" disabled={!recoveryAck} onClick={() => { setRecoveryKey(''); setRecoveryCopied(false); setRecoveryAck(false); setOnboardingStep(2); }}>
                 Done
               </button>
             </div>
@@ -1076,10 +1090,10 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
               apiBaseUrl={apiBaseUrl}
               encryptWithVaultKey={encryptWithVaultKey}
               decryptWithVaultKey={decryptWithVaultKey}
-              requestStepUp={requestStepUp}
               signedInEmail={accountEmail}
               onSignOut={() => void handleSignOut()}
               onUnauthorized={handleUnauthorized}
+              onAccountDeleted={handleAccountDeleted}
             />
           </div>
         ) : view === 'health' ? (

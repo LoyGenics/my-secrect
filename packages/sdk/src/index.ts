@@ -199,6 +199,7 @@ export {
   isStepUpFresh,
   isStepUpRequired,
   isUnauthorized,
+  isVerificationFailed,
   isMfaRequiredResult,
   LS_API_TOKEN,
   LS_API_TOKEN_EXPIRES_AT,

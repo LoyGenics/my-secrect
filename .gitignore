@@ -17,3 +17,9 @@ apps/api/log/
 apps/desktop/src-tauri/target/
 coverage/
 infra/docker/backups/
+
+# web e2e artifacts
+tests/e2e-web/test-results/
+tests/e2e-web/.logs/
+tests/e2e-web/screenshots/
+playwright-report/
