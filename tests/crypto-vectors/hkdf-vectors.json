@@ -20,6 +20,12 @@
       "info": "",
       "length": 42,
       "okm_hex": "c97551f4fb617604a37254c39472f2068355cea44e444f2bbb2d841319b92f1630e9e60ea460118fb9a4"
+    },
+    {
+      "id": "hkdf-4-backup-item-index",
+      "info": "my-secrect/backup-item-index/v1",
+      "length": 32,
+      "okm_hex": "0185b4afb0cf58317bd7b8eace33e8f1e979fe52cc30538648a1100483b1f62d"
     }
   ]
 }

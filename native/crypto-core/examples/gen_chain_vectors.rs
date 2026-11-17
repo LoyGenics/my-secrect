@@ -270,10 +270,12 @@ fn item_v2_vectors() -> Value {
 /// `hkdf(ikm, info, length)` can express.
 fn hkdf_vectors() -> Value {
     let ikm = seq(0x0b, 32);
-    let cases: [(&str, &str, usize); 3] = [
+    let cases: [(&str, &str, usize); 4] = [
         ("hkdf-1", "my-secrect/item-key/v1", 32),
         ("hkdf-2-multiblock", "my-secrect/file-key/v1", 100),
         ("hkdf-3-empty-info", "", 42),
+        // Encrypted backup format_version 3: key sealing the item index.
+        ("hkdf-4-backup-item-index", "my-secrect/backup-item-index/v1", 32),
     ];
     let vectors: Vec<Value> = cases
         .iter()

@@ -12,6 +12,7 @@
 // Run: npm test (tsx --test, Node 20)
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   ENCRYPTED_EXPORT_FORMAT,
   ENCRYPTED_EXPORT_FORMAT_VERSION,
@@ -168,6 +169,9 @@ test('item index: canonical bytes match the spec layout (known answer) and the k
     '00000001' + ascii('b') + '0000000100000005';
   assert.equal(hex(got), expected);
   assert.equal(ITEM_INDEX_HKDF_INFO, 'my-secrect/backup-item-index/v1');
+  // The label has a Rust-generated cross-implementation vector (tests/crypto-vectors).
+  const vectors = JSON.parse(readFileSync(new URL('../../../tests/crypto-vectors/hkdf-vectors.json', import.meta.url), 'utf8'));
+  assert.ok(vectors.vectors.some((v: { info: string; length: number }) => v.info === ITEM_INDEX_HKDF_INFO && v.length === 32));
   assert.throws(() => itemIndexBytes({ format_version: 3, vault_id: 'v', items: [{ item_id: 'a\uD800', revision: 1 }] }), /well-formed/);
   assert.throws(() => itemIndexBytes({ format_version: 3, vault_id: 'v', items: [{ item_id: 'a', revision: 2 ** 53 }] }), /revision/);
 });
