@@ -20,7 +20,8 @@
       "expo-local-authentication",
       ["expo-sqlite", { "useSQLCipher": true }],
       ["react-native-libsodium", {}],
-      "./plugins/with-mobile-storage"
+      "./plugins/with-mobile-storage",
+      "./plugins/with-ios-credential-provider"
     ]
   }
 }
