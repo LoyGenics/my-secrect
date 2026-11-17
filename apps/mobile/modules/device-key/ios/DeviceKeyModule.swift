@@ -192,7 +192,15 @@ private func itemExists(_ query: [String: Any]) -> Bool {
   return status == errSecSuccess || status == errSecInteractionNotAllowed
 }
 
-private func seAvailable() -> Bool { SecureEnclave.isAvailable }
+/// Contract §4: the simulator uses ios-kc-aesgcm-v1. (CryptoKit reports a Secure Enclave on
+/// Apple-silicon simulators, but SE key generation there fails with errSecAuthFailed.)
+private func seAvailable() -> Bool {
+  #if targetEnvironment(simulator)
+  return false
+  #else
+  return SecureEnclave.isAvailable
+  #endif
+}
 
 private func currentScheme() -> String { seAvailable() ? Contract.schemeSE : Contract.schemeKC }
 
