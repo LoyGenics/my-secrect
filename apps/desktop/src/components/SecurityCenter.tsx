@@ -13,7 +13,7 @@ import {
   type SecurityApiClient,
   type SessionInfo,
 } from '../../../../packages/sdk/src/security';
-import { fromBase64Url, sha256, toBase64 } from '../../../../packages/crypto-adapters/src/index';
+import { fromBase64Url, sha256, sodiumReady, toBase64 } from '../../../../packages/crypto-adapters/src/index';
 import { deviceMessage as deviceSignedMessage, enrollPayload, toBase64UrlNoPad } from '../../../../packages/sdk/src/device-identity';
 import { recoveryVerifierKeyPair } from '../../../../packages/sdk/src/recovery-verifier';
 import { serializeCreateCredential, toCreationOptions } from '../utils/webauthn';
@@ -488,7 +488,7 @@ export default function SecurityCenter({
     let privateKey: Uint8Array | null = null;
     await guarded(
       async () => {
-        await sodium.ready;
+        await sodiumReady;
         const seed = sodium.randombytes_buf(32);
         const kp = sodium.crypto_sign_seed_keypair(seed);
         seed.fill(0);
@@ -555,7 +555,7 @@ export default function SecurityCenter({
     let seed: Uint8Array | null = null;
     let privateKey: Uint8Array | null = null;
     try {
-      await sodium.ready;
+      await sodiumReady;
       try {
         seed = fromBase64Url(recoveryKeyInput.trim());
       } catch {

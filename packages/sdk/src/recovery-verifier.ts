@@ -23,7 +23,7 @@
  * Callers must zero-fill `privateKey` after use.
  */
 import sodium from 'libsodium-wrappers-sumo';
-import { hkdfSha256 } from '../../crypto-adapters/src/index';
+import { hkdfSha256, sodiumReady } from '../../crypto-adapters/src/index';
 
 export const RECOVERY_VERIFIER_INFO = 'my-secrect/recovery-verifier/v1';
 /** Sent with POST /v1/recovery/verifiers; the server stores it per verifier. */
@@ -44,7 +44,7 @@ export async function recoveryVerifierKeyPair(recoveryKey: Uint8Array): Promise<
   assertRecoveryKey(recoveryKey);
   const seed = await hkdfSha256(recoveryKey, RECOVERY_VERIFIER_INFO, 32);
   try {
-    await sodium.ready;
+    await sodiumReady;
     const kp = sodium.crypto_sign_seed_keypair(seed);
     return { publicKey: kp.publicKey, privateKey: kp.privateKey };
   } finally {
@@ -56,7 +56,7 @@ export async function recoveryVerifierKeyPair(recoveryKey: Uint8Array): Promise<
  *  use it to register a verifier. */
 export async function legacyRecoveryVerifierKeyPair(recoveryKey: Uint8Array): Promise<RecoveryVerifierKeyPair> {
   assertRecoveryKey(recoveryKey);
-  await sodium.ready;
+  await sodiumReady;
   const kp = sodium.crypto_sign_seed_keypair(recoveryKey);
   return { publicKey: kp.publicKey, privateKey: kp.privateKey };
 }

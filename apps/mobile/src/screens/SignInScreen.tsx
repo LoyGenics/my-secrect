@@ -10,7 +10,7 @@ import {
   SecurityApiClient,
   saveSessionToken,
 } from '../../../../packages/sdk/src/security';
-import { fromBase64Url, toBase64 } from '../../../../packages/crypto-adapters/src/index';
+import { fromBase64Url, sodiumReady, toBase64 } from '../../../../packages/crypto-adapters/src/index';
 import { legacyRecoveryVerifierKeyPair, recoveryVerifierKeyPair } from '../../../../packages/sdk/src/recovery-verifier';
 import { apiStatus, isNetworkError } from '../utils/stepUp';
 
@@ -109,7 +109,7 @@ export default function SignInScreen({ baseUrl, sessionExpired, onSignedIn, onCo
       return client.recoveryVerify(challenge_id, normalizedEmail, toBase64(signature));
     };
     try {
-      await sodium.ready;
+      await sodiumReady;
       const current = await recoveryVerifierKeyPair(seed);
       privateKeys.push(current.privateKey);
       let res;
