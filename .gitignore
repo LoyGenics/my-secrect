@@ -16,3 +16,4 @@ apps/api/tmp/
 apps/api/log/
 apps/desktop/src-tauri/target/
 coverage/
+infra/docker/backups/
