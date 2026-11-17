@@ -1,3 +1,4 @@
+// MIRROR: re-implements logic in-file; NOT production verification (see tests run via tsx --test for real-module coverage).
 // Security hardening tests — sync replay, authorization, conflicts,
 // offline recovery, interrupted uploads.
 //

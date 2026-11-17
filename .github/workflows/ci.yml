@@ -8,8 +8,10 @@
 # Known pre-existing failures to expect on the first run:
 #   - lockfiles job fails if package-lock.json or apps/api/Gemfile.lock
 #     is missing. Both are generated and committed; do not delete them.
-#   - Node tests in tests/ mirror logic in-file instead of importing real
-#     code, so a green node-tests job proves the RULES, not the modules.
+#   - Node tests in tests/ (crypto-vectors, sync-conflicts, security, ...)
+#     mirror logic in-file instead of importing real code, so they prove
+#     the RULES, not the modules. Real production modules are covered only
+#     by the `npm run test:real` step (tsx --test, listed in package.json).
 #   - No ESLint/Prettier config exists in the repo, so there is no lint job
 #     yet — typecheck + cargo fmt/clippy are the static checks for now.
 #   - Mobile `expo` builds (EAS) are NOT run in CI; only tsc typecheck.
@@ -55,7 +57,7 @@ jobs:
           fi
           echo "Lockfiles present."
 
-  # ---- 1. Plain-Node tests (mirror rules; do NOT prove real modules) ------
+  # ---- 1. Node tests: mirrors (rules only) + real-module tests (tsx) -------
   node-tests:
     name: node tests (tests/)
     runs-on: ubuntu-24.04
@@ -68,12 +70,16 @@ jobs:
           cache-dependency-path: package-lock.json
       - name: Install npm dependencies
         run: npm ci --no-audit --no-fund
-      # Root script covers crypto-vectors, sync-conflicts, compatibility,
-      # recovery, end-to-end. Security tests are NOT in that script yet
-      # (root package.json is owned by another phase), so run them explicitly.
-      - name: Run root npm test
+      # Root `npm test` runs the mirror suites (crypto-vectors,
+      # sync-conflicts, compatibility, recovery, end-to-end — rules only)
+      # and then `npm run test:real`: `tsx --test` over TypeScript tests
+      # that import real production modules (sync client, import-export,
+      # crypto adapter, core, desktop/extension/mobile restore).
+      - name: Run root npm test (mirrors + real-module tests)
         run: npm test
-      - name: Run Phase G security tests
+      # tests/security/ files are mirrors (plus direct-libsodium checks);
+      # they do not import production modules.
+      - name: Run Phase G security tests (mirrors, rules only)
         run: node --test tests/security/
 
   # ---- 2. TypeScript typecheck (all TS workspaces) ------------------------

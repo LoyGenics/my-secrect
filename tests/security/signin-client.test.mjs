@@ -1,3 +1,4 @@
+// MIRROR: re-implements logic in-file; NOT production verification (see tests run via tsx --test for real-module coverage).
 // Account sign-in client rules (passkey-first + MFA step + token storage).
 //
 // HONEST HEADER — READ BEFORE CITING THESE TESTS:

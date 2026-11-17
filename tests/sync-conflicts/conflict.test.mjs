@@ -1,3 +1,4 @@
+// MIRROR: re-implements logic in-file; NOT production verification (see tests run via tsx --test for real-module coverage).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 // Sync conflict rule: never Last Write Wins. Both-changed => keep both versions.

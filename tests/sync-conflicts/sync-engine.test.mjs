@@ -1,3 +1,4 @@
+// MIRROR: re-implements logic in-file; NOT production verification (see tests run via tsx --test for real-module coverage).
 // Sync engine tests — self-contained, plain Node 20+ (node --test).
 // These mirror the logic in packages/sync/src/index.ts (same rules, same
 // constants). They do NOT import .ts files, so they run without a TS loader.

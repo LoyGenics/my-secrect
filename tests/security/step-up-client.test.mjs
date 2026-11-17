@@ -1,3 +1,4 @@
+// MIRROR: re-implements logic in-file; NOT production verification (see tests run via tsx --test for real-module coverage).
 // Step-up + Security Center client rules.
 //
 // HONEST HEADER — READ BEFORE CITING THESE TESTS:
