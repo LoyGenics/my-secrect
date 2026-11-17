@@ -135,10 +135,12 @@ test.describe('Security Center: trusted devices', () => {
     await signedInWithVault(page);
     const devices = section(page, 'Trusted devices');
     await expect(devices.getByText(/Revoking a device ends its server sessions\. It does NOT erase secrets already downloaded or stored offline/)).toBeVisible();
-    // Registration enrolled the first device automatically.
+    // Registration enrolled the first device automatically (device proof at sign-up).
     await expect(devices.getByRole('button', { name: 'Revoke', exact: true })).toHaveCount(1);
+    const signUpDevices = (await apiFetch(apiUrl, await storedToken(page), 'GET', '/api/v1/devices')).json.devices;
+    expect(signUpDevices).toHaveLength(1);
 
-    // Enroll this browser (server step-up: passkey).
+    // Enroll this browser (server step-up: passkey, plus proof of possession).
     await devices.getByLabel('Device name').fill('E2E laptop');
     await devices.getByRole('button', { name: 'Enroll this browser as a device' }).click();
     await stepUpWithPasskey(page);
@@ -148,8 +150,10 @@ test.describe('Security Center: trusted devices', () => {
     // Server stores only ciphertext of the name + the public key; no plaintext name on the wire.
     const token = (await storedToken(page))!;
     const raw = await apiFetch(apiUrl, token, 'GET', '/api/v1/devices');
-    const enrolled = raw.json.devices.find((d: any) => d.platform);
+    // The sign-up device also has a platform now, so pick the NEW row.
+    const enrolled = raw.json.devices.find((d: any) => d.id !== signUpDevices[0].id);
     expect(enrolled).toBeTruthy();
+    expect(enrolled.platform).toBeTruthy();
     expect(JSON.stringify(raw.json)).not.toContain('E2E laptop');
 
     // Trust, then untrust.

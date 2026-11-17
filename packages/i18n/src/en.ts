@@ -150,6 +150,7 @@ export const en = {
     emailCodeFailed: 'That code did not work. Check the newest email or send a new code — each code allows 5 tries and works once.',
     emailUnavailable: 'The server could not send the email right now. Try again later.',
     signupExpired: 'That sign-up attempt expired. Send a new code to continue.',
+    deviceRejected: 'The server did not accept this browser’s device key (it may have been revoked), so it was removed. Try again to set this browser up as a new device.',
   },
   securityActions: {
     stepUpServerBody: 'This account action needs a fresh second-factor check that the server verifies: use a passkey or an authenticator code. Your master passphrase cannot be used here — it is checked only on this device and never sent to the server.',

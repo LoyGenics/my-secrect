@@ -14,6 +14,7 @@ import {
   type SessionInfo,
 } from '../../../../packages/sdk/src/security';
 import { fromBase64Url, sha256, toBase64 } from '../../../../packages/crypto-adapters/src/index';
+import { deviceMessage as deviceSignedMessage, enrollPayload, toBase64UrlNoPad } from '../../../../packages/sdk/src/device-identity';
 import { serializeCreateCredential, toCreationOptions } from '../utils/webauthn';
 import StepUpDialog from './StepUpDialog';
 
@@ -469,9 +470,11 @@ export default function SecurityCenter({
   };
 
   /** Enroll THIS browser: a fresh Ed25519 device key pair; only the
-   *  public key and a Vault-Key-encrypted name are sent. The private
+   *  public key, a proof-of-possession signature over a fresh server
+   *  challenge, and a Vault-Key-encrypted name are sent. The private
    *  half is stored encrypted under the Vault Key (never in clear) and
-   *  zero-filled in memory. Enrolling grants no vault access. */
+   *  zero-filled in memory. Enrolling grants no vault access. (Sign-in
+   *  binding uses a separate, non-extractable key — device-key-store.) */
   const handleEnrollDevice = async () => {
     if (!security) return;
     const name = enrollName.trim();
@@ -487,8 +490,15 @@ export default function SecurityCenter({
         const kp = sodium.crypto_sign_seed_keypair(seed);
         seed.fill(0);
         privateKey = kp.privateKey;
+        // Proof of possession (specs/device-identity.md §6.2): the new key
+        // signs a fresh single-use server challenge for 'enroll'.
+        const { challenge } = await security.deviceChallenge('enroll');
+        const publicKey = toBase64UrlNoPad(kp.publicKey);
+        const signature = sodium.crypto_sign_detached(deviceSignedMessage('enroll', enrollPayload(challenge, publicKey)), kp.privateKey);
         const res = await security.enrollDevice({
-          public_key: toBase64(kp.publicKey),
+          public_key: publicKey,
+          challenge,
+          signature: toBase64UrlNoPad(signature),
           name_encrypted: await encryptWithVaultKey(name),
           platform: typeof navigator !== 'undefined' ? navigator.platform || 'web' : 'web',
         });

@@ -150,6 +150,7 @@ export const vi: Dictionary = {
     emailCodeFailed: 'Mã không đúng. Kiểm tra email mới nhất hoặc gửi mã mới — mỗi mã cho phép thử 5 lần và chỉ dùng được một lần.',
     emailUnavailable: 'Máy chủ hiện không gửi được email. Hãy thử lại sau.',
     signupExpired: 'Lượt đăng ký này đã hết hạn. Gửi mã mới để tiếp tục.',
+    deviceRejected: 'Máy chủ không chấp nhận khóa thiết bị của trình duyệt này (có thể đã bị thu hồi), nên khóa đã bị xóa. Thử lại để thiết lập trình duyệt này thành thiết bị mới.',
   },
   securityActions: {
     stepUpServerBody: 'Thao tác tài khoản này cần xác minh yếu tố thứ hai mới, do máy chủ kiểm tra: dùng passkey hoặc mã ứng dụng xác thực. Không thể dùng mật khẩu chính ở đây — mật khẩu chỉ được kiểm tra trên thiết bị này và không bao giờ gửi tới máy chủ.',

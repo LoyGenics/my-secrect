@@ -59,6 +59,7 @@ export type SignInErrorKind =
   | 'email-code-failed'
   | 'email-unavailable'
   | 'signup-expired'
+  | 'device-rejected'
   | 'offline'
   | 'unknown';
 

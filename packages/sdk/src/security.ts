@@ -29,6 +29,7 @@
  * tests/security/step-up-client.test.mjs.
  */
 import { ApiError } from './index';
+import type { DevicePurpose, SignInDeviceProof } from './device-identity';
 import type { ApiClientConfig } from './index';
 
 export { ApiError };
@@ -178,6 +179,14 @@ export function isUnauthorized(error: unknown): boolean {
  *  code on POST /v1/auth/mfa/confirm (the session is alive; only the code was
  *  wrong). Deliberately scoped to that path via ApiError.path: any other 401
  *  counts as a dead session. */
+/** True when a passkey verified but its device proof did not
+ *  (POST /v1/auth/passkeys/verify -> 401 device_verification_failed,
+ *  specs/device-identity.md §6.1). The client should forget its local
+ *  device key and enrol a fresh one on the next attempt. */
+export function isDeviceVerificationFailed(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401 && error.message.includes('device_verification_failed');
+}
+
 export function isVerificationFailed(error: unknown): boolean {
   return (
     isUnauthorized(error) &&
@@ -357,7 +366,9 @@ export interface RecoveryChallengeResponse {
 }
 
 export class SecurityApiClient {
-  private readonly baseUrl: string;
+  /** API base URL (no trailing slash). Public so callers can scope
+   *  per-server local state, e.g. the device key (deviceKeyScope). */
+  readonly baseUrl: string;
   private readonly getToken: () => Promise<string | null>;
   /** Optional token store for automatic rotation adoption: any
    *  response carrying `rotated_token` (privilege changes rotate
@@ -497,12 +508,19 @@ export class SecurityApiClient {
     });
   }
 
-  passkeyRegisterVerify(email: string, credential: unknown): Promise<SessionResult> {
-    return this.post<SessionResult>('/v1/auth/passkeys/verify', { email, credential, kind: 'registration' });
+  /** `device` (optional): proof signed over this ceremony's challenge
+   *  (device-key-store.ts prepareSignInDeviceProof). Without it the
+   *  session is unbound (device_id null). */
+  passkeyRegisterVerify(email: string, credential: unknown, device?: SignInDeviceProof): Promise<SessionResult> {
+    return this.post<SessionResult>('/v1/auth/passkeys/verify', {
+      email, credential, kind: 'registration', ...(device ? { device } : {}),
+    });
   }
 
-  passkeyLoginVerify(email: string, credential: unknown): Promise<SignInResult> {
-    return this.post<SignInResult>('/v1/auth/passkeys/verify', { email, credential, kind: 'authentication' });
+  passkeyLoginVerify(email: string, credential: unknown, device?: SignInDeviceProof): Promise<SignInResult> {
+    return this.post<SignInResult>('/v1/auth/passkeys/verify', {
+      email, credential, kind: 'authentication', ...(device ? { device } : {}),
+    });
   }
 
   // --- MFA (TOTP + recovery codes) ------------------------------------------
@@ -609,12 +627,33 @@ export class SecurityApiClient {
     });
   }
 
-  /** Enroll a device record. Step-up required server-side.
-   *  `public_key` is the device's Ed25519 verify key (base64); only the
-   *  PUBLIC key is sent. `name_encrypted` is Vault-Key-encrypted. Enrolling
-   *  grants no vault access — the vault still needs the passphrase. */
-  enrollDevice(body: { public_key: string; name_encrypted?: string; platform?: string }): Promise<{ device: DeviceInfo }> {
-    return this.post<{ device: DeviceInfo }>('/v1/devices/enroll', body);
+  /** Fresh single-use challenge (2 minutes) for the explicit device
+   *  flow, bound to THIS session and `purpose` (spec §6.2). */
+  deviceChallenge(purpose: DevicePurpose): Promise<{ challenge: string; purpose: DevicePurpose; expires_in: number }> {
+    return this.post('/v1/devices/challenges', { purpose });
+  }
+
+  /** Enroll a device record. Step-up required server-side, AND proof of
+   *  possession: `signature` is the device key's Ed25519 signature over
+   *  deviceMessage('enroll', enrollPayload(challenge, public_key)) with a
+   *  challenge from deviceChallenge('enroll'). `public_key` is the 32-byte
+   *  verify key, base64url; only the PUBLIC key is sent. `name_encrypted`
+   *  is Vault-Key-encrypted. Enrolling grants no vault access. */
+  enrollDevice(body: {
+    public_key: string;
+    challenge: string;
+    signature: string;
+    name_encrypted?: string;
+    platform?: string;
+  }): Promise<{ device: DeviceInfo; session_bound: boolean }> {
+    return this.post<{ device: DeviceInfo; session_bound: boolean }>('/v1/devices/enroll', body);
+  }
+
+  /** Bind the current (unbound) session to device `id`: `signature` over
+   *  deviceMessage('session-bind', sessionBindPayload(challenge, id)).
+   *  409 when the session is already bound. */
+  bindDevice(id: string, challenge: string, signature: string): Promise<{ device_id: string; session_bound: true }> {
+    return this.post(`/v1/devices/${encodeURIComponent(id)}/bind`, { challenge, signature });
   }
 
   /** Revoke a device: the server marks it revoked and ends its server

@@ -1,8 +1,9 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from '../../../../packages/i18n/src/react';
 import {
   ApiError,
   LS_ACCOUNT_EMAIL,
+  isDeviceVerificationFailed,
   isMfaRequiredResult,
   saveSessionToken,
   webTokenStore,
@@ -24,6 +25,11 @@ import {
   type SignInMode,
   type SignInState,
 } from '../../../../packages/sdk/src/signin';
+import {
+  deviceKeyScope,
+  prepareSignInDeviceProof,
+  type PreparedDeviceProof,
+} from '../../../../packages/sdk/src/device-key-store';
 import {
   serializeCreateCredential,
   serializeGetCredential,
@@ -66,6 +72,16 @@ import {
  * usable when the server is unreachable or the user wants
  * local-only: account features then stay signed out.
  *
+ * Device binding (specs/device-identity.md): every passkey verify
+ * carries a device proof signed over that ceremony's challenge with
+ * this browser's Ed25519 device key (non-extractable WebCrypto key in
+ * IndexedDB, libsodium fallback — packages/sdk/src/device-key-store.ts):
+ * an enrol proof the first time for this (server, account), a bind proof
+ * afterwards. If the server rejects the device (e.g. it was revoked),
+ * the local key is dropped and the sign-in is retried ONCE with a new
+ * enrolment (one more passkey prompt). If the key store is unavailable
+ * the sign-in still works, with an unbound session.
+ *
  * Nothing here is logged: no token, no email in logs, no TOTP /
  * recovery code retained after its request settles.
  */
@@ -102,6 +118,7 @@ function errorText(kind: SignInErrorKind, s: Record<string, string>): string {
     case 'email-code-failed': return s.emailCodeFailed;
     case 'email-unavailable': return s.emailUnavailable;
     case 'signup-expired': return s.signupExpired;
+    case 'device-rejected': return s.deviceRejected;
     case 'offline': return s.offline;
     default: return s.unknownError;
   }
@@ -119,6 +136,8 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
   // Memory only (never stored, never logged); dropped on success, on
   // restart, and when the server answers that it is spent or expired.
   const [ticket, setTicket] = useState<string | null>(null);
+  // Device proof of a login parked at MFA: confirmed once MFA succeeds.
+  const pendingDevice = useRef<PreparedDeviceProof | null>(null);
   const webauthn = webAuthnAvailable();
 
   const store = webTokenStore();
@@ -128,6 +147,18 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
     try { localStorage.setItem(LS_ACCOUNT_EMAIL, email); } catch { /* non-critical */ }
     setCode('');
     onSignedIn(email);
+  };
+
+  /** This browser's device proof over `challenge`, or null when the key
+   *  store is unavailable (the session is then simply unbound). */
+  const prepareDevice = async (email: string, challenge: unknown): Promise<PreparedDeviceProof | null> => {
+    if (typeof challenge !== 'string' || !challenge) return null;
+    try {
+      const platform = typeof navigator !== 'undefined' ? navigator.platform || 'web' : 'web';
+      return await prepareSignInDeviceProof(deviceKeyScope(security.baseUrl, email), challenge, platform);
+    } catch {
+      return null;
+    }
   };
 
   /** Create-account step 1: ask the server to email a code. */
@@ -199,7 +230,17 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
         publicKey: toCreationOptions(registerOptions.creation_options),
       });
       if (!cred) throw new Error('no credential returned');
-      const res = await security.passkeyRegisterVerify(st.email, serializeCreateCredential(cred as PublicKeyCredential));
+      const device = await prepareDevice(st.email, (registerOptions.creation_options as { challenge?: unknown })?.challenge);
+      let res;
+      try {
+        res = await security.passkeyRegisterVerify(st.email, serializeCreateCredential(cred as PublicKeyCredential), device?.proof);
+      } catch (err) {
+        // The server rolled the sign-up back; drop the key so the next
+        // attempt (same ticket) enrols a fresh one.
+        if (isDeviceVerificationFailed(err)) await device?.reject();
+        throw err;
+      }
+      await device?.confirm(res.device_id);
       st = passkeyVerified(st, res);
       setMachine(st);
       if (st.step === 'signed-in') {
@@ -209,13 +250,14 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
     } catch (err) {
       // A 401 from verify is generic by design. The ticket is kept: the
       // user can retry the ceremony without a new code.
-      const kind = classifySignInError(err, st.step);
-      setMachine((prev) => signInFailed(prev, err instanceof ApiError && err.status === 401 ? 'verification-failed' : kind));
+      const kind = isDeviceVerificationFailed(err) ? 'device-rejected' : classifySignInError(err, st.step);
+      setMachine((prev) => signInFailed(prev, err instanceof ApiError && err.status === 401 && kind !== 'device-rejected' ? 'verification-failed' : kind));
     }
   };
 
-  /** Sign-in: fresh options -> navigator.credentials.get -> verify. */
-  const runLogin = async (start: SignInState) => {
+  /** Sign-in: fresh options -> navigator.credentials.get -> verify.
+   *  `retried`: the one automatic retry after a rejected device key. */
+  const runLogin = async (start: SignInState, retried = false) => {
     let st = start;
     const email = st.email;
     try {
@@ -230,14 +272,37 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
       });
       if (!cred) throw new Error('no credential returned');
       const credential = serializeGetCredential(cred as PublicKeyCredential);
-      // Step 3: verify. Either a session, or an MFA park.
-      const res: SignInResult = await security.passkeyLoginVerify(email, credential);
+      // Step 3: verify (with this browser's device proof over the same
+      // challenge). Either a session, or an MFA park.
+      const device = await prepareDevice(email, (authenticateOptions.request_options as { challenge?: unknown })?.challenge);
+      let res: SignInResult;
+      try {
+        res = await security.passkeyLoginVerify(email, credential, device?.proof);
+      } catch (err) {
+        if (isDeviceVerificationFailed(err) && device) {
+          // Revoked or unknown device: forget the key and retry once,
+          // which enrols a fresh one (another passkey prompt).
+          await device.reject();
+          if (!retried) {
+            await runLogin(start, true);
+            return;
+          }
+        }
+        throw err;
+      }
       st = passkeyVerified(st, res);
       setMachine(st);
-      if (st.step === 'signed-in' && !isMfaRequiredResult(res)) {
+      if (isMfaRequiredResult(res)) {
+        pendingDevice.current = device;
+      } else if (st.step === 'signed-in') {
+        await device?.confirm(res.device_id);
         await finishSignIn(email, res.token, res.expires_in);
       }
     } catch (err) {
+      if (isDeviceVerificationFailed(err)) {
+        setMachine((prev) => signInFailed(prev, 'device-rejected'));
+        return;
+      }
       const kind = classifySignInError(err, st.step);
       // A 401 from verify is generic by design — never leak which
       // check failed. A challenge that expired mid-ceremony sends
@@ -268,6 +333,8 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
       const st = mfaVerified(machine, res);
       setMachine(st);
       if (st.step === 'signed-in') {
+        await pendingDevice.current?.confirm(res.device_id);
+        pendingDevice.current = null;
         await finishSignIn(machine.email, res.token, res.expires_in);
       }
     } catch (err) {
