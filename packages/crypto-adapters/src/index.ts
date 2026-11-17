@@ -54,14 +54,6 @@ export const ARGON2ID_PARAMS = {
   version: '1.0',
 } as const;
 
-// Kept for backwards compatibility with the earlier draft name. NOT the
-// locked v1 params: the draft used opsLimit 3 (pre-lock). Use
-// ARGON2ID_PARAMS above; this alias is superseded and must not be used
-// for new code.
-export const ARGON2ID_PARAMS_DRAFT = {
-  memLimitMB: 64, opsLimit: 3, parallelism: 1, saltBytes: 16, outputBytes: 32,
-} as const;
-
 /**
  * Browser-safe base64 (btoa/atob). The previous implementation used
  * Node-only `Buffer.from`, which throws `ReferenceError: Buffer is not
