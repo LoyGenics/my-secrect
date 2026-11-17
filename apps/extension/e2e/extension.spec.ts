@@ -90,6 +90,9 @@ test.describe.serial('MV3 extension in real Chromium', () => {
   test('onboarding through the real popup UI creates a vault and shows a recovery key', async () => {
     const popup = await ctx.newPage();
     await popup.goto(`chrome-extension://${extId}/popup/index.html`);
+    // No sync yet: onboarding and the empty-profile restore section say restore-from-backup is the way in.
+    await expect(popup.getByText('Sync is not available in the extension yet')).toBeVisible();
+    await expect(admin.getByTestId('restore-sync-note')).toContainText('export an encrypted backup in the desktop app');
     await popup.fill('#new-pass', PASSPHRASE);
     await popup.fill('#new-pass-confirm', PASSPHRASE);
     await popup.getByRole('button', { name: 'Create vault' }).click();

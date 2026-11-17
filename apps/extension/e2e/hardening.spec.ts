@@ -229,6 +229,12 @@ test.describe.serial('extension hardening in real Chromium', () => {
     await servers?.close();
   });
 
+  test('options page with a vault: restore never overwrites, and it says sync is not available yet', async () => {
+    await admin.reload();
+    await expect(admin.getByText('A vault already exists in this extension')).toBeVisible();
+    await expect(admin.getByTestId('restore-sync-note')).toContainText('Restoring an encrypted backup is the supported way');
+  });
+
   test('content-script world: every privileged request is refused and the vault is untouched', async () => {
     for (const host of ['evil.test', 'example.test']) {
       const tabId = await openSite(https(host));
