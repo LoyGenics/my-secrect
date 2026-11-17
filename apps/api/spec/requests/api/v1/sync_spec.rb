@@ -46,7 +46,7 @@ RSpec.describe 'Sync API', type: :request do
       stored = SyncEvent.find_by!(vault_id: vault.id, item_id: item_id, operation: 'upsert')
       expect(stored.signature).to eq(raw)
       expect(stored.signature).not_to eq(signature)
-      post "/api/v1/vaults/#{vault.id}/sync/push", params: { item_id: item_id, operation: 'delete', signature: delete_signature }, headers: headers, as: :json
+      post "/api/v1/vaults/#{vault.id}/sync/push", params: { item_id: item_id, base_revision: 1, operation: 'delete', signature: delete_signature }, headers: headers, as: :json
       expect(response).to have_http_status(:ok)
       expect(response.body.downcase).not_to include('verified')
       stored_delete = SyncEvent.find_by!(vault_id: vault.id, item_id: item_id, operation: 'delete')
@@ -116,8 +116,15 @@ RSpec.describe 'Sync API', type: :request do
       item_id = SecureRandom.uuid
       post "/api/v1/vaults/#{vault.id}/sync/push", params: { item_id: item_id, base_revision: 0, operation: 'upsert', encrypted_payload: ciphertext, encrypted_item_key: item_key, encryption_version: 1 }, headers: headers, as: :json
       expect(response).to have_http_status(:ok)
-      post "/api/v1/vaults/#{vault.id}/sync/push", params: { item_id: item_id, operation: 'delete' }, headers: headers, as: :json
+      post "/api/v1/vaults/#{vault.id}/sync/push", params: { item_id: item_id, base_revision: 1, operation: 'delete' }, headers: headers, as: :json
       expect(response).to have_http_status(:ok)
+      expect {
+        post "/api/v1/vaults/#{vault.id}/sync/push", params: { item_id: item_id, base_revision: 1, operation: 'delete' }, headers: headers, as: :json
+      }.not_to change { SyncEvent.where(vault_id: vault.id).count }
+      expect(response).to have_http_status(:conflict)
+      expect(JSON.parse(response.body)['error']).to eq('revision_conflict')
+      expect(JSON.parse(response.body)['current_revision']).to eq(2)
+      expect(SyncEvent.where(vault_id: vault.id, item_id: item_id, operation: 'delete').count).to eq(1)
       get "/api/v1/vaults/#{vault.id}/sync", headers: headers
       event = JSON.parse(response.body)['events'].find { |e| e['operation'] == 'delete' }
       expect(event['item_id']).to eq(item_id)
@@ -125,6 +132,19 @@ RSpec.describe 'Sync API', type: :request do
       expect(event['encrypted_payload']).to be_nil
       expect(event['encrypted_item_key']).to be_nil
       expect(event['signature']).to be_nil
+    end
+
+    it 'returns 409 when a delete omits base_revision and does not append an event' do
+      item_id = SecureRandom.uuid
+      post "/api/v1/vaults/#{vault.id}/sync/push", params: { item_id: item_id, base_revision: 0, operation: 'upsert', encrypted_payload: ciphertext, encrypted_item_key: item_key }, headers: headers, as: :json
+      expect(response).to have_http_status(:ok)
+      expect {
+        post "/api/v1/vaults/#{vault.id}/sync/push", params: { item_id: item_id, operation: 'delete' }, headers: headers, as: :json
+      }.not_to change { SyncEvent.where(vault_id: vault.id).count }
+      expect(response).to have_http_status(:conflict)
+      expect(JSON.parse(response.body)['error']).to eq('revision_conflict')
+      expect(JSON.parse(response.body)['current_revision']).to eq(1)
+      expect(Item.find(item_id).deleted_at).to be_nil
     end
 
     it 'rejects an unauthenticated pull' do

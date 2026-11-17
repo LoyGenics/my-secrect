@@ -33,7 +33,7 @@ module Sync
       begin
         vault.with_lock do
           if operation.to_s == 'delete'
-            EncryptedRecords::Delete.call(vault: vault, item_id: item_id, device: device, signature: signature_bytes)
+            EncryptedRecords::Delete.call(vault: vault, item_id: item_id, base_revision: base_revision, device: device, signature: signature_bytes)
           else
             EncryptedRecords::Upsert.call(
               vault: vault, item_id: item_id, base_revision: base_revision,

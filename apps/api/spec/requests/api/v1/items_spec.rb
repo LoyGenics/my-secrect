@@ -36,10 +36,38 @@ RSpec.describe 'Items API', type: :request do
   it 'creates a tombstone on delete and hides the item from live reads' do
     item_id = SecureRandom.uuid
     put "/api/v1/vaults/#{vault.id}/items/#{item_id}", params: { base_revision: 0, encrypted_payload: ciphertext, encrypted_item_key: item_key }, headers: headers, as: :json
-    delete "/api/v1/vaults/#{vault.id}/items/#{item_id}", headers: headers
+    delete "/api/v1/vaults/#{vault.id}/items/#{item_id}", params: { base_revision: 1 }, headers: headers, as: :json
     expect(response).to have_http_status(:ok)
     get "/api/v1/vaults/#{vault.id}/items/#{item_id}", headers: headers
     expect(response).to have_http_status(:not_found)
+  end
+
+  it 'tombstones once with an optional opaque signature and conflicts on a repeated delete' do
+    raw = 'item-delete-sig'.b
+    signature = Base64.strict_encode64(raw)
+    item_id = SecureRandom.uuid
+    put "/api/v1/vaults/#{vault.id}/items/#{item_id}", params: { base_revision: 0, encrypted_payload: ciphertext, encrypted_item_key: item_key, encryption_version: 1 }, headers: headers, as: :json
+    expect(response).to have_http_status(:ok)
+    delete "/api/v1/vaults/#{vault.id}/items/#{item_id}", params: { base_revision: 1, signature: signature }, headers: headers, as: :json
+    expect(response).to have_http_status(:ok)
+    expect(response.body.downcase).not_to include('verified')
+    stored = SyncEvent.find_by!(vault_id: vault.id, item_id: item_id, operation: 'delete')
+    expect(stored.signature).to eq(raw)
+    get "/api/v1/vaults/#{vault.id}/sync", headers: headers
+    event = JSON.parse(response.body)['events'].find { |e| e['operation'] == 'delete' }
+    expect(event['tombstone']).to eq(true)
+    expect(event['encrypted_payload']).to be_nil
+    expect(event['encrypted_item_key']).to be_nil
+    expect(event['signature']).to eq(signature)
+    expect(event.keys.grep(/verified/i)).to eq([])
+    expect {
+      delete "/api/v1/vaults/#{vault.id}/items/#{item_id}", params: { base_revision: 1 }, headers: headers, as: :json
+    }.not_to change { SyncEvent.where(vault_id: vault.id).count }
+    expect(response).to have_http_status(:conflict)
+    body = JSON.parse(response.body)
+    expect(body['error']).to eq('revision_conflict')
+    expect(body['current_revision']).to eq(2)
+    expect(body.to_s.downcase).not_to include('verified')
   end
 
   it 'does not let another user read the vault' do

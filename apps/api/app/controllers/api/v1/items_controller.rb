@@ -28,13 +28,17 @@ module Api
       end
 
       # DELETE — creates an encrypted tombstone (recoverable), not a hard delete.
+      # base_revision must match, same as update. signature is optional
+      # opaque bytes forwarded to Sync::Push; it is not authenticated.
       def destroy
         result = Sync::Push.call(
           vault: vault, item_id: params[:id], base_revision: params[:base_revision],
           operation: 'delete', encrypted_payload: nil, encrypted_item_key: nil,
-          device: current_device
+          device: current_device, signature: params[:signature]
         )
         render json: result, status: :ok
+      rescue Sync::Push::RevisionConflict => e
+        render json: { error: 'revision_conflict', current_revision: e.current_revision }, status: :conflict
       end
 
       private
