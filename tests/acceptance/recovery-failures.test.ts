@@ -153,7 +153,7 @@ describe('K2: corrupted backup fails safely', () => {
         await expectSafeFailure(t, text, pass, /not valid JSON/);
       }
       await expectSafeFailure(t, JSON.stringify({ ...doc, format_version: 1 }), pass, /format_version 1/);
-      await expectSafeFailure(t, JSON.stringify({ ...doc, format_version: 3 }), pass, /unsupported format_version|newer/i);
+      await expectSafeFailure(t, JSON.stringify({ ...doc, format_version: 4 }), pass, /unsupported format_version|newer/i);
       await expectSafeFailure(t, JSON.stringify({ ...doc, format: 'something-else' }), pass, /format/);
       const { keys: _k, ...noKeys } = doc;
       await expectSafeFailure(t, JSON.stringify(noKeys), pass, /wrapped key envelope/);

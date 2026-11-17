@@ -204,8 +204,8 @@ test('negative cases leave storage unchanged and show specific errors', async ()
 
   await expectRejected(page, backupText.slice(0, Math.floor(backupText.length / 2)), 'passphrase', PASS, /not a valid, complete backup[\s\S]*not valid JSON/, '16-truncated');
 
-  const v3 = { ...good, format_version: 3 };
-  await expectRejected(page, JSON.stringify(v3), 'passphrase', PASS, /Unsupported backup version[\s\S]*newer version/, '17-version-3');
+  const v4 = { ...good, format_version: 4 };
+  await expectRejected(page, JSON.stringify(v4), 'passphrase', PASS, /Unsupported backup version[\s\S]*newer version/, '17-version-4');
   const v1 = { ...good, format_version: 1 };
   await expectRejected(page, JSON.stringify(v1), 'passphrase', PASS, /format_version 1 has no key envelope; restore needs a v2 backup/, '18-version-1');
 
