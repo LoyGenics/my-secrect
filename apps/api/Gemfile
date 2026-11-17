@@ -1,5 +1,7 @@
 source 'https://rubygems.org'
-ruby '3.3.0'
+# Accept any Ruby 3.3 patch. CI installs the 3.3 line and ruby:3.3-slim
+# is the current 3.3 image (3.3.13), which an exact 3.3.0 pin rejects.
+ruby '~> 3.3.0'
 
 gem 'rails', '~> 7.1'
 gem 'pg', '~> 1.5'          # PostgreSQL — metadata + ciphertext only, never plaintext

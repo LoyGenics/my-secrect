@@ -34,8 +34,14 @@ fn tampered_ciphertext_fails_closed() {
 fn kek_depends_on_passphrase_and_salt() {
     init().unwrap();
     let salt = [1u8; pwhash::SALTBYTES];
-    assert_eq!(derive_kek(b"pass", &salt).unwrap(), derive_kek(b"pass", &salt).unwrap());
-    assert_ne!(derive_kek(b"pass", &salt).unwrap(), derive_kek(b"other", &salt).unwrap());
+    assert_eq!(
+        derive_kek(b"pass", &salt).unwrap(),
+        derive_kek(b"pass", &salt).unwrap()
+    );
+    assert_ne!(
+        derive_kek(b"pass", &salt).unwrap(),
+        derive_kek(b"other", &salt).unwrap()
+    );
 }
 
 /// Decode a hex string from tests/crypto-vectors/argon2id-vectors.json.
@@ -56,14 +62,26 @@ fn argon2id_kek_matches_shared_vectors() {
     // tests/crypto-vectors/argon2id-vectors.json — never edit them to
     // make this test pass.
     let cases = [
-        ("correct horse battery staple", "000102030405060708090a0b0c0d0e0f", "c05ce4c4dd7e0e45ee6011cc59d068ade47df1b01fc0cf9cd4678bdf68a5b7b0"),
-        ("my-secrect test passphrase", "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a", "e3da58d3edd0e289d9f09f0bea83a675f1dea7d78300de48057b396889c253fa"),
+        (
+            "correct horse battery staple",
+            "000102030405060708090a0b0c0d0e0f",
+            "c05ce4c4dd7e0e45ee6011cc59d068ade47df1b01fc0cf9cd4678bdf68a5b7b0",
+        ),
+        (
+            "my-secrect test passphrase",
+            "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+            "e3da58d3edd0e289d9f09f0bea83a675f1dea7d78300de48057b396889c253fa",
+        ),
     ];
     for (passphrase, salt_hex, expected_kek_hex) in cases {
         let salt_vec = hex_bytes(salt_hex);
         let salt: [u8; pwhash::SALTBYTES] = salt_vec.try_into().expect("salt is 16 bytes");
         let kek = derive_kek(passphrase.as_bytes(), &salt).unwrap();
-        assert_eq!(hex::encode(kek), expected_kek_hex, "KEK mismatch for passphrase {passphrase:?}");
+        assert_eq!(
+            hex::encode(kek),
+            expected_kek_hex,
+            "KEK mismatch for passphrase {passphrase:?}"
+        );
     }
 }
 
@@ -77,7 +95,9 @@ fn xchacha_seal_matches_shared_vector() {
     let key_vec = hex_bytes("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
     let key: [u8; 32] = key_vec.try_into().expect("key is 32 bytes");
     let mut sealed = hex_bytes("000102030405060708090a0b0c0d0e0f1011121314151617");
-    sealed.extend_from_slice(&hex_bytes("e8a37a13e4f2e4da562906a4b83dc68c707f60973f28fc9e984b655357eae5"));
+    sealed.extend_from_slice(&hex_bytes(
+        "e8a37a13e4f2e4da562906a4b83dc68c707f60973f28fc9e984b655357eae5",
+    ));
     assert_eq!(decrypt_item(&key, &sealed).unwrap(), b"vault item json");
     // And a single flipped tag byte still fails closed.
     let mut tampered = sealed.clone();
@@ -98,5 +118,8 @@ fn secretstream_file_roundtrip() {
     assert_eq!(dec.pull(&c1).unwrap().0, b"chunk one ");
     let (p2, tag) = dec.pull(&c2).unwrap();
     assert_eq!(p2, b"chunk two");
-    assert_eq!(tag, sodiumoxide::crypto::secretstream::xchacha20poly1305::Tag::Final);
+    assert_eq!(
+        tag,
+        sodiumoxide::crypto::secretstream::xchacha20poly1305::Tag::Final
+    );
 }

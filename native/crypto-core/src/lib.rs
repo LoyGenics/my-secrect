@@ -80,7 +80,8 @@ pub fn derive_kek(passphrase: &[u8], salt: &[u8; pwhash::SALTBYTES]) -> Result<[
 pub fn hkdf_sha256(ikm: &[u8], salt: Option<&[u8]>, info: &[u8], len: usize) -> Vec<u8> {
     let hk = Hkdf::<Sha256>::new(salt, ikm);
     let mut out = vec![0u8; len];
-    hk.expand(info, &mut out).expect("hkdf expand: length is caller-controlled and small");
+    hk.expand(info, &mut out)
+        .expect("hkdf expand: length is caller-controlled and small");
     out
 }
 
@@ -88,7 +89,12 @@ pub fn hkdf_sha256(ikm: &[u8], salt: Option<&[u8]>, info: &[u8], len: usize) -> 
 /// Output layout: `nonce (24B) || ciphertext+tag`. Nonce is random per call.
 pub fn encrypt_item(item_key: &[u8; 32], plaintext: &[u8]) -> Vec<u8> {
     let nonce = aead::gen_nonce();
-    let ct = aead::seal(plaintext, None, &nonce, &aead::Key::from_slice(item_key).unwrap());
+    let ct = aead::seal(
+        plaintext,
+        None,
+        &nonce,
+        &aead::Key::from_slice(item_key).unwrap(),
+    );
     let mut out = Vec::with_capacity(aead::NONCEBYTES + ct.len());
     out.extend_from_slice(nonce.as_ref());
     out.extend_from_slice(&ct);
@@ -117,7 +123,8 @@ pub fn wrap_key(wrapping_key: &[u8; 32], key: &[u8; 32]) -> Vec<u8> {
 
 pub fn unwrap_key(wrapping_key: &[u8; 32], sealed: &[u8]) -> Result<[u8; 32]> {
     let pt = decrypt_item(wrapping_key, sealed)?;
-    pt.try_into().map_err(|_| CryptoError::InvalidInput("unwrapped key is not 32 bytes"))
+    pt.try_into()
+        .map_err(|_| CryptoError::InvalidInput("unwrapped key is not 32 bytes"))
 }
 
 /// File streaming encryption (libsodium secretstream).
@@ -137,8 +144,14 @@ impl EncryptStream {
         Self { state, header }
     }
     pub fn push(&mut self, chunk: &[u8], is_final: bool) -> Vec<u8> {
-        let tag = if is_final { stream::Tag::Final } else { stream::Tag::Message };
-        self.state.push(chunk, None, tag).expect("secretstream push cannot fail with a valid key")
+        let tag = if is_final {
+            stream::Tag::Final
+        } else {
+            stream::Tag::Message
+        };
+        self.state
+            .push(chunk, None, tag)
+            .expect("secretstream push cannot fail with a valid key")
     }
 }
 
@@ -148,14 +161,19 @@ pub struct DecryptStream {
 
 impl DecryptStream {
     pub fn new(file_key: &[u8; 32], header: &stream::Header) -> Result<Self> {
-        let state = stream::Stream::init_pull(header, &stream::Key::from_slice(file_key).expect("file key is 32 bytes"))
-            .map_err(|_| CryptoError::InvalidInput("invalid secretstream header"))?;
+        let state = stream::Stream::init_pull(
+            header,
+            &stream::Key::from_slice(file_key).expect("file key is 32 bytes"),
+        )
+        .map_err(|_| CryptoError::InvalidInput("invalid secretstream header"))?;
         Ok(Self { state })
     }
     /// Returns (plaintext, tag). A chunk out of order, truncated, or
     /// tampered with fails here — never silently accept partial data.
     pub fn pull(&mut self, sealed_chunk: &[u8]) -> Result<(Vec<u8>, stream::Tag)> {
-        self.state.pull(sealed_chunk, None).map_err(|_| CryptoError::DecryptFailed)
+        self.state
+            .pull(sealed_chunk, None)
+            .map_err(|_| CryptoError::DecryptFailed)
     }
 }
 
@@ -171,7 +189,10 @@ mod tests {
         let b = derive_kek(b"correct horse battery staple", &salt).unwrap();
         assert_eq!(a, b);
         let other_salt = [8u8; pwhash::SALTBYTES];
-        assert_ne!(a, derive_kek(b"correct horse battery staple", &other_salt).unwrap());
+        assert_ne!(
+            a,
+            derive_kek(b"correct horse battery staple", &other_salt).unwrap()
+        );
         assert_ne!(a, derive_kek(b"different passphrase", &salt).unwrap());
     }
 
@@ -180,11 +201,20 @@ mod tests {
         init().unwrap();
         let key = [42u8; 32];
         let sealed = encrypt_item(&key, b"{\"title\":\"secret\"}");
-        assert_eq!(decrypt_item(&key, &sealed).unwrap(), b"{\"title\":\"secret\"}");
+        assert_eq!(
+            decrypt_item(&key, &sealed).unwrap(),
+            b"{\"title\":\"secret\"}"
+        );
         let mut tampered = sealed.clone();
         tampered[30] ^= 1;
-        assert!(matches!(decrypt_item(&key, &tampered), Err(CryptoError::DecryptFailed)));
-        assert!(matches!(decrypt_item(&[1u8; 32], &sealed), Err(CryptoError::DecryptFailed)));
+        assert!(matches!(
+            decrypt_item(&key, &tampered),
+            Err(CryptoError::DecryptFailed)
+        ));
+        assert!(matches!(
+            decrypt_item(&[1u8; 32], &sealed),
+            Err(CryptoError::DecryptFailed)
+        ));
     }
 
     #[test]
@@ -192,14 +222,23 @@ mod tests {
         init().unwrap();
         let kek = [3u8; 32];
         let item_key = [9u8; 32];
-        assert_eq!(unwrap_key(&kek, &wrap_key(&kek, &item_key)).unwrap(), item_key);
+        assert_eq!(
+            unwrap_key(&kek, &wrap_key(&kek, &item_key)).unwrap(),
+            item_key
+        );
     }
 
     #[test]
     fn hkdf_binds_subkeys_to_purpose() {
         let ikm = [5u8; 32];
-        assert_ne!(hkdf_sha256(&ikm, None, b"my-secrect/item-key/v1", 32), hkdf_sha256(&ikm, None, b"my-secrect/file-key/v1", 32));
-        assert_eq!(hkdf_sha256(&ikm, None, b"my-secrect/item-key/v1", 32), hkdf_sha256(&ikm, None, b"my-secrect/item-key/v1", 32));
+        assert_ne!(
+            hkdf_sha256(&ikm, None, b"my-secrect/item-key/v1", 32),
+            hkdf_sha256(&ikm, None, b"my-secrect/file-key/v1", 32)
+        );
+        assert_eq!(
+            hkdf_sha256(&ikm, None, b"my-secrect/item-key/v1", 32),
+            hkdf_sha256(&ikm, None, b"my-secrect/item-key/v1", 32)
+        );
     }
 
     #[test]
