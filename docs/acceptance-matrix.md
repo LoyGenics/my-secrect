@@ -1,10 +1,13 @@
 # Release acceptance matrix
 
-Independent verification by QA (Agent 15), branch `test/acceptance` off
-`integrate/wave0`, 2026-11-18. Every status below comes from a suite that
-was **run**, not from a status doc or commit message. "Real" means the test
-imports or drives production code (packages/*, apps/*, the Rails API,
-Chromium); "mirror" means the rule is re-implemented inside the test file.
+Independent verification by QA (Agent 15). State of **`main` (176779b)**,
+verified on branch `test/acceptance-main` (main + the acceptance suites),
+2026-11-18. The first pass ran on `integrate/wave0` (branch
+`test/acceptance`); §5 records what changed between the two. Every status
+below comes from a suite that was **run**, not from a status doc or commit
+message. "Real" means the test imports or drives production code
+(packages/*, apps/*, the Rails API, Chromium); "mirror" means the rule is
+re-implemented inside the test file.
 
 Known defects are encoded in `tests/acceptance/` as the CORRECT expectation
 with `todo: 'DEFECT-…'`: they run on every invocation and print the failure,
@@ -20,12 +23,12 @@ but do not fail the run. `ACCEPTANCE_STRICT=1` turns them into failures.
 | D | Offline conflict, no data loss | **covered** (Keep both only) | — |
 | E | Portable backup → fresh device, every item + relation | **covered** with known defects | DEFECT-K2-omission, DEFECT-E1; trash and media bytes are not in a backup (by design) |
 | F | Media round trip on another device | **covered** (web ↔ web) | gap: mobile / extension media not tested |
-| G | Secure sharing | **pending** (another agent) | — |
-| H | Device revocation | **partial** — sessions die, offline copy honest; revocation not durable | DEFECT-H1, H2, H3, H4 |
+| G | Secure sharing | **covered by the sharing suites; partly re-run here** — UI spec 1/1 run; `tests/sharing-e2e/two-users.test.ts` not run by QA (its harness only accepts an `_agent10` database) | — |
+| H | Device revocation | **partial** — each session bound to its own device key (H1 fixed on main), revoked sessions die everywhere, offline copy honest, device + passkey removal keeps a device out; revoking the device alone is not durable | DEFECT-H2, H3, H4 |
 | I | Browser autofill with origin checks | **covered** | — |
 | J | Native credential providers | **pending** (another agent) | — |
 | K | Recovery failure (wrong credentials, corrupted backup, tampered ciphertext) | **covered** with known defects | DEFECT-K2-omission, DEFECT-K3-rollback |
-| L | Deploy / restore | **pending** (another agent) | — |
+| L | Deploy / restore | **blocked** — the compose stack cannot boot the API on main | DEFECT-L1 |
 | M | Account deletion through the product | **covered** (web) | gap: mobile/extension deletion UI not tested |
 
 ## 2. Per scenario
@@ -93,8 +96,12 @@ By design (documented in `apps/desktop/src/vault.ts` `exportEncrypted`): trash i
 
 Gap: the second device is always the web app; mobile has no media round-trip test.
 
-### G — Secure sharing: pending
-Existing only: `packages/core/tests/sharing-proposal.test.mjs` (real module), `apps/api/spec/requests/api/v1/shares_spec.rb`. No end-to-end share.
+### G — Secure sharing
+| Test | Proves | Real? |
+|---|---|---|
+| `tests/sharing-e2e/ui.spec.ts` › A shares an item read-only with B through the UI; B verifies, accepts, opens; A revokes | two Chromium users, real passkeys, fingerprint comparison, accept, open, revoke | real (run by QA: 1/1) |
+| `tests/sharing-e2e/two-users.test.ts` (10 tests: identity keys, key substitution, read-only/write shares, tamper, revoke erases ciphertext, no plaintext stored) | | real (written by the sharing agent; **not run by QA**: its harness refuses any database not ending in `_agent10`) |
+| `packages/core/tests/sharing-proposal.test.mjs`, `apps/api/spec/requests/api/v1/shares_spec.rb` | | real |
 
 ### H — Device revocation
 | Test | Proves | Real? |
@@ -102,8 +109,9 @@ Existing only: `packages/core/tests/sharing-proposal.test.mjs` (real module), `a
 | `tests/acceptance/device-revocation.e2e.test.ts` › revoking B's device: B's token is refused on every route | vaults, sync pull/push, key envelopes, devices, sessions, blobs all 401 | real |
 | same › B's browser returns to sign-in on its next account call ("session expired"); the encrypted vault stays on the device | honest limit: revocation is not a remote wipe | real (Chromium) |
 | same › honest offline limit: after a reload the revoked browser still opens and reads its local vault with no session | | real |
-| same › B's session is bound to a device record of its own / only B is cut off | **DEFECT-H1** (todo ×2) | real |
-| same › the revoked device cannot sign in again … | **DEFECT-H2** (todo) | real |
+| same › B's session is bound to a device record of its own (its device key) / only B is cut off: A's session keeps working (and syncing) | each browser's session is bound to its own Ed25519 device row; revoking B leaves A signed in and syncing (was DEFECT-H1 on integrate/wave0) | real |
+| same › the revoked device cannot sign in again … | **DEFECT-H2** (todo): B signs in again on a freshly enrolled device and pulls the post-revocation item | real |
+| same › complete cut-off: revoking B's device AND removing B's passkey keeps B out for good | the working path to a durable cut-off today | real |
 | same › B's next SYNC call after the revocation sends it back to sign-in | **DEFECT-H3** (todo) | real |
 | same › "Continue without signing in" right after the session-expired bounce opens the local vault | **DEFECT-H4** (todo) | real |
 | `tests/e2e-web/security-center.spec.ts` › sessions / trusted devices (3 tests) | revoke one session / all others (step-up), revoke device UI, honest copy | real |
@@ -134,7 +142,10 @@ Gap: forms inside cross-origin iframes are not exercised.
 
 Gap: the mobile restore UI (React Native) is not exercised; only its module.
 
-### L — Deploy / restore: pending
+### L — Deploy / restore: blocked
+`infra/docker/backup-restore-proof.sh`, `verify-restore.sh` and `smoke.sh` exist on main but all boot
+the compose stack, whose API now refuses to start (DEFECT-L1); `tests/media-e2e/run.sh` fails the
+same way. Not run further by QA.
 
 ### M — Account deletion
 | Test | Proves | Real? |
@@ -170,11 +181,12 @@ Superseded mirrors were not deleted: root `npm test` runs them and does not yet 
 
 | Id | Severity | Where | What happens | Reproduce |
 |---|---|---|---|---|
-| DEFECT-H1 | high | `apps/api/app/domains/authentication/passkeys.rb:195` | every passkey sign-in is bound to `user.devices.active.first`, whichever passkey (device) signed in; revoking "device B" revokes every session of the account, and the device list cannot tell browsers apart | device-revocation › "B's session is bound to a device record of its own" / "only B is cut off" |
-| DEFECT-H2 | high | `passkeys.rb:195` + `apps/api/app/domains/devices/revoke.rb` | a revoked device signs straight back in with its passkey (a new device row is auto-enrolled) and pulls items created after the revocation; revoke touches neither the credential nor the vault key (clients never use key envelopes) | device-revocation › "the revoked device cannot sign in again…" |
-| DEFECT-H3 | medium | `apps/desktop/src/sync/engine.ts:431`, `packages/sync/src/sync-client.ts:228` | a 401 on sync **pull** surfaces as raw `API 401 … {"error":"unauthorized"}` and never signs out; only a push 401 matches `/unauthorized \(401\)/` | device-revocation › "B's next SYNC call…" |
-| DEFECT-H4 | medium | `apps/desktop/src/App.tsx:264-270` with `:1125` | after a 401 in the Security Center, "Continue without signing in (local vault only)" re-mounts the Security Center, whose next call 401s and resets `localOnlyBypass`: the user is thrown back to the sign-in gate until a reload | device-revocation › "Continue without signing in right after…" |
-| DEFECT-C1 | high | `apps/desktop/src/sync/engine.ts:303-313` | a signed-in device whose local vault has a different vault key (user chose "Create vault" instead of "Restore" on a new device — the onboarding screen offers both) binds to the account's oldest server vault and pushes items no other device can decrypt; every other device's sync stays in error. The vault's `encrypted_name` is never decrypted as a key check | sync-integrity › "a device whose vault key cannot open the account vault refuses to push into it" |
+| ~~DEFECT-H1~~ | fixed on main | was `passkeys.rb:195` on integrate/wave0 | every sign-in was bound to `user.devices.active.first`. On main a session is bound only through an Ed25519 device proof; verified by device-revocation › "B's session is bound to a device record of its own" and "only B is cut off" (both now plain passing tests) | — |
+| DEFECT-H2 | high | `apps/api/app/domains/authentication/device_proof.rb:130` (enrol path of `device_for!`) + `apps/api/app/domains/devices/revoke.rb` | a revoked browser signs straight back in with the same passkey: its revoked device key is replaced by a newly enrolled one, and it pulls items created after the revocation. Revoke touches neither the passkey nor the vault key. Removing the passkey as well does keep it out | device-revocation › "the revoked device cannot sign in again…" |
+| DEFECT-H3 | medium | `apps/desktop/src/sync/engine.ts:448`, `packages/sync/src/sync-client.ts:229` | a 401 on sync **pull** surfaces as raw `API 401 … {"error":"unauthorized"}` and never signs out; only a push 401 matches `/unauthorized \(401\)/` | device-revocation › "B's next SYNC call…" |
+| DEFECT-H4 | medium | `apps/desktop/src/App.tsx:230-238` with the SecurityCenter `onUnauthorized` at `:1060` / `:1087` | after a 401 in the Security Center, "Continue without signing in (local vault only)" re-mounts the Security Center, whose next call 401s and resets `localOnlyBypass`: the user is thrown back to the sign-in gate until a reload | device-revocation › "Continue without signing in right after…" |
+| DEFECT-L1 | high (deploy blocker) | `infra/docker/docker-compose.yml` (no `SMTP_*` / `MAIL_FROM` passed to `api`), `tests/media-e2e/run.sh` env file; check at `apps/api/config/initializers/action_mailer.rb:44-48` | in production mode the API refuses to boot (`AuthMailDelivery::ConfigurationError: production requires SMTP … missing: SMTP_ADDRESS, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD, MAIL_FROM`), so the compose stack never becomes healthy | `E2E_PROJECT=a15media … tests/media-e2e/run.sh --keep`, then `docker logs a15media-api-1` |
+| DEFECT-C1 | high | `apps/desktop/src/sync/engine.ts:307-317` | a signed-in device whose local vault has a different vault key (user chose "Create vault" instead of "Restore" on a new device — the onboarding screen offers both) binds to the account's oldest server vault and pushes items no other device can decrypt; every other device's sync stays in error. The vault's `encrypted_name` is never decrypted as a key check | sync-integrity › "a device whose vault key cannot open the account vault refuses to push into it" |
 | DEFECT-K3-rollback | high (security claim) | `packages/sync/src/index.ts` `applyRemoteEvents`; signatures stored but never verified (`apps/api/app/domains/sync/push.rb` header) | the server can serve an authentic older ciphertext as a newer revision; the client applies it silently (sync state idle). `specs/threat-model.md:10` lists rollback as defended by "AEAD, signed events, trusted checkpoints" | sync-integrity › "K3 rollback…" |
 | DEFECT-K2-omission | medium | backup format (`packages/import-export/src/index.ts` `buildEncryptedExport`) | an item removed from a backup file restores "successfully" as N-1 items in all three apps; nothing authenticates the item list | recovery-failures › "a backup with one item silently removed is detected" (×3) |
 | DEFECT-E1 | medium (data loss) | `apps/desktop/src/components/ItemForm.tsx:322` | opening any item with typed relations (has_login, has_card, owned_by, contains…) and pressing Save without changes rewrites every relation type to `related_to` | portable-backup › "editing a restored item…" |
@@ -189,22 +201,43 @@ a corrupted `wrapped_recovery` cannot be detected by a passphrase restore (only
 later, when the recovery key fails safely); `SyncEngine.scheduleRetry` still fires
 after a later manual sync succeeded (one extra harmless sync).
 
-## 5. Run against `main` (5717965), unmodified tests
+## 5. integrate/wave0 → main: what changed (re-verified on main 176779b)
 
-The tests were copied onto a `git archive main` export (fresh `npm ci`); nothing else was changed.
+`main` added email-verified sign-up (code → registration ticket → passkey)
+and Ed25519 device keys (`specs/device-identity.md`). The harness follows:
+`lib/stack.ts` gives the API `MAIL_FILE_DIR` and reads the mailed code,
+`lib/browser.ts` registers through "Email me a code", and Node devices get
+`MAIL_DIR` so `tests/sync-e2e/client-worker.ts` enrols and binds its device
+key. M additionally checks main's new tables (`device_challenges`,
+`email_verifications`, `identity_keys`, `item_shares`).
 
-- Module suites (`recovery-failures`, `mirror-replacements`): 48 tests, 45 pass, 3 todo — DEFECT-K2-omission still reproduces in all three apps.
-- `portable-backup.e2e`: 4 pass; DEFECT-E1 still reproduces.
-- `account-deletion`, `device-revocation`, `media-cross-device`, `sync-integrity`: blocked at account creation, so they say nothing about H/K/M/F on `main` yet. `main` now requires an emailed code + registration ticket before the passkey (`POST /v1/auth/passkeys/register` without `registration_ticket` → 401 `verification_failed`; web UI "Email me a code"), and binds sessions to devices only with an Ed25519 device proof (`specs/device-identity.md`). The harness must adopt `tests/e2e-web`'s mail-file code flow and the device-proof sign-in before these can run there.
-- `main`'s own `npm run test:sync-e2e` fails 17/17 for the same reason: `tests/sync-e2e/client-worker.ts` `register` still calls `passkeyRegisterOptions(email)` without a ticket.
+- **Fixed on main:** DEFECT-H1 (both H1 tests are now plain passing tests).
+- **Still reproduce on main:** DEFECT-H2 (now through device re-enrolment), H3, H4, C1, K3-rollback, K2-omission (desktop, extension, mobile), E1.
+- **New on main:** DEFECT-L1 (compose API cannot boot without SMTP settings).
+- An earlier run on main 5717965 stopped at account creation; at that commit main's own `test:sync-e2e` also failed 17/17 (client-worker registered without a ticket). Fixed on main by a1194f2.
+
+Suites run on `test/acceptance-main` (main 176779b + these suites):
+
+| Suite | Result |
+|---|---|
+| `npm run test:acceptance` | 48 tests: 45 pass, 3 todo (K2-omission ×3) |
+| `npm run test:acceptance:e2e` | 31 tests: 25 pass, 0 fail, 6 todo (H2, H3, H4, C1, K3-rollback, E1) |
+| `npm test` | mirrors 31/31, test:real 135/135 |
+| `node --test tests/security/` | 61/61 |
+| RSpec | 270 examples, 0 failures, 3 pending |
+| `cargo test` (crypto-core) | 20/20 |
+| `test:e2e:web` | 19/19 |
+| `test:sync-e2e` | 21/21 |
+| extension e2e | 42/42 |
+| web restore e2e / extension restore e2e | 5/5, 5/5 |
+| sharing UI (`tests/sharing-e2e/playwright.config.ts`) | 1/1 |
+| `test:media-e2e` | **cannot start**: the compose API refuses to boot (DEFECT-L1) |
 
 ## 6. How to run
 
 ```sh
-# fast, no services (real modules only): ~10 s
-npx tsx --test tests/acceptance/recovery-failures.test.ts tests/acceptance/mirror-replacements.test.ts
-# real stack (Postgres + Ruby 3.3 + Chromium; M also docker for MinIO)
-npx tsx --test --test-concurrency=1 tests/acceptance/*.e2e.test.ts
+npm run test:acceptance       # module suites, no services: ~10 s
+npm run test:acceptance:e2e   # real stack: Postgres + Ruby 3.3 + Chromium; M and F also docker (MinIO)
 ```
 
 Ports (env-overridable): H API 3253 / web 5365, K API 3254, M API 3255 /
