@@ -252,7 +252,11 @@ const EXPECTED_SECURITY_KEYS = [
 function securityBlockKeys(fileText) {
   const start = fileText.indexOf('  security: {');
   assert.notEqual(start, -1, 'security section missing');
-  const block = fileText.slice(start); // security is the last section
+  // The block ends at the section's closing brace at 2-space indent; later
+  // sections (e.g. `shares`) must not leak into the security contract.
+  const rest = fileText.slice(start);
+  const end = rest.search(/^  \},?$/m);
+  const block = end === -1 ? rest : rest.slice(0, end);
   return [...block.matchAll(/^    ([A-Za-z]+):/gm)].map((m) => m[1]);
 }
 
