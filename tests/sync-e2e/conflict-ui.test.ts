@@ -1,6 +1,6 @@
 /**
  * Browser-level check of the sync status indicator + Conflict list, in real
- * Chromium (Playwright), against the REAL web app (Vite, port 5202) and the
+ * Chromium (Playwright), against the REAL web app (Vite, port of SYNC_E2E_WEB_ORIGIN, default 5202) and the
  * REAL Rails API (port 3102).
  *
  * The browser is "device A": its localStorage is seeded from a Node client's
@@ -27,6 +27,8 @@ import { Client } from './helpers.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const webDir = path.resolve(here, '../../apps/web');
+// The page must be served from the origin the API allows (CORS + WebAuthn origin).
+const WEB_PORT = new URL(WEB_ORIGIN).port || '80';
 const PASS = 'browser passphrase 42 xyz';
 const EMAIL = `sync-ui-${Date.now()}@example.test`;
 const ITEM = 'item_ui1000000000000000000000';
@@ -66,9 +68,10 @@ before(async () => {
   await B.call('syncNow');
   assert.equal((await B.find(M.base))?.id, ITEM);
 
-  vite = spawn(path.resolve(here, '../../node_modules/.bin/vite'), ['--port', '5202', '--strictPort', '--host', 'localhost'], { cwd: webDir, stdio: 'ignore' });
+  vite = spawn(path.resolve(here, '../../node_modules/.bin/vite'), ['--port', WEB_PORT, '--strictPort', '--host', 'localhost'], { cwd: webDir, stdio: 'ignore' });
   for (let i = 0; ; i++) {
-    try { if ((await fetch('http://localhost:5202/')).ok) break; } catch { /* starting */ }
+    if (vite.exitCode !== null) throw new Error(`vite exited (port ${WEB_PORT} busy?)`);
+    try { if ((await fetch(`http://localhost:${WEB_PORT}/`)).ok) break; } catch { /* starting */ }
     if (i > 100) throw new Error('vite did not start');
     await new Promise((r) => setTimeout(r, 300));
   }
@@ -99,7 +102,7 @@ after(async () => {
 const status = () => page.getByTestId('sync-status');
 
 test('unlock in the real UI -> sync indicator goes idle and shows the pulled item', async () => {
-  await page.goto('http://localhost:5202/');
+  await page.goto(`http://localhost:${WEB_PORT}/`);
   await page.getByLabel('Master passphrase').fill(PASS);
   await page.getByRole('button', { name: 'Unlock', exact: true }).click();
   await status().waitFor({ timeout: 30_000 });
