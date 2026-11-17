@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import Field from '../components/Field';
 import StrengthMeter from '../components/StrengthMeter';
-import { colors, styles } from '../theme';
+import { useMobileTheme } from '../theme';
+import { Icon, illustrations, typeArt } from '../../../../packages/ui/src/native';
 import { createVault } from '../vault';
 import RestoreBackupPanel from './RestoreBackupPanel';
 
 /** Step 0: create passphrase. Step 1: recovery key shown ONCE. Step 2: done. */
 export default function OnboardingScreen({ onDone, onRestored }: { onDone: () => void; onRestored?: () => void }) {
+  const { colors, styles } = useMobileTheme();
   const [restoring, setRestoring] = useState(false);
   const [step, setStep] = useState(0);
   const [pass, setPass] = useState('');
@@ -38,7 +40,7 @@ export default function OnboardingScreen({ onDone, onRestored }: { onDone: () =>
       <View style={{ flexDirection: 'row', gap: 6, marginTop: 20 }}>
         {['Create passphrase', 'Save recovery key', 'Done'].map((label, i) => (
           <View key={label} style={{ flex: 1, borderRadius: 8, paddingVertical: 8, paddingHorizontal: 4, backgroundColor: i === step ? colors.accentSoft : colors.card, alignItems: 'center' }}>
-            <Text style={{ color: i === step ? '#C7D2FE' : colors.muted, fontSize: 11, fontWeight: '600', textAlign: 'center' }}>{i + 1}. {label}</Text>
+            <Text style={{ color: i === step ? colors.text : colors.muted, fontSize: 11, fontWeight: '600', textAlign: 'center' }}>{i + 1}. {label}</Text>
           </View>
         ))}
       </View>
@@ -69,7 +71,7 @@ export default function OnboardingScreen({ onDone, onRestored }: { onDone: () =>
             <Text style={styles.ghostButtonText}>{copied ? 'Copied to clipboard' : 'Copy recovery key'}</Text>
           </Pressable>
           <Pressable testID="recovery-ack" accessibilityLabel="I have saved my recovery key somewhere safe" accessibilityRole="checkbox" accessibilityState={{ checked: ack }} onPress={() => setAck((v) => !v)} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 16 }}>
-            <Text style={{ fontSize: 20, color: ack ? colors.accent : colors.faint }}>{ack ? '☑' : '☐'}</Text>
+            <View style={{ width: 22, height: 22, borderRadius: 4, borderWidth: 1, borderColor: ack ? colors.text : colors.control, backgroundColor: ack ? colors.text : colors.input, alignItems: 'center', justifyContent: 'center' }}>{ack ? <Icon name="check" size="sm" color={colors.bg} /> : null}</View>
             <Text style={{ color: colors.text, fontSize: 15, flex: 1 }}>I have saved my recovery key somewhere safe.</Text>
           </Pressable>
           <Pressable testID="recovery-done-button" accessibilityLabel="Done" accessibilityRole="button" disabled={!ack} onPress={() => setStep(2)} style={[styles.primaryButton, { marginTop: 16 }, !ack ? { opacity: 0.5 } : null]}>
@@ -79,7 +81,7 @@ export default function OnboardingScreen({ onDone, onRestored }: { onDone: () =>
       )}
       {step === 2 && (
         <View style={{ marginTop: 20, alignItems: 'center' }}>
-          <Text style={{ fontSize: 48 }}>✓</Text>
+          <Image source={illustrations.success} style={{ width: 136, height: 136 }} accessibilityIgnoresInvertColors />
           <Text style={{ color: colors.text, fontSize: 16, textAlign: 'center', marginTop: 8 }}>Your vault is created and unlocked. Add your first item to get started.</Text>
           <Pressable testID="open-vault-button" accessibilityLabel="Open vault" accessibilityRole="button" style={[styles.primaryButton, { marginTop: 20, alignSelf: 'stretch' }]} onPress={onDone}>
             <Text style={styles.primaryButtonText}>Open vault</Text>

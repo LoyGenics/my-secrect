@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 import * as RadixMenu from '@radix-ui/react-dropdown-menu';
 import { cn } from '../utils';
+import type { IconName } from '../icons';
+import { Icon } from './Icon';
 
 export interface MenuItemDef {
   key: string;
@@ -9,6 +11,7 @@ export interface MenuItemDef {
   shortcut?: string;
   danger?: boolean;
   disabled?: boolean;
+  icon?: IconName;
   onSelect: () => void;
 }
 
@@ -34,7 +37,7 @@ export function DropdownMenu({ trigger, items, label, align = 'end', className }
       <RadixMenu.Trigger asChild>{trigger}</RadixMenu.Trigger>
       <RadixMenu.Portal>
         <RadixMenu.Content align={align} sideOffset={6} className={cn('ms-menu', className)}>
-          {label && <RadixMenu.Label className="ms-menu__label">{label}</RadixMenu.Label>}
+          {label && <RadixMenu.Label className="ms-menu__label ms-legend">{label}</RadixMenu.Label>}
           {items.map((item) => (
             <RadixMenu.Item
               key={item.key}
@@ -44,8 +47,9 @@ export function DropdownMenu({ trigger, items, label, align = 'end', className }
               onSelect={() => item.onSelect()}
               className={cn('ms-menu__item', item.danger && 'ms-menu__item--danger')}
             >
+              {item.icon && <Icon name={item.icon} />}
               <span>{item.label}</span>
-              {item.shortcut && <span style={{ marginLeft: 'auto', fontSize: 12, opacity: 0.7 }}>{item.shortcut}</span>}
+              {item.shortcut && <span className="ms-menu__shortcut ms-legend">{item.shortcut}</span>}
             </RadixMenu.Item>
           ))}
         </RadixMenu.Content>

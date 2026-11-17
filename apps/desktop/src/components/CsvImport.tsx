@@ -8,6 +8,9 @@ import {
   type CsvSource,
 } from '../../../../packages/import-export/src/index';
 import { csvDraftToLoginItem } from '../utils/csvImport';
+import { Alert, Button, Checkbox, Led } from '../theme';
+import { useTranslation } from '../../../../packages/i18n/src/react';
+import { format } from '../../../../packages/i18n/src/index';
 
 /**
  * CSV import (desktop only) — 1Password / Bitwarden exports.
@@ -28,6 +31,8 @@ interface CsvImportProps {
 }
 
 export default function CsvImport({ existingItems, onImport }: CsvImportProps) {
+  const { dict, tp } = useTranslation();
+  const c = dict.csvImport;
   const [source, setSource] = useState<CsvSource | null>(null);
   const [drafts, setDrafts] = useState<CsvDraft[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -38,6 +43,7 @@ export default function CsvImport({ existingItems, onImport }: CsvImportProps) {
   const [importing, setImporting] = useState(false);
   const [doneMessage, setDoneMessage] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const sourceName = source === 'bitwarden' ? 'Bitwarden' : '1Password';
 
   const handleFile = async (file: File) => {
     setError('');
@@ -65,85 +71,92 @@ export default function CsvImport({ existingItems, onImport }: CsvImportProps) {
       setSkipped(result.skipped);
       setWarnings(result.warnings);
     } catch {
-      setError('Could not read that file. Choose a .csv export from 1Password or Bitwarden.');
+      setError(c.readFailed);
     }
   };
 
   const dupReason = (index: number): string | undefined =>
     duplicates.find((d) => d.draftIndex === index)?.reason;
 
+  const reset = () => {
+    setDrafts([]);
+    setSelected(new Set());
+    setDuplicates([]);
+    setSkipped([]);
+    setWarnings([]);
+    setSource(null);
+  };
+
   const handleImport = async () => {
     const chosen = drafts.filter((_, i) => selected.has(i));
     if (chosen.length === 0) {
-      setError('Nothing selected to import.');
+      setError(c.nothingSelected);
       return;
     }
     setImporting(true);
     try {
       await onImport(chosen.map(csvDraftToLoginItem));
-      setDoneMessage(`Imported ${chosen.length} login${chosen.length === 1 ? '' : 's'} from ${source === 'bitwarden' ? 'Bitwarden' : '1Password'}. They are tagged “imported”.`);
-      setDrafts([]);
-      setSelected(new Set());
-      setDuplicates([]);
-      setSkipped([]);
-      setWarnings([]);
-      setSource(null);
+      setDoneMessage(tp(c.imported, chosen.length, sourceName));
+      reset();
     } catch {
-      setError('Import failed while saving items. Nothing was partially imported — try again.');
+      setError(c.failed);
     } finally {
       setImporting(false);
     }
   };
 
   return (
-    <div>
-      <h4 className="text-sm font-semibold text-zinc-100">Import from 1Password / Bitwarden (CSV)</h4>
-      <p className="mt-1 text-sm text-zinc-400">
-        Import a CSV export from 1Password or Bitwarden. The file is parsed on this device only;
-        duplicates already in the vault are left unchecked.
-      </p>
+    <div className="grid gap-3">
+      <div>
+        <h4 className="ms-heading ms-heading--md">{c.title}</h4>
+        <p className="ms-text-sm ms-text-muted mb-0 mt-1 ms-prose">{c.lede}</p>
+      </div>
       <input
         ref={fileInputRef}
         type="file"
         accept=".csv,text/csv"
         className="hidden"
+        tabIndex={-1}
+        aria-hidden="true"
         onChange={(e) => {
           const f = e.target.files?.[0];
           if (f) void handleFile(f);
           e.target.value = '';
         }}
       />
-      <button type="button" className="btn-ghost mt-3" onClick={() => fileInputRef.current?.click()}>
-        Choose CSV file…
-      </button>
-      {error && <p role="alert" className="mt-3 text-sm text-red-400">{error}</p>}
-      {doneMessage && <p role="status" className="mt-3 text-sm text-emerald-400">{doneMessage}</p>}
+      <div>
+        <Button icon="file" onClick={() => fileInputRef.current?.click()}>
+          {c.choose}
+        </Button>
+      </div>
+      {error && <Alert tone="danger" announce>{error}</Alert>}
+      {doneMessage && <Alert tone="success" announce>{doneMessage}</Alert>}
       {warnings.length > 0 && (
-        <ul className="mt-3 space-y-1 text-sm text-amber-300">
-          {warnings.slice(0, 5).map((w, i) => <li key={i}>{w}</li>)}
-          {warnings.length > 5 && <li>…and {warnings.length - 5} more warning(s).</li>}
-        </ul>
+        <Alert tone="warning">
+          <ul className="m-0 grid gap-1 pl-4">
+            {warnings.slice(0, 5).map((w, i) => <li key={i}>{w}</li>)}
+            {warnings.length > 5 && <li>{tp(c.moreWarnings, warnings.length - 5)}</li>}
+          </ul>
+        </Alert>
       )}
       {skipped.length > 0 && (
-        <p className="mt-2 text-sm text-zinc-400">
-          Skipped {skipped.length} row(s) with no title, URL or username: rows{' '}
-          {skipped.slice(0, 8).map((s) => s.row).join(', ')}{skipped.length > 8 ? '…' : ''}.
+        <p className="ms-text-sm ms-text-muted m-0">
+          {tp(c.skipped, skipped.length, `${skipped.slice(0, 8).map((s) => s.row).join(', ')}${skipped.length > 8 ? '…' : ''}`)}
         </p>
       )}
       {drafts.length > 0 && (
-        <div className="mt-4">
-          <p className="text-sm text-zinc-300">
-            {drafts.length} login{drafts.length === 1 ? '' : 's'} found in the {source === 'bitwarden' ? 'Bitwarden' : '1Password'} file ·{' '}
-            {selected.size} selected{duplicates.length > 0 ? ` · ${duplicates.length} duplicate(s) left unchecked` : ''}.
+        <div className="grid gap-2">
+          <p className="ms-text-sm m-0">
+            {tp(c.found, drafts.length, sourceName)} · {format(c.selectedCount, selected.size)}
+            {duplicates.length > 0 ? ` · ${tp(c.duplicatesLeft, duplicates.length)}` : ''}
           </p>
-          <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto">
+          <ul className="m-0 grid max-h-64 list-none gap-1 overflow-y-auto p-0">
             {drafts.map((draft, i) => {
               const reason = dupReason(i);
               const checked = selected.has(i);
               return (
-                <li key={i} className="flex items-start gap-2 rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2">
-                  <input
-                    type="checkbox"
+                <li key={i} className="ms-card ms-card--pad-sm">
+                  <Checkbox
                     checked={checked}
                     onChange={(e) => {
                       setSelected((prev) => {
@@ -152,28 +165,29 @@ export default function CsvImport({ existingItems, onImport }: CsvImportProps) {
                         return next;
                       });
                     }}
-                    className="mt-1 accent-indigo-600"
-                    aria-label={`Import ${draft.title}`}
+                    aria-label={format(c.importRow, draft.title)}
+                    label={<span className="block truncate">{draft.title}</span>}
+                    hint={
+                      <>
+                        <span className="block truncate">{[draft.username, draft.url].filter(Boolean).join(' · ') || c.noUserUrl}</span>
+                        {reason && (
+                          <span className="ms-copy-led"><Led tone="attention" /> {format(c.duplicate, reason)}</span>
+                        )}
+                        {!draft.password && <span className="block">{c.noPassword}</span>}
+                      </>
+                    }
                   />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm text-zinc-100">{draft.title}</span>
-                    <span className="block truncate text-xs text-zinc-500">
-                      {[draft.username, draft.url].filter(Boolean).join(' · ') || 'No username or URL'}
-                    </span>
-                    {reason && <span className="block text-xs text-amber-400">Duplicate: {reason}.</span>}
-                    {!draft.password && <span className="block text-xs text-zinc-500">No password in this row.</span>}
-                  </span>
                 </li>
               );
             })}
           </ul>
-          <div className="mt-3 flex gap-2">
-            <button type="button" className="btn-primary" disabled={importing || selected.size === 0} onClick={() => void handleImport()}>
-              {importing ? 'Importing…' : `Import ${selected.size} selected`}
-            </button>
-            <button type="button" className="btn-ghost" onClick={() => { setDrafts([]); setSelected(new Set()); setDuplicates([]); setSkipped([]); setWarnings([]); setSource(null); setError(''); }}>
-              Cancel
-            </button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="primary" icon="import" loading={importing} disabled={selected.size === 0} onClick={() => void handleImport()}>
+              {importing ? c.importing : format(c.importSelected, selected.size)}
+            </Button>
+            <Button onClick={() => { reset(); setError(''); }}>
+              {c.cancel}
+            </Button>
           </div>
         </div>
       )}

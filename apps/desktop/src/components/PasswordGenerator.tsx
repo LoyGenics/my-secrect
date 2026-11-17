@@ -1,144 +1,135 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { generatePassword, generatePassphrase } from '../utils/password';
 import StrengthMeter from './StrengthMeter';
+import { Button, Checkbox, IconButton, Led, Readout, copyWithClear, useClipboardStatus } from '../theme';
+import { useTranslation } from '../../../../packages/i18n/src/react';
+import { format } from '../../../../packages/i18n/src/index';
 
 interface PasswordGeneratorProps {
   onUse: (password: string) => void;
 }
 
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    try {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      const ok = document.execCommand('copy');
-      document.body.removeChild(ta);
-      return ok;
-    } catch {
-      return false;
-    }
-  }
-}
-
+/**
+ * Generator instrument: a length slider with an LCD readout, character-set
+ * switches, the result in a recessed well with copy + regenerate keys, the
+ * strength LEDs, and a passphrase section. Copies clear after 30 s.
+ */
 export default function PasswordGenerator({ onUse }: PasswordGeneratorProps) {
+  const { dict } = useTranslation();
+  const g = dict.generator;
+  const lengthId = useId();
+  const wordsId = useId();
   const [length, setLength] = useState(20);
   const [symbols, setSymbols] = useState(true);
   const [numbers, setNumbers] = useState(true);
   const [uppercase, setUppercase] = useState(true);
   const [lowercase, setLowercase] = useState(true);
   const [pronounceable, setPronounceable] = useState(false);
-  const [generated, setGenerated] = useState('');
-  const [copied, setCopied] = useState(false);
+  const [generated, setGenerated] = useState(() => generatePassword({ length: 20, symbols: true, numbers: true, uppercase: true, lowercase: true, pronounceable: false }));
   const [passphraseWords, setPassphraseWords] = useState(6);
   const [passphrase, setPassphrase] = useState('');
-  const [passphraseCopied, setPassphraseCopied] = useState(false);
+  const { copiedKey, secondsLeft } = useClipboardStatus();
 
   const generate = useCallback(() => {
-    setGenerated(
-      generatePassword({ length, symbols, numbers, uppercase, lowercase, pronounceable }),
-    );
-    setCopied(false);
+    setGenerated(generatePassword({ length, symbols, numbers, uppercase, lowercase, pronounceable }));
   }, [length, symbols, numbers, uppercase, lowercase, pronounceable]);
 
   useEffect(() => {
     generate();
   }, [generate]);
 
-  const handleCopy = async () => {
-    if (!generated) return;
-    setCopied(await copyText(generated));
-  };
+  const copied = (key: string) =>
+    copiedKey === key ? (
+      <span className="ms-copy-led ms-legend" role="status">
+        <Led tone="ok" /> {format(dict.itemDetail.copied, secondsLeft)}
+      </span>
+    ) : null;
 
   return (
-    <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 12, marginTop: 8 }}>
-      <label style={{ display: 'block' }}>
-        Length: {length}
-        <input
-          type="range"
-          min={8}
-          max={64}
-          value={length}
-          onChange={(e) => setLength(Number(e.target.value))}
-          style={{ display: 'block', width: '100%' }}
-        />
-      </label>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 8 }}>
-        <label>
-          <input type="checkbox" checked={symbols} onChange={(e) => setSymbols(e.target.checked)} /> Symbols
-        </label>
-        <label>
-          <input type="checkbox" checked={numbers} onChange={(e) => setNumbers(e.target.checked)} /> Numbers
-        </label>
-        <label>
-          <input type="checkbox" checked={uppercase} onChange={(e) => setUppercase(e.target.checked)} /> Uppercase
-        </label>
-        <label>
-          <input type="checkbox" checked={lowercase} onChange={(e) => setLowercase(e.target.checked)} /> Lowercase
-        </label>
-        <label>
-          <input type="checkbox" checked={pronounceable} onChange={(e) => setPronounceable(e.target.checked)} /> Pronounceable
-        </label>
-      </div>
-      <div style={{ marginTop: 12 }}>
-        <button type="button" onClick={generate}>Generate</button>
-      </div>
-      {generated && (
-        <div style={{ marginTop: 12 }}>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <code style={{ wordBreak: 'break-all', flex: 1 }}>{generated}</code>
-            <button type="button" onClick={handleCopy}>{copied ? 'Copied' : 'Copy'}</button>
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <StrengthMeter password={generated} />
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <button type="button" onClick={() => onUse(generated)}>Use password</button>
-          </div>
+    <div className="grid gap-5">
+      <section aria-labelledby={`${lengthId}-title`} className="grid gap-3">
+        <h3 id={`${lengthId}-title`} className="ms-legend m-0">{g.password}</h3>
+        <div className="ms-field-row">
+          <output className="ms-input ms-input--mono flex items-center break-all" aria-label={g.result} aria-live="polite">
+            {generated}
+          </output>
+          <IconButton icon="regenerate" label={g.generate} variant="secondary" onClick={generate} />
+          <IconButton icon="copy" label={g.copy} variant="secondary" disabled={!generated} onClick={() => void copyWithClear('gen:password', generated)} />
         </div>
-      )}
-      <div style={{ borderTop: '1px solid #eee', marginTop: 16, paddingTop: 12 }}>
-        <strong>Passphrase</strong>
-        <p style={{ margin: '4px 0 8px', color: '#555' }}>
-          Memorable words, picked with the system CSPRNG. Use 6+ words for a master passphrase.
-        </p>
-        <label style={{ display: 'block' }}>
-          Words: {passphraseWords}
+        {copied('gen:password')}
+        <StrengthMeter password={generated} />
+        <div className="grid gap-2">
+          <div className="flex items-center justify-between gap-3">
+            <label className="ms-label m-0" htmlFor={lengthId}>{g.length}</label>
+            <Readout value={length} />
+          </div>
           <input
+            id={lengthId}
+            type="range"
+            min={8}
+            max={64}
+            value={length}
+            onChange={(e) => setLength(Number(e.target.value))}
+            className="ms-range"
+          />
+        </div>
+        <fieldset className="m-0 grid gap-2 border-0 p-0 sm:grid-cols-2">
+          <legend className="ms-label">{g.options}</legend>
+          <Checkbox label={g.symbols} checked={symbols} onChange={(e) => setSymbols(e.target.checked)} />
+          <Checkbox label={g.numbers} checked={numbers} onChange={(e) => setNumbers(e.target.checked)} />
+          <Checkbox label={g.uppercase} checked={uppercase} onChange={(e) => setUppercase(e.target.checked)} />
+          <Checkbox label={g.lowercase} checked={lowercase} onChange={(e) => setLowercase(e.target.checked)} />
+          <Checkbox label={g.pronounceable} checked={pronounceable} onChange={(e) => setPronounceable(e.target.checked)} />
+        </fieldset>
+        <div>
+          <Button variant="primary" icon="check" disabled={!generated} onClick={() => onUse(generated)}>
+            {g.usePassword}
+          </Button>
+        </div>
+      </section>
+
+      <hr className="ms-rule m-0" />
+
+      <section aria-labelledby={`${wordsId}-title`} className="grid gap-3">
+        <h3 id={`${wordsId}-title`} className="ms-legend m-0">{g.passphrase}</h3>
+        <p className="ms-text-sm ms-text-muted m-0 ms-prose">{g.passphraseHint}</p>
+        <div className="grid gap-2">
+          <div className="flex items-center justify-between gap-3">
+            <label className="ms-label m-0" htmlFor={wordsId}>{g.words}</label>
+            <Readout value={passphraseWords} />
+          </div>
+          <input
+            id={wordsId}
             type="range"
             min={4}
             max={8}
             value={passphraseWords}
             onChange={(e) => setPassphraseWords(Number(e.target.value))}
-            style={{ display: 'block', width: '100%' }}
-            aria-label="Passphrase word count"
+            className="ms-range"
           />
-        </label>
-        <div style={{ marginTop: 8 }}>
-          <button type="button" onClick={() => { setPassphrase(generatePassphrase({ words: passphraseWords })); setPassphraseCopied(false); }}>
-            Generate passphrase
-          </button>
+        </div>
+        <div>
+          <Button variant="secondary" icon="generate" onClick={() => setPassphrase(generatePassphrase({ words: passphraseWords }))}>
+            {g.generatePassphrase}
+          </Button>
         </div>
         {passphrase && (
-          <div style={{ marginTop: 12 }}>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <code style={{ wordBreak: 'break-all', flex: 1 }}>{passphrase}</code>
-              <button type="button" onClick={async () => setPassphraseCopied(await copyText(passphrase))}>
-                {passphraseCopied ? 'Copied' : 'Copy'}
-              </button>
+          <>
+            <div className="ms-field-row">
+              <output className="ms-input ms-input--mono flex items-center break-all" aria-label={g.resultPassphrase}>
+                {passphrase}
+              </output>
+              <IconButton icon="copy" label={g.copy} variant="secondary" onClick={() => void copyWithClear('gen:passphrase', passphrase)} />
             </div>
-            <div style={{ marginTop: 8 }}>
-              <button type="button" onClick={() => onUse(passphrase)}>Use passphrase</button>
+            {copied('gen:passphrase')}
+            <div>
+              <Button variant="secondary" icon="check" onClick={() => onUse(passphrase)}>
+                {g.usePassphrase}
+              </Button>
             </div>
-          </div>
+          </>
         )}
-      </div>
+      </section>
     </div>
   );
 }

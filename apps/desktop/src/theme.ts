@@ -1,16 +1,17 @@
 /**
- * Desktop theme entry point — re-exports the shared design system.
+ * Desktop design-system entry point: the one place desktop code imports
+ * @my-secrect/ui from.
  *
- * The values live in @my-secrect/ui (packages/ui/src/tokens.ts +
- * theme.ts); this file is only the local alias so desktop code imports
- * from './theme' instead of reaching across the monorepo. Relative import
- * is deliberate: apps/desktop does not yet declare the @my-secrect/ui
- * dependency (see packages/ui/README.md, adoption step 2) — switch these
- * two lines to the package specifiers when it does.
+ * It imports components.css as a side effect so every app that renders
+ * desktop screens gets the component styles — including the web mirror
+ * (apps/web renders this same App, but loads its own index.css, not
+ * apps/desktop/src/index.css). tokens.css is loaded by each app's
+ * index.css.
  *
- * Usage (in main.tsx, once the app wires it up):
- *   import { initTheme } from './theme';
- *   initTheme();
+ * Relative paths are deliberate: apps/desktop does not declare the
+ * @my-secrect/ui dependency (matches the existing ../../../packages
+ * imports across the app).
  */
-export * from '../../../packages/ui/src/tokens';
-export * from '../../../packages/ui/src/theme';
+import '../../../packages/ui/src/components.css';
+
+export * from '../../../packages/ui/src/index';

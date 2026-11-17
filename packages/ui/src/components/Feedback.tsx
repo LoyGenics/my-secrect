@@ -2,7 +2,11 @@ import type { ReactNode } from 'react';
 import type { Locale } from '@my-secrect/i18n';
 import { cn } from '../utils';
 import { useUiStrings } from '../useUiStrings';
+import type { IconName } from '../icons';
 import { Button } from './Button';
+import { Icon } from './Icon';
+import { Art } from './Art';
+import { illustrations, type ArtSource } from '../illustrations';
 
 // ---------------------------------------------------------------------------
 // Skeleton
@@ -19,11 +23,7 @@ export interface SkeletonProps {
   className?: string;
 }
 
-/**
- * Loading placeholder. `aria-busy` + role="status" so screen readers hear
- * "loading" once instead of silence; the shimmer is pure decoration
- * (aria-hidden). Use one per line of expected content, matching its shape.
- */
+/** Loading placeholder shaped like the content. role="status" + aria-busy; the pulse is decoration (stops under reduced motion). */
 export function Skeleton({ width = '100%', height = 16, label, locale, className }: SkeletonProps) {
   const strings = useUiStrings({ locale });
   return (
@@ -40,19 +40,17 @@ export function Skeleton({ width = '100%', height = 16, label, locale, className
 export interface ProgressProps {
   /** 0–100. Values outside are clamped. */
   value: number;
-  /** Accessible name (e.g. 'Vault health', 'Upload progress'). */
+  /** Accessible name (e.g. 'Vault health', 'Code refreshes'). */
   label: string;
-  tone?: 'brand' | 'success' | 'warning' | 'danger';
-  /** Indeterminate (unknown duration) — no value, animated. */
-  indeterminate?: boolean;
+  /** LED colour of the bar; default ink. */
+  tone?: 'neutral' | 'brand' | 'success' | 'warning' | 'danger';
+  /** Optional aria-valuetext (e.g. '12 seconds left'). */
+  valueText?: string;
   className?: string;
 }
 
-/**
- * Progress bar: native role="progressbar" with aria-valuenow/min/max and
- * a visible label association via aria-label. Clamps to 0–100.
- */
-export function Progress({ value, label, tone = 'brand', indeterminate = false, className }: ProgressProps) {
+/** Bar in a recessed track: role="progressbar", clamped 0–100. */
+export function Progress({ value, label, tone = 'neutral', valueText, className }: ProgressProps) {
   const clamped = Math.min(100, Math.max(0, value));
   return (
     <div
@@ -60,11 +58,11 @@ export function Progress({ value, label, tone = 'brand', indeterminate = false, 
       aria-label={label}
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-valuenow={indeterminate ? undefined : Math.round(clamped)}
-      aria-valuetext={indeterminate ? undefined : `${Math.round(clamped)}%`}
-      className={cn('ms-progress', tone !== 'brand' && `ms-progress--${tone}`, className)}
+      aria-valuenow={Math.round(clamped)}
+      aria-valuetext={valueText ?? `${Math.round(clamped)}%`}
+      className={cn('ms-progress', tone !== 'neutral' && `ms-progress--${tone}`, className)}
     >
-      <div className="ms-progress__bar" style={{ width: indeterminate ? '40%' : `${clamped}%` }} />
+      <div className="ms-progress__bar" style={{ transform: `scaleX(${clamped / 100})` }} />
     </div>
   );
 }
@@ -73,43 +71,84 @@ export function Progress({ value, label, tone = 'brand', indeterminate = false, 
 // EmptyState / ErrorState
 // ---------------------------------------------------------------------------
 
+export interface StateAction {
+  label: string;
+  onClick: () => void;
+  icon?: IconName;
+}
+
 export interface EmptyStateProps {
   title?: string;
-  body?: string;
-  /** Decorative glyph/emoji (aria-hidden). Keep it non-essential. */
-  icon?: string;
-  primaryAction?: { label: string; onClick: () => void };
-  secondaryAction?: { label: string; onClick: () => void };
+  body?: ReactNode;
+  /** Illustration slot from `illustrations` (empty, error and success states only). Decorative. */
+  art?: ArtSource;
+  /** Lucide glyph when there is no 3D object. */
+  icon?: IconName;
+  primaryAction?: StateAction;
+  secondaryAction?: StateAction;
+  /** Small print under the actions. */
+  note?: ReactNode;
+  /** Heading level for the title (default 2). */
+  headingLevel?: 2 | 3;
   locale?: Locale;
   children?: ReactNode;
+  className?: string;
 }
 
 /**
- * Empty state for lists with no content. Titles default to the localized
- * 'No items yet' strings; pass explicit title/body for search-no-results.
+ * Empty / success state: one 3D object (or glyph), a title that says what
+ * this place is for, one sentence on how to fill it, and the action. Not a
+ * live region — it is page content.
  */
-export function EmptyState({ title, body, icon = '\u25CB', primaryAction, secondaryAction, locale, children }: EmptyStateProps) {
+export function EmptyState({
+  title,
+  body,
+  art,
+  icon,
+  primaryAction,
+  secondaryAction,
+  note,
+  headingLevel = 2,
+  locale,
+  children,
+  className,
+}: EmptyStateProps) {
   const strings = useUiStrings({ locale });
+  const Heading = headingLevel === 3 ? 'h3' : 'h2';
   return (
-    <div className="ms-state" role="status">
-      <span className="ms-state__icon" aria-hidden="true">{icon}</span>
-      <h3 className="ms-state__title">{title ?? strings.emptyState.noItemsTitle}</h3>
+    <div className={cn('ms-state', className)}>
+      {art ? (
+        <Art src={art} size={144} className="ms-state__art" />
+      ) : icon ? (
+        <Icon name={icon} size={32} className="ms-state__icon" />
+      ) : null}
+      <Heading className="ms-state__title">{title ?? strings.emptyState.noItemsTitle}</Heading>
       <p className="ms-state__body">{body ?? strings.emptyState.noItemsBody}</p>
       {children}
       {(primaryAction || secondaryAction) && (
         <div className="ms-state__actions">
-          {primaryAction && <Button variant="primary" onClick={primaryAction.onClick}>{primaryAction.label}</Button>}
-          {secondaryAction && <Button variant="secondary" onClick={secondaryAction.onClick}>{secondaryAction.label}</Button>}
+          {primaryAction && (
+            <Button variant="primary" icon={primaryAction.icon} onClick={primaryAction.onClick}>
+              {primaryAction.label}
+            </Button>
+          )}
+          {secondaryAction && (
+            <Button variant="secondary" icon={secondaryAction.icon} onClick={secondaryAction.onClick}>
+              {secondaryAction.label}
+            </Button>
+          )}
         </div>
       )}
+      {note && <p className="ms-state__note">{note}</p>}
     </div>
   );
 }
 
 export interface ErrorStateProps {
+  /** Illustration slot; defaults to `illustrations.error`. */
+  art?: ArtSource;
   title?: string;
   body?: string;
-  icon?: string;
   onRetry?: () => void;
   retryLabel?: string;
   onGoBack?: () => void;
@@ -117,23 +156,19 @@ export interface ErrorStateProps {
   children?: ReactNode;
 }
 
-/**
- * Error state for failed loads. role="alert" announces it assertively.
- * Never render raw error objects / stack traces here — pass a safe,
- * localized message; log the technical detail elsewhere.
- */
-export function ErrorState({ title, body, icon = '\u26A0', onRetry, retryLabel, onGoBack, locale, children }: ErrorStateProps) {
+/** Failed load. role="alert". Never render raw error objects here — pass a safe, localized message. */
+export function ErrorState({ art = illustrations.error, title, body, onRetry, retryLabel, onGoBack, locale, children }: ErrorStateProps) {
   const strings = useUiStrings({ locale });
   return (
     <div className="ms-state" role="alert">
-      <span className="ms-state__icon" aria-hidden="true">{icon}</span>
-      <h3 className="ms-state__title">{title ?? strings.errorState.title}</h3>
+      <Art src={art} size={144} className="ms-state__art" />
+      <h2 className="ms-state__title">{title ?? strings.errorState.title}</h2>
       <p className="ms-state__body">{body ?? strings.errorState.body}</p>
       {children}
       {(onRetry || onGoBack) && (
         <div className="ms-state__actions">
-          {onRetry && <Button variant="primary" onClick={onRetry}>{retryLabel ?? strings.errorState.retry}</Button>}
-          {onGoBack && <Button variant="secondary" onClick={onGoBack}>{strings.errorState.goBack}</Button>}
+          {onRetry && <Button variant="primary" icon="regenerate" onClick={onRetry}>{retryLabel ?? strings.errorState.retry}</Button>}
+          {onGoBack && <Button variant="secondary" icon="back" onClick={onGoBack}>{strings.errorState.goBack}</Button>}
         </div>
       )}
     </div>

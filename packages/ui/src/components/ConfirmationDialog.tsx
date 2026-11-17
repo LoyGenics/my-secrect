@@ -42,7 +42,7 @@ export function ConfirmationDialog({
   const strings = useUiStrings({ locale });
   return (
     <Dialog open={open} onOpenChange={onOpenChange} title={title} locale={locale}>
-      {body && <p className="ms-dialog__description" style={{ marginBottom: 0 }}>{body}</p>}
+      {body && <p className="ms-dialog__description">{body}</p>}
       <DialogActions>
         <Button variant="secondary" autoFocus onClick={() => onOpenChange(false)}>
           {cancelLabel ?? strings.common.cancel}

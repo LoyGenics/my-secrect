@@ -1,7 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ItemType, VaultItem } from '../../../../packages/core/src/types';
 import PasswordGenerator from './PasswordGenerator';
+import { buildRelations } from './itemFormRelations';
 import StrengthMeter from './StrengthMeter';
+import {
+  Alert,
+  Button,
+  Card,
+  Checkbox,
+  Field,
+  IconButton,
+  Input,
+  ItemTypeArt,
+  Led,
+  Select,
+  Textarea,
+  copyWithClear,
+  useClipboardStatus,
+} from '../theme';
+import { useTranslation } from '../../../../packages/i18n/src/react';
+import { format, type Dictionary } from '../../../../packages/i18n/src/index';
 import { isValidBase32Secret } from '../utils/totp';
 import { renderMarkdownToHtml } from '../utils/markdown';
 import {
@@ -30,9 +48,9 @@ type FieldInputType = 'text' | 'password' | 'textarea' | 'date' | 'url';
 
 interface FieldDef {
   key: string;
-  label: string;
   type?: FieldInputType;
-  placeholder?: string;
+  /** Key into dict.placeholders. The label is dict.fields[key]. */
+  placeholder?: keyof Dictionary['placeholders'];
   autoComplete?: string;
 }
 
@@ -41,105 +59,90 @@ const ALL_TYPES: ItemType[] = [
   'api_key', 'secure_note', 'document', 'media', 'collection', 'custom',
 ];
 
-const TYPE_LABELS: Record<ItemType, string> = {
-  login: 'Login',
-  passkey: 'Passkey',
-  bank_account: 'Bank account',
-  card: 'Card',
-  identity: 'Identity',
-  ssh_key: 'SSH key',
-  api_key: 'API key',
-  secure_note: 'Secure note',
-  document: 'Document',
-  media: 'Media',
-  collection: 'Collection',
-  custom: 'Custom',
-};
-
 const FIELD_DEFS: Record<ItemType, FieldDef[]> = {
   login: [
-    { key: 'username', label: 'Username', autoComplete: 'username' },
-    { key: 'password', label: 'Password', type: 'password', autoComplete: 'new-password' },
-    { key: 'url', label: 'URL', type: 'url', placeholder: 'https://…', autoComplete: 'url' },
-    { key: 'totp_secret', label: 'TOTP secret (Base32)', placeholder: 'e.g. JBSWY3DPEHPK3PXP', autoComplete: 'off' },
-    { key: 'notes', label: 'Notes', type: 'textarea', autoComplete: 'off' },
+    { key: 'username', autoComplete: 'username' },
+    { key: 'password', type: 'password', autoComplete: 'new-password' },
+    { key: 'url', type: 'url', placeholder: 'url', autoComplete: 'url' },
+    { key: 'totp_secret', placeholder: 'totp', autoComplete: 'off' },
+    { key: 'notes', type: 'textarea', autoComplete: 'off' },
   ],
   passkey: [
-    { key: 'credential_id', label: 'Credential ID', autoComplete: 'off' },
-    { key: 'rp_id', label: 'Relying party ID (rp_id)', placeholder: 'e.g. example.com', autoComplete: 'off' },
-    { key: 'public_key', label: 'Public key', type: 'textarea', autoComplete: 'off' },
-    { key: 'notes', label: 'Notes', type: 'textarea', autoComplete: 'off' },
+    { key: 'credential_id', autoComplete: 'off' },
+    { key: 'rp_id', placeholder: 'rpId', autoComplete: 'off' },
+    { key: 'public_key', type: 'textarea', autoComplete: 'off' },
+    { key: 'notes', type: 'textarea', autoComplete: 'off' },
   ],
   bank_account: [
-    { key: 'bank_name', label: 'Bank name', autoComplete: 'off' },
-    { key: 'account_number', label: 'Account number', autoComplete: 'off' },
-    { key: 'currency', label: 'Currency', placeholder: 'VND', autoComplete: 'off' },
-    { key: 'holder_name', label: 'Account holder name', autoComplete: 'off' },
-    { key: 'branch', label: 'Branch', autoComplete: 'off' },
-    { key: 'notes', label: 'Notes', type: 'textarea', autoComplete: 'off' },
+    { key: 'bank_name', autoComplete: 'off' },
+    { key: 'account_number', autoComplete: 'off' },
+    { key: 'currency', placeholder: 'currency', autoComplete: 'off' },
+    { key: 'holder_name', autoComplete: 'off' },
+    { key: 'branch', autoComplete: 'off' },
+    { key: 'notes', type: 'textarea', autoComplete: 'off' },
   ],
   // Card: metadata only. CVV / PIN are never stored — there is no field for them.
   card: [
-    { key: 'cardholder', label: 'Cardholder name', autoComplete: 'cc-name' },
-    { key: 'last4', label: 'Last 4 digits', placeholder: '1234', autoComplete: 'cc-number' },
-    { key: 'brand', label: 'Brand', placeholder: 'Visa / Mastercard…', autoComplete: 'off' },
-    { key: 'expiry', label: 'Expiry', placeholder: 'MM/YY', autoComplete: 'cc-exp' },
-    { key: 'bank', label: 'Bank', autoComplete: 'off' },
-    { key: 'notes', label: 'Notes', type: 'textarea', autoComplete: 'off' },
+    { key: 'cardholder', autoComplete: 'cc-name' },
+    { key: 'last4', placeholder: 'last4', autoComplete: 'cc-number' },
+    { key: 'brand', placeholder: 'brand', autoComplete: 'off' },
+    { key: 'expiry', placeholder: 'expiry', autoComplete: 'cc-exp' },
+    { key: 'bank', autoComplete: 'off' },
+    { key: 'notes', type: 'textarea', autoComplete: 'off' },
   ],
   identity: [
-    { key: 'full_name', label: 'Full name', autoComplete: 'name' },
-    { key: 'document_type', label: 'Document type', placeholder: 'Passport / ID card / Driving licence…', autoComplete: 'off' },
-    { key: 'document_number', label: 'Document number', autoComplete: 'off' },
-    { key: 'issued_date', label: 'Issued date', type: 'date', autoComplete: 'off' },
-    { key: 'expiry_date', label: 'Expiry date', type: 'date', autoComplete: 'off' },
-    { key: 'notes', label: 'Notes', type: 'textarea', autoComplete: 'off' },
+    { key: 'full_name', autoComplete: 'name' },
+    { key: 'document_type', placeholder: 'documentType', autoComplete: 'off' },
+    { key: 'document_number', autoComplete: 'off' },
+    { key: 'issued_date', type: 'date', autoComplete: 'off' },
+    { key: 'expiry_date', type: 'date', autoComplete: 'off' },
+    { key: 'notes', type: 'textarea', autoComplete: 'off' },
   ],
   ssh_key: [
-    { key: 'public_key', label: 'Public key', type: 'textarea', autoComplete: 'off' },
-    { key: 'private_key', label: 'Private key', type: 'textarea', autoComplete: 'off' },
-    { key: 'comment', label: 'Comment', autoComplete: 'off' },
-    { key: 'notes', label: 'Notes', type: 'textarea', autoComplete: 'off' },
+    { key: 'public_key', type: 'textarea', autoComplete: 'off' },
+    { key: 'private_key', type: 'textarea', autoComplete: 'off' },
+    { key: 'comment', autoComplete: 'off' },
+    { key: 'notes', type: 'textarea', autoComplete: 'off' },
   ],
   api_key: [
-    { key: 'service', label: 'Service', autoComplete: 'off' },
-    { key: 'key', label: 'API key', type: 'password', autoComplete: 'off' },
-    { key: 'scopes', label: 'Scopes', placeholder: 'comma-separated', autoComplete: 'off' },
-    { key: 'expires_at', label: 'Expires at', type: 'date', autoComplete: 'off' },
-    { key: 'notes', label: 'Notes', type: 'textarea', autoComplete: 'off' },
+    { key: 'service', autoComplete: 'off' },
+    { key: 'key', type: 'password', autoComplete: 'off' },
+    { key: 'scopes', placeholder: 'scopes', autoComplete: 'off' },
+    { key: 'expires_at', type: 'date', autoComplete: 'off' },
+    { key: 'notes', type: 'textarea', autoComplete: 'off' },
   ],
   secure_note: [
-    { key: 'body', label: 'Note', type: 'textarea', autoComplete: 'off' },
-    { key: 'checklist', label: 'Checklist (one item per line)', type: 'textarea', autoComplete: 'off' },
-    { key: 'notes', label: 'Notes', type: 'textarea', autoComplete: 'off' },
+    { key: 'body', type: 'textarea', autoComplete: 'off' },
+    { key: 'checklist', type: 'textarea', autoComplete: 'off' },
+    { key: 'notes', type: 'textarea', autoComplete: 'off' },
   ],
   document: [
-    { key: 'file_name', label: 'File name', autoComplete: 'off' },
-    { key: 'mime_type', label: 'MIME type', placeholder: 'application/pdf', autoComplete: 'off' },
-    { key: 'size', label: 'Size (bytes)', autoComplete: 'off' },
-    { key: 'blob_id', label: 'Blob ID', placeholder: 'Set by choosing a file below', autoComplete: 'off' },
-    { key: 'sha256', label: 'SHA-256', placeholder: 'Set by choosing a file below', autoComplete: 'off' },
-    { key: 'notes', label: 'Notes', type: 'textarea', autoComplete: 'off' },
+    { key: 'file_name', autoComplete: 'off' },
+    { key: 'mime_type', placeholder: 'mimeDocument', autoComplete: 'off' },
+    { key: 'size', autoComplete: 'off' },
+    { key: 'blob_id', placeholder: 'fromFile', autoComplete: 'off' },
+    { key: 'sha256', placeholder: 'fromFile', autoComplete: 'off' },
+    { key: 'notes', type: 'textarea', autoComplete: 'off' },
   ],
   media: [
-    { key: 'file_name', label: 'File name', autoComplete: 'off' },
-    { key: 'mime_type', label: 'MIME type', placeholder: 'image/jpeg', autoComplete: 'off' },
-    { key: 'size', label: 'Size (bytes)', autoComplete: 'off' },
-    { key: 'width', label: 'Width (px)', autoComplete: 'off' },
-    { key: 'height', label: 'Height (px)', autoComplete: 'off' },
-    { key: 'duration_s', label: 'Duration (seconds, video only)', autoComplete: 'off' },
-    { key: 'blob_id', label: 'Blob ID', placeholder: 'Set by choosing a file below', autoComplete: 'off' },
-    { key: 'sha256', label: 'SHA-256', placeholder: 'Set by choosing a file below', autoComplete: 'off' },
-    { key: 'notes', label: 'Notes', type: 'textarea', autoComplete: 'off' },
+    { key: 'file_name', autoComplete: 'off' },
+    { key: 'mime_type', placeholder: 'mimeMedia', autoComplete: 'off' },
+    { key: 'size', autoComplete: 'off' },
+    { key: 'width', autoComplete: 'off' },
+    { key: 'height', autoComplete: 'off' },
+    { key: 'duration_s', autoComplete: 'off' },
+    { key: 'blob_id', placeholder: 'fromFile', autoComplete: 'off' },
+    { key: 'sha256', placeholder: 'fromFile', autoComplete: 'off' },
+    { key: 'notes', type: 'textarea', autoComplete: 'off' },
   ],
   collection: [
-    { key: 'description', label: 'Description', type: 'textarea', autoComplete: 'off' },
-    { key: 'url', label: 'URL', type: 'url', placeholder: 'https://…', autoComplete: 'url' },
-    { key: 'notes', label: 'Notes', type: 'textarea', autoComplete: 'off' },
+    { key: 'description', type: 'textarea', autoComplete: 'off' },
+    { key: 'url', type: 'url', placeholder: 'url', autoComplete: 'url' },
+    { key: 'notes', type: 'textarea', autoComplete: 'off' },
   ],
   // Custom: only Notes is fixed; every other field is a user-named custom field below.
   custom: [
-    { key: 'notes', label: 'Notes', type: 'textarea', autoComplete: 'off' },
+    { key: 'notes', type: 'textarea', autoComplete: 'off' },
   ],
 };
 
@@ -170,28 +173,9 @@ function initialCustomPairs(item: VaultItem | null | undefined): CustomPair[] {
     .map(([name, v]) => ({ name, value: String(v) }));
 }
 
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    try {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      const ok = document.execCommand('copy');
-      document.body.removeChild(ta);
-      return ok;
-    } catch {
-      return false;
-    }
-  }
-}
-
 export default function ItemForm({ initial = null, defaultType = 'login', onSave, onCancel, allItems = [], onAutosave }: ItemFormProps) {
+  const { dict } = useTranslation();
+  const { copiedKey } = useClipboardStatus();
   const [type, setType] = useState<ItemType>(initial?.type ?? defaultType);
   const [title, setTitle] = useState(initial?.title ?? '');
   const [tagsText, setTagsText] = useState((initial?.tags ?? []).join(', '));
@@ -205,7 +189,6 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
   const [showPassword, setShowPassword] = useState(false);
   const [showGenerator, setShowGenerator] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
-  const [apiKeyCopied, setApiKeyCopied] = useState(false);
   const [saving, setSaving] = useState(false);
   // Stable id for this form instance: a new item gets its id at mount so
   // autosave and explicit Save write the same item.
@@ -319,7 +302,7 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
       title: title.trim(),
       fields: cleanedFields,
       tags: tagsText.split(',').map((t) => t.trim()).filter(Boolean),
-      relations: relationIds.map((target_id) => ({ type: 'related_to', target_id })),
+      relations: buildRelations(initial?.relations, relationIds),
       attachments: initial?.attachments ?? [],
       created_at: initial?.created_at ?? now,
       updated_at: now,
@@ -360,17 +343,17 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (title.trim() === '') {
-      setError('Title is required.');
+      setError(dict.itemForm.titleRequired);
       return;
     }
     if (totpInvalid) {
-      setError('Invalid TOTP secret.');
+      setError(dict.itemForm.totpInvalid);
       return;
     }
     if (type === 'custom') {
       const names = customPairs.map((p) => p.name.trim()).filter(Boolean);
       if (new Set(names).size !== names.length) {
-        setError('Custom field names must be unique.');
+        setError(dict.itemForm.customUnique);
         return;
       }
     }
@@ -383,6 +366,9 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
   };
 
   const relationCandidates = allItems.filter((candidate) => candidate.id !== initial?.id);
+  const f = dict.itemForm;
+  const label = (key: string) => (dict.fields as Record<string, string>)[key] ?? key;
+  const placeholder = (def: FieldDef) => (def.placeholder ? dict.placeholders[def.placeholder] : undefined);
 
   const renderField = (def: FieldDef) => {
     const value = fieldValue(def.key);
@@ -391,39 +377,44 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
     // Login password: show/hide + inline generator + strength meter.
     if (type === 'login' && def.key === 'password') {
       return (
-        <div key={def.key} style={{ marginTop: 8 }}>
-          <label className="label" htmlFor={inputId}>{def.label}</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
+        <div key={def.key} className="ms-field">
+          <label className="ms-label" htmlFor={inputId}>{label(def.key)}</label>
+          <div className="ms-field-row">
+            <Input
               id={inputId}
               name={inputName}
               type={showPassword ? 'text' : 'password'}
               value={value}
               autoComplete="new-password"
-              aria-label="Password"
+              aria-label={label('password')}
+              mono
               onChange={(e) => setField(def.key, e.target.value)}
-              className="input"
-              style={{ flex: 1 }}
             />
-            <button type="button" className="btn-ghost" onClick={() => setShowPassword((v) => !v)}>
-              {showPassword ? 'Hide' : 'Show'}
-            </button>
-            <button type="button" className="btn-ghost" onClick={() => setShowGenerator((v) => !v)}>
-              Generate…
-            </button>
+            <IconButton
+              icon={showPassword ? 'hide' : 'show'}
+              variant="secondary"
+              label={showPassword ? f.hide : f.show}
+              aria-pressed={showPassword}
+              onClick={() => setShowPassword((v) => !v)}
+            />
+            <Button variant="secondary" icon="generate" aria-expanded={showGenerator} onClick={() => setShowGenerator((v) => !v)}>
+              {f.generate}
+            </Button>
           </div>
           {value && (
-            <div style={{ marginTop: 8 }}>
+            <div className="mt-2">
               <StrengthMeter password={value} />
             </div>
           )}
           {showGenerator && (
-            <PasswordGenerator
-              onUse={(pw) => {
-                setField('password', pw);
-                setShowGenerator(false);
-              }}
-            />
+            <Card className="mt-3">
+              <PasswordGenerator
+                onUse={(pw) => {
+                  setField('password', pw);
+                  setShowGenerator(false);
+                }}
+              />
+            </Card>
           )}
         </div>
       );
@@ -431,72 +422,71 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
     // API key: masked field with show/hide + copy.
     if (type === 'api_key' && def.key === 'key') {
       return (
-        <div key={def.key} style={{ marginTop: 8 }}>
-          <label className="label" htmlFor={inputId}>{def.label}</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
+        <div key={def.key} className="ms-field">
+          <label className="ms-label" htmlFor={inputId}>{label(def.key)}</label>
+          <div className="ms-field-row">
+            <Input
               id={inputId}
               name={inputName}
               type={showApiKey ? 'text' : 'password'}
               value={value}
               autoComplete="off"
-              aria-label="API key"
+              aria-label={label('key')}
+              mono
               onChange={(e) => setField(def.key, e.target.value)}
-              className="input"
-              style={{ flex: 1 }}
             />
-            <button type="button" className="btn-ghost" onClick={() => setShowApiKey((v) => !v)}>
-              {showApiKey ? 'Hide' : 'Show'}
-            </button>
-            <button
-              type="button"
-              className="btn-ghost"
+            <IconButton
+              icon={showApiKey ? 'hide' : 'show'}
+              variant="secondary"
+              label={showApiKey ? f.hide : f.show}
+              aria-pressed={showApiKey}
+              onClick={() => setShowApiKey((v) => !v)}
+            />
+            <IconButton
+              icon={copiedKey === `form:${itemId}:key` ? 'check' : 'copy'}
+              variant="secondary"
+              label={copiedKey === `form:${itemId}:key` ? f.copied : f.copy}
               disabled={!value}
-              onClick={async () => setApiKeyCopied(await copyText(value))}
-            >
-              {apiKeyCopied ? 'Copied' : 'Copy'}
-            </button>
+              onClick={() => void copyWithClear(`form:${itemId}:key`, value)}
+            />
           </div>
         </div>
       );
     }
     if (def.type === 'textarea') {
       return (
-        <div key={def.key} style={{ marginTop: 8 }}>
-          <label className="label" htmlFor={inputId}>{def.label}</label>
-          <textarea
+        <div key={def.key} className="ms-field">
+          <label className="ms-label" htmlFor={inputId}>{label(def.key)}</label>
+          <Textarea
             id={inputId}
             name={inputName}
             value={value}
-            placeholder={def.placeholder}
+            placeholder={placeholder(def)}
             autoComplete={def.autoComplete ?? 'off'}
-            aria-label={def.label}
+            aria-label={label(def.key)}
             onChange={(e) => setField(def.key, e.target.value)}
             rows={def.key === 'private_key' || def.key === 'public_key' ? 5 : 3}
-            className="input"
+            mono={def.key === 'private_key' || def.key === 'public_key'}
           />
-          {type === 'ssh_key' && def.key === 'private_key' && (
-            <small className="text-zinc-500">Stored encrypted locally.</small>
-          )}
+          {type === 'ssh_key' && def.key === 'private_key' && <p className="ms-field__hint">{f.privateKeyNote}</p>}
           {type === 'secure_note' && def.key === 'body' && (
-            <div style={{ marginTop: 8 }}>
-              <button type="button" className="btn-ghost" onClick={() => setShowPreview((v) => !v)}>
-                {showPreview ? 'Hide preview' : 'Preview Markdown'}
-              </button>
-              {showPreview && (
-                <div className="card p-4" style={{ marginTop: 8 }} dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(value) }} />
-              )}
+            <div className="mt-2 grid gap-2">
+              <div>
+                <Button size="sm" icon={showPreview ? 'hide' : 'show'} aria-expanded={showPreview} onClick={() => setShowPreview((v) => !v)}>
+                  {showPreview ? f.hidePreview : f.preview}
+                </Button>
+              </div>
+              {showPreview && <Card dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(value) }} />}
               {initial && onAutosave && (
-                <p style={{ marginTop: 6 }}>
-                  <small className="text-zinc-500">
-                    {autosaveState === 'saving'
-                      ? 'Autosaving…'
-                      : autosaveState === 'saved'
-                        ? `Autosaved at ${autosaveAt} — saved encrypted into the vault.`
-                        : autosaveState === 'error'
-                          ? 'Autosave failed — press Save to keep your changes.'
-                          : 'Edits autosave 1.5s after you stop typing (encrypted).'}
-                  </small>
+                <p className="ms-field__hint flex items-center gap-2" role="status">
+                  <Led tone={autosaveState === 'saved' ? 'ok' : autosaveState === 'error' ? 'danger' : autosaveState === 'saving' ? 'attention' : 'off'} />
+                  {autosaveState === 'saving'
+                    ? f.autosaving
+                    : autosaveState === 'saved'
+                      ? format(f.autosaved, autosaveAt)
+                      : autosaveState === 'error'
+                        ? f.autosaveFailed
+                        : f.autosaveIdle}
                 </p>
               )}
             </div>
@@ -505,203 +495,203 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
       );
     }
     return (
-      <div key={def.key} style={{ marginTop: 8 }}>
-        <label className="label" htmlFor={inputId}>{def.label}</label>
-        <input
-          id={inputId}
+      <Field
+        key={def.key}
+        id={inputId}
+        label={label(def.key)}
+        error={type === 'login' && def.key === 'totp_secret' && totpInvalid ? f.totpInvalid : undefined}
+      >
+        <Input
           name={inputName}
           type={def.type ?? 'text'}
           value={value}
-          placeholder={def.placeholder}
+          placeholder={placeholder(def)}
           autoComplete={def.autoComplete ?? 'off'}
-          aria-label={def.label}
+          aria-label={label(def.key)}
+          mono={def.key === 'totp_secret' || def.key === 'sha256' || def.key === 'blob_id'}
           onChange={(e) => setField(def.key, e.target.value)}
-          className="input"
         />
-        {type === 'login' && def.key === 'totp_secret' && totpInvalid && (
-          <small style={{ color: '#f87171' }}>Invalid TOTP secret.</small>
-        )}
-      </div>
+      </Field>
     );
   };
 
   return (
-    <form onSubmit={handleSave}>
-      <h2>{initial ? 'Edit item' : 'New item'}</h2>
+    <form onSubmit={handleSave} className="ms-spec" aria-labelledby="item-form-title" noValidate>
+      <header className="ms-spec__head mb-4">
+        <ItemTypeArt type={type} size="lg" />
+        <div className="ms-spec__title">
+          <h2 id="item-form-title" className="ms-heading ms-heading--lg">{initial ? f.editTitle : f.newTitle}</h2>
+        </div>
+      </header>
       {error && (
-        <p role="alert" style={{ color: '#f87171' }}>{error}</p>
+        <Alert tone="danger" announce className="mb-4">
+          {error}
+        </Alert>
       )}
-      <div style={{ marginTop: 8 }}>
-        <label className="label" htmlFor="item-type">Type</label>
-        <select
-          id="item-type"
-          name="item-type"
-          value={type}
-          onChange={(e) => handleTypeChange(e.target.value as ItemType)}
-          aria-label="Item type"
-          className="input"
-        >
-          {ALL_TYPES.map((t) => (
-            <option key={t} value={t}>{TYPE_LABELS[t]}</option>
-          ))}
-        </select>
-      </div>
-      <div style={{ marginTop: 8 }}>
-        <label className="label" htmlFor="item-title">Title</label>
-        <input
-          id="item-title"
-          name="item-title"
-          type="text"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          autoComplete="off"
-          aria-label="Title"
-          className="input"
-        />
-      </div>
-      <div style={{ marginTop: 8 }}>
-        <label className="label" htmlFor="item-tags">Tags (comma-separated)</label>
-        <input
-          id="item-tags"
-          name="item-tags"
-          type="text"
-          value={tagsText}
-          placeholder="personal, finance"
-          onChange={(e) => setTagsText(e.target.value)}
-          autoComplete="off"
-          aria-label="Tags, comma-separated"
-          className="input"
-        />
-      </div>
-      <div style={{ marginTop: 8 }}>
-        <label>
-          <input id="item-favorite" name="item-favorite" type="checkbox" checked={favorite} onChange={(e) => setFavorite(e.target.checked)} aria-label="Favorite" /> Favorite
-        </label>
-      </div>
-
-      {FIELD_DEFS[type].map(renderField)}
-
-      {type === 'collection' && (
-        <div style={{ marginTop: 8 }}>
-          <label className="label" htmlFor="item-parent-collection">Parent collection (optional — nested folders)</label>
-          <select
-            id="item-parent-collection"
-            name="item-parent-collection"
-            value={parentId}
-            onChange={(e) => setParentId(e.target.value)}
-            aria-label="Parent collection"
-            className="input"
-          >
-            <option value="">None — top level</option>
-            {allItems
-              .filter((c) => c.type === 'collection' && c.id !== itemId)
-              .map((c) => (
-                <option key={c.id} value={c.id}>{c.title}</option>
+      <Card as="section" padding="lg" aria-labelledby="item-form-title">
+        <div className="grid gap-x-4 sm:grid-cols-2">
+          <Field id="item-type" label={f.type}>
+            <Select name="item-type" value={type} onChange={(e) => handleTypeChange(e.target.value as ItemType)} aria-label={f.typeAria}>
+              {ALL_TYPES.map((t) => (
+                <option key={t} value={t}>{dict.itemTypes[t]}</option>
               ))}
-          </select>
-          <p><small className="text-zinc-500">Collections can nest: pick a parent to file this collection inside it.</small></p>
+            </Select>
+          </Field>
+          <Field id="item-title" label={f.title}>
+            <Input
+              name="item-title"
+              type="text"
+              value={title}
+              placeholder={dict.placeholders.title}
+              onChange={(e) => setTitle(e.target.value)}
+              autoComplete="off"
+              aria-label={f.title}
+            />
+          </Field>
         </div>
-      )}
-
-      {type === 'custom' && (
-        <fieldset style={{ marginTop: 12 }}>
-          <legend>Custom fields</legend>
-          {customPairs.length === 0 && (
-            <p><small className="text-zinc-500">No custom fields yet. Add your own named fields below.</small></p>
-          )}
-          {customPairs.map((pair, i) => (
-            <div key={i} style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-              <div style={{ flex: 1 }}>
-                <label className="label" htmlFor={`custom-field-name-${i}`}>Field name</label>
-                <input
-                  id={`custom-field-name-${i}`}
-                  name={`custom-field-name-${i}`}
-                  type="text"
-                  value={pair.name}
-                  placeholder="e.g. membership_id"
-                  autoComplete="off"
-                  aria-label={`Custom field ${i + 1} name`}
-                  onChange={(e) => setCustomPairs((prev) => prev.map((p, j) => (j === i ? { ...p, name: e.target.value } : p)))}
-                  className="input"
-                />
-              </div>
-              <div style={{ flex: 2 }}>
-                <label className="label" htmlFor={`custom-field-value-${i}`}>Value</label>
-                <input
-                  id={`custom-field-value-${i}`}
-                  name={`custom-field-value-${i}`}
-                  type="text"
-                  value={pair.value}
-                  autoComplete="off"
-                  aria-label={`Custom field ${i + 1} value`}
-                  onChange={(e) => setCustomPairs((prev) => prev.map((p, j) => (j === i ? { ...p, value: e.target.value } : p)))}
-                  className="input"
-                />
-              </div>
-              <button type="button" className="btn-ghost" style={{ alignSelf: 'flex-end' }} onClick={() => setCustomPairs((prev) => prev.filter((_, j) => j !== i))} aria-label={`Remove custom field ${i + 1}`}>
-                Remove
-              </button>
-            </div>
-          ))}
-          <button type="button" className="btn-ghost" style={{ marginTop: 8 }} onClick={() => setCustomPairs((prev) => [...prev, { name: '', value: '' }])}>
-            + Add custom field
-          </button>
-        </fieldset>
-      )}
-
-      {type === 'card' && (
-        <p style={{ marginTop: 8 }}><small className="text-zinc-500">CVV/PIN are never stored.</small></p>
-      )}
-
-      {(type === 'media' || type === 'document') && (
-        <div style={{ marginTop: 12 }} className="card p-4">
-          <label className="label" htmlFor={`${type}-file`}>Attach file (manifest only)</label>
-          <input
-            id={`${type}-file`}
-            name={`${type}-file`}
-            type="file"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) void handleFile(file);
-            }}
-            aria-label={`Attach ${type} file`}
-            style={{ display: 'block', marginTop: 4 }}
+        <Field id="item-tags" label={f.tags}>
+          <Input
+            name="item-tags"
+            type="text"
+            value={tagsText}
+            placeholder={dict.placeholders.tags}
+            onChange={(e) => setTagsText(e.target.value)}
+            autoComplete="off"
+            aria-label={f.tagsAria}
           />
-          <p><small className="text-zinc-500">Manifest only — file bytes are not stored in this local prototype. Only the file name, type, size and SHA-256 hash are kept.</small></p>
-          {fieldValue('sha256') && (
-            <p><small>SHA-256: <code style={{ wordBreak: 'break-all' }}>{fieldValue('sha256')}</code></small></p>
-          )}
-        </div>
-      )}
+        </Field>
+        <Checkbox
+          id="item-favorite"
+          name="item-favorite"
+          label={f.favorite}
+          checked={favorite}
+          onChange={(e) => setFavorite(e.target.checked)}
+          className="mb-4"
+        />
 
-      {relationCandidates.length > 0 && (
-        <fieldset style={{ marginTop: 12 }}>
-          <legend>Relations</legend>
-          {relationCandidates.map((candidate) => (
-            <label key={candidate.id} style={{ display: 'block' }}>
-              <input
-                id={`relation-${candidate.id}`}
-                name={`relation-${candidate.id}`}
-                type="checkbox"
-                checked={relationIds.includes(candidate.id)}
-                onChange={(e) => {
-                  setRelationIds((prev) =>
-                    e.target.checked
-                      ? [...prev, candidate.id]
-                      : prev.filter((id) => id !== candidate.id),
-                  );
-                }}
-                aria-label={`Relate to ${candidate.title}`}
-              />{' '}
-              {candidate.title} <small>({candidate.type})</small>
-            </label>
-          ))}
-        </fieldset>
-      )}
+        <hr className="ms-rule" />
 
-      <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
-        <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
-        <button type="button" className="btn-ghost" onClick={onCancel}>Cancel</button>
+        {FIELD_DEFS[type].map(renderField)}
+
+        {type === 'collection' && (
+          <Field id="item-parent-collection" label={f.parent} hint={f.parentHint}>
+            <Select name="item-parent-collection" value={parentId} onChange={(e) => setParentId(e.target.value)} aria-label={f.parentAria}>
+              <option value="">{f.parentNone}</option>
+              {allItems
+                .filter((c) => c.type === 'collection' && c.id !== itemId)
+                .map((c) => (
+                  <option key={c.id} value={c.id}>{c.title}</option>
+                ))}
+            </Select>
+          </Field>
+        )}
+
+        {type === 'custom' && (
+          <fieldset className="m-0 mb-4 border-0 p-0">
+            <legend className="ms-label">{f.customFields}</legend>
+            {customPairs.length === 0 && <p className="ms-field__hint mt-0">{f.customEmpty}</p>}
+            {customPairs.map((pair, i) => (
+              <div key={i} className="mb-2 grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] items-end gap-2">
+                <Field id={`custom-field-name-${i}`} label={f.customName} flush>
+                  <Input
+                    name={`custom-field-name-${i}`}
+                    type="text"
+                    value={pair.name}
+                    placeholder={dict.placeholders.customName}
+                    autoComplete="off"
+                    aria-label={format(f.customNameAria, i + 1)}
+                    onChange={(e) => setCustomPairs((prev) => prev.map((p, j) => (j === i ? { ...p, name: e.target.value } : p)))}
+                  />
+                </Field>
+                <Field id={`custom-field-value-${i}`} label={f.customValue} flush>
+                  <Input
+                    name={`custom-field-value-${i}`}
+                    type="text"
+                    value={pair.value}
+                    autoComplete="off"
+                    aria-label={format(f.customValueAria, i + 1)}
+                    onChange={(e) => setCustomPairs((prev) => prev.map((p, j) => (j === i ? { ...p, value: e.target.value } : p)))}
+                  />
+                </Field>
+                <IconButton
+                  icon="close"
+                  variant="secondary"
+                  label={format(f.removeCustom, i + 1)}
+                  onClick={() => setCustomPairs((prev) => prev.filter((_, j) => j !== i))}
+                />
+              </div>
+            ))}
+            <Button size="sm" icon="add" onClick={() => setCustomPairs((prev) => [...prev, { name: '', value: '' }])}>
+              {f.addCustom}
+            </Button>
+          </fieldset>
+        )}
+
+        {type === 'card' && (
+          <Alert tone="info" className="mb-4">
+            {f.cardNote}
+          </Alert>
+        )}
+
+        {(type === 'media' || type === 'document') && (
+          <Card padding="sm" className="mb-4">
+            <label className="ms-label" htmlFor={`${type}-file`}>{f.attachFile}</label>
+            <input
+              id={`${type}-file`}
+              name={`${type}-file`}
+              type="file"
+              className="ms-text-sm block w-full"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleFile(file);
+              }}
+              aria-label={format(f.attachAria, dict.itemTypes[type])}
+            />
+            <p className="ms-field__hint">{f.attachNote}</p>
+            {fieldValue('sha256') && (
+              <p className="ms-text-sm mb-0 mt-2">
+                <span className="ms-legend">SHA-256</span> <code className="ms-mono break-all">{fieldValue('sha256')}</code>
+              </p>
+            )}
+          </Card>
+        )}
+
+        {relationCandidates.length > 0 && (
+          <fieldset className="m-0 border-0 p-0">
+            <legend className="ms-label">{f.relations}</legend>
+            <div className="grid max-h-56 gap-1.5 overflow-y-auto pr-1">
+              {relationCandidates.map((candidate) => (
+                <Checkbox
+                  key={candidate.id}
+                  id={`relation-${candidate.id}`}
+                  name={`relation-${candidate.id}`}
+                  checked={relationIds.includes(candidate.id)}
+                  onChange={(e) => {
+                    setRelationIds((prev) =>
+                      e.target.checked ? [...prev, candidate.id] : prev.filter((id) => id !== candidate.id),
+                    );
+                  }}
+                  aria-label={format(f.relateTo, candidate.title)}
+                  label={
+                    <span>
+                      {candidate.title}{' '}
+                      <span className="ms-text-sm ms-text-muted">{dict.itemTypes[candidate.type]}</span>
+                    </span>
+                  }
+                />
+              ))}
+            </div>
+          </fieldset>
+        )}
+      </Card>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button type="submit" variant="primary" icon="check" loading={saving}>
+          {saving ? f.saving : f.save}
+        </Button>
+        <Button variant="secondary" onClick={onCancel}>
+          {f.cancel}
+        </Button>
       </div>
     </form>
   );

@@ -10,7 +10,8 @@
     "./react": "./src/react.tsx"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "tsx --test tests/*.test.ts"
   },
   "peerDependencies": {
     "react": "^18.3.1"

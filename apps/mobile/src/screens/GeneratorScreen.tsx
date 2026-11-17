@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
-import { colors, styles } from '../theme';
+import { useMobileTheme } from '../theme';
+import { Icon, illustrations, typeArt } from '../../../../packages/ui/src/native';
 import { generatePassword, generatePassphrase, passwordStrength } from '../utils/password';
 import StrengthMeter from '../components/StrengthMeter';
 
 export default function GeneratorScreen() {
+  const { colors, styles } = useMobileTheme();
   const [length, setLength] = useState(16);
   const [symbols, setSymbols] = useState(true);
   const [numbers, setNumbers] = useState(true);
@@ -27,7 +29,7 @@ export default function GeneratorScreen() {
   }
   const toggle = (label: string, value: boolean, onPress: () => void) => (
     <Pressable testID={`gen-toggle-${label}`} accessibilityLabel={label} accessibilityRole="checkbox" accessibilityState={{ checked: value }} onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 8 }}>
-      <Text style={{ fontSize: 20, color: value ? colors.accent : colors.faint }}>{value ? '☑' : '☐'}</Text>
+      <View style={{ width: 22, height: 22, borderRadius: 4, borderWidth: 1, borderColor: value ? colors.text : colors.control, backgroundColor: value ? colors.text : colors.input, alignItems: 'center', justifyContent: 'center' }}>{value ? <Icon name="check" size="sm" color={colors.bg} /> : null}</View>
       <Text style={{ color: colors.text, fontSize: 15 }}>{label}</Text>
     </Pressable>
   );
@@ -39,7 +41,7 @@ export default function GeneratorScreen() {
       <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
         {[12, 16, 20, 24, 32].map((n) => (
           <Pressable key={n} testID={`gen-length-${n}`} accessibilityLabel={`Length ${n}`} onPress={() => setLength(n)} style={{ backgroundColor: length === n ? colors.accent : colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 9, marginRight: 8, marginBottom: 8 }}>
-            <Text style={{ color: length === n ? '#FFF' : colors.text, fontWeight: '600' }}>{n}</Text>
+            <Text style={{ color: length === n ? colors.onAccent : colors.text, fontWeight: '700' }}>{n}</Text>
           </Pressable>
         ))}
       </View>

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Image, Pressable, Text, View } from 'react-native';
 import Field from '../components/Field';
-import { colors, styles } from '../theme';
+import { useMobileTheme } from '../theme';
+import { Icon, illustrations, typeArt } from '../../../../packages/ui/src/native';
 import { restoreEncrypted, getVaultStats, lockVault } from '../vault';
 import { describeRestoreError } from '../../../desktop/src/components/restoreErrors';
 
@@ -13,6 +14,7 @@ import { describeRestoreError } from '../../../desktop/src/components/restoreErr
  * is locked again so a normal unlock is required.
  */
 export default function RestoreBackupPanel({ onRestored, onCancel }: { onRestored: () => void; onCancel: () => void }) {
+  const { colors, styles } = useMobileTheme();
   const [json, setJson] = useState('');
   const [mode, setMode] = useState<'passphrase' | 'recovery'>('passphrase');
   const [secret, setSecret] = useState('');
@@ -42,7 +44,7 @@ export default function RestoreBackupPanel({ onRestored, onCancel }: { onRestore
   if (count !== null) {
     return (
       <View testID="restore-success" style={{ marginTop: 20, alignItems: 'center' }}>
-        <Text style={{ fontSize: 48 }}>✓</Text>
+        <Image source={illustrations.success} style={{ width: 120, height: 120 }} accessibilityIgnoresInvertColors />
         <Text style={{ color: colors.text, fontSize: 16, textAlign: 'center', marginTop: 8 }}>
           Backup restored: {count} {count === 1 ? 'item' : 'items'} decrypted and saved. The vault is locked; unlock it normally.
         </Text>

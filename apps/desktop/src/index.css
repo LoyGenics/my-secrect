@@ -4,11 +4,16 @@
 @tailwind utilities;
 
 /*
- * Desktop shell styles. Colors come from the shared tokens
- * (packages/ui/src/tokens.css, --ms-* variables) — no hardcoded palette
- * here. The legacy class names (.card/.btn/.input/…) are kept verbatim so
- * existing components render unchanged; they are token-driven now, so they
- * follow the light theme too. Default theme is dark, identical to before.
+ * Desktop shell styles. Every colour, size and radius comes from the
+ * generated tokens (packages/ui/src/tokens.css); component styles live in
+ * packages/ui/src/components.css (imported by src/theme.ts).
+ *
+ * The legacy classes below (.card, .btn-*, .input, .label, .nav-item) are kept
+ * ONLY for screens not yet migrated to @my-secrect/ui (Security Center,
+ * sign-in, step-up, media, sharing, sync bar). They print the same
+ * "Precision Instrument" grammar as the components — plate, molded key,
+ * recessed well, legend — so those screens sit in the same world. New code
+ * uses the components, never these classes.
  */
 
 html,
@@ -18,13 +23,14 @@ body,
 }
 
 body {
+  margin: 0;
   background-color: var(--ms-color-bg-base);
   color: var(--ms-color-text-primary);
   font-family: var(--ms-font-sans);
   -webkit-font-smoothing: antialiased;
 }
 
-/* Slim scrollbars, token-driven. */
+/* Slim scrollbars in the chassis colours. */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--ms-color-border-strong) transparent;
@@ -46,71 +52,106 @@ body {
 
 @layer components {
   .card {
-    @apply rounded-xl shadow-sm;
+    border-radius: var(--ms-radius-md);
     background-color: var(--ms-color-bg-surface);
     border: 1px solid var(--ms-color-border-default);
+    box-shadow: inset 0 1px 0 var(--ms-color-edge-highlight);
   }
   .btn {
-    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-1.5 px-3 py-2 transition-colors focus:outline-none disabled:cursor-not-allowed;
+    border-radius: var(--ms-radius-sm);
+    border: 1px solid var(--ms-color-border-default);
+    background-color: var(--ms-color-bg-raised);
     color: var(--ms-color-text-primary);
+    box-shadow: inset 0 1px 0 var(--ms-color-edge-highlight), 0 1px 0 var(--ms-color-edge-key);
+    font-family: var(--ms-font-legend);
+    font-size: var(--ms-text-sm);
+    line-height: var(--ms-leading-sm);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .btn:active:not(:disabled) {
+    transform: translateY(1px);
+    box-shadow: inset 0 1px 2px var(--ms-color-edge-well);
+  }
+  .btn:disabled {
+    background: transparent;
+    border-style: dashed;
+    border-color: var(--ms-color-border-strong);
+    color: var(--ms-color-text-faint);
+    box-shadow: none;
   }
   .btn:focus-visible {
     outline: 2px solid var(--ms-color-focus-ring);
     outline-offset: 2px;
+    box-shadow: 0 0 0 2px var(--ms-color-focus-outline);
   }
   .btn-primary {
     @apply btn;
     background-color: var(--ms-color-brand);
+    border-color: var(--ms-color-edge-key-brand);
     color: var(--ms-color-text-on-brand);
+    box-shadow: inset 0 1px 0 var(--ms-color-edge-highlight), 0 1px 0 var(--ms-color-edge-key-brand);
   }
-  .btn-primary:hover {
+  .btn-primary:hover:not(:disabled) {
     background-color: var(--ms-color-brand-hover);
   }
   .btn-ghost {
     @apply btn;
-    background-color: var(--ms-color-bg-raised);
-    border: 1px solid var(--ms-color-border-strong);
   }
-  .btn-ghost:hover {
+  .btn-ghost:hover:not(:disabled) {
     background-color: var(--ms-color-bg-surface);
   }
   .btn-danger {
     @apply btn;
-    background-color: var(--ms-color-danger-soft);
-    border: 1px solid var(--ms-color-danger-border);
     color: var(--ms-color-danger-soft-text);
   }
-  .btn-danger:hover {
-    filter: brightness(1.15);
+  .btn-danger:hover:not(:disabled) {
+    background-color: var(--ms-color-danger-soft);
   }
   .input {
-    @apply w-full rounded-lg px-3 py-2 text-sm focus:outline-none;
+    @apply w-full px-3 py-2 focus:outline-none;
+    border-radius: var(--ms-radius-sm);
     background-color: var(--ms-color-bg-input);
-    border: 1px solid var(--ms-color-border-strong);
+    border: 1px solid var(--ms-color-border-control);
+    box-shadow: inset 0 1px 2px var(--ms-color-edge-well);
     color: var(--ms-color-text-primary);
+    font-size: var(--ms-text-md);
+    line-height: var(--ms-leading-md);
   }
   .input::placeholder {
     color: var(--ms-color-text-muted);
     opacity: 1;
   }
   .input:focus {
-    border-color: var(--ms-color-brand-focus);
-    box-shadow: 0 0 0 3px var(--ms-color-brand-soft);
+    border-color: var(--ms-color-focus-ring);
+    box-shadow: inset 0 1px 2px var(--ms-color-edge-well), 0 0 0 1px var(--ms-color-focus-ring),
+      0 0 0 3px var(--ms-color-focus-outline);
   }
   .label {
-    @apply mb-1 block text-xs font-medium uppercase tracking-wide;
+    display: block;
+    margin-bottom: 6px;
+    font-family: var(--ms-font-legend);
+    font-size: var(--ms-text-legend);
+    line-height: var(--ms-leading-legend);
+    font-weight: 600;
+    letter-spacing: var(--ms-legend-tracking);
+    text-transform: uppercase;
     color: var(--ms-color-text-muted);
   }
+  /* Gradients are not part of this world: plates are flat. */
   .gradient-subtle {
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.18), rgba(99, 102, 241, 0.02) 45%, transparent 70%);
-    background: linear-gradient(135deg, color-mix(in srgb, var(--ms-color-brand-focus) 18%, transparent), color-mix(in srgb, var(--ms-color-brand-focus) 2%, transparent) 45%, transparent 70%);
+    background-image: none;
   }
   .nav-item {
-    @apply flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors focus:outline-none;
+    @apply flex w-full items-center justify-between px-3 py-2 transition-colors focus:outline-none;
+    border-radius: var(--ms-radius-sm);
     color: var(--ms-color-text-secondary);
+    font-size: var(--ms-text-md);
   }
   .nav-item:hover {
-    background-color: var(--ms-color-bg-surface);
+    background-color: var(--ms-color-bg-muted);
     color: var(--ms-color-text-primary);
   }
   .nav-item:focus-visible {
@@ -118,11 +159,7 @@ body {
     outline-offset: 2px;
   }
   .nav-item-active {
-    background-color: var(--ms-color-brand-soft);
-    color: var(--ms-color-brand-soft-text);
-  }
-  .nav-item-active:hover {
-    background-color: var(--ms-color-brand-soft);
-    filter: brightness(1.15);
+    background-color: var(--ms-color-bg-surface);
+    color: var(--ms-color-text-primary);
   }
 }

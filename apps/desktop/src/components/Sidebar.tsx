@@ -1,4 +1,7 @@
+import { useId, type ReactNode } from 'react';
 import type { ItemType } from '../../../../packages/core/src/types';
+import { Button, Icon, Led, Readout, TypeModule, brandMark, categoryModule, cn, type IconName } from '../theme';
+import { useTranslation } from '../../../../packages/i18n/src/react';
 
 export type CategoryKey =
   | 'credentials'
@@ -16,6 +19,7 @@ export type SidebarView =
   | 'trash'
   | 'archived'
   | 'health'
+  | 'generator'
   | 'settings'
   | 'security'
   | 'media-gallery'
@@ -25,20 +29,20 @@ export type SidebarView =
 
 export interface CategoryDef {
   key: CategoryKey;
+  /** English fallback; the UI shows `dict.categories[key]`. */
   label: string;
-  glyph: string;
   types: ItemType[];
 }
 
 export const CATEGORIES: CategoryDef[] = [
-  { key: 'credentials', label: 'Credentials', glyph: '◈', types: ['login', 'passkey'] },
-  { key: 'finance', label: 'Finance', glyph: '▣', types: ['bank_account', 'card'] },
-  { key: 'identity', label: 'Identity', glyph: '◉', types: ['identity'] },
-  { key: 'developer', label: 'Developer', glyph: '</>', types: ['ssh_key', 'api_key'] },
-  { key: 'notes', label: 'Secure Notes', glyph: '✎', types: ['secure_note'] },
-  { key: 'media', label: 'Private Media', glyph: '▦', types: ['media'] },
-  { key: 'documents', label: 'Documents', glyph: '▤', types: ['document'] },
-  { key: 'collections', label: 'Collections', glyph: '▧', types: ['collection', 'custom'] },
+  { key: 'credentials', label: 'Credentials', types: ['login', 'passkey'] },
+  { key: 'finance', label: 'Finance', types: ['bank_account', 'card'] },
+  { key: 'identity', label: 'Identity', types: ['identity'] },
+  { key: 'developer', label: 'Developer', types: ['ssh_key', 'api_key'] },
+  { key: 'notes', label: 'Secure Notes', types: ['secure_note'] },
+  { key: 'media', label: 'Private Media', types: ['media'] },
+  { key: 'documents', label: 'Documents', types: ['document'] },
+  { key: 'collections', label: 'Collections', types: ['collection', 'custom'] },
 ];
 
 export function categoryForType(type: ItemType): CategoryKey {
@@ -81,156 +85,164 @@ export interface SidebarProps {
   setView: (view: SidebarView) => void;
   counts: SidebarCounts;
   tags: string[];
+  /** Watchtower score 0–100 for the rail readout. */
+  healthScore?: number;
   onLock: () => void;
   onExport: () => void;
   onImport: () => void;
   onShowRecovery: () => void;
+  /** Rendered inside the phone navigation drawer: labels always visible. */
+  inDrawer?: boolean;
 }
 
-function CountBadge({ n }: { n: number }) {
-  if (n <= 0) return null;
+interface NavItemProps {
+  current: boolean;
+  label: string;
+  onClick: () => void;
+  glyph: ReactNode;
+  count?: number;
+  trailing?: ReactNode;
+  tone?: 'danger';
+}
+
+function NavItem({ current, label, onClick, glyph, count, trailing, tone }: NavItemProps) {
   return (
-    <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[11px] font-medium text-zinc-300">
-      {n}
-    </span>
+    <button
+      type="button"
+      className={cn('ms-nav-item', tone === 'danger' && 'ms-nav-item--danger')}
+      aria-current={current ? 'page' : undefined}
+      title={label}
+      onClick={onClick}
+    >
+      <span className="ms-nav-item__glyph" aria-hidden="true">{glyph}</span>
+      <span className="ms-nav-item__label">{label}</span>
+      {trailing}
+      {count !== undefined && count > 0 && <Readout value={count} />}
+    </button>
   );
 }
 
+const icon = (name: IconName) => <Icon name={name} />;
+
+/**
+ * The instrument rail: views, category modules with LCD counts, the
+ * Watchtower readout, tags and the Lock key. Every entry is a real
+ * <button> with aria-current on the active view. Tablet collapses it to
+ * icon modules (labels stay as accessible names); phones host it in the
+ * navigation drawer.
+ */
 export default function Sidebar({
   view,
   setView,
   counts,
   tags,
+  healthScore,
   onLock,
   onExport,
   onImport,
   onShowRecovery,
+  inDrawer = false,
 }: SidebarProps) {
-  const isActive = (v: SidebarView) => view === v;
+  const { dict } = useTranslation();
+  const s = dict.shell;
+  const uid = useId();
+  const groupId = (name: string) => `${uid}-${name}`;
+  const is = (v: SidebarView) => view === v;
+  const healthTone = healthScore === undefined ? undefined : healthScore >= 80 ? 'ok' : healthScore >= 50 ? 'attention' : 'danger';
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-zinc-800 bg-zinc-950/80">
-      <div className="px-4 pb-3 pt-5">
-        <div className="text-lg font-semibold tracking-tight text-zinc-100">my-secrect</div>
-        <div className="text-xs text-zinc-500">Local vault &middot; this device only</div>
+    <nav className={cn('ms-rail', inDrawer && 'ms-rail--drawer')} aria-label={s.navLabel}>
+      <div className="ms-rail__brand">
+        {brandMark.src ? <img src={brandMark.src} alt="" width={28} height={28} /> : <Led tone="ok" />}
+        <span className="ms-rail__brand-text">
+          <span className="ms-heading ms-heading--md block uppercase tracking-[0.14em]">{dict.common.appName}</span>
+          <span className="ms-legend block normal-case tracking-normal">{s.tagline}</span>
+        </span>
       </div>
 
-      <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4">
-        <section>
-          <div className="px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-            Vaults
-          </div>
-          <button className={`nav-item ${isActive('all') ? 'nav-item-active' : ''}`} onClick={() => setView('all')}>
-            <span>▤ All Items</span>
-            <CountBadge n={counts.all} />
-          </button>
-          <button className={`nav-item ${isActive('favorites') ? 'nav-item-active' : ''}`} onClick={() => setView('favorites')}>
-            <span>★ Favorites</span>
-            <CountBadge n={counts.favorites} />
-          </button>
-          <button className={`nav-item ${isActive('trash') ? 'nav-item-active' : ''}`} onClick={() => setView('trash')}>
-            <span>⌫ Trash</span>
-            <CountBadge n={counts.trash} />
-          </button>
-          <button className={`nav-item ${isActive('archived') ? 'nav-item-active' : ''}`} onClick={() => setView('archived')}>
-            <span>📦 Archived</span>
-            <CountBadge n={counts.archived} />
-          </button>
-        </section>
+      <div className="ms-rail__scroll">
+        <div className="ms-rail__group" role="group" aria-labelledby={groupId('vaults')}>
+          <span id={groupId('vaults')} className="ms-rail__group-title ms-legend">{s.groups.vaults}</span>
+          <NavItem current={is('all')} label={s.allItems} glyph={icon('items')} count={counts.all} onClick={() => setView('all')} />
+          <NavItem current={is('favorites')} label={s.favorites} glyph={icon('favorite')} count={counts.favorites} onClick={() => setView('favorites')} />
+          <NavItem current={is('archived')} label={s.archived} glyph={icon('archive')} count={counts.archived} onClick={() => setView('archived')} />
+          <NavItem current={is('trash')} label={s.trash} glyph={icon('trash')} count={counts.trash} onClick={() => setView('trash')} />
+        </div>
 
-        <section>
-          <div className="px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-            Library
-          </div>
-          <button className={`nav-item ${isActive('media-gallery') ? 'nav-item-active' : ''}`} onClick={() => setView('media-gallery')}>
-            <span>🖼️ Media gallery</span>
-          </button>
-          <button className={`nav-item ${isActive('shares') ? 'nav-item-active' : ''}`} onClick={() => setView('shares')}>
-            <span>↗ Sharing</span>
-          </button>
-        </section>
-
-        <section>
-          <div className="px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-            Categories
-          </div>
+        <div className="ms-rail__group" role="group" aria-labelledby={groupId('categories')}>
+          <span id={groupId('categories')} className="ms-rail__group-title ms-legend">{s.groups.categories}</span>
           {CATEGORIES.map((c) => (
-            <button
+            <NavItem
               key={c.key}
-              className={`nav-item ${isActive(c.key) ? 'nav-item-active' : ''}`}
+              current={is(c.key)}
+              label={dict.categories[c.key]}
+              glyph={<TypeModule type={categoryModule[c.key]} size="sm" />}
+              count={counts.categories[c.key] ?? 0}
               onClick={() => setView(c.key)}
-            >
-              <span>
-                {c.glyph} {c.label}
-              </span>
-              <CountBadge n={counts.categories[c.key] ?? 0} />
-            </button>
+            />
           ))}
-        </section>
+        </div>
 
-        <section>
-          <div className="px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-            Security Health
-          </div>
-          <button className={`nav-item ${isActive('health') ? 'nav-item-active' : ''}`} onClick={() => setView('health')}>
-            <span>◉ Watchtower</span>
-            <CountBadge n={counts.health} />
-          </button>
-        </section>
+        <div className="ms-rail__group" role="group" aria-labelledby={groupId('tools')}>
+          <span id={groupId('tools')} className="ms-rail__group-title ms-legend">{s.groups.tools}</span>
+          <NavItem
+            current={is('health')}
+            label={s.watchtower}
+            glyph={icon('health')}
+            trailing={
+              healthScore !== undefined ? (
+                <span className="flex items-center gap-1.5">
+                  <Led tone={healthTone} />
+                  <Readout value={healthScore} />
+                </span>
+              ) : undefined
+            }
+            onClick={() => setView('health')}
+          />
+          <NavItem current={is('generator')} label={s.generator} glyph={icon('generate')} onClick={() => setView('generator')} />
+        </div>
 
-        <section>
-          <div className="px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-            App
-          </div>
-          <button className={`nav-item ${isActive('settings') ? 'nav-item-active' : ''}`} onClick={() => setView('settings')}>
-            <span>⚙ Settings</span>
-          </button>
-          <button className={`nav-item ${isActive('security') ? 'nav-item-active' : ''}`} onClick={() => setView('security')}>
-            <span>🛡 Security Center</span>
-          </button>
-        </section>
+        <div className="ms-rail__group" role="group" aria-labelledby={groupId('library')}>
+          <span id={groupId('library')} className="ms-rail__group-title ms-legend">{s.groups.library}</span>
+          <NavItem current={is('media-gallery')} label={s.mediaGallery} glyph={icon('gallery')} onClick={() => setView('media-gallery')} />
+          <NavItem current={is('shares')} label={s.sharing} glyph={icon('share')} onClick={() => setView('shares')} />
+        </div>
+
+        <div className="ms-rail__group" role="group" aria-labelledby={groupId('app')}>
+          <span id={groupId('app')} className="ms-rail__group-title ms-legend">{s.groups.app}</span>
+          <NavItem current={is('settings')} label={s.settings} glyph={icon('settings')} onClick={() => setView('settings')} />
+          <NavItem current={is('security')} label={s.securityCenter} glyph={icon('security')} onClick={() => setView('security')} />
+          <NavItem current={false} label={s.exportBackup} glyph={icon('export')} onClick={onExport} />
+          <NavItem current={false} label={s.importBackup} glyph={icon('import')} onClick={onImport} />
+          <NavItem current={false} label={s.recoveryKey} glyph={icon('recovery')} onClick={onShowRecovery} />
+        </div>
 
         {tags.length > 0 && (
-          <section>
-            <div className="px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-              Tags
+          <div className="ms-rail__group ms-rail__tags" role="group" aria-labelledby={groupId('tags')}>
+            <span id={groupId('tags')} className="ms-rail__group-title ms-legend">{s.groups.tags}</span>
+            <div className="ms-tag-list">
+              {tags.map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  className="ms-tag"
+                  aria-current={view === `tag:${tag}` ? 'page' : undefined}
+                  onClick={() => setView(`tag:${tag}`)}
+                >
+                  <Icon name="tag" size="xs" />
+                  {tag}
+                  {counts.tags[tag] ? <span className="ms-text-muted">{counts.tags[tag]}</span> : null}
+                </button>
+              ))}
             </div>
-            <div className="flex flex-wrap gap-1.5 px-2">
-              {tags.map((tag) => {
-                const active = view === `tag:${tag}`;
-                return (
-                  <button
-                    key={tag}
-                    onClick={() => setView(`tag:${tag}`)}
-                    className={`rounded-full border px-2.5 py-1 text-xs transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
-                      active
-                        ? 'border-indigo-500 bg-indigo-600/20 text-indigo-200'
-                        : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800'
-                    }`}
-                  >
-                    #{tag}
-                    {counts.tags[tag] ? ` (${counts.tags[tag]})` : ''}
-                  </button>
-                );
-              })}
-            </div>
-          </section>
+          </div>
         )}
-      </nav>
-
-      <div className="space-y-1 border-t border-zinc-800 p-3">
-        <button className="nav-item" onClick={onExport}>
-          <span>↓ Export encrypted backup</span>
-        </button>
-        <button className="nav-item" onClick={onImport}>
-          <span>↑ Import encrypted backup</span>
-        </button>
-        <button className="nav-item" onClick={onShowRecovery}>
-          <span>⚿ Recovery key</span>
-        </button>
-        <button className="nav-item text-red-300 hover:bg-red-950/50 hover:text-red-200" onClick={onLock}>
-          <span>🔒 Lock vault</span>
-        </button>
       </div>
-    </aside>
+
+      <div className="ms-rail__foot">
+        <Button variant="secondary" block icon="lock" onClick={onLock} title={s.lockVault}>
+          <span className="ms-button__text">{s.lockVault}</span>
+        </Button>
+      </div>
+    </nav>
   );
 }

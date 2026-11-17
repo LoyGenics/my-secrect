@@ -1,6 +1,9 @@
 import type { VaultItem } from '../../../../packages/core/src/types';
 import { isFavorite } from '../utils/password';
 import { isArchived } from '../utils/itemMeta';
+import { Badge, IconButton, TypeModule } from '../theme';
+import { useTranslation } from '../../../../packages/i18n/src/react';
+import { format } from '../../../../packages/i18n/src/index';
 
 interface ItemListProps {
   items: VaultItem[];
@@ -8,7 +11,7 @@ interface ItemListProps {
   onSelect: (id: string) => void;
   onToggleFavorite: (id: string) => void;
   onDelete: (id: string) => void;
-  /** Bulk-selection mode (driven by App.tsx): rows get checkboxes and a tap toggles selection instead of opening the item. */
+  /** Bulk-selection mode (driven by App.tsx): rows get checkboxes and activating a row toggles selection instead of opening the item. */
   selectionMode?: boolean;
   selectedIds?: Set<string>;
   onToggleSelect?: (id: string) => void;
@@ -57,98 +60,72 @@ export function itemSubtitle(item: VaultItem): string {
   }
 }
 
+/**
+ * Item rows: type module, title, one secondary line, tags; favorite and
+ * delete keys appear on hover/focus (always on touch). The row's main area
+ * is a real button, so the list is fully keyboard operable. The selected
+ * row is a raised plate — ink stays ink in both finishes.
+ */
 export default function ItemList({ items, selectedId, onSelect, onToggleFavorite, onDelete, selectionMode = false, selectedIds, onToggleSelect }: ItemListProps) {
-  if (items.length === 0) {
-    return (
-      <div>
-        <p>No items yet.</p>
-        <p>Create your first item to get started.</p>
-      </div>
-    );
-  }
+  const { dict } = useTranslation();
+  const l = dict.itemList;
   return (
-    <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+    <ul className="ms-list" aria-label={l.label}>
       {items.map((item) => {
         const favorite = isFavorite(item);
         const subtitle = itemSubtitle(item);
         const checked = selectedIds?.has(item.id) ?? false;
+        const selected = selectionMode ? checked : item.id === selectedId;
+        const typeLabel = (dict.itemTypes as Record<string, string>)[item.type] ?? item.type;
         return (
-          <li
-            key={item.id}
-            onClick={() => {
-              if (selectionMode && onToggleSelect) onToggleSelect(item.id);
-              else onSelect(item.id);
-            }}
-            style={{
-              cursor: 'pointer',
-              padding: '8px 10px',
-              borderBottom: '1px solid #eee',
-              background: checked ? '#eef4ff' : item.id === selectedId ? '#eef4ff' : 'transparent',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {selectionMode && (
+          <li key={item.id} className="ms-row" data-selected={selected}>
+            {selectionMode && (
+              <span className="ms-checkbox ms-row__check">
                 <input
                   type="checkbox"
                   checked={checked}
                   onChange={() => onToggleSelect?.(item.id)}
-                  onClick={(e) => e.stopPropagation()}
-                  aria-label={`Select ${item.title}`}
+                  aria-label={format(l.select, item.title)}
                 />
-              )}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div>
-                  <strong>{item.title}</strong>{' '}
-                  <small style={{ color: '#666' }}>({item.type})</small>
-                  {isArchived(item) && <small style={{ color: '#666' }}> 📦 Archived</small>}
-                </div>
-                {subtitle && (
-                  <div style={{ color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {subtitle}
-                  </div>
-                )}
+              </span>
+            )}
+            <button
+              type="button"
+              className="ms-row__main"
+              aria-current={!selectionMode && item.id === selectedId ? 'true' : undefined}
+              onClick={() => {
+                if (selectionMode && onToggleSelect) onToggleSelect(item.id);
+                else onSelect(item.id);
+              }}
+            >
+              <TypeModule type={item.type} />
+              <span className="ms-row__text">
+                <span className="ms-row__title">{item.title}</span>
+                <span className="ms-row__meta">
+                  {typeLabel}
+                  {subtitle ? ` · ${subtitle}` : ''}
+                  {isArchived(item) ? ` · ${l.archived}` : ''}
+                </span>
                 {item.tags.length > 0 && (
-                  <div style={{ marginTop: 2 }}>
+                  <span className="ms-row__tags">
                     {item.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        style={{
-                          display: 'inline-block',
-                          background: '#f0f0f0',
-                          borderRadius: 10,
-                          padding: '0 8px',
-                          marginRight: 4,
-                          fontSize: 12,
-                        }}
-                      >
-                        {tag}
-                      </span>
+                      <Badge key={tag}>{tag}</Badge>
                     ))}
-                  </div>
+                  </span>
                 )}
-              </div>
-              <button
-                type="button"
-                aria-label={favorite ? 'Remove from favorites' : 'Add to favorites'}
-                title={favorite ? 'Remove from favorites' : 'Add to favorites'}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggleFavorite(item.id);
-                }}
-              >
-                {favorite ? '★' : '☆'}
-              </button>
-              <button
-                type="button"
-                aria-label={`Delete ${item.title}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete(item.id);
-                }}
-              >
-                Delete
-              </button>
-            </div>
+              </span>
+            </button>
+            <span className="ms-row__actions" data-pinned={favorite}>
+              <IconButton
+                icon="favorite"
+                size="sm"
+                label={favorite ? l.removeFavorite : l.addFavorite}
+                aria-pressed={favorite}
+                className={favorite ? 'ms-favorite--on' : undefined}
+                onClick={() => onToggleFavorite(item.id)}
+              />
+              <IconButton icon="trash" size="sm" label={format(l.delete, item.title)} onClick={() => onDelete(item.id)} />
+            </span>
           </li>
         );
       })}

@@ -1,102 +1,141 @@
-# Design System — as it actually exists today
+# Design system — "Precision Instrument"
 
-> Phase A audit, 17 Nov 2026. There is no "My Secret Design System" package.
-> `packages/ui/src/index.ts` is literally `export {};` (182 bytes, with a
-> comment saying shared components are extracted "only when 2+ apps need
-> the same one"). What follows is what each app actually does — three
-> divergent implementations of one intended dark theme.
+Status: implemented in `packages/ui` and adopted by the vault screens (desktop,
+web mirror, mobile). Direction contract:
+`apps/desktop/.impeccable/surfaces/apps-desktop-src-app-tsx.md`. Product truth:
+`PRODUCT.md`. This file replaces the Phase A audit that said `packages/ui` was empty.
 
-## 1. Tokens that actually exist (desktop = source of truth)
+## 1. Principles
 
-From `apps/desktop/tailwind.config.js` + `apps/desktop/src/index.css`:
+- The vault is a precisely made personal device: two finishes of one object,
+  **graphite** (dark, default) and **aluminium** (light).
+- Colour is signal only: one **orange key** (`#FF5B1F`, primary action + focus)
+  and **LEDs** (green ok, amber attention, red danger). Item types carry their own
+  pastel code colour from the clay palette.
+- Plates (flat machined panels, 1px hairline + 1px top highlight), molded **keys**
+  (printed UPPERCASE legend, 1px lower edge; pressed drops 1px), recessed **wells**
+  for inputs, rocker switches, LCD **readouts**. No gradients, glass or glow.
+- Imagery (soft-3D clay) only on onboarding/splash, lock screen (>= 1024px), empty,
+  error and success states and item-type art. Never in rows, never as an icon.
 
-| Token | Value | Where |
+## 2. Tokens — one source
+
+`packages/ui/src/tokens.ts` is the only place to change palette, type, radii or
+motion. `tokens.css` is generated from it:
+
+```sh
+npm --workspace @my-secrect/ui run tokens      # rewrite src/tokens.css
+npx tsx --test packages/ui/tests/tokens-sync.test.ts   # fails if stale (in npm test)
+```
+
+| Group | CSS variables | Notes |
 |---|---|---|
-| Background | `#0B0F14` | `body`, tailwind `slate.950` |
-| Surface / card | `bg-zinc-900/70`, border `zinc-800` | `.card` |
-| Text | `#F4F4F5` (`zinc-100`) | `body` |
-| Muted text | `zinc-400`/`zinc-500` | `.label`, placeholders |
-| Accent | `#6366F1` indigo-500/600 (`accent.DEFAULT`) | `.btn-primary`, focus rings |
-| Accent hover | `#4F46E5` | tailwind `accent.hover` |
-| Accent soft | `#312E81` | tailwind `accent.soft` |
-| Danger | red-900/60 bg, red-200 text | `.btn-danger` |
-| Success / warn | emerald-400/500, amber-400/500 (score only) | `HealthView.tsx` |
-| Font | system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif | tailwind `fontFamily.sans` |
-| Radius | `rounded-lg` (8 px) controls, `rounded-xl` (12 px) cards | `.card/.btn/.input` |
-| Focus | 2 px indigo ring, offset 2 px | `:focus-visible` |
+| background | `--ms-color-bg-{base,surface,raised,sunken,input,muted}` | base = chassis, surface = plate, input = well |
+| text | `--ms-color-text-{primary,secondary,muted,faint,on-brand,on-danger,on-module,link}` | faint is decoration only (< 4.5:1) |
+| border | `--ms-color-border-{default,strong,subtle,control}` | control is the only >= 3:1 border (wells, switches) |
+| brand | `--ms-color-brand[-hover,-active,-soft,-soft-text,-focus]` | legend on orange is ink, never white (3.10:1) |
+| danger / success / warning | `--ms-color-{danger,success,warning}-*` | `*-text` / `danger-soft-text` are the text colours |
+| led | `--ms-color-led-{ok,attention,danger,active,off}` | dots and segments only |
+| focus | `--ms-color-focus-{ring,outline}` | aluminium adds an ink band (orange alone is 2.44:1 there) |
+| edge | `--ms-color-edge-{highlight,key,key-brand,key-danger,well}` | machining |
+| itemType | `--ms-color-type-<type>` | sky, mint, butter, coral, lavender, tangerine pastels |
+| scale | `--ms-text-{legend,sm,md,lg,xl}` + `--ms-leading-*`, `--ms-radius-*`, `--ms-space-*`, `--ms-duration-{fast,base,slow,turn}`, `--ms-easing-*`, `--ms-control-height*` | five-step type scale, nothing else |
 
-Component classes defined once in desktop `index.css` (`@layer components`):
-`.card`, `.btn`, `.btn-primary`, `.btn-ghost`, `.btn-danger`, `.input`,
-`.label` (uppercase, tracking-wide, xs), `.gradient-subtle`,
-`.nav-item`, `.nav-item-active`. Dark-only (`color-scheme: dark`); no light mode.
+Type: system UI for body and fields; **Barlow Semi Condensed** (self-hosted via
+`@fontsource`, OFL, Vietnamese subset) for legends and headings. Mobile keeps the
+platform font with uppercase tracked legends.
 
-## 2. Mobile — a faithful parallel, not a shared system
+Contrast (computed; rendered pairs checked by axe in both finishes): ink on plate
+15.1 / 13.7:1, muted on well 5.0 / 6.8:1, legend ink on orange 5.5:1, white on
+danger key 5.5:1, danger text 5.8 / 7.2:1, warning text 5.3 / 8.2:1.
 
-`apps/mobile/src/theme.ts` re-declares the palette by hand:
-`bg #0B0F14`, `card #151B23`, `cardBorder #262E3A`, `input #1B222C`,
-`text #F4F4F5`, `muted #9CA3AF`, `faint #6B7280`, `accent #6366F1`,
-`accentSoft rgba(99,102,241,0.22)`, `danger #EF4444`, `warn #F59E0B`,
-`ok #10B981`. Radii 12/16, min touch targets 48–52 px, shared `styles`
-(screen/container/card/title/subtitle/label/input/buttons/chip/error).
-Values match desktop intent but are duplicated literals — a token change
-must be edited in two places (three, counting web).
+## 3. Using it
 
-## 3. Web — same shell, divergent accent (token drift, verified)
+Web/desktop code imports from `apps/desktop/src/theme.ts` (re-exports
+`@my-secrect/ui` and loads `components.css` once — the web mirror gets it too).
+Each app's `index.css` imports `tokens.css`. React Native imports
+`packages/ui/src/native` (tokens, icon wrapper, modules, illustrations) and
+`apps/mobile/src/theme.ts` (`useMobileTheme()`).
 
-`apps/web/src/App.tsx` renders the desktop `App` verbatim, but
-`apps/web/src/index.css` redefines the shared classes: `.btn` becomes
-**sky-600** (not indigo-600), focus ring **sky-400** (not indigo-500),
-`.card` gains `p-4`. Net effect: the web client looks different from
-the desktop client (sky vs indigo primary buttons) with no design decision
-recorded. Web adds only `.web-shell` responsive rules (stack below 900 px)
-and the amber banner. `apps/web/tailwind.config.js` (233 bytes) was not
-line-read; it does not carry the desktop `accent` extension as far as the
-CSS shows.
+Rule: Tailwind is for layout only (flex, grid, gap, width). Colour, type and
+spacing that a component owns come from its props/classes — a Tailwind utility
+cannot reliably override a `.ms-*` property in the web build (stylesheet order
+differs), which is why `Field` has `flush` and `Card` has `padding`.
 
-## 4. Extension popup — fourth implementation
+## 4. Component contracts (`packages/ui/src/components`)
 
-`apps/extension/src/popup/popup.css` (1,472 bytes) + a 145-byte
-`tailwind.config.js`; `Popup.tsx` uses `btn`/`input`/`label` class names
-against its own stylesheet. Not line-read in full; visually it follows the
-same dark/indigo direction but is not token-linked to desktop.
+| Component | Contract |
+|---|---|
+| `Button` | Molded key. `variant`: `primary` (orange — one per view), `secondary` (neutral, default), `ghost`, `danger` (final, red key), `danger-outline` (recoverable destructive: red LED + danger legend), `link`. `size` sm/md/lg, `block`, `loading` (spinner, `aria-busy`, disabled), `icon` (leading Lucide name), `asChild`. `type` defaults to `button`. 36px (48px on coarse pointers). |
+| `IconButton` | Icon-only key; `label` is required (aria-label + title). |
+| `Icon` | The only icon component (lucide-react). `name` from `icons.ts`, `size` token, one stroke width; decorative unless `label`. Native twin: `native/Icon` (lucide-react-native), same names. |
+| `Card` | Plate. `as` (div/section/article/aside), `padding` none/sm/md/lg. Never nest plates. |
+| `Field` | Label (printed legend) + control + hint/error. Wires `htmlFor`/`id`, `aria-describedby`, `aria-invalid`; error is `role="alert"`. `id` keeps stable ids for tests; `flush` drops the bottom margin. |
+| `Input`, `Textarea`, `Select` | Recessed wells; `mono` for secrets/keys/URLs; always inside `Field` or with `aria-label`. |
+| `SecureField` | Password well with a reveal key (`aria-pressed`, localized name, keeps focus). |
+| `SearchField` | `role="searchbox"`, clear key returns focus. |
+| `Checkbox` | Native input in a well; checked = ink square with a printed tick. `label`, `hint`. |
+| `Switch` | Physical switch: `role="switch"`, `aria-checked`, LED lights green when on. |
+| `SegmentedControl` | Rocker: radiogroup, roving tabindex scoped to the group, arrows move + select, selected segment raised with an orange LED. |
+| `Led`, `LedStrip`, `Readout`, `Badge`, `Kbd` | Signal primitives. LEDs are aria-hidden — always pair with text. `LedStrip` states: off/locked/working/error/turn/open. `Readout` = LCD tabular numerals. |
+| `TypeModule` | Item-type module: silhouette (`modules.ts`) + code colour + Lucide glyph; identical in rail, list and mobile. |
+| `ItemTypeArt` | Detail-header art slot: clay object from `typeArt`, falls back to `TypeModule`. |
+| `Art` | Decorative illustration; animated slots render a `<picture>` that serves the still first frame under `prefers-reduced-motion`. |
+| `Alert` | Notice plate: LED + text, tone info/success/warning/danger, `announce` → `role="alert"` (danger) or `"status"`, optional `action`. |
+| `Dial` | Watchtower instrument: 240° scale, LED-coloured arc by band, LCD readout; `role="meter"`. |
+| `Progress`, `Skeleton` | Bar in a well (`role="progressbar"`, animates transform); loading placeholder with `aria-busy`. |
+| `EmptyState`, `ErrorState` | One illustration, title, one sentence, action(s), optional note. Error is `role="alert"`. |
+| `Dialog`, `Sheet`, `ConfirmationDialog` | Radix Dialog: focus trap, Escape, focus return, required title, localized close key. Sheet `side` right/left/bottom, `flush`, `hideTitle`. Confirmation focuses Cancel first. |
+| `CommandPalette` | Top-anchored plate; combobox + listbox, `aria-activedescendant`; `keywords`, `leading`, `meta`, `limit`, `title`, `emptyLabel(query)`. |
+| `DropdownMenu`, `Tabs`, `Tooltip`, `Toast` | Radix primitives in the instrument grammar; tooltips never carry essential information. |
+| `copyWithClear` / `useClipboardStatus` | Copy and clear the clipboard after 30 s even if the view unmounts; drives the "Copied · clears in Ns" LED. |
 
-## 5. What exists per app (components)
+Layout classes (in `components.css`): `ms-app` shell (rail | main), `ms-rail`
+(desktop rail, 768–1023 px icon rail with labels kept as accessible names, phone
+drawer `ms-rail--drawer`), `ms-topbar`, `ms-split` list | detail (phones push the
+detail, `data-pushed`), `ms-tabbar` (phone bottom tabs), `ms-action-rail` (phone
+thumb-reach keys), `ms-spec` (spec-sheet detail), `ms-device` (lock / onboarding
+face), `ms-keyturn` (unlock overlay), `ms-banner` / `ms-footer` (web frame).
 
-- Desktop (9 components): `Sidebar` (8 categories, unicode glyphs
-  ◈ ▣ ◉ `</>` ✎ ▦ ▤ ▧ — no icon set), `ItemList`, `ItemDetail`, `ItemForm`,
-  `SearchPalette` (Cmd/Ctrl+K), `HealthView`, `SettingsView`,
-  `PasswordGenerator`, `StrengthMeter`. `MediaView` + `SharesView` exist
-  but are never rendered.
-- Mobile (10 screens + `Field`, `ItemRow`, `StrengthMeter`): Vault, Search,
-  Generate, Health, Settings, Lock, Onboarding, ItemDetail, ItemForm, Trash.
-  Every input has a visible label, `accessibilityLabel`, and `testID`.
-- Extension: popup (lock/create/list/fill/detail/add/health/settings),
-  options page (`Options.tsx`, 9.8 KB).
-- Labels: desktop inputs are labelled (`<label>` + `aria-label` on
-  search/auto-lock); mobile uses `accessibilityLabel`/`testID` throughout.
-  No accessibility audit has been run.
+## 5. Motion
 
-## 6. Gaps vs the intended My Secret Design System
+120–180 ms ease-out detents, no bounce. Signature: the unlock **key turn** — LED
+strip sweeps amber → orange → green and the device face slides away (280 ms).
+Copy feedback lights the field's LED. Under `prefers-reduced-motion`: overlays
+crossfade, nothing slides, scales, shimmers or loops; animated illustrations show
+their first frame.
 
-1. **No token package.** `packages/ui` is empty; tokens live as literals
-   in 4 stylesheets. No single source of truth for color, type, spacing,
-   radius, or motion.
-2. **Accent drift.** Desktop indigo `#6366F1` vs web sky `#38BDF8`/
-   sky-600 buttons. Pick one; delete the other.
-3. **No typography scale.** Only `title 24/700`, `subtitle 14/20`
-   (mobile) and ad-hoc `text-sm/xs/4xl` (desktop). No documented scale.
-4. **No icon system.** Sidebar uses unicode glyphs; no icon component.
-5. **No light mode, no density variants, no motion guidance.**
-6. **No shared components.** `ItemForm` field tables, health scoring UI,
-   and strength meters are duplicated per app with slightly different
-   rules (e.g. desktop health counts weak logins only; extension health
-   counts any item with a short password).
-7. **No component documentation or Storybook-style catalogue.**
+## 6. Imagery
 
-## 7. Recommendation (Phase B, design)
+`packages/ui/src/illustrations.ts` (web) and `src/native/illustrations.ts` map
+slots to files; swapping art is a path change. Provenance per file (model, seed,
+prompt id, licence): `packages/ui/assets/ASSETS.md`; licences:
+`THIRD_PARTY_NOTICES.md`. The brand-mark slot (`brandMark`) is empty until the
+logo is chosen.
 
-Create `packages/ui` for real: `tokens.ts` (colors, radii, type, spacing),
-then extract `Button/Input/Card/Label/StrengthMeter` from desktop
-`index.css` and make web + extension consume them (web keeps only
-`.web-shell` layout + banner). Resolve the indigo-vs-sky decision first;
-until then the web client is visually a different product.
+## 7. Internationalisation
+
+`packages/i18n` (en + vi). Components read strings via `useTranslation()` (typed
+`dict`, `tp()` for plurals, `format()` for `{0}` placeholders). One
+`I18nProvider` wraps the desktop/web app (`App.tsx`) and the mobile app; the
+choice persists (`storeLocale` / AsyncStorage) and mirrors `<html lang>`.
+`tests/parity.test.ts` enforces identical en/vi key sets, placeholders and plural
+shape. Never translate vault content, keys, codes or file formats.
+
+## 8. Accessibility verification
+
+- `npm run test:a11y:web`: axe-core (WCAG 2.0/2.1/2.2 A + AA) against the
+  production web build, both finishes, 1280 and 390 px, 11 screens; serious or
+  critical violations fail.
+- Keyboard: every rail entry, row, key and switch is a native button; skip link;
+  focus mark visible on both finishes; sticky toolbars use scroll padding.
+
+## 9. Adoption status
+
+| Surface | Status |
+|---|---|
+| Desktop/web shell, lock, onboarding, restore, rail, list, detail, form, generator, Watchtower, settings, search, CSV import | On the design system + i18n |
+| Security Center, sign-in, step-up, media, sharing, sync bar (owned elsewhere) | Legacy classes reskinned to the instrument grammar via `apps/desktop/src/index.css`; still carry hard-coded Tailwind zinc/indigo/amber classes and English strings |
+| Mobile vault, search, trash, generator, health, detail, form, onboarding, restore, media | Instrument theme, Lucide, illustrations; strings partly English |
+| Mobile lock, settings, sign-in, security, shares (owned elsewhere) | Static graphite theme; `FOLLOW_OS_APPEARANCE` stays off until they use `useMobileTheme()` |
+| Extension | Not started |

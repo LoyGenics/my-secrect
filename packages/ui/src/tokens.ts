@@ -1,295 +1,328 @@
 /**
- * My Secret design tokens — the single source of truth for color, type,
- * spacing, radius, shadow, border, motion, breakpoints and density.
+ * My Secret design tokens — "Precision Instrument".
  *
- * Platform-neutral: this file imports nothing from React, the DOM or
- * React Native, so desktop, web AND mobile can all import it. Mobile
- * consumes these values only (see apps/mobile/src/theme.ts); DOM components
- * consume the same values through CSS variables (see tokens.css).
+ * The vault is a precisely made personal device: two finishes of one
+ * object (light anodized aluminium, dark graphite), colour used ONLY as
+ * signal (one orange key for the primary action and focus; green / amber /
+ * red LEDs), flat machined plates with a 1px hairline and a 1px inner top
+ * highlight, recessed wells for inputs, molded keys with printed legends.
+ * Direction contract: apps/desktop/.impeccable/surfaces/apps-desktop-src-app-tsx.md
  *
- * Origin: the Phase A audit. Desktop was the de-facto source (dark-only,
- * bg #0B0F14, zinc-100 text, indigo #6366F1 accent) and its values are
- * preserved exactly in the dark theme. Web's sky accent was drift, not a
- * decision, and is removed (see apps/web/src/index.css).
+ * This file is the ONE place to change palette, type, radii, motion:
+ * tokens.css is generated from it (`npm --workspace @my-secrect/ui run tokens`,
+ * enforced by tests/tokens-sync.test.ts). Platform-neutral: no React, DOM or
+ * React Native imports, so web, desktop and mobile all read it.
  *
- * CONTRAST — WCAG 2.2 AA targets, computed from relative luminance
- * (sRGB), NOT verified in a browser (no browser test has been run):
+ * CONTRAST (WCAG 2.2 AA, relative luminance; the rendered result is also
+ * checked by axe-core in tests/a11y-web, both finishes):
  *
- *   Dark theme
- *   - text.primary   #F4F4F5 on bg.base #0B0F14        17.49:1 (AAA)
- *   - text.secondary #D4D4D8 on bg.base                13.00:1 (AAA)
- *   - text.muted     #A1A1AA on bg.base                 7.50:1 (AAA)
- *   - text.muted     #A1A1AA on input bg #18181B        6.91:1 (AAA)
- *   - text.faint     #71717A on bg.base                 3.98:1 — FAILS 4.5:1
- *     for normal text. RESTRICTED to large text (>= 18pt / 24px, or bold
- *     >= 14pt) and non-text decoration only, where the bar is 3:1.
- *     Never use it for body copy, labels or placeholders.
- *   - on-brand white #FFFFFF on brand.600 #4F46E5        6.29:1 (AA)
- *   - brand.500 #6366F1 with white text                  4.47:1 — just
- *     BELOW 4.5:1. brand.500 is therefore NEVER a text-on-brand color.
- *     It is used for focus rings, large-text accents and decoration only.
- *     Primary buttons use brand.600 (desktop already did).
- *   - focus ring brand.500 vs dark bg                    4.30:1 (> 3:1
- *     non-text minimum, WCAG 1.4.11 / 2.4.7)
- *   - danger text #FECACA on danger bg (dark)           12.39:1 (AAA)
- *   - success #34D399 / warning #FBBF24 / danger #F87171 on dark bg
- *     are 10.00 / 11.51 / 6.95:1 — all pass AA as text.
+ *   Aluminium (light)                         Graphite (dark)
+ *   ink #1B1C1E on plate #F2F1EE   15.10:1    ink #ECEBE7 on plate #1F2022  13.67:1
+ *   ink on body #E6E4DF            13.42:1    ink on body #161718           15.05:1
+ *   muted #55575B on well #D9D7D1   5.03:1    muted #9A9C9F on well #111213  6.81:1
+ *   legend ink on orange key        5.50:1    legend ink on orange key       5.50:1
+ *   white on danger key #C42F36     5.52:1    white on danger key            5.52:1
+ *   danger text #B42328 on plate    5.79:1    danger text #FF8A8D on plate   7.20:1
+ *   warning text #8A5A00 on plate   5.25:1    warning text #F2A93B on plate  8.16:1
+ *   success text #1A6E3E on plate   >=5.5:1   success text #5ED18E on plate  8.53:1
  *
- *   Light theme
- *   - text.primary   #18181B on #FFFFFF                 17.72:1 (AAA)
- *   - text.secondary #3F3F46 on #FFFFFF                 10.44:1 (AAA)
- *   - text.muted     #52525B on #FFFFFF                  7.73:1 (AAA)
- *   - text.faint     #71717A on #FFFFFF                  4.83:1 (AA) — but
- *     only 4.40:1 on surface #F4F4F5, so the same restriction applies:
- *     large text / decoration only, never body copy on surfaces.
- *   - on-brand white on brand.600                         6.29:1 (AA)
- *   - brand.700 #4338CA on #FFFFFF (links)                7.90:1 (AAA)
- *   - focus ring brand.600 vs white                      6.29:1 (> 3:1)
- *
- * These ratios are arithmetic on the hex values above. A real AA claim
- * still needs a browser check (rendered text, real backgrounds, zoom and
- * forced-colors mode) — that check has NOT been run.
+ * White on orange is 3.10:1, so key legends on orange are ink, never white.
+ * Orange vs the aluminium body is 2.44:1 — below the 3:1 non-text bar — so
+ * the light finish draws focus as a two-band printed mark: an ink band
+ * (`focus.outline`, 13:1) inside the orange ring. Graphite needs no band
+ * (orange vs body 5.79:1). LED colours are never text; status text uses the
+ * `*.text` tokens with an LED dot beside it.
  */
-
-// ---------------------------------------------------------------------------
-// Raw scales (Tailwind-compatible values, kept so existing Tailwind code
-// and the new tokens describe the same colors)
-// ---------------------------------------------------------------------------
-
-export const brand = {
-  50: '#EEF2FF',
-  100: '#E0E7FF',
-  200: '#C7D2FE',
-  300: '#A5B4FC',
-  400: '#818CF8',
-  /** Focus rings / large-text accents / decoration ONLY — 4.47:1 with white. */
-  500: '#6366F1',
-  /** The text-on-brand color: white on 600 is 6.29:1. Primary buttons. */
-  600: '#4F46E5',
-  /** Links on light backgrounds: 7.90:1 on white. */
-  700: '#4338CA',
-  800: '#3730A3',
-  900: '#312E81',
-  950: '#1E1B4B',
-} as const;
-
-export const neutral = {
-  50: '#FAFAFA',
-  100: '#F4F4F5',
-  200: '#E4E4E7',
-  300: '#D4D4D8',
-  400: '#A1A1AA',
-  /** Restricted: large text / decoration only (see header). */
-  500: '#71717A',
-  600: '#52525B',
-  700: '#3F3F46',
-  800: '#27272A',
-  900: '#18181B',
-  950: '#09090B',
-} as const;
-
-export const semantic = {
-  success: '#10B981',
-  successTextDark: '#34D399',
-  successTextLight: '#047857',
-  warning: '#F59E0B',
-  warningTextDark: '#FBBF24',
-  warningTextLight: '#B45309',
-  danger: '#DC2626',
-  dangerTextDark: '#F87171',
-  dangerTextLight: '#B91C1C',
-  dangerSoftDark: '#FECACA',
-} as const;
 
 // ---------------------------------------------------------------------------
 // Semantic themes
 // ---------------------------------------------------------------------------
 
+/** Item types (VaultItem `type` in packages/core). Each owns one module silhouette and one muted code colour. */
+export const itemTypes = [
+  'login', 'passkey', 'bank_account', 'card', 'identity', 'ssh_key',
+  'api_key', 'secure_note', 'document', 'media', 'collection', 'custom',
+] as const;
+export type ItemTypeKey = (typeof itemTypes)[number];
+
 export interface ThemeTokens {
   colorScheme: 'light' | 'dark';
-  background: { base: string; surface: string; raised: string; sunken: string; input: string };
-  text: { primary: string; secondary: string; muted: string; faint: string; onBrand: string; onDanger: string; link: string };
-  border: { default: string; strong: string; subtle: string };
+  /** base = the device chassis; surface = machined plates; sunken/input = recessed wells; muted = tracks and chips. */
+  background: { base: string; surface: string; raised: string; sunken: string; input: string; muted: string };
+  /** onModule: ink printed on item-type modules (pastel clay fills in both finishes). */
+  text: { primary: string; secondary: string; muted: string; faint: string; onBrand: string; onDanger: string; onModule: string; link: string };
+  /** default = the 1px hairline; control = the only border meeting 3:1 (wells, switches). */
+  border: { default: string; strong: string; subtle: string; control: string };
+  /** The orange key: primary action and focus only. */
   brand: { DEFAULT: string; hover: string; active: string; soft: string; softText: string; focus: string };
   danger: { DEFAULT: string; hover: string; soft: string; softText: string; border: string };
   success: { DEFAULT: string; text: string; soft: string };
   warning: { DEFAULT: string; text: string; soft: string };
-  focus: { ring: string; width: string; offset: string };
+  /** LED colours (dots and segments only, never text). `off` is an unlit segment. */
+  led: { ok: string; attention: string; danger: string; active: string; off: string };
+  /** ring = orange; outline = the contrast band drawn with it (transparent when not needed). */
+  focus: { ring: string; outline: string; width: string; offset: string };
+  /** Machining: plate top highlight, key lower edges, well inner shadow. */
+  edge: { highlight: string; key: string; keyBrand: string; keyDanger: string; well: string };
+  /**
+   * One code colour per item type, from the clay illustration palette
+   * (sky, mint, butter, coral, lavender, tangerine). Pastel in both finishes,
+   * printed with `text.onModule` ink (>= 10:1 on every fill).
+   */
+  itemType: Record<ItemTypeKey, string>;
+  shadow: { sm: string; md: string; lg: string; overlay: string };
 }
 
-/** Dark theme — preserves the desktop look exactly. Default theme. */
+/** Graphite — the dark finish. Default. */
 export const darkTheme: ThemeTokens = {
   colorScheme: 'dark',
   background: {
-    base: '#0B0F14',
-    // Exact blend of desktop's bg-zinc-900/70 card over #0B0F14.
-    surface: '#141519',
-    raised: '#1B222C',
-    sunken: '#080B0F',
-    // Desktop .input bg-zinc-900. Mobile previously used #1B222C here;
-    // it now adopts this value (one-token change, see mobile theme.ts).
-    input: '#18181B',
+    base: '#161718',
+    surface: '#1F2022',
+    raised: '#26282A',
+    sunken: '#111213',
+    input: '#111213',
+    muted: '#2A2C2F',
   },
   text: {
-    primary: '#F4F4F5',
-    secondary: '#D4D4D8',
-    muted: '#A1A1AA',
-    faint: '#71717A',
-    onBrand: '#FFFFFF',
+    primary: '#ECEBE7',
+    secondary: '#C9C8C4',
+    muted: '#9A9C9F',
+    faint: '#6E7073',
+    onBrand: '#1B1C1E',
     onDanger: '#FFFFFF',
-    link: '#A5B4FC',
+    onModule: '#1B1C1E',
+    link: '#ECEBE7',
   },
-  border: { default: '#27272A', strong: '#3F3F46', subtle: '#1F1F23' },
+  border: { default: '#2E3033', strong: '#3A3C40', subtle: '#26282A', control: '#6E7073' },
   brand: {
-    DEFAULT: '#4F46E5',
-    hover: '#6366F1',
-    active: '#4338CA',
-    soft: 'rgba(99, 102, 241, 0.20)',
-    softText: '#C7D2FE',
-    focus: '#6366F1',
+    DEFAULT: '#FF5B1F',
+    hover: '#FF7A45',
+    active: '#E64A12',
+    soft: 'rgba(255, 91, 31, 0.16)',
+    softText: '#FFB59A',
+    focus: '#FF5B1F',
   },
   danger: {
-    DEFAULT: '#DC2626',
-    hover: '#EF4444',
-    soft: 'rgba(220, 38, 38, 0.18)',
-    softText: '#FECACA',
-    border: 'rgba(220, 38, 38, 0.60)',
+    DEFAULT: '#C42F36',
+    hover: '#B92C33',
+    soft: 'rgba(229, 72, 77, 0.16)',
+    softText: '#FF8A8D',
+    border: 'rgba(229, 72, 77, 0.50)',
   },
-  success: { DEFAULT: '#10B981', text: '#34D399', soft: 'rgba(16, 185, 129, 0.15)' },
-  warning: { DEFAULT: '#F59E0B', text: '#FBBF24', soft: 'rgba(245, 158, 11, 0.15)' },
-  focus: { ring: '#6366F1', width: '2px', offset: '2px' },
+  success: { DEFAULT: '#35B46A', text: '#5ED18E', soft: 'rgba(53, 180, 106, 0.14)' },
+  warning: { DEFAULT: '#F2A93B', text: '#F2A93B', soft: 'rgba(242, 169, 59, 0.14)' },
+  led: { ok: '#35B46A', attention: '#F2A93B', danger: '#E5484D', active: '#FF5B1F', off: '#2E3033' },
+  focus: { ring: '#FF5B1F', outline: 'transparent', width: '2px', offset: '2px' },
+  edge: {
+    highlight: 'rgba(255, 255, 255, 0.05)',
+    key: '#0B0C0D',
+    keyBrand: '#B23A0E',
+    keyDanger: '#7E1B20',
+    well: 'rgba(0, 0, 0, 0.45)',
+  },
+  itemType: {
+    login: '#B4D6F5',
+    passkey: '#AEE3CB',
+    bank_account: '#F2DD8F',
+    card: '#F2B8AD',
+    identity: '#CFC2F0',
+    ssh_key: '#9FC6EC',
+    api_key: '#9ED8BE',
+    secure_note: '#EDCF6B',
+    document: '#F7C29B',
+    media: '#EFA9BB',
+    collection: '#BFAEEC',
+    custom: '#F5CFAF',
+  },
+  shadow: {
+    sm: '0 1px 2px rgba(0, 0, 0, 0.40)',
+    md: '0 4px 12px rgba(0, 0, 0, 0.45)',
+    lg: '0 12px 28px rgba(0, 0, 0, 0.50)',
+    overlay: '0 18px 48px rgba(0, 0, 0, 0.60)',
+  },
 };
 
-/** Light theme — same brand, inverted surfaces. Opt-in via data-theme="light". */
+/** Anodized aluminium — the light finish. */
 export const lightTheme: ThemeTokens = {
   colorScheme: 'light',
   background: {
-    base: '#FFFFFF',
-    surface: '#F4F4F5',
-    raised: '#FFFFFF',
-    sunken: '#E4E4E7',
-    input: '#FFFFFF',
+    base: '#E6E4DF',
+    surface: '#F2F1EE',
+    raised: '#F7F6F3',
+    sunken: '#D9D7D1',
+    input: '#D9D7D1',
+    muted: '#DDDBD5',
   },
   text: {
-    primary: '#18181B',
-    secondary: '#3F3F46',
-    muted: '#52525B',
-    faint: '#71717A',
-    onBrand: '#FFFFFF',
+    primary: '#1B1C1E',
+    secondary: '#3A3B3E',
+    muted: '#55575B',
+    faint: '#8A8C8F',
+    onBrand: '#1B1C1E',
     onDanger: '#FFFFFF',
-    link: '#4338CA',
+    onModule: '#1B1C1E',
+    link: '#1B1C1E',
   },
-  border: { default: '#D4D4D8', strong: '#A1A1AA', subtle: '#E4E4E7' },
+  border: { default: '#C4C2BC', strong: '#ABA9A3', subtle: '#D4D2CC', control: '#7C7A74' },
   brand: {
-    DEFAULT: '#4F46E5',
-    hover: '#4338CA',
-    active: '#3730A3',
-    soft: 'rgba(79, 70, 229, 0.10)',
-    softText: '#4338CA',
-    focus: '#4F46E5',
+    DEFAULT: '#FF5B1F',
+    hover: '#FF7A45',
+    active: '#E64A12',
+    soft: 'rgba(255, 91, 31, 0.14)',
+    softText: '#1B1C1E',
+    focus: '#FF5B1F',
   },
   danger: {
-    DEFAULT: '#DC2626',
-    hover: '#B91C1C',
-    soft: 'rgba(220, 38, 38, 0.08)',
-    softText: '#B91C1C',
-    border: 'rgba(220, 38, 38, 0.50)',
+    DEFAULT: '#C42F36',
+    hover: '#B92C33',
+    soft: 'rgba(229, 72, 77, 0.12)',
+    softText: '#B42328',
+    border: 'rgba(196, 47, 54, 0.55)',
   },
-  success: { DEFAULT: '#059669', text: '#047857', soft: 'rgba(5, 150, 105, 0.10)' },
-  warning: { DEFAULT: '#D97706', text: '#B45309', soft: 'rgba(217, 119, 6, 0.10)' },
-  focus: { ring: '#4F46E5', width: '2px', offset: '2px' },
+  success: { DEFAULT: '#35B46A', text: '#1A6E3E', soft: 'rgba(53, 180, 106, 0.14)' },
+  warning: { DEFAULT: '#F2A93B', text: '#8A5A00', soft: 'rgba(242, 169, 59, 0.18)' },
+  led: { ok: '#35B46A', attention: '#F2A93B', danger: '#E5484D', active: '#FF5B1F', off: '#C4C2BC' },
+  focus: { ring: '#FF5B1F', outline: '#1B1C1E', width: '2px', offset: '2px' },
+  edge: {
+    highlight: 'rgba(255, 255, 255, 0.75)',
+    key: '#A9A6A0',
+    keyBrand: '#B23A0E',
+    keyDanger: '#7E1B20',
+    well: 'rgba(0, 0, 0, 0.14)',
+  },
+  itemType: {
+    login: '#CFE6FB',
+    passkey: '#CDEFE0',
+    bank_account: '#FBEDB8',
+    card: '#FAD3CC',
+    identity: '#E3DAF7',
+    ssh_key: '#BBD8F2',
+    api_key: '#B8E5D0',
+    secure_note: '#F6E09A',
+    document: '#FCD9BF',
+    media: '#F7C4D0',
+    collection: '#D5C8F2',
+    custom: '#FDE6D3',
+  },
+  shadow: {
+    sm: '0 1px 2px rgba(60, 55, 45, 0.12)',
+    md: '0 4px 12px rgba(60, 55, 45, 0.14)',
+    lg: '0 12px 28px rgba(60, 55, 45, 0.18)',
+    overlay: '0 18px 48px rgba(60, 55, 45, 0.24)',
+  },
 };
 
 export const themes = { light: lightTheme, dark: darkTheme } as const;
 export type ThemeName = keyof typeof themes;
 
 // ---------------------------------------------------------------------------
-// Typography, spacing, radii, shadows, motion, breakpoints, density
+// Typography, spacing, radii, motion, breakpoints, density
 // ---------------------------------------------------------------------------
 
+/**
+ * `sans` = native system UI for body and fields. `legend` = the one
+ * self-hosted semi-condensed industrial grotesk (Barlow Semi Condensed,
+ * OFL, @fontsource; Vietnamese subset included) for printed legends and
+ * headings. `mono` = secret values, keys and hashes only (data, not costume).
+ */
 export const fontFamily = {
   sans: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+  legend: "'Barlow Semi Condensed', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
   mono: "ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace",
 } as const;
 
+/**
+ * The strict five-step scale: [font-size, line-height] px. Every component
+ * reads --ms-text-<step> / --ms-leading-<step>; there is no sixth size.
+ * legend = printed key/LCD legends (uppercase, tracked); sm = secondary
+ * lines; md = body, fields, list titles; lg = view and detail titles;
+ * xl = the device-face wordmark and the Watchtower readout.
+ */
+export const textScale = {
+  legend: [11, 14],
+  sm: [13, 18],
+  md: [15, 22],
+  lg: [20, 26],
+  xl: [28, 32],
+} as const;
+
+export type TextStep = keyof typeof textScale;
+
+/** Tracking for printed legends (uppercase). */
+export const legendTracking = '0.08em';
+
+/** Role presets on the five-step scale (mobile reads these directly). */
 export const typography = {
-  display: { fontSize: 32, lineHeight: 40, fontWeight: 700, letterSpacing: '-0.01em' },
-  title: { fontSize: 24, lineHeight: 32, fontWeight: 700, letterSpacing: '-0.01em' },
-  heading: { fontSize: 20, lineHeight: 28, fontWeight: 600, letterSpacing: '0em' },
-  subheading: { fontSize: 16, lineHeight: 24, fontWeight: 600, letterSpacing: '0em' },
-  body: { fontSize: 16, lineHeight: 24, fontWeight: 400, letterSpacing: '0em' },
-  bodySmall: { fontSize: 14, lineHeight: 20, fontWeight: 400, letterSpacing: '0em' },
-  caption: { fontSize: 12, lineHeight: 16, fontWeight: 500, letterSpacing: '0em' },
-  /** Desktop `.label`: uppercase, tracking-wide, xs. */
-  label: { fontSize: 12, lineHeight: 16, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' as const },
-  mono: { fontSize: 14, lineHeight: 20, fontWeight: 400, letterSpacing: '0em' },
+  display: { fontSize: 28, lineHeight: 32, fontWeight: 600, letterSpacing: '0em' },
+  title: { fontSize: 20, lineHeight: 26, fontWeight: 600, letterSpacing: '0em' },
+  body: { fontSize: 15, lineHeight: 22, fontWeight: 400, letterSpacing: '0em' },
+  secondary: { fontSize: 13, lineHeight: 18, fontWeight: 400, letterSpacing: '0em' },
+  legend: { fontSize: 11, lineHeight: 14, fontWeight: 600, letterSpacing: legendTracking, textTransform: 'uppercase' as const },
+  mono: { fontSize: 13, lineHeight: 18, fontWeight: 400, letterSpacing: '0em' },
 } as const;
 
 export type TypographyKey = keyof typeof typography;
 
 /** 4px base scale. */
 export const spacing = {
-  0: 0, 1: 4, 2: 8, 3: 12, 4: 16, 5: 20, 6: 24, 8: 32, 10: 40, 12: 48, 16: 64, 20: 80, 24: 96,
+  0: 0, 1: 4, 2: 8, 3: 12, 4: 16, 5: 20, 6: 24, 8: 32, 10: 40, 12: 48, 16: 64,
 } as const;
 
+/** xs: LED segments, chips; sm: keys and wells; md: plates; lg: sheets and the device face. */
 export const radii = {
-  xs: 4,
-  sm: 8,
+  xs: 3,
+  sm: 6,
   md: 12,
   lg: 16,
-  xl: 24,
   full: 9999,
 } as const;
 
-export const shadows = {
-  sm: '0 1px 2px rgba(0, 0, 0, 0.20)',
-  md: '0 4px 12px rgba(0, 0, 0, 0.30)',
-  lg: '0 12px 32px rgba(0, 0, 0, 0.45)',
-  overlay: '0 16px 48px rgba(0, 0, 0, 0.55)',
-} as const;
+/** Dark-finish shadows (kept for existing imports); per-theme values live in `ThemeTokens.shadow`. */
+export const shadows = darkTheme.shadow;
 
 export const borders = { width: { hairline: 1, default: 1, strong: 2 } } as const;
 
+/**
+ * Mechanical motion: short ease-out detents, no bounce. `turn` is the
+ * unlock "key turn". Under reduced motion components swap movement for an
+ * opacity crossfade (or nothing) — see components.css.
+ */
 export const motion = {
-  duration: { fast: 120, base: 200, slow: 320 },
+  duration: { fast: 120, base: 160, slow: 180, turn: 280 },
   easing: {
     standard: 'cubic-bezier(0.2, 0, 0, 1)',
-    decelerate: 'cubic-bezier(0, 0, 0.2, 1)',
-    accelerate: 'cubic-bezier(0.4, 0, 1, 1)',
+    out: 'cubic-bezier(0.16, 1, 0.3, 1)',
   },
-  /** Honor `prefers-reduced-motion` — see tokens.css, which disables
-   *  transitions/animations under this media query. */
   reduceMotionQuery: '(prefers-reduced-motion: reduce)',
 } as const;
 
-export const breakpoints = { sm: 640, md: 768, lg: 1024, xl: 1280 } as const;
+/** Layout breakpoints: phone < 768 <= tablet < 1024 <= desktop. */
+export const breakpoints = { sm: 480, md: 768, lg: 1024, xl: 1280 } as const;
 
 /**
- * Density. `comfortable` is the default: 40px desktop controls, 48px
- * minimum touch targets on mobile (Apple HIG 44pt / Material 48dp — we
- * use 48px as the floor). `compact` is 32px controls, pointer-fine
- * (desktop mouse/trackpad) only; never use it where touch is primary.
+ * Density. Desktop keys and wells are 36px (pointer-fine); any coarse
+ * pointer gets 48px (Apple HIG 44pt / Material 48dp; we ship 48).
  */
 export const density = {
-  comfortable: { controlHeight: 40, controlHeightTouch: 48, controlPaddingX: 12, gap: 8 },
-  compact: { controlHeight: 32, controlHeightTouch: 44, controlPaddingX: 8, gap: 6 },
+  comfortable: { controlHeight: 36, controlHeightTouch: 48, controlPaddingX: 14, gap: 8 },
+  compact: { controlHeight: 28, controlHeightTouch: 44, controlPaddingX: 10, gap: 6 },
 } as const;
 
 export type DensityName = keyof typeof density;
 
-/** Minimum interactive target: WCAG 2.2 AA target size is 24x24 CSS px;
- *  Apple HIG / Material guidance is 44-48px. We ship 44px as the floor. */
+/** Minimum interactive target on touch. */
 export const minTouchTarget = 44;
 
 /** Default export surface: everything a consumer needs in one object. */
 export const tokens = {
-  brand,
-  neutral,
-  semantic,
   themes,
   dark: darkTheme,
   light: lightTheme,
+  itemTypes,
   fontFamily,
+  textScale,
+  legendTracking,
   typography,
   spacing,
   radii,

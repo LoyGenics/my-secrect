@@ -24,7 +24,7 @@ export function Tooltip({ content, children, delayDuration = 400, side = 'top' }
         <RadixTooltip.Portal>
           <RadixTooltip.Content side={side} sideOffset={6} className="ms-tooltip">
             {content}
-            <RadixTooltip.Arrow style={{ fill: 'var(--ms-color-bg-raised)' }} />
+            <RadixTooltip.Arrow style={{ fill: 'var(--ms-color-text-primary)' }} />
           </RadixTooltip.Content>
         </RadixTooltip.Portal>
       </RadixTooltip.Root>

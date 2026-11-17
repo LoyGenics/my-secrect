@@ -2,7 +2,7 @@
   "name": "@my-secrect/ui",
   "version": "0.1.0",
   "private": true,
-  "description": "My Secret design system: design tokens (light/dark), accessible React components on Radix primitives, and theme helpers. Web/desktop only for components; React Native consumes tokens only.",
+  "description": "My Secret design system: tokens (generated CSS + platform-neutral TS), accessible React components on Radix primitives, Lucide icon wrappers (web + React Native) and theme helpers. React Native imports tokens and ./native only.",
   "type": "module",
   "main": "src/index.ts",
   "exports": {
@@ -10,22 +10,28 @@
     "./tokens": "./src/tokens.ts",
     "./tokens.css": "./src/tokens.css",
     "./components.css": "./src/components.css",
-    "./theme": "./src/theme.ts"
+    "./theme": "./src/theme.ts",
+    "./icons": "./src/icons.ts",
+    "./native": "./src/native/index.ts"
   },
   "sideEffects": [
     "*.css"
   ],
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "tokens": "tsx scripts/write-tokens-css.ts",
+    "test": "tsx --test tests/*.test.ts"
   },
   "dependencies": {
+    "@fontsource/barlow-semi-condensed": "^5.3.0",
     "@my-secrect/i18n": "*",
     "@radix-ui/react-dialog": "^1.1.0",
     "@radix-ui/react-dropdown-menu": "^2.1.0",
     "@radix-ui/react-slot": "^1.2.0",
     "@radix-ui/react-tabs": "^1.1.0",
     "@radix-ui/react-toast": "^1.2.0",
-    "@radix-ui/react-tooltip": "^1.2.0"
+    "@radix-ui/react-tooltip": "^1.2.0",
+    "lucide-react": "^1.74.0"
   },
   "peerDependencies": {
     "react": "^18.3.1",
