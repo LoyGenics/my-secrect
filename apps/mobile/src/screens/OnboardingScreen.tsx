@@ -5,9 +5,11 @@ import Field from '../components/Field';
 import StrengthMeter from '../components/StrengthMeter';
 import { colors, styles } from '../theme';
 import { createVault } from '../vault';
+import RestoreBackupPanel from './RestoreBackupPanel';
 
 /** Step 0: create passphrase. Step 1: recovery key shown ONCE. Step 2: done. */
-export default function OnboardingScreen({ onDone }: { onDone: () => void }) {
+export default function OnboardingScreen({ onDone, onRestored }: { onDone: () => void; onRestored?: () => void }) {
+  const [restoring, setRestoring] = useState(false);
   const [step, setStep] = useState(0);
   const [pass, setPass] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -32,6 +34,7 @@ export default function OnboardingScreen({ onDone }: { onDone: () => void }) {
     <ScrollView style={styles.screen} contentContainerStyle={{ padding: 20, paddingTop: 64 }} keyboardShouldPersistTaps="handled">
       <Text style={styles.title}>my-secrect</Text>
       <Text style={styles.subtitle}>Create your local vault. Everything is encrypted on this device with Argon2id + XChaCha20-Poly1305.</Text>
+      {restoring && onRestored ? <RestoreBackupPanel onRestored={onRestored} onCancel={() => setRestoring(false)} /> : (<>
       <View style={{ flexDirection: 'row', gap: 6, marginTop: 20 }}>
         {['Create passphrase', 'Save recovery key', 'Done'].map((label, i) => (
           <View key={label} style={{ flex: 1, borderRadius: 8, paddingVertical: 8, paddingHorizontal: 4, backgroundColor: i === step ? colors.accentSoft : colors.card, alignItems: 'center' }}>
@@ -48,6 +51,11 @@ export default function OnboardingScreen({ onDone }: { onDone: () => void }) {
           <Pressable testID="create-vault-button" accessibilityLabel="Create vault" accessibilityRole="button" disabled={busy} onPress={() => void handleCreate()} style={[styles.primaryButton, busy ? { opacity: 0.6 } : null]}>
             <Text style={styles.primaryButtonText}>{busy ? 'Creating vault…' : 'Create vault'}</Text>
           </Pressable>
+          {onRestored ? (
+            <Pressable testID="restore-from-backup-button" accessibilityLabel="Restore from backup" accessibilityRole="button" disabled={busy} onPress={() => setRestoring(true)} style={[styles.ghostButton, { marginTop: 12 }]}>
+              <Text style={styles.ghostButtonText}>Restore from backup</Text>
+            </Pressable>
+          ) : null}
           <Text style={{ color: colors.faint, fontSize: 12, lineHeight: 17, marginTop: 16 }}>Prototype: Argon2id + XChaCha20-Poly1305 via libsodium. Not audited — do not treat as production-ready.</Text>
         </View>
       )}
@@ -78,6 +86,7 @@ export default function OnboardingScreen({ onDone }: { onDone: () => void }) {
           </Pressable>
         </View>
       )}
+      </>)}
     </ScrollView>
   );
 }

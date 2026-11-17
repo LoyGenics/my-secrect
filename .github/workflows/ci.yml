@@ -134,6 +134,26 @@ jobs:
       # docs/store-prep.md. Desktop `tsc && vite build` only validates the
       # web bundle, not the Tauri shell.
 
+  # ---- 3b. Web restore E2E (real Chromium, built web app, no secrets) -----
+  e2e-web-restore:
+    name: web restore e2e (Chromium)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install npm dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+      - name: Build web
+        run: npm --workspace apps/web run build
+      - name: Run restore e2e against the built web app
+        run: npx tsx --test tests/e2e-web-restore/restore.e2e.test.ts
+
   # ---- 4. Rust crypto-core -------------------------------------------------
   rust:
     name: rust crypto-core
