@@ -16,7 +16,7 @@ RSpec.describe 'Passkey verify concurrency' do
 
   after do
     conn = ActiveRecord::Base.connection
-    tables = %w[sessions devices authenticators passkey_challenges email_verifications audit_events users]
+    tables = %w[device_challenges sessions devices authenticators passkey_challenges email_verifications audit_events users]
              .select { |t| conn.table_exists?(t) }
     conn.execute("TRUNCATE #{tables.map { |t| conn.quote_table_name(t) }.join(', ')} RESTART IDENTITY CASCADE")
   end

@@ -74,7 +74,9 @@ RSpec.describe 'Passkeys API', type: :request do
       expect(response).to have_http_status(:ok)
       expect(json_body['token']).to start_with('sess_')
       expect(json_body['user_id']).to be_present
-      expect(json_body['device_id']).to be_present
+      # No device proof was sent, so the session is unbound
+      # (device binding: spec/requests/api/v1/device_binding_spec.rb).
+      expect(json_body['device_id']).to be_nil
 
       authenticator = Authenticator.last
       expect(authenticator.credential_id).to eq(credential['id'])

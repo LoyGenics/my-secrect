@@ -14,10 +14,14 @@ module Authentication
 
     module_function
 
-    def issue(user:, device: nil)
+    # device: an existing device whose proof was verified at the passkey
+    # step; pending_device: a device enrolment proven at the passkey step
+    # ({ public_key:, platform:, name_encrypted: }, public data only).
+    # Either takes effect only when the second factor succeeds.
+    def issue(user:, device: nil, pending_device: nil)
       raw = TOKEN_PREFIX + SecureRandom.hex(32)
       ::MfaChallenge.create!(
-        user: user, device: device,
+        user: user, device: device, pending_device: pending_device,
         token_digest: Digest::SHA256.hexdigest(raw),
         expires_at: Time.current + TTL
       )

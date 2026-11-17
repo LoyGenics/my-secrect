@@ -49,20 +49,29 @@ module Api
       end
 
       # POST /v1/auth/passkeys/verify — step 2: verify attestation OR assertion.
-      # Body: { email:, credential: {...}, kind: 'registration'|'authentication' }
-      # On success returns { token:, user_id:, device_id:, expires_in: } —
-      # or, when the user has MFA enabled and kind is 'authentication',
-      # { mfa_required: true, mfa_token:, user_id: } and NO session yet.
-      # Challenge is single-use and expires in 5 minutes (anti-replay).
+      # Body: { email:, credential: {...}, kind: 'registration'|'authentication',
+      #         device: (optional) { public_key:, signature:, platform:, name_encrypted: }
+      #                          | { id:, signature: } }
+      # `device` is a device proof over this ceremony's challenge
+      # (specs/device-identity.md §6.1); without it the session is unbound
+      # (device_id null). On success returns { token:, user_id:, device_id:,
+      # expires_in: } — or, when the user has MFA enabled and kind is
+      # 'authentication', { mfa_required: true, mfa_token:, user_id: } and
+      # NO session yet. Challenge is single-use and expires in 5 minutes.
+      # A verified passkey with a bad device proof answers 401
+      # device_verification_failed (the client drops its local device key).
       def verify_passkey
         result = Authentication::Passkeys.verify(
           email: params[:email],
           credential: params[:credential],
           kind: params[:kind] || 'authentication',
+          device: params[:device],
           user_agent: request.user_agent,
           ip_address: request.remote_ip
         )
         render json: result, status: :ok
+      rescue Authentication::Passkeys::DeviceVerificationError
+        render json: { error: 'device_verification_failed' }, status: :unauthorized
       rescue Authentication::Passkeys::VerificationError => e
         render json: { error: 'verification_failed', detail: e.message }, status: :unauthorized
       end

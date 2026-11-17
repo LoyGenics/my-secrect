@@ -36,7 +36,9 @@ module Recovery
         raise VerificationError, 'verification failed' if challenge.consumed_at.present? || challenge.expired?
         challenge.update!(consumed_at: Time.current)
       end
-      device = user.devices.active.first
+      # Unbound: the recovery proof says nothing about which device is
+      # asking, so no device is attached (specs/device-identity.md §6.1).
+      device = nil
       token = Authentication::SessionTokens.issue(
         user: user, device: device,
         user_agent: user_agent, ip_address: ip_address,
