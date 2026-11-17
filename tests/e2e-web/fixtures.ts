@@ -133,7 +133,7 @@ export async function registerAccountViaUi(page: Page, email: string): Promise<v
   await page.getByRole('tab', { name: 'Create account' }).click();
   await page.getByLabel('Account email').fill(email);
   await page.getByRole('button', { name: 'Create account with passkey' }).click();
-  await expect(page.getByRole('heading', { name: 'my-secrect' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'My Secret', level: 1 })).toBeVisible();
 }
 
 /** Vault onboarding: passphrase + confirm -> recovery key screen -> acknowledge -> open. Returns the recovery key. */

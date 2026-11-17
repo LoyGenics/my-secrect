@@ -31,7 +31,7 @@ test.describe('sign out / sign in / vault unlock are separate', () => {
 
     // Unlock is a separate local step: wrong passphrase fails, account session unaffected.
     await unlockVaultViaUi(page, 'definitely the wrong passphrase');
-    await expect(page.locator('p.text-red-400')).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: 'Wrong passphrase' })).toBeVisible();
     await expect(page.getByText('Your vault is locked')).toBeVisible();
     expect((await apiFetch(apiUrl, token2, 'GET', '/api/v1/auth/sessions')).status).toBe(200);
 
