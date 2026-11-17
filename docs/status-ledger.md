@@ -35,11 +35,15 @@ Medium: sharing UI shows server-supplied email instead of the pinned one (M1); "
 ## QA acceptance (tests/acceptance on test/acceptance, being ported to main)
 Covered: A, B, D, E, I, K, M. Partial: C, F, H. Pending: G, J, L. Open defects: H1/H2 device revocation (re-check on main), H3 pull 401 not handled, H4 local-only choice not sticky, C1 different vault key pushes unreadable items (high), K3 rollback (high, needs v2 AD + signed events), K2 backup item omission undetected, E1 relations rewritten on save.
 
-## Done on branches, not merged yet
-- feat/auth-email-device-binding (email ownership, device proof, rate limits, audit): agent reports rspec 149/0, web e2e 19/19. Merge needs: sync e2e harness must bind a device (sync now requires an active device), infra smoke `register` needs the email step, SMTP env in compose.
-
-## In progress (agents running)
-Mobile SQLCipher + biometric unlock; iOS and Android credential providers; extension hardening; media completion; QA acceptance matrix; UI redesign "Precision Instrument" (PRODUCT.md + apps/desktop/.impeccable/surfaces/apps-desktop-src-app-tsx.md); independent review of crypto + sharing; AI renders on Colab (Qwen-Image, Apache-2.0).
+## In progress (agents, each on its own branch)
+- fix/sharing-review: review findings M1, M2, L2–L4, L6.
+- fix/sync-qa: QA C1, H3, offline tombstones; K3 closure plan.
+- fix/infra-auth-media: SMTP + mail catcher for test stacks, email step + device proof in smoke/verify-restore/media e2e, tombstone runbook.
+- feat/design-system-adoption: Precision Instrument redesign, responsive, 9 walkthrough bugs, illustrations + motion, QA E1/H4.
+- feat/mobile-secure-storage: SQLCipher store, biometric unlock.
+- test/acceptance-main: QA suites ported to main.
+- Paused: feat/ios-credential-provider, feat/android-credential-provider (resume after mobile storage lands).
+- Waiting on the user: logo choice.
 
 ## Open defects / decisions
 - Passphrase Unicode normalisation (NFC) needs a KDF version bump.
