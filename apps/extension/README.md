@@ -41,6 +41,10 @@ entry in the manifest). The content script is injected on demand with
 4. **Punycode (`xn--`) domains** need explicit user confirmation (homograph protection, on by default).
 5. **Bank / card items** need explicit user confirmation (on by default).
 6. The content script fills **only the top-level frame** (`window.top === window.self`) — never an iframe.
+   Within it, only a **visible, editable** login password field (never hidden,
+   off-page, transparent, tiny, read-only, disabled or `new-password`-only) and
+   the username field of the **same form**, placed before it. Other forms on
+   the page are never touched.
 7. The content script verifies the fill message's `origin` equals `window.location.origin`.
 8. Blocked origins (options page) always win; an allow-list, when set, restricts filling to those origins.
 9. Login-form detection reports **only that a form exists** (origin + which fields exist). Field **values are never sent** by the content script — the user types credentials into the popup's Add-login form.

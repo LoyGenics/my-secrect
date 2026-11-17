@@ -5,7 +5,10 @@
  *
  * It receives exactly ONE username + ONE password, and only fills them when:
  *  - this is the top-level frame (window.top === window.self) — never an iframe,
- *  - the message origin matches window.location.origin exactly.
+ *  - the message origin matches window.location.origin exactly,
+ *  - into a visible, editable login password field and the username field of
+ *    the SAME form, placed before it — never hidden/honeypot fields, never a
+ *    sign-up (new-password) field, never another form on the page.
  * It never receives the vault, any key, or any other item. It never stores
  * anything. It never sends field VALUES anywhere — form detection reports
  * only that a login form exists (origin + which fields exist).
@@ -30,19 +33,57 @@ if (!window.__mySecrectContentLoaded) {
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
-  function findUsernameField(): HTMLInputElement | null {
-    const candidates = Array.from(document.querySelectorAll<HTMLInputElement>('input'));
+  const USERNAME_TYPES = new Set(['text', 'email', 'tel']);
+  const MIN_FIELD_PX = 8;
+
+  function hasAutocomplete(el: HTMLInputElement, token: string): boolean {
+    return (el.getAttribute('autocomplete') ?? '').toLowerCase().split(/\s+/).includes(token);
+  }
+
+  /**
+   * A field the user can see and type into. Honeypots hide fields with
+   * display/visibility/opacity (on the field or an ancestor), a tiny box, or
+   * off-page positioning; none of them may receive a credential.
+   */
+  function isUsable(el: HTMLInputElement): boolean {
+    if (el.disabled || el.readOnly || !el.isConnected) return false;
+    if (typeof el.checkVisibility !== 'function') return false; // fail closed on old engines
+    if (!el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+    const rect = el.getBoundingClientRect();
+    if (rect.width < MIN_FIELD_PX || rect.height < MIN_FIELD_PX) return false;
+    const left = rect.left + window.scrollX;
+    const top = rect.top + window.scrollY;
+    const root = document.documentElement;
+    return left + rect.width > 0 && top + rect.height > 0 && left < root.scrollWidth && top < root.scrollHeight;
+  }
+
+  /** A visible login password field; a page with only new-password fields gets nothing. */
+  function findPasswordField(): HTMLInputElement | null {
+    const fields = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="password"]')).filter(isUsable);
     return (
-      candidates.find((el) => el.getAttribute('autocomplete') === 'username') ??
-      candidates.find((el) => /user(name)?|login|email/i.test(el.name + ' ' + el.id) && el.type !== 'password') ??
-      candidates.find((el) => (el.type === 'text' || el.type === 'email') && el.offsetParent !== null) ??
+      fields.find((el) => hasAutocomplete(el, 'current-password')) ??
+      fields.find((el) => !hasAutocomplete(el, 'new-password')) ??
       null
     );
   }
 
-  function findPasswordField(): HTMLInputElement | null {
-    const candidates = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="password"]'));
-    return candidates.find((el) => el.offsetParent !== null) ?? candidates[0] ?? null;
+  /** The username of the SAME form as the password (or both form-less), before it, visible. */
+  function findUsernameField(password: HTMLInputElement): HTMLInputElement | null {
+    const nearestFirst = Array.from(document.querySelectorAll<HTMLInputElement>('input'))
+      .filter(
+        (el) =>
+          USERNAME_TYPES.has(el.type) &&
+          el.form === password.form &&
+          (el.compareDocumentPosition(password) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0 &&
+          isUsable(el),
+      )
+      .reverse();
+    return (
+      nearestFirst.find((el) => hasAutocomplete(el, 'username')) ??
+      nearestFirst.find((el) => hasAutocomplete(el, 'email') || /user|login|email/i.test(`${el.name} ${el.id}`)) ??
+      nearestFirst[0] ??
+      null
+    );
   }
 
   chrome.runtime.onMessage.addListener((message: FillMessage, sender, sendResponse) => {
@@ -55,13 +96,15 @@ if (!window.__mySecrectContentLoaded) {
       sendResponse({ ok: false, error: 'Fill origin does not match this page.' });
       return false;
     }
-    const usernameField = findUsernameField();
+    // Only this document's own fields: querySelectorAll never reaches into
+    // iframes, and this script is injected into frame 0 only.
     const passwordField = findPasswordField();
     if (!passwordField) {
-      sendResponse({ ok: false, error: 'No password field found on this page.' });
+      sendResponse({ ok: false, error: 'No visible password field to fill on this page.' });
       return false;
     }
-    if (usernameField) setFieldValue(usernameField, message.username);
+    const usernameField = findUsernameField(passwordField);
+    if (usernameField && message.username) setFieldValue(usernameField, message.username);
     setFieldValue(passwordField, message.password);
     sendResponse({ ok: true, filled: true });
     return false;
@@ -71,13 +114,11 @@ if (!window.__mySecrectContentLoaded) {
   // that a form with username/password fields exists, so the popup can offer
   // to save a login for this site. The user still types the credentials.
   function detectLoginForm(): void {
-    const hasPassword = document.querySelector('input[type="password"]') !== null;
-    if (!hasPassword) return;
-    const hasUsername =
-      document.querySelector('input[autocomplete="username"]') !== null ||
-      Array.from(document.querySelectorAll('input')).some((el) => /user(name)?|login|email/i.test(el.name + ' ' + el.id));
+    const password = findPasswordField();
+    if (!password) return;
+    const hasUsername = findUsernameField(password) !== null;
     // No origin in the message: the background takes it from the browser.
-    chrome.runtime.sendMessage({ type: 'ext-form-detected', hasUsername, hasPassword }).catch(() => undefined);
+    chrome.runtime.sendMessage({ type: 'ext-form-detected', hasUsername, hasPassword: true }).catch(() => undefined);
   }
 
   if (document.readyState === 'loading') {

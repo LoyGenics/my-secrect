@@ -317,4 +317,70 @@ test.describe.serial('extension hardening in real Chromium', () => {
     const text = JSON.stringify(seen);
     for (const other of [PW_B, TOTP_B, 'bob', ids.B, PASSPHRASE, recoveryKey]) expect(text).not.toContain(other);
   });
+
+  // ---- Fill only the intended fields (hostile markup from fixtures.ts) ----
+
+  /** Values of every trap-* input in the top document (must all stay empty). */
+  const trapValues = () =>
+    web.evaluate(() => Object.fromEntries(Array.from(document.querySelectorAll<HTMLInputElement>('input[id^="trap-"]')).map((el) => [el.id, el.value])));
+  const frameValues = async (selector: string) => ({
+    user: await web.frameLocator(selector).locator('#user').inputValue(),
+    pass: await web.frameLocator(selector).locator('#pass').inputValue(),
+  });
+
+  test('hidden, off-screen, transparent, tiny, read-only and disabled fields are never filled', async () => {
+    await openSite(https('example.test', '/honeypot'));
+    expect(await bg({ type: 'fill', id: ids.A })).toEqual({ ok: true, filled: true });
+    expect(await values()).toEqual({ user: 'alice', pass: PW_A });
+    const traps = await trapValues();
+    expect(Object.keys(traps).length).toBe(8);
+    for (const value of Object.values(traps)) expect(value).toBe('');
+  });
+
+  test('only the login form is filled: not the newsletter, sign-up or search form', async () => {
+    await openSite(https('example.test', '/two-forms'));
+    expect(await bg({ type: 'fill', id: ids.A })).toEqual({ ok: true, filled: true });
+    expect(await values()).toEqual({ user: 'alice', pass: PW_A });
+    expect(await trapValues()).toEqual({ 'trap-news': '', 'trap-su-user': '', 'trap-su-pass': '', 'trap-q': '' });
+  });
+
+  test('form-less page: username is the nearest visible field before the password, never one after it', async () => {
+    await openSite(https('example.test', '/formless'));
+    expect(await bg({ type: 'fill', id: ids.A })).toEqual({ ok: true, filled: true });
+    expect(await values()).toEqual({ user: 'alice', pass: PW_A });
+    expect(await trapValues()).toEqual({ 'trap-search': '', 'trap-after': '' });
+  });
+
+  for (const page of ['/hidden-only', '/new-password-only']) {
+    test(`refuses when there is no visible login password field (${page})`, async () => {
+      await openSite(https('example.test', page));
+      expect(await bg({ type: 'fill', id: ids.A })).toEqual({ ok: false, error: 'No visible password field to fill on this page.' });
+      expect(await values()).toEqual({ user: '', pass: '' });
+      for (const value of Object.values(await trapValues())) expect(value).toBe('');
+    });
+  }
+
+  test('a login form inside a cross-origin iframe is never filled', async () => {
+    await openSite(https('example.test', '/iframe-only'));
+    expect(await bg({ type: 'fill', id: ids.A })).toEqual({ ok: false, error: 'No visible password field to fill on this page.' });
+    expect(await frameValues('#cross')).toEqual({ user: '', pass: '' });
+  });
+
+  test('top-frame form is filled; cross-origin and same-origin iframe forms are not', async () => {
+    const tabId = await openSite(https('example.test', '/iframe-and-form'));
+    expect(await bg({ type: 'fill', id: ids.A })).toEqual({ ok: true, filled: true });
+    expect(await values()).toEqual({ user: 'alice', pass: PW_A });
+    expect(await frameValues('#cross')).toEqual({ user: '', pass: '' });
+    expect(await frameValues('#same')).toEqual({ user: '', pass: '' });
+    // content.js was injected into the top frame only: no sub-frame has it.
+    const loaded = await worker().evaluate(async (tabId) => {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        func: () => ({ top: window.top === window, loaded: (window as unknown as { __mySecrectContentLoaded?: boolean }).__mySecrectContentLoaded === true }),
+      });
+      return results.map((r) => r.result as { top: boolean; loaded: boolean });
+    }, tabId);
+    expect(loaded.filter((f) => f.top)).toEqual([{ top: true, loaded: true }]);
+    expect(loaded.filter((f) => !f.top)).toEqual([{ top: false, loaded: false }, { top: false, loaded: false }]);
+  });
 });
