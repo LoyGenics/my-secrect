@@ -45,8 +45,8 @@ if (!window.__mySecrectContentLoaded) {
     return candidates.find((el) => el.offsetParent !== null) ?? candidates[0] ?? null;
   }
 
-  chrome.runtime.onMessage.addListener((message: FillMessage, _sender, sendResponse) => {
-    if (message.type !== 'ext-fill') return false;
+  chrome.runtime.onMessage.addListener((message: FillMessage, sender, sendResponse) => {
+    if (sender.id !== chrome.runtime.id || message?.type !== 'ext-fill') return false;
     if (window.top !== window.self) {
       sendResponse({ ok: false, error: 'Refusing to fill inside an iframe.' });
       return false;
@@ -76,9 +76,8 @@ if (!window.__mySecrectContentLoaded) {
     const hasUsername =
       document.querySelector('input[autocomplete="username"]') !== null ||
       Array.from(document.querySelectorAll('input')).some((el) => /user(name)?|login|email/i.test(el.name + ' ' + el.id));
-    chrome.runtime
-      .sendMessage({ type: 'ext-form-detected', origin: window.location.origin, hasUsername, hasPassword })
-      .catch(() => undefined);
+    // No origin in the message: the background takes it from the browser.
+    chrome.runtime.sendMessage({ type: 'ext-form-detected', hasUsername, hasPassword }).catch(() => undefined);
   }
 
   if (document.readyState === 'loading') {

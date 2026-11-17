@@ -10,6 +10,22 @@ Local-first, end-to-end encrypted autofill. TypeScript + React, built with Vite.
 | **Popup / options UI** | `src/popup/`, `src/options/` | No keys, no vault. Talks to the background via `chrome.runtime` messages only. Holds at most the single item the user opened. |
 | **Content script** | `src/content/content.ts` | Receives exactly ONE username + ONE password for one user-chosen fill. Never the vault, never a key, never the item list. Never stores anything. |
 
+## Who may talk to the background (enforced in `src/background.ts`)
+
+- Every vault request (`ExtRequest`) is answered only when the browser-provided
+  `sender` is this extension's `popup/index.html` or `options/index.html`.
+- A content script counts as the web page: it may send only `ext-form-detected`,
+  only from the top frame, and the page origin is taken from `sender`, never
+  from the message. Anything else gets `Forbidden`.
+- Other extensions: there is no `onMessageExternal` / `onConnectExternal` listener.
+- `chrome.storage.local` is restricted to extension pages + the worker with
+  `setAccessLevel('TRUSTED_CONTEXTS')`; by default Chrome lets content scripts
+  read and write it. Injection fails closed if the browser refuses.
+- A fill is injected into frame 0 only, the tab is re-read after injection, and
+  the credential is addressed to that exact `documentId`.
+
+Proven in real Chromium by `e2e/hardening.spec.ts`.
+
 ## Permissions — minimal by design
 
 `storage`, `activeTab`, `scripting`, `alarms`. **No broad host permissions**

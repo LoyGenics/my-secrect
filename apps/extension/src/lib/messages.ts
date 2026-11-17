@@ -7,6 +7,11 @@
  * the user explicitly chose to fill — never the vault, never any key, never
  * the item list. Every message below is extension-internal (chrome.runtime
  * messaging); nothing here is sent to any web page.
+ *
+ * Sender rules (enforced in background.ts): ExtRequest is accepted only from
+ * this extension's popup and options pages. A content script may send only
+ * ContentMessage, only from the top frame of a tab, and the background takes
+ * the page origin from the browser-provided sender, never from the message.
  */
 import type { VaultItem } from '../../../../packages/core/src/types';
 import type { ExtSettings } from './settings';
@@ -91,10 +96,11 @@ export interface FillMessage {
   origin: string;
 }
 
-/** Message a content script sends to the background. Values are NEVER included. */
+/** A content script reports that a login form exists. Values are NEVER included. */
 export interface FormDetectedMessage {
   type: 'ext-form-detected';
-  origin: string;
   hasUsername: boolean;
   hasPassword: boolean;
 }
+
+export type ContentMessage = FormDetectedMessage;

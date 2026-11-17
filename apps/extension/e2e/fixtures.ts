@@ -33,6 +33,20 @@ export function buildExtension(): string {
   return out;
 }
 
+/**
+ * A second, unrelated MV3 extension loaded next to ours. Its worker is the
+ * "other extension" attacker in the isolation tests; it has no code of its own.
+ */
+export function writeHostileExtension(): string {
+  const dir = mkdtempSync(path.join(tmpdir(), 'my-secrect-hostile-ext-'));
+  writeFileSync(
+    path.join(dir, 'manifest.json'),
+    JSON.stringify({ manifest_version: 3, name: 'hostile-e2e', version: '1.0', background: { service_worker: 'bg.js' } }),
+  );
+  writeFileSync(path.join(dir, 'bg.js'), 'self.hostileE2E = true;\n');
+  return dir;
+}
+
 export const LOGIN_HTML = `<!doctype html><title>login</title>
 <form id="f" onsubmit="return false">
   <input id="user" name="username" type="text" autocomplete="username">

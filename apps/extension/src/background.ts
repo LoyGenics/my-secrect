@@ -9,16 +9,84 @@
  *
  * MV3 note: Chrome may terminate this worker at any time. When it restarts,
  * the in-memory session is gone and the vault reports locked — the user
- * unlocks again. That is correct behaviour, not a bug.
+ * unlocks again. That is correct behaviour, not a bug. Keys are deliberately
+ * NOT kept in chrome.storage.session: that would outlive the worker and be
+ * readable by every extension page, for a convenience (no re-unlock after an
+ * idle restart) that a password vault should not buy.
  */
 import * as vault from './lib/vault-ext';
 import { checkFillAllowed, originOf, hostOf, domainsMatch } from './lib/domain';
 import { loadSettings, saveSettings, isOriginBlocked, DEFAULT_SETTINGS } from './lib/settings';
-import type { ExtRequest, ExtResponse, LoginMeta, ItemMeta, PendingForm } from './lib/messages';
+import type { ExtRequest, ExtResponse, LoginMeta, ItemMeta, PendingForm, ContentMessage } from './lib/messages';
 import type { VaultItem } from '../../../packages/core/src/types';
 
 const AUTOLOCK_ALARM = 'my-secrect-autolock';
+const FORBIDDEN = 'Forbidden: only the my-secrect popup and options page may make this request.';
 let pendingForm: PendingForm | null = null;
+
+// chrome.storage.local is readable AND writable from content scripts by
+// default (verified in Chromium: an injected script read the settings key and
+// wrote a new one). It holds the wrapped keys, ciphertext rows and the fill
+// settings, so restrict it to extension pages and this worker. Every content
+// script injection waits for this and fails closed if the browser refused.
+const storageRestricted: Promise<boolean> = (async () => {
+  try {
+    await chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+const EXTENSION_ORIGIN = new URL(chrome.runtime.getURL('/')).origin;
+const EXTENSION_PAGES = new Set(['/popup/index.html', '/options/index.html']);
+
+/** This extension's popup or options page — never a web page, content script or other extension. */
+function isOwnExtensionPage(sender: chrome.runtime.MessageSender): boolean {
+  if (sender.id !== chrome.runtime.id || !sender.url) return false;
+  let url: URL;
+  try {
+    url = new URL(sender.url);
+  } catch {
+    return false;
+  }
+  if (url.origin !== EXTENSION_ORIGIN || !EXTENSION_PAGES.has(url.pathname)) return false;
+  return sender.origin === undefined || sender.origin === EXTENSION_ORIGIN;
+}
+
+/** Our content script in the TOP frame of a tab; the origin is the one the browser reports. */
+function contentScriptPage(sender: chrome.runtime.MessageSender): { tabId: number; origin: string } | null {
+  if (sender.id !== chrome.runtime.id || sender.tab?.id === undefined || sender.frameId !== 0) return null;
+  const origin = sender.origin ?? (sender.url ? originOf(sender.url) : null);
+  if (!origin || origin === 'null' || origin === EXTENSION_ORIGIN) return null;
+  return { tabId: sender.tab.id, origin };
+}
+
+/**
+ * Inject content.js into the top frame of `tabId`, then re-read the tab: if
+ * it navigated away from `origin` meanwhile, refuse. Returns the document the
+ * script landed in so the caller can address exactly that document.
+ */
+async function injectContentScript(
+  tabId: number,
+  origin: string,
+): Promise<{ ok: true; documentId: string | undefined } | { ok: false; error: string }> {
+  if (!(await storageRestricted)) {
+    return { ok: false, error: 'Refusing to inject: this browser would let page scripts read extension storage.' };
+  }
+  let documentId: string | undefined;
+  try {
+    const [result] = await chrome.scripting.executeScript({ target: { tabId, frameIds: [0] }, files: ['content.js'] });
+    documentId = result?.documentId;
+  } catch (e) {
+    return { ok: false, error: `Could not inject the fill script: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  const now = await chrome.tabs.get(tabId);
+  if (!now.url || originOf(now.url) !== origin) {
+    return { ok: false, error: 'The page changed before the fill could be delivered.' };
+  }
+  return { ok: true, documentId };
+}
 
 async function resetAutoLock(): Promise<void> {
   await chrome.alarms.clear(AUTOLOCK_ALARM);
@@ -123,18 +191,20 @@ async function handleFill(id: string, confirmed: boolean | undefined): Promise<E
     return { ok: false, error: check.needsConfirmation, needsConfirmation: check.needsConfirmation };
   }
   // On-demand injection: no broad host permissions, no persistent content
-  // script. The script is injected into THIS tab only, for THIS fill.
-  try {
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
-  } catch (e) {
-    return { ok: false, error: `Could not inject the fill script: ${e instanceof Error ? e.message : String(e)}` };
-  }
+  // script. The script is injected into THIS tab's top frame only, for THIS
+  // fill, and the credential is addressed to that exact document.
+  const injected = await injectContentScript(tab.id, origin);
+  if (!injected.ok) return { ok: false, error: injected.error };
   // Phase F fix: the content script can refuse the fill (iframe, origin
   // mismatch, no password field) via its reply. The old code ignored that
   // reply and reported success anyway. Check it before claiming a fill.
   let fillResult: unknown;
   try {
-    fillResult = await chrome.tabs.sendMessage(tab.id, { type: 'ext-fill', username, password, origin });
+    fillResult = await chrome.tabs.sendMessage(
+      tab.id,
+      { type: 'ext-fill', username, password, origin },
+      injected.documentId ? { frameId: 0, documentId: injected.documentId } : { frameId: 0 },
+    );
   } catch (e) {
     return { ok: false, error: `Could not deliver the fill to the page: ${e instanceof Error ? e.message : String(e)}` };
   }
@@ -264,24 +334,39 @@ async function handle(req: ExtRequest): Promise<ExtResponse> {
   }
 }
 
+/** The only requests a content script may make. Replies carry no vault data. */
+function handleContentMessage(message: ContentMessage, page: { tabId: number; origin: string }): ExtResponse | { ok: true } {
+  if (message.type === 'ext-form-detected') {
+    // Values are NEVER sent by the content script — only that a login
+    // form exists on this origin, so the popup can offer to save one.
+    pendingForm = {
+      origin: page.origin,
+      hasUsername: message.hasUsername === true,
+      hasPassword: message.hasPassword === true,
+      detectedAt: Date.now(),
+    };
+    return { ok: true };
+  }
+  return { ok: false, error: FORBIDDEN };
+}
+
 chrome.runtime.onMessage.addListener(
-  (message: ExtRequest | { type: 'ext-form-detected'; origin: string; hasUsername: boolean; hasPassword: boolean }, _sender, sendResponse: (r: ExtResponse | { ok: boolean }) => void) => {
-    if (message.type === 'ext-form-detected') {
-      // Values are NEVER sent by the content script — only that a login
-      // form exists on this origin, so the popup can offer to save one.
-      pendingForm = {
-        origin: message.origin,
-        hasUsername: message.hasUsername,
-        hasPassword: message.hasPassword,
-        detectedAt: Date.now(),
-      };
-      sendResponse({ ok: true });
+  (message: unknown, sender, sendResponse: (r: ExtResponse | { ok: boolean }) => void) => {
+    if (!message || typeof message !== 'object' || typeof (message as { type?: unknown }).type !== 'string') {
+      sendResponse({ ok: false, error: 'Malformed request.' });
       return false;
     }
-    handle(message as ExtRequest)
-      .then(sendResponse)
-      .catch((e: unknown) => sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) }));
-    return true; // async response
+    if (isOwnExtensionPage(sender)) {
+      handle(message as ExtRequest)
+        .then(sendResponse)
+        .catch((e: unknown) => sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) }));
+      return true; // async response
+    }
+    // Content scripts run inside the web page's renderer: treat them as the
+    // page. Sub-frames, other extensions and anything else get nothing.
+    const page = contentScriptPage(sender);
+    sendResponse(page ? handleContentMessage(message as ContentMessage, page) : { ok: false, error: FORBIDDEN });
+    return false;
   },
 );
 
