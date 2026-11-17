@@ -15,9 +15,11 @@
  *     SQLCipher.framework the extension build put in BUILT_PRODUCTS_DIR into
  *     the APP's Frameworks/ (an app extension may not carry its own
  *     Frameworks/ folder; the extension's rpath has @executable_path/../../Frameworks).
- *     The app binary itself does not link SQLCipher;
- *   - the App Group and shared keychain access group on the APP target too
- *     (both sides of the contract need them), merged idempotently.
+ *     The app binary itself does not link SQLCipher.
+ *   - the AutoFill credential provider entitlement on the APP target too:
+ *     Settings does not list a provider whose containing app lacks it.
+ * The app target's App Group, shared keychain group and
+ * MySecrectKeychainAccessGroup come from ./with-mobile-storage.js.
  *
  * Build-time setting (no default, no placeholder):
  *   MY_SECRECT_WEBCREDENTIALS_DOMAINS="example.org,login.example.org"
@@ -32,8 +34,7 @@ const path = require('path');
 const { withEntitlementsPlist, withXcodeProject } = require('expo/config-plugins');
 
 const TARGET = 'CredentialProvider';
-const APP_GROUP = 'group.com.loygenics.my-secrect';
-const KEYCHAIN_GROUP = '$(AppIdentifierPrefix)com.loygenics.my-secrect.shared';
+const AUTOFILL_ENTITLEMENT = 'com.apple.developer.authentication-services.autofill-credential-provider';
 const NATIVE_DIR = path.resolve(__dirname, '../../../native/ios-credential-provider');
 const SOURCE_DIRS = ['Sources/AutoFillCore', 'Extension'];
 // Keep in sync with native/ios-credential-provider/Package.swift.
@@ -51,11 +52,13 @@ function addUnique(list, value) {
   return out;
 }
 
-function withSharedEntitlements(config) {
+function withAppEntitlements(config) {
   return withEntitlementsPlist(config, (cfg) => {
     const e = cfg.modResults;
-    e['com.apple.security.application-groups'] = addUnique(e['com.apple.security.application-groups'], APP_GROUP);
-    e['keychain-access-groups'] = addUnique(e['keychain-access-groups'], KEYCHAIN_GROUP);
+    // Settings › AutoFill & Passwords only lists a provider whose containing
+    // app also carries this entitlement (verified on the iOS 26.5 simulator:
+    // extension-only, the provider is discovered but never listed).
+    e[AUTOFILL_ENTITLEMENT] = true;
     const domains = (process.env.MY_SECRECT_WEBCREDENTIALS_DOMAINS || '')
       .split(',').map((d) => d.trim().toLowerCase()).filter(Boolean);
     for (const domain of domains) {
@@ -257,7 +260,7 @@ function addExtensionTarget(project, { iosDir, bundleId, marketingVersion, build
 
 module.exports = function withIosCredentialProvider(config) {
   if (!config.ios?.bundleIdentifier) throw new Error('with-ios-credential-provider: expo.ios.bundleIdentifier is required');
-  config = withSharedEntitlements(config);
+  config = withAppEntitlements(config);
   return withXcodeProject(config, (cfg) => {
     addExtensionTarget(cfg.modResults, {
       iosDir: cfg.modRequest.platformProjectRoot,
