@@ -130,6 +130,8 @@ async function main() {
       return true;
     },
     deleteItem({ id }) { vault.deleteItem(id); return true; },
+    // Trash, then "Delete forever" straight away (the UI's two clicks, faster than the push debounce).
+    deleteForever({ id }) { vault.deleteItem(id); vault.permanentlyDeleteItem(id); return true; },
     restoreItem({ id }) { vault.restoreItem(id); return true; },
     list() { return vault.listItems(true).map(summary); },
     rawStorage() { return { ...store }; },

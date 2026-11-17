@@ -38,12 +38,12 @@ const M = {
   tamper: 'MARK-TAMPER-golf-7c7c', offline: 'MARK-OFFLINE-hotel-5e5e',
   lost: 'MARK-LOST-india-1a2b', lostEdit: 'MARK-LOST-EDIT-3c4d', lostAfter: 'MARK-LOST-AFTER-5e6f',
   lostA: 'MARK-LOST-A-7a8b', lostB: 'MARK-LOST-B-9c0d', fault: 'MARK-FAULT-juliet-2e3f',
-  bothDel: 'MARK-BOTHDEL-kilo-4a5b',
+  bothDel: 'MARK-BOTHDEL-kilo-4a5b', purge: 'MARK-PURGE-lima-6c7d',
 };
 const ALL_MARKERS = Object.values(M);
 
 const id = (n: string) => `item_${n.padEnd(24, '0').slice(0, 24)}`;
-const ID = { one: id('a1'), two: id('b2'), three: id('c3'), del: id('d4'), dvu: id('e5'), lvr: id('f6'), tamper: id('a7'), offline: id('b8'), lost: id('c9'), fault: id('d0'), bothDel: id('e1') };
+const ID = { one: id('a1'), two: id('b2'), three: id('c3'), del: id('d4'), dvu: id('e5'), lvr: id('f6'), tamper: id('a7'), offline: id('b8'), lost: id('c9'), fault: id('d0'), bothDel: id('e1'), purge: id('f2') };
 const nodeSha = async (b: Uint8Array) => new Uint8Array(createHash('sha256').update(b).digest());
 const wire = (local: string) => wireItemId(local, nodeSha); // independent SHA-256 (node:crypto)
 
@@ -420,6 +420,21 @@ test('both devices delete the same item offline -> one tombstone, both clean, no
   }
 });
 
+test('Delete forever right after a delete still tombstones the item on the server and other devices', async () => {
+  await A.call('createItem', { id: ID.purge, title: M.purge, fields: { notes: 'v1' } });
+  await A.call('syncNow'); await B.call('syncNow');
+  const w = await wire(ID.purge);
+  assert.equal(serverItem(w), '1|f');
+  await A.call('deleteForever', { id: ID.purge });
+  await A.call('syncNow');
+  await settled(A, 'A');
+  assert.equal(await A.find(M.purge), undefined, 'gone from A, trash included');
+  assert.equal(serverItem(w), '2|t', 'the server holds the tombstone (and the last version, for restore elsewhere)');
+  assert.deepEqual(serverLog(w), { events: ['1:upsert', '2:delete'], versions: [1] });
+  await B.call('syncNow');
+  assert.ok((await B.find(M.purge))?.deleted_at, 'B moved it to trash: a purge is local, the delete is not');
+});
+
 test('a session holder without the vault key cannot roll an item back by re-pushing old ciphertext', async () => {
   const w = await wire(ID.lost);
   const token = (await B.call<Record<string, string>>('rawStorage'))['sync-e2e.token'];
@@ -441,7 +456,11 @@ test('a session holder without the vault key cannot roll an item back by re-push
 test('convergence + server stores ciphertext only (full DB dump and API log contain no plaintext)', async () => {
   for (let i = 0; i < 2; i++) { await A.call('syncNow'); await B.call('syncNow'); }
   const a = (await A.call<any[]>('list')).sort((x, y) => x.id.localeCompare(y.id));
-  const b = (await B.call<any[]>('list')).sort((x, y) => x.id.localeCompare(y.id));
+  const bAll = (await B.call<any[]>('list')).sort((x, y) => x.id.localeCompare(y.id));
+  // Deleted forever on A: the purge is device-local, the delete is not — B keeps it in trash.
+  assert.equal(a.find((i) => i.id === ID.purge), undefined);
+  assert.ok(bAll.find((i) => i.id === ID.purge)?.deleted_at);
+  const b = bAll.filter((i) => i.id !== ID.purge);
   // Live items must be identical. A deleted (trash) item keeps whichever last version each device held
   // (A: the version it deleted, B: the newer remote edit); that is trash content, not a live divergence.
   const shape = (l: any[]) => l.map((i) => [i.id, i.deleted_at ? '(trash)' : i.title, !!i.deleted_at]);
