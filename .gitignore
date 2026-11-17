@@ -24,3 +24,4 @@ tests/e2e-web/test-results/
 tests/e2e-web/.logs/
 tests/e2e-web/screenshots/
 playwright-report/
+tests/sync-e2e/.out/

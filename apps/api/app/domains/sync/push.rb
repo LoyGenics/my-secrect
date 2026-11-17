@@ -4,6 +4,7 @@ module Sync
       attr_reader :current_revision
       def initialize(current_revision) = (@current_revision = current_revision; super('revision_conflict'))
     end
+    UUID_FORMAT = /\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
     module_function
     # Phase C fix — sync sequence race: Upsert/Delete assign the next
     # sequence as (max(sequence) + 1). Under concurrent pushes two writers
@@ -24,11 +25,25 @@ module Sync
     # raises ArgumentError (the controller turns that into 422).
     def call(vault:, item_id:, base_revision:, operation:, encrypted_payload:, encrypted_item_key:, encryption_version: 1, device: nil, signature: nil)
       raise ArgumentError, 'operation must be upsert or delete' unless %w[upsert delete].include?(operation.to_s)
+      # items.id is a uuid column: an invalid id used to cast to nil and the
+      # server silently minted a DIFFERENT id, so the pushed item never
+      # appeared under the id the client used. Reject it instead.
+      unless item_id.is_a?(String) && item_id.match?(UUID_FORMAT)
+        raise ArgumentError, 'item_id must be a lowercase uuid'
+      end
       if operation.to_s == 'upsert'
         raise ArgumentError, 'encrypted_payload required' if encrypted_payload.blank?
         raise ArgumentError, 'encrypted_item_key required' if encrypted_item_key.blank?
       end
       signature_bytes = decode_opaque_signature(signature)
+      # Wire format: standard base64. Stored: the DECODED ciphertext bytes
+      # (Pull and ItemPresenter re-encode exactly once). Before this fix the
+      # base64 TEXT was stored as the bytes and pull base64'd it again, so
+      # every client received double-encoded ciphertext it could not open.
+      if operation.to_s == 'upsert'
+        encrypted_payload = decode_ciphertext(encrypted_payload, 'encrypted_payload')
+        encrypted_item_key = decode_ciphertext(encrypted_item_key, 'encrypted_item_key')
+      end
       attempts = 0
       begin
         vault.with_lock do
@@ -49,6 +64,13 @@ module Sync
       end
     rescue EncryptedRecords::Upsert::RevisionConflict => e
       raise RevisionConflict, e.current_revision
+    end
+
+    def decode_ciphertext(value, name)
+      raise ArgumentError, "#{name} must be a base64 string" unless value.is_a?(String)
+      Base64.strict_decode64(value)
+    rescue ArgumentError
+      raise ArgumentError, "#{name} must be standard base64"
     end
 
     # nil / "" means the client omitted a signature. Anything else must

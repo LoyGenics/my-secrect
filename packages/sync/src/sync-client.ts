@@ -17,15 +17,17 @@
  * titles, tags, types, or relations to the server.
  */
 import {
+  appendConflicts,
   applyRemoteEvents,
   loadCheckpoint,
   loadConflicts,
   loadQueue,
   markQueueAttempt,
-  removeQueuedPush,
+  removeQueuedPushEntry,
   saveCheckpoint,
-  saveConflicts,
+  type ApplyOptions,
   type ApplyResult,
+  type QueuedPush,
   type LocalItemState,
   type RemoteDecrypt,
   type SyncCheckpoint,
@@ -46,8 +48,15 @@ export interface SyncClientOptions {
   getLocalState: () => Map<string, LocalItemState>;
   /** Persist an applied remote item locally (after AEAD verification). */
   saveLocalItem: (item: VaultItem, revision: number) => void;
-  /** Persist a remote tombstone locally. */
+  /** Persist a remote tombstone locally (revision = the delete event's revision). */
   deleteLocalItem: (itemId: string, revision: number) => void;
+  /** Called after the server accepted a queued push (2xx). The app uses it to
+   *  advance the item's synced base revision. May be async. */
+  onPushed?: (entry: QueuedPush, result: { revision: number; sequence: number }) => void | Promise<void>;
+  /** See ApplyOptions.itemMatchesEvent. */
+  itemMatchesEvent?: ApplyOptions['itemMatchesEvent'];
+  /** Pull page size guard: stop paging after this many pages (default 200). */
+  maxPullPages?: number;
 }
 
 export interface SyncRunResult {
@@ -59,9 +68,18 @@ export interface SyncRunResult {
   checkpoint: SyncCheckpoint | null;
 }
 
+/** HTTP status of an ApiError-like error, if any. Never parsed from the
+ *  message: a vault/item UUID in the path can contain "409" or "500". */
+function statusOf(err: unknown): number | null {
+  const status = (err as { status?: unknown } | null)?.status;
+  return typeof status === 'number' ? status : null;
+}
+
 function isOfflineError(err: unknown): boolean {
+  // An HTTP response (any status) proves the network works: never "offline".
+  if (statusOf(err) !== null) return false;
   const msg = err instanceof Error ? err.message : String(err);
-  return /network|fetch|Failed to fetch|ECONNREFUSED|ENOTFOUND|offline|timeout/i.test(msg);
+  return /network|fetch|Failed to fetch|ECONNREFUSED|ENOTFOUND|offline|timeout|ECONNRESET|socket/i.test(msg);
 }
 
 export class SyncClient {
@@ -79,7 +97,7 @@ export class SyncClient {
     const queue = loadQueue(this.opts.storage);
     for (const entry of queue) {
       try {
-        await this.api.syncPush(this.opts.vaultId, {
+        const res = await this.api.syncPush(this.opts.vaultId, {
           item_id: entry.item_id,
           base_revision: entry.base_revision,
           encrypted_payload: entry.encrypted_payload,
@@ -88,8 +106,11 @@ export class SyncClient {
           operation: entry.operation,
           signature: entry.signature,
         });
-        removeQueuedPush(this.opts.storage, entry.item_id);
+        // Remove only THIS entry: a newer edit may have replaced it meanwhile.
+        removeQueuedPushEntry(this.opts.storage, entry);
         pushed.push(entry.item_id);
+        // The server accepted the change; a failing hook must not be swallowed.
+        if (this.opts.onPushed) await this.opts.onPushed(entry, { revision: res.revision, sequence: res.sequence });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (isOfflineError(err)) {
@@ -97,13 +118,18 @@ export class SyncClient {
           markQueueAttempt(this.opts.storage, entry.item_id, msg);
           break; // connectivity is gone: stop, keep the rest queued in order
         }
-        if (/409/.test(msg)) {
+        if (statusOf(err) === 401) {
+          errors.push(`unauthorized (401): sign in again — ${queue.length} change(s) stay queued`);
+          markQueueAttempt(this.opts.storage, entry.item_id, msg);
+          break;
+        }
+        if (statusOf(err) === 409) {
           // Stale base revision: do NOT retry the same push. Record the
           // conflict on the next pull (the remote version wins nothing
           // automatically) and drop this queued entry — the local item
           // itself is untouched locally; the user resolves the conflict.
           errors.push(`409 conflict for ${entry.item_id}: remote changed first — kept local, pull will surface the conflict`);
-          removeQueuedPush(this.opts.storage, entry.item_id);
+          removeQueuedPushEntry(this.opts.storage, entry);
           continue;
         }
         errors.push(`${entry.item_id}: ${msg}`);
@@ -113,33 +139,61 @@ export class SyncClient {
     return { pushed, errors, offline };
   }
 
-  /** Pull since the saved checkpoint and apply verified events. */
+  /**
+   * Pull since the saved checkpoint, page by page (the server returns at
+   * most 500 events per page), applying AEAD-verified events.
+   *
+   * The checkpoint advances only past events that were fully handled. If an
+   * event is REJECTED (decrypt/AEAD failure), the checkpoint is held just
+   * before it, so the failure is neither skipped nor lost: it is reported on
+   * every run until it can be applied. Paging stops at the first rejection.
+   */
   async pull(): Promise<{ result: ApplyResult; offline: boolean }> {
-    const checkpoint = loadCheckpoint(this.opts.storage, this.opts.vaultId);
-    const since = checkpoint ? String(checkpoint.last_sequence) : undefined;
-    const res = await this.api.syncPull(this.opts.vaultId, since) as { events: Parameters<typeof applyRemoteEvents>[0]; next_cursor: string | null };
-    const events = Array.isArray(res.events) ? res.events : [];
-    const local = this.opts.getLocalState();
-    const applied = await applyRemoteEvents(events, local, this.opts.decrypt);
-    for (const id of applied.applied) {
-      const state = local.get(id);
-      if (state) this.opts.saveLocalItem(state.item, state.revision);
+    const total: ApplyResult = { applied: [], skipped: [], rejected: [], conflicts: [], tombstones: [], nextCursor: null };
+    const maxPages = this.opts.maxPullPages ?? 200;
+    for (let page = 0; page < maxPages; page++) {
+      const checkpoint = loadCheckpoint(this.opts.storage, this.opts.vaultId);
+      const since = checkpoint ? String(checkpoint.last_sequence) : undefined;
+      const res = await this.api.syncPull(this.opts.vaultId, since) as { events: Parameters<typeof applyRemoteEvents>[0]; next_cursor: string | null };
+      const events = Array.isArray(res.events) ? res.events : [];
+      if (events.length === 0) break;
+      const local = this.opts.getLocalState();
+      const applied = await applyRemoteEvents(events, local, this.opts.decrypt, { itemMatchesEvent: this.opts.itemMatchesEvent });
+      for (const id of applied.applied) {
+        const state = local.get(id);
+        if (state) this.opts.saveLocalItem(state.item, state.revision);
+      }
+      for (const id of applied.tombstones) {
+        const revisions = events.filter((e) => e.item_id === id && e.operation === 'delete').map((e) => e.revision);
+        this.opts.deleteLocalItem(id, revisions.length ? Math.max(...revisions) : 0);
+      }
+      if (applied.conflicts.length > 0) appendConflicts(this.opts.storage, applied.conflicts);
+      total.applied.push(...applied.applied);
+      total.skipped.push(...applied.skipped);
+      total.rejected.push(...applied.rejected);
+      total.conflicts.push(...applied.conflicts);
+      total.tombstones.push(...applied.tombstones);
+
+      const firstRejectedSeq = applied.rejected
+        .map((r) => r.sequence)
+        .filter((n): n is number => typeof n === 'number')
+        .sort((x, y) => x - y)[0];
+      const last = Number(applied.nextCursor);
+      const target = firstRejectedSeq !== undefined ? firstRejectedSeq - 1 : last;
+      const prior = checkpoint?.last_sequence ?? 0;
+      if (target > prior) {
+        saveCheckpoint(this.opts.storage, {
+          vault_id: this.opts.vaultId,
+          last_sequence: target,
+          checkpoint_hash: null,
+          updated_at: new Date().toISOString(),
+        });
+        total.nextCursor = String(target);
+      }
+      if (firstRejectedSeq !== undefined) break; // held at the rejected event
+      if (events.length < 500) break;
     }
-    for (const id of applied.tombstones) {
-      this.opts.deleteLocalItem(id, 0);
-    }
-    if (applied.conflicts.length > 0) {
-      saveConflicts(this.opts.storage, [...loadConflicts(this.opts.storage), ...applied.conflicts]);
-    }
-    if (applied.nextCursor !== null) {
-      saveCheckpoint(this.opts.storage, {
-        vault_id: this.opts.vaultId,
-        last_sequence: Number(applied.nextCursor),
-        checkpoint_hash: null,
-        updated_at: new Date().toISOString(),
-      });
-    }
-    return { result: applied, offline: false };
+    return { result: total, offline: false };
   }
 
   /** Full sync: push queued local changes, then pull remote changes. */

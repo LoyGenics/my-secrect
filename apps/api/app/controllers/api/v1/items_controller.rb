@@ -25,6 +25,8 @@ module Api
         render json: result, status: :ok
       rescue Sync::Push::RevisionConflict => e
         render json: { error: 'revision_conflict', current_revision: e.current_revision }, status: :conflict
+      rescue ArgumentError => e
+        render json: { error: 'invalid_request', message: e.message }, status: :unprocessable_entity
       end
 
       # DELETE — creates an encrypted tombstone (recoverable), not a hard delete.

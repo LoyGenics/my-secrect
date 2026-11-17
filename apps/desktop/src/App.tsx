@@ -49,6 +49,8 @@ import MediaView from './components/MediaView';
 import SharesView from './components/SharesView';
 import SecurityCenter from './components/SecurityCenter';
 import StepUpDialog from './components/StepUpDialog';
+import { useSync } from './sync/useSync';
+import SyncBar from './sync/SyncBar';
 import SignInScreen from './components/SignInScreen';
 import {
   SecurityApiClient,
@@ -324,6 +326,15 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
       setTrash(listTrash());
     }
   }, []);
+
+  // Sync (packages/sync via SDK): runs only while signed in AND unlocked.
+  const sync = useSync({
+    enabled: signedIn && unlocked && !localOnlyBypass,
+    apiBaseUrl,
+    accountEmail,
+    onItemsChanged: refresh,
+    onUnauthorized: handleUnauthorized,
+  });
 
   const doLock = useCallback(() => {
     lockVault();
@@ -1048,6 +1059,8 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
             <button className="text-zinc-400 hover:text-zinc-100" onClick={() => setNotice('')}>✕</button>
           </div>
         )}
+
+        <SyncBar status={sync.status} conflicts={sync.conflicts} onSyncNow={sync.syncNow} onKeepBoth={sync.keepBoth} resolveError={sync.resolveError} />
 
         {showRecovery && (
           <div className="mx-5 mt-3 rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
