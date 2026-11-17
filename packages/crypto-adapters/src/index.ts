@@ -7,10 +7,10 @@
  * the vault core uses. It is NOT an audit: no part of this codebase is
  * claimed audited or production-ready.
  *
- * The file also keeps the older WebCrypto adapter below, clearly marked
- * REFERENCE ONLY. It exists so the prototype/tests can run without native
- * deps and so the two constructions can be compared. It must NOT be used
- * for real user data.
+ * The old WebCrypto (AES-GCM + PBKDF2) reference adapter no longer lives
+ * here: it moved to tests/reference/webcrypto-reference-adapter.ts so no
+ * production bundle can import or select it (Metro does not tree-shake,
+ * so exporting it from here shipped it in the mobile bundle).
  *
  * Dependency note: `libsodium-wrappers-sumo` must be listed as a
  * dependency of this package (package.json) — this file only imports it.
@@ -223,47 +223,4 @@ export const libsodiumAdapter: CryptoAdapter = {
   async unwrapKey(wrappingKey, nonce, wrapped) {
     return this.decrypt(wrappingKey, nonce, wrapped);
   },
-};
-
-// ---------------------------------------------------------------------------
-// REFERENCE ONLY — WebCrypto adapter (AES-GCM + PBKDF2).
-//
-// WARNING: This adapter is NOT production crypto for this vault. It uses
-// AES-GCM (not XChaCha20-Poly1305) and PBKDF2 with 600,000 iterations
-// (not Argon2id). It exists only so the desktop prototype and tests can
-// run without native dependencies, and as a readable reference for the
-// CryptoAdapter interface. Do NOT use it for real user data. The vault
-// core (apps/desktop/src/vault.ts) uses `libsodiumAdapter` above.
-// ---------------------------------------------------------------------------
-
-async function importAesKey(key: Uint8Array) {
-  return crypto.subtle.importKey('raw', key as BufferSource, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
-}
-
-export const webCryptoReferenceAdapter: CryptoAdapter = {
-  randomBytes(n) { const b = new Uint8Array(n); crypto.getRandomValues(b); return b; },
-  async deriveKek(passphrase, salt) {
-    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(passphrase), 'PBKDF2', false, ['deriveBits']);
-    const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: salt as BufferSource, iterations: 600_000, hash: 'SHA-256' }, base, 256);
-    return new Uint8Array(bits);
-  },
-  async hkdf(ikm, info, length = 32) {
-    const base = await crypto.subtle.importKey('raw', ikm as BufferSource, 'HKDF', false, ['deriveBits']);
-    const bits = await crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(32), info: new TextEncoder().encode(info) }, base, length * 8);
-    return new Uint8Array(bits);
-  },
-  async encrypt(key, plaintext) {
-    const nonce = this.randomBytes(12);
-    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce as BufferSource }, await importAesKey(key), plaintext as BufferSource);
-    return { nonce, ciphertext: new Uint8Array(ct) };
-  },
-  async decrypt(key, nonce, ciphertext) {
-    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: nonce as BufferSource }, await importAesKey(key), ciphertext as BufferSource);
-    return new Uint8Array(pt);
-  },
-  async wrapKey(wrappingKey, keyToWrap) {
-    const { nonce, ciphertext } = await this.encrypt(wrappingKey, keyToWrap);
-    return { nonce, wrapped: ciphertext };
-  },
-  async unwrapKey(wrappingKey, nonce, wrapped) { return this.decrypt(wrappingKey, nonce, wrapped); },
 };

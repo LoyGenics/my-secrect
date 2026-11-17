@@ -27,6 +27,13 @@ import {
   sodiumReady,
 } from '../src/index.ts';
 
+// Root `npm run test:real` lists only this file from this package, and
+// the root package.json belongs to another workstream. This import
+// registers the reference-adapter guard tests in this same run. When the
+// root script lists the file itself, delete the line (otherwise the
+// tests just run twice).
+import './reference-adapter-guard.test.ts';
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const vectors = JSON.parse(readFileSync(
   path.join(repoRoot, 'tests/crypto-vectors/argon2id-vectors.json'),
