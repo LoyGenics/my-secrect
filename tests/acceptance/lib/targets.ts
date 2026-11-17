@@ -3,12 +3,12 @@
  * in-memory host storage — exactly the host API the module uses in its app:
  *   desktop/web  apps/desktop/src/vault.ts        -> globalThis.localStorage
  *   extension    apps/extension/src/lib/vault-ext.ts -> chrome.storage.local
- *   mobile       apps/mobile/src/vault.ts         -> @react-native-async-storage
+ *   mobile       apps/mobile/src/vault.ts         -> vault.db (SQLite; sql.js here, SQLCipher on a phone)
  * Only the storage host is substituted; crypto (libsodium), backup format,
  * validation and restore logic are the unmodified production modules.
  */
-import { createRequire } from 'node:module';
 import type { VaultItem } from '../../../packages/core/src/types';
+import { useSqlJsMobilePlatform, type MobileHostStorage } from '../../../apps/mobile/tests/support/node-mobile-platform';
 
 export type RestoreSecret = { passphrase: string } | { recoveryKey: string };
 
@@ -65,25 +65,18 @@ const keyList = (k: string | string[] | null | undefined): string[] => (k == nul
 };
 
 // ---------------------------------------------------------------- mobile
-const mobileStore = new Map<string, string>();
-const asyncStorageShim = {
-  async getItem(k: string) { return mobileStore.has(k) ? mobileStore.get(k)! : null; },
-  async setItem(k: string, v: string) { mobileStore.set(k, String(v)); },
-  async removeItem(k: string) { mobileStore.delete(k); },
-};
-// apps/mobile is CommonJS under tsx: its bare import of the RN package goes
-// through Module._load. Answer only that one request; everything else loads normally.
-const cjs = createRequire(import.meta.url)('node:module') as { _load: (request: string, ...rest: unknown[]) => unknown };
-const originalLoad = cjs._load;
-cjs._load = function (request: string, ...rest: unknown[]) {
-  if (request === '@react-native-async-storage/async-storage') return { __esModule: true, default: asyncStorageShim };
-  return originalLoad.call(this, request, ...rest);
-};
+// One vault.db per process, like the one Map per host above. The mobile
+// vault reaches it through setVaultPlatform (sql.js store, empty legacy
+// AsyncStorage, software DeviceKey) instead of expo-sqlite.
+let mobileStore: MobileHostStorage = { size: 0, snapshot: () => '[]' };
+let mobileReady: Promise<void> | null = null;
 
 export async function loadTargets(): Promise<Record<VaultTarget['name'], VaultTarget>> {
   const d = await import('../../../apps/desktop/src/vault.ts');
   const e = await import('../../../apps/extension/src/lib/vault-ext.ts');
   const m = await import('../../../apps/mobile/src/vault.ts');
+  mobileReady ??= useSqlJsMobilePlatform(m).then((host) => { mobileStore = host; });
+  await mobileReady;
   const desktop: VaultTarget = {
     name: 'desktop',
     create: (p) => d.createVault(p),
@@ -127,7 +120,7 @@ export async function loadTargets(): Promise<Record<VaultTarget['name'], VaultTa
     lock: () => m.lockVault(),
     wipe: () => m.wipeVault(),
     isUnlocked: () => m.isUnlocked(),
-    snapshot: () => sorted(mobileStore),
+    snapshot: () => mobileStore.snapshot(),
   };
   return { desktop, extension, mobile };
 }
