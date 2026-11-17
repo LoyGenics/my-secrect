@@ -66,6 +66,10 @@ export interface QueuedPush extends PushRequest {
   queued_at: string; // ISO 8601
   attempts: number;
   last_error?: string;
+  /** Local revision of the item at enqueue time (lets the app tell, after a
+   *  successful push, whether a newer local edit happened meanwhile). The
+   *  SyncClient never sends this field to the server. */
+  local_revision?: number;
 }
 
 export interface SyncCheckpoint {
@@ -127,7 +131,7 @@ export function saveQueue(storage: SyncStorage, queue: QueuedPush[]): void {
  * the older ciphertext is superseded locally, never pushed twice), but the
  * queue keeps FIFO order for different items. Returns the new queue.
  */
-export function enqueuePush(storage: SyncStorage, req: PushRequest): QueuedPush[] {
+export function enqueuePush(storage: SyncStorage, req: PushRequest & { local_revision?: number }): QueuedPush[] {
   const queue = loadQueue(storage).filter((q) => q.item_id !== req.item_id);
   const entry: QueuedPush = { ...req, queued_at: new Date().toISOString(), attempts: 0 };
   queue.push(entry);
@@ -137,6 +141,20 @@ export function enqueuePush(storage: SyncStorage, req: PushRequest): QueuedPush[
 
 export function removeQueuedPush(storage: SyncStorage, itemId: string): QueuedPush[] {
   const queue = loadQueue(storage).filter((q) => q.item_id !== itemId);
+  saveQueue(storage, queue);
+  return queue;
+}
+
+/**
+ * Remove a queued push ONLY if the queue still holds that exact entry.
+ * If the user edited the item again while the push was in flight,
+ * `enqueuePush` replaced the entry with a newer one; removing by item id
+ * would silently drop that newer edit from the queue.
+ */
+export function removeQueuedPushEntry(storage: SyncStorage, entry: QueuedPush): QueuedPush[] {
+  const queue = loadQueue(storage).filter(
+    (q) => !(q.item_id === entry.item_id && q.queued_at === entry.queued_at && q.encrypted_payload === entry.encrypted_payload && q.operation === entry.operation),
+  );
   saveQueue(storage, queue);
   return queue;
 }
@@ -244,6 +262,15 @@ export function saveConflicts(storage: SyncStorage, conflicts: SyncConflict[]): 
   storage.set(SYNC_CONFLICTS_KEY, JSON.stringify(conflicts));
 }
 
+/** Append conflicts, keeping the existing record when the id is already present
+ *  (a re-pulled event must not duplicate or reset a conflict the user has seen). */
+export function appendConflicts(storage: SyncStorage, incoming: SyncConflict[]): void {
+  const existing = loadConflicts(storage);
+  const known = new Set(existing.map((c) => c.id));
+  const fresh = incoming.filter((c) => !known.has(c.id));
+  if (fresh.length > 0) saveConflicts(storage, [...existing, ...fresh]);
+}
+
 // ---------------------------------------------------------------------------
 // Applying remote events — verify first, apply second
 // ---------------------------------------------------------------------------
@@ -256,7 +283,7 @@ export interface LocalItemState {
 export interface ApplyResult {
   applied: string[]; // item ids applied cleanly
   skipped: Array<{ item_id: string; reason: string }>; // stale / duplicate / no payload
-  rejected: Array<{ item_id: string; reason: string }>; // AEAD tag failed — never applied
+  rejected: Array<{ item_id: string; reason: string; sequence?: number }>; // AEAD tag failed — never applied
   conflicts: SyncConflict[];
   tombstones: string[]; // item ids tombstoned by a remote delete
   nextCursor: string | null;
@@ -368,12 +395,13 @@ export async function applyRemoteEvents(
     let remoteItem: VaultItem;
     try {
       remoteItem = await decrypt(event);
-    } catch {
-      result.rejected.push({ item_id: event.item_id, reason: 'AEAD verification failed — ciphertext rejected, nothing applied' });
+    } catch (err) {
+      const detail = err instanceof Error && err.message ? ` (${err.message})` : '';
+      result.rejected.push({ item_id: event.item_id, sequence: event.sequence, reason: `AEAD verification failed — ciphertext rejected, nothing applied${detail}` });
       continue;
     }
     if (remoteItem.id !== event.item_id) {
-      result.rejected.push({ item_id: event.item_id, reason: 'decrypted item id does not match event item id' });
+      result.rejected.push({ item_id: event.item_id, sequence: event.sequence, reason: 'decrypted item id does not match event item id' });
       continue;
     }
 
