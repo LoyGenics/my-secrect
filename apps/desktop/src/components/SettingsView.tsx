@@ -224,7 +224,7 @@ export default function SettingsView({
       {/* Auto-lock */}
       <Section id="settings-autolock-heading" icon="timer" title={st.autoLockTitle}>
         <p className="ms-text-sm ms-text-muted mt-0">{st.autoLockBody}</p>
-        <Field id="settings-auto-lock" label={st.autoLockAfter} className="mb-0 max-w-xs">
+        <Field id="settings-auto-lock" label={st.autoLockAfter} flush className="max-w-xs">
           <Select
             name="auto-lock"
             value={autoLockMinutes}
@@ -242,7 +242,7 @@ export default function SettingsView({
       {/* Account server (Security Center) */}
       <Section id="settings-server-heading" icon="server" title={st.serverTitle}>
         <p className="ms-text-sm ms-text-muted mt-0 ms-prose">{st.serverBody}</p>
-        <Field id="settings-api-base-url" label={st.apiUrl} className="mb-0">
+        <Field id="settings-api-base-url" label={st.apiUrl} flush>
           <Input
             name="api-base-url"
             type="url"
@@ -333,7 +333,7 @@ export default function SettingsView({
           </Button>
         ) : (
           <div className="grid gap-3">
-            <Field id="settings-wipe-confirm" label={st.wipeConfirmLabel} className="mb-0 max-w-xs">
+            <Field id="settings-wipe-confirm" label={st.wipeConfirmLabel} flush className="max-w-xs">
               <Input
                 name="wipe-confirm"
                 type="text"

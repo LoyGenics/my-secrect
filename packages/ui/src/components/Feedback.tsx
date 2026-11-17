@@ -62,7 +62,7 @@ export function Progress({ value, label, tone = 'neutral', valueText, className 
       aria-valuetext={valueText ?? `${Math.round(clamped)}%`}
       className={cn('ms-progress', tone !== 'neutral' && `ms-progress--${tone}`, className)}
     >
-      <div className="ms-progress__bar" style={{ width: `${clamped}%` }} />
+      <div className="ms-progress__bar" style={{ transform: `scaleX(${clamped / 100})` }} />
     </div>
   );
 }

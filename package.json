@@ -2,7 +2,7 @@
   "name": "my-secrect",
   "version": "0.1.0",
   "private": true,
-  "description": "Personal Digital Vault \u2014 local-first, E2EE",
+  "description": "Personal Digital Vault — local-first, E2EE",
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -16,7 +16,8 @@
     "test:rails": "cd apps/api && bundle exec rspec",
     "test:crypto-core": "cd native/crypto-core && cargo test",
     "dev:desktop": "npm --workspace apps/desktop run dev",
-    "test:e2e:web": "playwright test -c tests/e2e-web/playwright.config.ts"
+    "test:e2e:web": "playwright test -c tests/e2e-web/playwright.config.ts",
+    "test:a11y:web": "playwright test -c tests/a11y-web/playwright.config.ts"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",

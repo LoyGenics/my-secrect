@@ -259,6 +259,7 @@
   color: var(--ms-color-text-muted);
 }
 .ms-field { display: block; margin-bottom: var(--ms-space-4); min-width: 0; }
+.ms-field--flush { margin-bottom: 0; }
 .ms-field__hint { margin: 6px 0 0; font-size: var(--ms-text-sm); line-height: var(--ms-leading-sm); color: var(--ms-color-text-muted); }
 .ms-field__error {
   display: flex;
@@ -785,7 +786,7 @@ select.ms-input { padding-right: 32px; cursor: pointer; }
   background: var(--ms-color-bg-input);
   box-shadow: inset 0 1px 2px var(--ms-color-edge-well);
 }
-.ms-progress__bar { height: 100%; background: var(--ms-color-text-secondary); border-radius: var(--ms-radius-xs); transition: width var(--ms-duration-slow) var(--ms-easing-out); }
+.ms-progress__bar { width: 100%; height: 100%; background: var(--ms-color-text-secondary); transform-origin: left center; transition: transform var(--ms-duration-slow) var(--ms-easing-out); }
 .ms-progress--success .ms-progress__bar { background: var(--ms-color-led-ok); }
 .ms-progress--danger .ms-progress__bar { background: var(--ms-color-led-danger); }
 .ms-progress--warning .ms-progress__bar { background: var(--ms-color-led-attention); }

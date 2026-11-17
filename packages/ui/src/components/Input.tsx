@@ -23,6 +23,8 @@ export interface FieldProps {
   hideLabel?: boolean;
   /** Stable id for the control (kept for existing tests and `name`-based hooks); generated when omitted. */
   id?: string;
+  /** No bottom margin (when the parent lays fields out with a gap). */
+  flush?: boolean;
   children: ReactNode;
   className?: string;
 }
@@ -33,7 +35,7 @@ export interface FieldProps {
  * aria-invalid on error and announces the error (role="alert"). The
  * placeholder is never the label (WCAG 1.3.1 / 3.3.2).
  */
-export function Field({ label, hint, error, hideLabel = false, id, children, className }: FieldProps) {
+export function Field({ label, hint, error, hideLabel = false, id, flush = false, children, className }: FieldProps) {
   const generated = useId();
   const controlId = id ?? generated;
   const hintId = hint ? `${controlId}-hint` : undefined;
@@ -46,7 +48,7 @@ export function Field({ label, hint, error, hideLabel = false, id, children, cla
       )
     : children;
   return (
-    <div className={cn('ms-field', className)}>
+    <div className={cn('ms-field', flush && 'ms-field--flush', className)}>
       <label htmlFor={controlId} className={cn('ms-label', hideLabel && 'ms-sr-only')}>
         {label}
       </label>

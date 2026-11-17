@@ -592,7 +592,7 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
             {customPairs.length === 0 && <p className="ms-field__hint mt-0">{f.customEmpty}</p>}
             {customPairs.map((pair, i) => (
               <div key={i} className="mb-2 grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] items-end gap-2">
-                <Field id={`custom-field-name-${i}`} label={f.customName} className="mb-0">
+                <Field id={`custom-field-name-${i}`} label={f.customName} flush>
                   <Input
                     name={`custom-field-name-${i}`}
                     type="text"
@@ -603,7 +603,7 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
                     onChange={(e) => setCustomPairs((prev) => prev.map((p, j) => (j === i ? { ...p, name: e.target.value } : p)))}
                   />
                 </Field>
-                <Field id={`custom-field-value-${i}`} label={f.customValue} className="mb-0">
+                <Field id={`custom-field-value-${i}`} label={f.customValue} flush>
                   <Input
                     name={`custom-field-value-${i}`}
                     type="text"

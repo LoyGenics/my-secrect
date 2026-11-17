@@ -66,7 +66,7 @@ export function RestoreBackup({
   return (
     <div className="ms-device__body" data-testid="restore-backup">
       <p className="ms-text-sm ms-text-secondary m-0">{r.lede}</p>
-      <Field id="restore-file" label={r.file} className="mb-0">
+      <Field id="restore-file" label={r.file} flush>
         <Input
           type="file"
           accept="application/json,.json"
@@ -83,7 +83,7 @@ export function RestoreBackup({
         ]}
         onChange={(next) => { setMode(next); setSecret(''); setError(''); }}
       />
-      <Field id="restore-secret" label={secretLabel} className="mb-0">
+      <Field id="restore-secret" label={secretLabel} flush>
         <Input
           type="password"
           value={secret}

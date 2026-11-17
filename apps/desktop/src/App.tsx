@@ -1024,10 +1024,10 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
 
                 {onboardingStep === 0 && (
                   <form className="ms-device__body" onSubmit={(e) => { e.preventDefault(); void handleCreateVault(); }} noValidate>
-                    <Field id="new-pass" label={o.passphrase} className="mb-0">
+                    <Field id="new-pass" label={o.passphrase} flush>
                       <SecureField name="master-passphrase" value={newPass} onChange={(e) => setNewPass(e.target.value)} placeholder={o.passphrasePlaceholder} autoComplete="new-password" aria-label={o.passphrase} />
                     </Field>
-                    <Field id="new-pass-confirm" label={o.confirm} className="mb-0">
+                    <Field id="new-pass-confirm" label={o.confirm} flush>
                       <SecureField name="confirm-passphrase" value={newPassConfirm} onChange={(e) => setNewPassConfirm(e.target.value)} placeholder={o.confirmPlaceholder} autoComplete="new-password" aria-label={o.confirm} />
                     </Field>
                     <div className="grid gap-1.5">
@@ -1109,11 +1109,11 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
             </p>
             <form className="ms-device__body" onSubmit={(e) => { e.preventDefault(); void handleUnlock(); }}>
               {useRecovery ? (
-                <Field id="lock-recovery-key" label={lk.recoveryKey} className="mb-0">
+                <Field id="lock-recovery-key" label={lk.recoveryKey} flush>
                   <Input name="recovery-key" type="text" mono value={recoveryInput} onChange={(e) => setRecoveryInput(e.target.value)} placeholder={lk.recoveryPlaceholder} autoComplete="off" aria-label={lk.recoveryKey} autoFocus />
                 </Field>
               ) : (
-                <Field id="lock-passphrase" label={lk.passphrase} className="mb-0">
+                <Field id="lock-passphrase" label={lk.passphrase} flush>
                   <SecureField name="master-passphrase" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} autoComplete="current-password" aria-label={lk.passphrase} autoFocus />
                 </Field>
               )}
@@ -1215,7 +1215,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
                   aria-label={sh.searchLabel}
                   autoComplete="off"
                 />
-                <button type="button" className="ms-input-wrap__button" aria-label={sh.openSearch} title={sh.openSearch} onClick={() => setShowPalette(true)}>
+                <button type="button" className="ms-input-wrap__button" aria-label={`${sh.openSearch} ⌘K`} title={sh.openSearch} onClick={() => setShowPalette(true)}>
                   <Kbd>⌘K</Kbd>
                 </button>
               </span>
