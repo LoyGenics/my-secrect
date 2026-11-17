@@ -8,7 +8,9 @@ const mfaSection = (page: Page) =>
   page.locator('section').filter({ has: page.getByRole('heading', { name: 'Authentication methods', exact: true }) });
 
 /** Enroll TOTP through the UI with a code computed by node:crypto. Returns secret, recovery codes and last used step. */
-async function enableMfa(page: Page) {
+async function enableMfa(page: Page, apiUrl: string) {
+  const tokenBefore = await storedToken(page);
+  expect(tokenBefore).not.toBeNull();
   const auth = mfaSection(page);
   await auth.getByRole('button', { name: 'Set up authenticator app' }).click();
   const secret = await auth.getByRole('textbox', { name: 'Secret key' }).inputValue();
@@ -19,6 +21,9 @@ async function enableMfa(page: Page) {
   await auth.getByRole('button', { name: 'Confirm with a code from your authenticator app' }).click();
   await expect(auth.getByRole('alert')).toBeVisible();
   await expect(auth.getByText('Two-factor authentication is on.')).toHaveCount(0);
+  // A wrong MFA-confirm code must not sign the user out: token unchanged and still accepted by the server.
+  expect(await storedToken(page)).toBe(tokenBefore);
+  expect((await apiFetch(apiUrl, tokenBefore, 'GET', SESSIONS_API)).status).toBe(200);
   const { code, step } = await nextTotp(secret, null);
   await auth.getByRole('textbox', { name: 'Six-digit code' }).fill(code);
   await auth.getByRole('button', { name: 'Confirm with a code from your authenticator app' }).click();
@@ -37,7 +42,7 @@ async function enableMfa(page: Page) {
 test.describe('MFA (TOTP)', () => {
   test('enroll/confirm, MFA at sign-in (TOTP), step-up with TOTP gates sensitive actions, disable', async ({ page, authenticator, apiUrl }) => {
     const { email } = await signedInWithVault(page);
-    const { secret, lastStep } = await enableMfa(page);
+    const { secret, lastStep } = await enableMfa(page, apiUrl);
     let step = lastStep;
 
     // Sign out, sign in: the passkey alone no longer yields a session.
@@ -67,7 +72,7 @@ test.describe('MFA (TOTP)', () => {
 
   test('step-up with TOTP: wrong code and cancel do not run the action; right code does', async ({ page, authenticator, apiUrl }) => {
     await signedInWithVault(page);
-    const { secret, lastStep } = await enableMfa(page);
+    const { secret, lastStep } = await enableMfa(page, apiUrl);
     const auth = mfaSection(page);
 
     // Gated action: disable MFA.
@@ -97,7 +102,7 @@ test.describe('MFA (TOTP)', () => {
 
   test('recovery codes: sign-in with a recovery code works once; regenerate invalidates the old set; disable returns to passkey-only', async ({ page, authenticator, apiUrl }) => {
     const { email } = await signedInWithVault(page);
-    const { codes } = await enableMfa(page);
+    const { codes } = await enableMfa(page, apiUrl);
 
     // Regenerate (step-up via passkey): new set shown, old set dead.
     const auth = mfaSection(page);

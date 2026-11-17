@@ -234,7 +234,15 @@ export default function SecurityCenter({
       }
       // A 401 here means the session died mid-action: hand back to
       // SignIn via App instead of showing a dead-end error.
-      if (isUnauthorized(err) && !isVerificationFailed(err)) onUnauthorized?.();
+      // Exempt: wrong MFA-confirm code (isVerificationFailed, path-scoped). Any
+      // other `verification_failed` 401 (e.g. passkey add verify) is ambiguous,
+      // so re-check with a cheap authenticated call and sign out only if the
+      // session is really dead.
+      if (isUnauthorized(err) && !isVerificationFailed(err)) {
+        const ambiguous = err instanceof ApiError && err.message.includes('verification_failed');
+        const alive = ambiguous && security ? await security.listSessions().then(() => true, () => false) : false;
+        if (!alive) onUnauthorized?.();
+      }
       setError(describeError(err, dict));
       return false;
     }
