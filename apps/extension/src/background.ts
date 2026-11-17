@@ -17,6 +17,7 @@
 import * as vault from './lib/vault-ext';
 import { checkFillAllowed, checkPageAllowed, originOf, hostOf, domainsMatch } from './lib/domain';
 import { loadSettings, saveSettings, isOriginBlocked, DEFAULT_SETTINGS } from './lib/settings';
+import { generatePassword } from './lib/password';
 import type { ExtRequest, ExtResponse, LoginMeta, ItemMeta, PendingForm, ContentMessage, LoginSubmittedMessage, SaveOffer } from './lib/messages';
 import type { VaultItem } from '../../../packages/core/src/types';
 
@@ -228,29 +229,6 @@ function itemMeta(item: VaultItem): ItemMeta {
     favorite: item.favorite === true,
     updatedAt: item.updated_at,
   };
-}
-
-function generatePassword(length = 16, symbols = true, numbers = true): string {
-  // Phase F fix: the class-guarantee writes below touch indices 0-3, so a
-  // requested length below 4 used to silently return a LONGER password
-  // than asked for (assigning chars[3] extends the array). Clamp to 4-64.
-  length = Math.min(64, Math.max(4, Math.floor(length) || 16));
-  const lower = 'abcdefghjkmnpqrstuvwxyz';
-  const upper = 'ABCDEFGHJKMNPQRSTUVWXYZ';
-  const digits = '23456789';
-  const syms = '!@#$%^&*()-_=+[]{}';
-  let pool = lower + upper;
-  if (numbers) pool += digits;
-  if (symbols) pool += syms;
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
-  const chars = Array.from(bytes, (b) => pool[b % pool.length]);
-  // Guarantee at least one of each selected class.
-  chars[0] = lower[bytes[0] % lower.length];
-  chars[1] = upper[bytes[1] % upper.length];
-  if (numbers) chars[2] = digits[bytes[2] % digits.length];
-  if (symbols) chars[3] = syms[bytes[3] % syms.length];
-  return chars.join('');
 }
 
 function computeHealth(items: VaultItem[]): { score: number; total: number; weakCount: number; reusedCount: number } {
