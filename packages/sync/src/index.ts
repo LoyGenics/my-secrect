@@ -7,9 +7,13 @@
  *  - A remote revision is applied ONLY after its AEAD tag verifies
  *    (via the caller's decrypt callback, which uses the libsodium adapter).
  *    A failed tag => the event is rejected, recorded, and never applied.
- *  - A revision must be monotonic: event.revision must be > the local
- *    revision for that item (or == when it is the item we just pushed).
- *    Older / duplicate events are skipped, never rolled back over.
+ *  - A remote upsert is applied only when this device has not edited
+ *    since the shared base and the event revision is newer. An older
+ *    revision on that synced lineage is skipped, never rolled back.
+ *    If both sides edited since the base, both versions are kept as a
+ *    conflict — even when the remote revision is not greater — and the
+ *    local item is not overwritten. Identical plaintext at a revision
+ *    that is not newer is the echo of an edit already stored locally.
  *  - Deletes are tombstones, restorable until permanently deleted.
  *  - The push queue survives reloads (localStorage, versioned key).
  *  - Checkpoints are saved locally so a pull resumes from `since`.
@@ -261,6 +265,22 @@ export interface ApplyResult {
 /** Decrypt + verify one remote event. Must throw on AEAD failure. */
 export type RemoteDecrypt = (event: SyncEvent) => Promise<VaultItem>;
 
+/** Same decrypted item, ignoring key order. Not a device-signature check. */
+function samePlaintext(a: VaultItem, b: VaultItem): boolean {
+  const canon = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(canon);
+    if (value && typeof value === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+        out[key] = canon((value as Record<string, unknown>)[key]);
+      }
+      return out;
+    }
+    return value;
+  };
+  return JSON.stringify(canon(a)) === JSON.stringify(canon(b));
+}
+
 /**
  * Apply a batch of pulled events to local state. Pure except for the
  * decrypt callback. Order: events are applied in sequence order.
@@ -311,12 +331,15 @@ export async function applyRemoteEvents(
       continue;
     }
 
-    // Upsert: must carry ciphertext, and must be newer than local.
+    // Upsert: ciphertext is required. A revision that is not newer is
+    // skipped only on the synced lineage (local still at base). Two
+    // offline edits share a base and often the same next revision; that
+    // is a conflict, not a stale echo, so it must be decrypted and kept.
     if (!event.encrypted_payload || !event.encrypted_item_key) {
       result.skipped.push({ item_id: event.item_id, reason: 'no ciphertext payload — cannot verify or apply' });
       continue;
     }
-    if (local && event.revision <= local.revision) {
+    if (local && event.revision <= local.revision && detectConflict(local.revision, local.baseRevision, event.revision) === 'none') {
       result.skipped.push({ item_id: event.item_id, reason: 'stale revision: not newer than local' });
       continue;
     }
@@ -334,10 +357,24 @@ export async function applyRemoteEvents(
       continue;
     }
 
+    // A remote revision at or behind the synced base is history already
+    // merged into the lineage, not the other device's offline edit. The
+    // pending local edit is left untouched; nothing is discarded.
+    if (local && event.revision <= local.baseRevision) {
+      result.skipped.push({ item_id: event.item_id, reason: 'stale revision: not newer than local' });
+      continue;
+    }
+
     // Both sides changed since base => conflict, keep BOTH.
+    // Same plaintext at a revision that is not newer is the local edit
+    // echoed back, not a second version to surface.
     if (local) {
       const kind = detectConflict(local.revision, local.baseRevision, event.revision);
       if (kind !== 'none') {
+        if (event.revision <= local.revision && samePlaintext(local.item, remoteItem)) {
+          result.skipped.push({ item_id: event.item_id, reason: 'stale revision: not newer than local' });
+          continue;
+        }
         result.conflicts.push(resolveConflictKeepBoth(local.item, remoteItem, {
           localRevision: local.revision,
           remoteRevision: event.revision,
