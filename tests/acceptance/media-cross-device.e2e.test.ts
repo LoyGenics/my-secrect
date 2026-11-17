@@ -62,7 +62,7 @@ test('device A: register, create vault, export the encrypted backup, upload an e
   if (noDocker()) return t.skip(String(noDocker()));
   A = await freshDevice(browser, api.apiBase);
   const p = A.page;
-  await registerViaUi(p, WEB, EMAIL);
+  await registerViaUi(p, WEB, EMAIL, api.mailDir);
   await createVaultViaUi(p, PASS);
   const [download] = await Promise.all([
     p.waitForEvent('download'),

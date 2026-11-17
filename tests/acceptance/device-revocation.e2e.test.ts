@@ -12,9 +12,11 @@
  *      account call (Security Center)                                    (passes)
  *      sync pull                                               (DEFECT-H3, todo)
  *   3. Data B already holds offline stays readable there (stated in UI). (passes)
- *   4. Only B is cut off: A keeps working.                    (DEFECT-H1, todo)
+ *   4. Each session is bound to its own device key; only B is cut off,
+ *      A keeps working. (passes on main; was DEFECT-H1 on integrate/wave0)
  *   5. B cannot simply sign in again with its passkey and pull
  *      items created after the revocation.                     (DEFECT-H2, todo)
+ *   6. Revoking B's device AND removing B's passkey keeps B out.         (passes)
  * DEFECT tests are written as the correct expectation and marked todo;
  * ACCEPTANCE_STRICT=1 turns them into failures.
  *
@@ -61,7 +63,7 @@ before(async () => {
   api = await startApi({ port: API_PORT, db: DB, webOrigin: WEB });
   web = await startWeb(WEB_PORT);
   browser = await chromium.launch();
-  A = new Client('A', path.join(dir, 'a.json')).start({ API_BASE: api.apiBase, WEBAUTHN_ORIGIN: WEB, WEBAUTHN_RP_ID: 'localhost' });
+  A = new Client('A', path.join(dir, 'a.json')).start({ API_BASE: api.apiBase, WEBAUTHN_ORIGIN: WEB, WEBAUTHN_RP_ID: 'localhost', MAIL_DIR: api.mailDir });
 });
 after(async () => {
   await B?.ctx.close().catch(() => undefined);
@@ -104,8 +106,13 @@ test('device B (real Chromium) signs in with its own passkey, restores the backu
   assert.equal(await apiStatus(api.apiBase, bToken, 'GET', '/v1/vaults'), 200);
 });
 
-test('B\'s session is bound to a device record of its own, not to A\'s device', { todo: defect('DEFECT-H1: Authentication::Passkeys.verify binds every sign-in to user.devices.active.first (apps/api/app/domains/authentication/passkeys.rb:195), whichever passkey was used') }, () => {
-  assert.notEqual(sessionDevice(bToken), sessionDevice(aToken), 'A and B sessions point at the same device row');
+// Was DEFECT-H1 on integrate/wave0 (every sign-in bound to user.devices.active.first);
+// fixed on main by the Ed25519 device proof (specs/device-identity.md).
+test('B\'s session is bound to a device record of its own (its device key), not to A\'s device', () => {
+  const a = sessionDevice(aToken);
+  const b = sessionDevice(bToken);
+  assert.ok(a && b, 'both sessions are device-bound');
+  assert.notEqual(b, a, 'A and B sessions point at the same device row');
 });
 
 let revokedDeviceId = '';
@@ -131,7 +138,7 @@ test('revoking B\'s device: B\'s token is refused on every route (sync pull/push
   assert.equal(api.psql(`SELECT count(*) FROM key_envelopes WHERE recipient_id='${revokedDeviceId}'`), '0');
 });
 
-test('B\'s next SYNC call after the revocation sends it back to sign-in', { todo: defect('DEFECT-H3: a 401 on sync PULL surfaces as a raw sync error ("API 401 ...") and never signs out; only a PUSH 401 matches the /unauthorized \\(401\\)/ check (apps/desktop/src/sync/engine.ts:431; pull errors are pushed as raw messages at packages/sync/src/sync-client.ts:228)') }, async () => {
+test('B\'s next SYNC call after the revocation sends it back to sign-in', { todo: defect('DEFECT-H3: a 401 on sync PULL surfaces as a raw sync error ("API 401 ...") and never signs out; only a PUSH 401 matches the /unauthorized \\(401\\)/ check (apps/desktop/src/sync/engine.ts:448; pull errors are pushed as raw messages at packages/sync/src/sync-client.ts:229)') }, async () => {
   const p = B.page;
   await p.getByRole('button', { name: 'Sync now' }).click();
   const outcome = await Promise.race([
@@ -153,7 +160,7 @@ test('B\'s browser returns to sign-in on its next account call ("session expired
   assert.ok(offline.keys && offline.rows, 'revocation is not a remote wipe: the encrypted vault is still on B');
 });
 
-test('"Continue without signing in" right after the session-expired bounce opens the local vault', { todo: defect('DEFECT-H4: the bounce happened in the Security Center view; continuing local-only re-mounts SecurityCenter, its next call 401s, handleUnauthorized resets localOnlyBypass (apps/desktop/src/App.tsx:263-270, :1125) — the user is thrown back to sign-in until a reload') }, async () => {
+test('"Continue without signing in" right after the session-expired bounce opens the local vault', { todo: defect('DEFECT-H4: the bounce happened in the Security Center view; continuing local-only re-mounts SecurityCenter, its next call 401s, handleUnauthorized resets localOnlyBypass (apps/desktop/src/App.tsx:230-238 with the SecurityCenter onUnauthorized at :1060/:1087) — the user is thrown back to sign-in until a reload') }, async () => {
   const p = B.page;
   await p.getByRole('button', { name: /Continue without signing in/ }).click();
   await p.getByRole('button', { name: /Lock vault/ }).waitFor({ timeout: 8_000 }).catch(() => undefined);
@@ -173,19 +180,15 @@ test('honest offline limit: after a reload the revoked browser still opens and r
   assert.equal(await storedToken(p), null, 'read entirely offline, no session');
 });
 
-test('only B is cut off: A\'s session keeps working after B\'s device is revoked', { todo: defect('DEFECT-H1 consequence: B\'s session shares A\'s device row, so revoking "B" also kills A (and every other session on the account)') }, async () => {
+test('only B is cut off: A\'s session keeps working (and syncing) after B\'s device is revoked', async () => {
   assert.equal(await apiStatus(api.apiBase, aToken, 'GET', '/v1/vaults'), 200);
-});
-
-test('the revoked device cannot sign in again with its passkey and read items created after the revocation', { todo: defect('DEFECT-H2: revocation is not durable — the revoked browser signs in with the same passkey, gets a fresh session on a newly auto-enrolled device and pulls new items') }, async () => {
-  // A continues (signing in again if its session died with B's device) and creates a new item.
-  const si = await A.call('signIn', { email: EMAIL, authenticator: PA.exportCredential() });
-  PA = SoftwareAuthenticator.importCredential(si.authenticator, WEB, 'localhost');
-  await A.call('lock');
-  assert.equal(await A.call('unlock', { passphrase: PASS }), true);
-  await A.call('startSync');
+  // A creates an item after the revocation; B must never be able to read it.
   await A.call('createItem', { id: ITEMS.after.id, title: ITEMS.after.title, fields: { password: 'after-revoke' } });
   assert.equal((await A.call('syncNow')).state, 'idle');
+});
+
+let reEnrolledDevice = '';
+test('the revoked device cannot sign in again with its passkey and read items created after the revocation', { todo: defect('DEFECT-H2: revocation is not durable — the revoked browser signs in again with the same passkey; its revoked device key is replaced by a freshly enrolled one (Authentication::DeviceProof.device_for! enrol path, apps/api/app/domains/authentication/device_proof.rb:130) and it pulls new items. Devices::Revoke (apps/api/app/domains/devices/revoke.rb) leaves the passkey and the vault key untouched') }, async () => {
 
   const p = B.page;
   await p.evaluate(() => localStorage.removeItem('my-secrect:api-token'));
@@ -197,11 +200,33 @@ test('the revoked device cannot sign in again with its passkey and read items cr
     p.getByText('Your vault is locked').waitFor({ timeout: 20_000 }).then(() => 'signed-in' as const),
   ]).catch(() => 'unknown' as const);
   if (outcome === 'signed-in') {
-    const token = await storedToken(p);
+    const token = (await storedToken(p))!;
+    reEnrolledDevice = sessionDevice(token);
     const status = await apiStatus(api.apiBase, token, 'GET', '/v1/vaults');
     await unlockViaUi(p, PASS);
     const sawNewItem = await p.getByText(ITEMS.after.title).first().waitFor({ timeout: 15_000 }).then(() => true, () => false);
-    assert.fail(`revoked device B signed in again (GET /v1/vaults -> ${status}) and ${sawNewItem ? 'pulled' : 'could pull'} "${ITEMS.after.title}", created after the revocation`);
+    const how = reEnrolledDevice && reEnrolledDevice !== revokedDeviceId ? `on a newly enrolled device ${reEnrolledDevice}` : `on device ${reEnrolledDevice || '(none)'}`;
+    assert.fail(`revoked device B signed in again ${how} (GET /v1/vaults -> ${status}) and ${sawNewItem ? 'pulled' : 'could pull'} "${ITEMS.after.title}", created after the revocation`);
   }
   assert.equal(outcome, 'refused');
+});
+
+test('complete cut-off: revoking B\'s device AND removing B\'s passkey keeps B out for good', async () => {
+  const admin = await AccountSession.signIn(api.apiBase, EMAIL, PA);
+  await admin.stepUp(PA);
+  const { authenticators } = await admin.client().listPasskeys() as unknown as { authenticators: Array<{ id: string; credential_id_prefix: string }> };
+  const pb = authenticators.find((k) => PB.exportCredential().id.startsWith(k.credential_id_prefix));
+  assert.ok(pb, 'B\'s passkey is listed');
+  const res = await admin.client().removePasskey(pb!.id);
+  if (res?.rotated_token) admin.token = res.rotated_token;
+  // Whatever device B holds now (re-enrolled above, or none), revoke it too.
+  if (reEnrolledDevice && reEnrolledDevice !== revokedDeviceId) await admin.client().revokeDevice(reEnrolledDevice);
+  const p = B.page;
+  await p.evaluate(() => localStorage.removeItem('my-secrect:api-token'));
+  await p.reload();
+  await p.getByRole('heading', { name: 'Sign in to your account' }).waitFor();
+  await signInViaUi(p, EMAIL);
+  await p.getByText(/Sign-in failed|cancelled|not available/i).first().waitFor({ timeout: 20_000 });
+  assert.equal(await storedToken(p), null, 'no session for B');
+  assert.equal(await apiStatus(api.apiBase, aToken, 'GET', '/v1/vaults'), 200, 'A unaffected');
 });

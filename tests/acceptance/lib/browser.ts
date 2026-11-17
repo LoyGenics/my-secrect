@@ -9,6 +9,7 @@
 import { createHash } from 'node:crypto';
 import type { Browser, BrowserContext, CDPSession, Page } from 'playwright';
 import type { ExportedCredential } from '../../sync-e2e/software-authenticator.ts';
+import { mailCodes, waitForMailCode } from './stack.ts';
 
 export const LS_API_BASE_URL = 'my-secrect:api-base-url';
 export const LS_API_TOKEN = 'my-secrect:api-token';
@@ -56,10 +57,16 @@ export async function freshDevice(browser: Browser, apiBase: string): Promise<{ 
   return { ctx, page, auth };
 }
 
-export async function registerViaUi(page: Page, webUrl: string, email: string): Promise<void> {
+/** Sign-up on the gate: email -> code from the mailed message -> passkey
+ *  (the app enrols this browser's device key in the same ceremony). */
+export async function registerViaUi(page: Page, webUrl: string, email: string, mailDir: string): Promise<void> {
   await page.goto(webUrl);
   await page.getByRole('tab', { name: 'Create account' }).click();
   await page.getByLabel('Account email').fill(email);
+  const seen = mailCodes(mailDir, email).length;
+  await page.getByRole('button', { name: 'Email me a code' }).click();
+  await page.getByRole('heading', { name: 'Check your email' }).waitFor();
+  await page.getByLabel('Verification code').fill(await waitForMailCode(mailDir, email, seen));
   await page.getByRole('button', { name: 'Create account with passkey' }).click();
   await page.getByText('Create your local vault').waitFor();
 }

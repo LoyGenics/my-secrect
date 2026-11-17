@@ -66,7 +66,7 @@ const count = (sql: string) => Number(api.psql(sql));
 test('A registers, creates a vault, syncs items and uploads encrypted media through the UI', async () => {
   A = await freshDevice(browser, api.apiBase);
   const p = A.page;
-  await registerViaUi(p, WEB, EMAIL);
+  await registerViaUi(p, WEB, EMAIL, api.mailDir);
   await createVaultViaUi(p, PASS);
   for (const title of ['M-ITEM-alpha', 'M-ITEM-beta']) {
     await p.getByRole('button', { name: '+ New item' }).click();
@@ -149,6 +149,12 @@ test('server: no row in any table still belongs to the account; audit trail kept
     recovery_codes: `SELECT count(*) FROM recovery_codes WHERE user_id='${uid}'`,
     recovery_verifiers: `SELECT count(*) FROM recovery_verifiers WHERE user_id='${uid}'`,
     audit_events_linked: `SELECT count(*) FROM audit_events WHERE user_id='${uid}'`,
+    // Tables added on main (email sign-up, device keys, identity keys, item sharing).
+    device_challenges: `SELECT count(*) FROM device_challenges WHERE user_id='${uid}'`,
+    email_verifications: `SELECT count(*) FROM email_verifications WHERE email='${EMAIL}' OR pending_user_id='${uid}'`,
+    identity_keys: `SELECT count(*) FROM identity_keys WHERE user_id='${uid}'`,
+    item_shares: `SELECT count(*) FROM item_shares WHERE owner_id='${uid}' OR recipient_id='${uid}'`,
+    shares: `SELECT count(*) FROM shares WHERE owner_id='${uid}' OR recipient_id='${uid}'`,
   };
   const left = Object.entries(checks).map(([t, sql]) => [t, count(sql)] as const).filter(([, n]) => n > 0);
   assert.deepEqual(left, [], `rows left after deletion: ${JSON.stringify(left)}`);
@@ -172,7 +178,7 @@ test('the deleted account\'s passkey cannot sign in; the email registers again a
   // Fresh registration with the same email: a different user id, no vault, no items.
   const C = await freshDevice(browser, api.apiBase);
   try {
-    await registerViaUi(C.page, WEB, EMAIL);
+    await registerViaUi(C.page, WEB, EMAIL, api.mailDir);
     const newId = api.psql(`SELECT id FROM users WHERE email='${EMAIL}'`);
     assert.notEqual(newId, userId);
     assert.equal(count(`SELECT count(*) FROM vaults WHERE owner_id='${newId}'`), 0);

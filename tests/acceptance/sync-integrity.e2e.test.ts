@@ -45,7 +45,7 @@ let B: Client;
 let C: Client | null = null;
 let cred: ExportedCredential;
 const dir = mkdtempSync(path.join(tmpdir(), 'accept-k-'));
-const env = () => ({ API_BASE: api.apiBase, WEBAUTHN_ORIGIN: ORIGIN, WEBAUTHN_RP_ID: 'localhost' });
+const env = () => ({ API_BASE: api.apiBase, WEBAUTHN_ORIGIN: ORIGIN, WEBAUTHN_RP_ID: 'localhost', MAIL_DIR: api.mailDir });
 
 const hex = (w: string, rev: number, col: 'encrypted_payload' | 'encrypted_item_key') =>
   api.psql(`SELECT encode(${col},'hex') FROM item_versions WHERE item_id='${w}' AND revision=${rev}`);
@@ -193,7 +193,7 @@ test('wrong vault key (C created its own vault instead of restoring): nothing un
   }
 });
 
-test('a device whose vault key cannot open the account vault refuses to push into it', { todo: defect('DEFECT-C1: SyncEngine.ensureBinding joins the account\'s oldest server vault without checking it can decrypt it (apps/desktop/src/sync/engine.ts:303-313; vault encrypted_name is never verified). A fresh device that chose "Create vault" instead of "Restore" pushes items no other device can read, and every other device\'s sync stays in error') }, async () => {
+test('a device whose vault key cannot open the account vault refuses to push into it', { todo: defect('DEFECT-C1: SyncEngine.ensureBinding joins the account\'s oldest server vault without checking it can decrypt it (apps/desktop/src/sync/engine.ts:307-317; vault encrypted_name is never verified). A fresh device that chose "Create vault" instead of "Restore" pushes items no other device can read, and every other device\'s sync stays in error') }, async () => {
   const w = await wire(lid('k0e'));
   assert.equal(api.psql(`SELECT count(*) FROM items WHERE id='${w}'`), '0', 'C\'s item (encrypted under a different vault key) reached the shared vault');
   const stA = await A.call('syncNow');

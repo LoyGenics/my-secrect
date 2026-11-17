@@ -9,7 +9,7 @@
  * stop; only processes started here are ever killed.
  */
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
-import { mkdirSync, openSync } from 'node:fs';
+import { mkdirSync, openSync, readFileSync, rmSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,6 +28,8 @@ export interface RunningApi {
   url: string; // http://localhost:PORT
   apiBase: string; // .../api (what clients use)
   db: string;
+  /** Action Mailer :file delivery target: one file per recipient address. */
+  mailDir: string;
   psql(sql: string): string;
   stop(): Promise<void>;
 }
@@ -71,6 +73,9 @@ export async function startApi(o: ApiOptions): Promise<RunningApi> {
   if (!o.db.endsWith('_a15_e2eauth')) throw new Error(`acceptance DB must end with _a15_e2eauth (got ${o.db})`);
   mkdirSync(logDir, { recursive: true });
   await assertPortFree(o.port, 'API');
+  const mailDir = path.join(logDir, `mail-${o.port}`);
+  rmSync(mailDir, { recursive: true, force: true });
+  mkdirSync(mailDir, { recursive: true });
   const s3 = o.s3 ?? { endpoint: 'http://127.0.0.1:9', bucket: 'placeholder', accessKey: 'placeholder', secretKey: 'placeholder' };
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -82,6 +87,8 @@ export async function startApi(o: ApiOptions): Promise<RunningApi> {
     WEBAUTHN_RP_ID: 'localhost',
     WEBAUTHN_ORIGIN: o.webOrigin,
     CORS_ORIGINS: o.webOrigin,
+    // Sign-up codes are written to files the tests read (Action Mailer :file).
+    MAIL_FILE_DIR: mailDir,
     S3_ENDPOINT: s3.endpoint,
     S3_PUBLIC_ENDPOINT: s3.endpoint,
     S3_REGION: 'us-east-1',
@@ -101,6 +108,7 @@ export async function startApi(o: ApiOptions): Promise<RunningApi> {
     url: `http://localhost:${o.port}`,
     apiBase: `http://localhost:${o.port}/api`,
     db: o.db,
+    mailDir,
     psql: (sql) => psqlOn(o.db, sql),
     stop: () => killTree(child),
   };
@@ -163,4 +171,23 @@ export async function startMinio(hostPort: number, corsOrigin: string): Promise<
     listKeys: () => mc('ls', '--recursive', `local/${bucket}`).split('\n').filter(Boolean).map((l) => l.trim().split(/\s+/).pop()!),
     stop,
   };
+}
+
+// ---------------------------------------------------------------- mail (sign-up codes)
+
+/** Every sign-up code mailed to `email`, oldest first. */
+export function mailCodes(mailDir: string, email: string): string[] {
+  try { return [...readFileSync(path.join(mailDir, email), 'utf8').matchAll(/verification code is (\d{6})/g)].map((m) => m[1]); }
+  catch { return []; }
+}
+
+/** Wait until more than `seen` codes were mailed to `email`; return the newest. */
+export async function waitForMailCode(mailDir: string, email: string, seen = 0, ms = 15_000): Promise<string> {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    const codes = mailCodes(mailDir, email);
+    if (codes.length > seen) return codes[codes.length - 1];
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error(`no sign-up code was mailed to ${email}`);
 }
