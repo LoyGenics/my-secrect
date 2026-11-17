@@ -15,6 +15,9 @@ export const PORT = Number(process.env.SYNC_E2E_PORT ?? 3102);
 export const DB = process.env.SYNC_E2E_DB ?? 'vault_e2e_sync';
 export const WEB_ORIGIN = process.env.SYNC_E2E_WEB_ORIGIN ?? 'http://localhost:5202';
 export const RP_ID = 'localhost';
+// Action Mailer :file delivery target (development env honours MAIL_FILE_DIR):
+// clients read the sign-up code from here, exactly as a user reads their inbox.
+export const MAIL_DIR = process.env.SYNC_E2E_MAIL_DIR ?? path.join(here, '.out', `mail-${PORT}`);
 // Local default: the Homebrew Postgres unix socket in /tmp. CI sets
 // POSTGRES_HOST=localhost (TCP, trust auth) and POSTGRES_USER.
 const PG_HOST = process.env.POSTGRES_HOST ?? '/tmp';
@@ -36,6 +39,7 @@ function railsEnv(): NodeJS.ProcessEnv {
     WEBAUTHN_ORIGIN: WEB_ORIGIN,
     WEBAUTHN_RP_ID: RP_ID,
     CORS_ORIGINS: WEB_ORIGIN,
+    MAIL_FILE_DIR: MAIL_DIR,
   };
 }
 
@@ -51,6 +55,8 @@ export function pgDump(): string {
 export interface RunningApi { baseUrl: string; apiBase: string; logPath: string; stop(): Promise<void> }
 
 export async function bootApi(): Promise<RunningApi> {
+  rmSync(MAIL_DIR, { recursive: true, force: true });
+  mkdirSync(MAIL_DIR, { recursive: true });
   const env = railsEnv();
   execFileSync('bundle', ['exec', 'rake', 'db:drop', 'db:create', 'db:schema:load'], { cwd: apiDir, env: { ...env, DISABLE_DATABASE_ENVIRONMENT_CHECK: '1' }, stdio: 'pipe' });
   // Rack::Attack counters live in Rails.cache (FileStore in dev): reset them so reruns inside

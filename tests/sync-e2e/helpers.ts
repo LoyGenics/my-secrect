@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
-import { PORT, RP_ID, WEB_ORIGIN } from './api-harness.ts';
+import { MAIL_DIR, PORT, RP_ID, WEB_ORIGIN } from './api-harness.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -14,7 +14,7 @@ export class Client {
   constructor(readonly name: string, readonly stateFile: string) {}
   start(env: Record<string, string> = {}) {
     this.child = spawn(process.execPath, ['--import', 'tsx', path.join(here, 'client-worker.ts')], {
-      env: { ...process.env, CLIENT_STATE_FILE: this.stateFile, WEBAUTHN_ORIGIN: WEB_ORIGIN, WEBAUTHN_RP_ID: RP_ID, API_BASE: `http://127.0.0.1:${PORT}/api`, ...env },
+      env: { ...process.env, CLIENT_STATE_FILE: this.stateFile, WEBAUTHN_ORIGIN: WEB_ORIGIN, WEBAUTHN_RP_ID: RP_ID, API_BASE: `http://127.0.0.1:${PORT}/api`, MAIL_DIR, ...env },
       stdio: ['pipe', 'pipe', 'inherit'],
     });
     let resolveReady!: () => void;
