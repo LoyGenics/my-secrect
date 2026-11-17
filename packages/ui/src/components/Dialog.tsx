@@ -3,6 +3,7 @@ import * as RadixDialog from '@radix-ui/react-dialog';
 import type { Locale } from '@my-secrect/i18n';
 import { cn } from '../utils';
 import { useUiStrings } from '../useUiStrings';
+import { IconButton } from './Button';
 
 export interface DialogProps {
   open: boolean;
@@ -18,10 +19,9 @@ export interface DialogProps {
 }
 
 /**
- * Modal dialog on Radix Dialog: focus trap, Escape to close, overlay click
- * to close, focus return on close, aria-modal + labelledby. The close
- * button is always present with a localized accessible name. Content scrolls
- * when taller than the viewport. Do not nest dialogs.
+ * Modal plate on Radix Dialog: focus trap, Escape, overlay click, focus
+ * return, aria-modal + labelledby. The close key always has a localized
+ * name. Use only when the task needs protected focus; prefer inline UI.
  */
 export function Dialog({ open, onOpenChange, title, description, children, locale, closeLabel, className }: DialogProps) {
   const strings = useUiStrings({ locale });
@@ -29,14 +29,14 @@ export function Dialog({ open, onOpenChange, title, description, children, local
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
       <RadixDialog.Portal>
         <RadixDialog.Overlay className="ms-dialog-overlay" />
-        <RadixDialog.Content className={cn('ms-dialog', className)}>
+        <RadixDialog.Content className={cn('ms-dialog', className)} {...(description ? {} : { 'aria-describedby': undefined })}>
           <RadixDialog.Title className="ms-dialog__title">{title}</RadixDialog.Title>
-          {description && <RadixDialog.Description className="ms-dialog__description">{description}</RadixDialog.Description>}
+          {description ? (
+            <RadixDialog.Description className="ms-dialog__description">{description}</RadixDialog.Description>
+          ) : null}
           {children}
           <RadixDialog.Close asChild>
-            <button type="button" className="ms-dialog__close" aria-label={closeLabel ?? strings.dialog.close}>
-              {'\u00D7'}
-            </button>
+            <IconButton className="ms-dialog__close" icon="close" label={closeLabel ?? strings.dialog.close} size="sm" />
           </RadixDialog.Close>
         </RadixDialog.Content>
       </RadixDialog.Portal>

@@ -2,6 +2,7 @@ import { forwardRef, type InputHTMLAttributes } from 'react';
 import type { Locale } from '@my-secrect/i18n';
 import { cn } from '../utils';
 import { useUiStrings } from '../useUiStrings';
+import { Icon } from './Icon';
 
 export interface SearchFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'role'> {
   /** Called when the clear button is pressed; the input is also cleared visually by the parent via `value`/`onChange`. */
@@ -28,7 +29,7 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(functi
   return (
     <span className="ms-input-wrap ms-search-field">
       <span className="ms-search-field__icon" aria-hidden="true">
-        {'\u2315'}
+        <Icon name="search" />
       </span>
       <input
         ref={ref}
@@ -51,7 +52,7 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(functi
             (e.currentTarget.parentElement?.querySelector('input') as HTMLInputElement | null)?.focus();
           }}
         >
-          {'\u00D7'}
+          <Icon name="close" />
         </button>
       )}
     </span>

@@ -2,6 +2,7 @@ import { forwardRef, useState, type InputHTMLAttributes } from 'react';
 import type { Locale } from '@my-secrect/i18n';
 import { cn } from '../utils';
 import { useUiStrings } from '../useUiStrings';
+import { Icon } from './Icon';
 
 export interface SecureFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> {
   /** Error state (also settable via Field's `error`). */
@@ -53,7 +54,7 @@ export const SecureField = forwardRef<HTMLInputElement, SecureFieldProps>(functi
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => setVisible((v) => !v)}
       >
-        {visible ? strings.common.hide : strings.common.show}
+        <Icon name={visible ? 'hide' : 'show'} />
       </button>
     </span>
   );

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import * as RadixTabs from '@radix-ui/react-tabs';
 import { cn } from '../utils';
 
@@ -66,15 +66,16 @@ export interface SegmentedControlProps<T extends string> {
 }
 
 /**
- * SegmentedControl: a single-select group (radiogroup pattern) for 2-4
- * mutually exclusive options (e.g. theme Light/Dark/System, density).
- * Arrow keys move between options, Space/Enter selects; the selected
- * option has aria-checked=true and tabindex=0, others tabindex=-1
- * (roving tabindex). Hand-rolled on purpose: Radix has no segmented
- * primitive, and this is 40 lines of honest ARIA rather than a dependency.
+ * Rocker switch: single-select radiogroup for 2–4 mutually exclusive
+ * options (theme, language, credential type). The selected segment is
+ * raised with an orange LED. Arrow keys move and select (roving tabindex,
+ * focus kept inside this group), Space/Enter select.
  */
 export function SegmentedControl<T extends string>({ options, value, onChange, ariaLabel, disabled = false, className }: SegmentedControlProps<T>) {
+  const refs = useRef<Array<HTMLButtonElement | null>>([]);
   const [focusIndex, setFocusIndex] = useState(() => Math.max(0, options.findIndex((o) => o.value === value)));
+  const selectedIndex = options.findIndex((o) => o.value === value);
+  const tabStop = selectedIndex >= 0 ? selectedIndex : 0;
   const move = (delta: number) => {
     let next = focusIndex;
     for (let i = 0; i < options.length; i++) {
@@ -82,8 +83,8 @@ export function SegmentedControl<T extends string>({ options, value, onChange, a
       if (!options[next].disabled) break;
     }
     setFocusIndex(next);
-    const el = document.querySelector<HTMLElement>(`[data-segmented-option="${options[next].value}"]`);
-    el?.focus();
+    refs.current[next]?.focus();
+    onChange(options[next].value);
   };
   return (
     <div role="radiogroup" aria-label={ariaLabel} className={cn('ms-segmented', className)}>
@@ -92,11 +93,11 @@ export function SegmentedControl<T extends string>({ options, value, onChange, a
         return (
           <button
             key={option.value}
+            ref={(el) => { refs.current[index] = el; }}
             type="button"
             role="radio"
             aria-checked={checked}
-            data-segmented-option={option.value}
-            tabIndex={checked ? 0 : -1}
+            tabIndex={index === tabStop ? 0 : -1}
             disabled={disabled || option.disabled}
             className="ms-segmented__option"
             onClick={() => {
@@ -106,7 +107,6 @@ export function SegmentedControl<T extends string>({ options, value, onChange, a
             onKeyDown={(e) => {
               if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); move(1); }
               else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
-              else if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); onChange(option.value); }
             }}
             onFocus={() => setFocusIndex(index)}
           >

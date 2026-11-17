@@ -7,19 +7,25 @@
  */
 import {
   darkTheme,
+  density,
   fontFamily,
+  legendTracking,
   lightTheme,
   motion,
   radii,
   spacing,
   textScale,
-  density,
   type ThemeTokens,
 } from './tokens';
 
-const GROUP_PREFIX: Record<string, string> = { background: 'bg' };
+const GROUP_PREFIX: Record<string, string> = { background: 'bg', itemType: 'type' };
 
-const kebab = (key: string) => key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+const kebab = (key: string) => key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`).replace(/_/g, '-');
+
+/** CSS variable holding an item type's code colour, e.g. `--ms-color-type-bank-account`. */
+export function itemTypeColorVar(type: string): string {
+  return `--ms-color-type-${kebab(type)}`;
+}
 
 /** Lowercase hex, `rgba(1, 2, 3, 0.2)` spacing, no trailing decimal zeros. */
 export function normalizeColor(value: string): string {
@@ -36,7 +42,7 @@ export function themeVariables(theme: ThemeTokens): Array<[string, string]> {
   for (const [group, values] of Object.entries(theme)) {
     if (group === 'colorScheme') continue;
     for (const [key, value] of Object.entries(values as Record<string, string>)) {
-      if (group === 'focus' && key !== 'ring') continue; // width/offset are scale vars
+      if (group === 'focus' && (key === 'width' || key === 'offset')) continue; // scale vars
       if (group === 'shadow') {
         out.push([`--ms-shadow-${kebab(key)}`, normalizeColor(value)]);
         continue;
@@ -63,7 +69,9 @@ function block(selector: string, theme: ThemeTokens, indent = ''): string {
 function scaleBlock(): string {
   const lines: string[] = [
     `  --ms-font-sans: ${fontFamily.sans};`,
+    `  --ms-font-legend: ${fontFamily.legend};`,
     `  --ms-font-mono: ${fontFamily.mono};`,
+    `  --ms-legend-tracking: ${legendTracking};`,
   ];
   for (const [step, [size, leading]] of Object.entries(textScale)) {
     lines.push(`  --ms-text-${step}: ${size}px;`, `  --ms-leading-${step}: ${leading}px;`);
@@ -77,6 +85,7 @@ function scaleBlock(): string {
   lines.push(
     `  --ms-control-height: ${density.comfortable.controlHeight}px;`,
     `  --ms-control-height-sm: ${density.compact.controlHeight}px;`,
+    `  --ms-control-padding-x: ${density.comfortable.controlPaddingX}px;`,
     `  --ms-control-height-touch: ${density.comfortable.controlHeightTouch}px;`,
     `  --ms-focus-width: ${darkTheme.focus.width};`,
     `  --ms-focus-offset: ${darkTheme.focus.offset};`,
@@ -108,11 +117,13 @@ ${block("[data-theme='system']", lightTheme, '  ')}
 /* Theme-independent scales. */
 ${scaleBlock()}
 
-/* Global focus indicator: 2px ring, 2px offset (WCAG 2.4.7 / 1.4.11).
- * components.css refines it per component; this is the safety net. */
+/* Global focus mark: orange 2px ring at 2px offset, with an ink band inside
+ * it on the light finish (orange alone is 2.44:1 on aluminium). WCAG 2.4.7 /
+ * 1.4.11. components.css refines it per component; this is the safety net. */
 :focus-visible {
   outline: var(--ms-focus-width) solid var(--ms-color-focus-ring);
   outline-offset: var(--ms-focus-offset);
+  box-shadow: 0 0 0 var(--ms-focus-offset) var(--ms-color-focus-outline);
 }
 
 /* Browser surfaces carry the palette too. */

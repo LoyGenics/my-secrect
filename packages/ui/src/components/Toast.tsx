@@ -3,6 +3,8 @@ import * as RadixToast from '@radix-ui/react-toast';
 import type { Locale } from '@my-secrect/i18n';
 import { cn } from '../utils';
 import { useUiStrings } from '../useUiStrings';
+import { Icon } from './Icon';
+import { Led } from './Instrument';
 
 export type ToastTone = 'info' | 'success' | 'danger';
 
@@ -84,12 +86,13 @@ export function ToastProvider({
             duration={item.duration === 0 ? 86_400_000 : item.duration}
             className={cn('ms-toast', item.tone !== 'info' && `ms-toast--${item.tone}`)}
           >
+            <Led tone={item.tone === 'success' ? 'ok' : item.tone === 'danger' ? 'danger' : 'off'} />
             <div>
               <RadixToast.Title className="ms-toast__title">{item.title}</RadixToast.Title>
               {item.description && <RadixToast.Description className="ms-toast__description">{item.description}</RadixToast.Description>}
             </div>
-            <RadixToast.Close className="ms-toast__close" aria-label={closeLabel ?? strings.toast.close}>
-              {'\u00D7'}
+            <RadixToast.Close className="ms-button ms-button--ghost ms-button--icon ms-button--sm ms-toast__close" aria-label={closeLabel ?? strings.toast.close}>
+              <Icon name="close" size="sm" />
             </RadixToast.Close>
           </RadixToast.Root>
         ))}

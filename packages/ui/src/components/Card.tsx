@@ -1,18 +1,29 @@
 import { forwardRef, type HTMLAttributes } from 'react';
 import { cn } from '../utils';
 
-export interface CardProps extends HTMLAttributes<HTMLDivElement> {}
+export interface CardProps extends HTMLAttributes<HTMLElement> {
+  /** Element to render: `section` when the plate is a region with a heading (pair it with aria-labelledby). */
+  as?: 'div' | 'section' | 'article' | 'aside';
+  /** Inner padding: none 0, sm 12, md 16 (default), lg 20. */
+  padding?: 'none' | 'sm' | 'md' | 'lg';
+}
 
 /**
- * Card: a surface container (bg-surface, 1px border, 12px radius, sm shadow).
- * Visual successor of the legacy `.card` class from apps/desktop — same
- * look, token-driven so it follows the light theme too. Use <section> via
- * `as` when the card is a landmark region with a heading.
+ * Plate: a flat machined panel — surface fill, 1px hairline, 1px inner top
+ * highlight, 12px radius. Elevation is the hairline and highlight only; no
+ * drop shadow, no glow. Never nest plates.
  */
-export const Card = forwardRef<HTMLDivElement, CardProps>(function Card({ className, children, ...rest }, ref) {
+export const Card = forwardRef<HTMLElement, CardProps>(function Card(
+  { as: Tag = 'div', padding = 'md', className, children, ...rest },
+  ref,
+) {
   return (
-    <div ref={ref} className={cn('ms-card', className)} {...rest}>
+    <Tag
+      ref={ref as never}
+      className={cn('ms-card', padding !== 'md' && `ms-card--pad-${padding}`, className)}
+      {...rest}
+    >
       {children}
-    </div>
+    </Tag>
   );
 });
