@@ -11,6 +11,7 @@ const PASS = 'correct horse battery staple 42!';
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 
 async function scan(page: Page, label: string) {
+  await page.waitForTimeout(250); // let 120-180 ms key/state transitions settle
   const results = await new AxeBuilder({ page }).withTags(TAGS).analyze();
   const blocking = results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
   for (const v of results.violations) {

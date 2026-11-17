@@ -25,7 +25,7 @@ export default function PasswordGenerator({ onUse }: PasswordGeneratorProps) {
   const [uppercase, setUppercase] = useState(true);
   const [lowercase, setLowercase] = useState(true);
   const [pronounceable, setPronounceable] = useState(false);
-  const [generated, setGenerated] = useState('');
+  const [generated, setGenerated] = useState(() => generatePassword({ length: 20, symbols: true, numbers: true, uppercase: true, lowercase: true, pronounceable: false }));
   const [passphraseWords, setPassphraseWords] = useState(6);
   const [passphrase, setPassphrase] = useState('');
   const { copiedKey, secondsLeft } = useClipboardStatus();

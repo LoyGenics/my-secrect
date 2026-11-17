@@ -852,6 +852,7 @@ select.ms-input { padding-right: 32px; cursor: pointer; }
 }
 .ms-command-palette__label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ms-command-palette__item[aria-selected='true'] { background: var(--ms-color-bg-muted); border-color: var(--ms-color-border-default); }
+.ms-command-palette__item[aria-selected='true'] .ms-legend { color: var(--ms-color-text-secondary); }
 .ms-command-palette__empty { margin: 0; padding: 24px 8px; text-align: center; color: var(--ms-color-text-muted); }
 .ms-command-palette__hint {
   display: flex;

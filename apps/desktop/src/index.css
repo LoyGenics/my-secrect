@@ -8,7 +8,7 @@
  * generated tokens (packages/ui/src/tokens.css); component styles live in
  * packages/ui/src/components.css (imported by src/theme.ts).
  *
- * The legacy classes below (.card/.btn*/.input/.label/.nav-item) are kept
+ * The legacy classes below (.card, .btn-*, .input, .label, .nav-item) are kept
  * ONLY for screens not yet migrated to @my-secrect/ui (Security Center,
  * sign-in, step-up, media, sharing, sync bar). They print the same
  * "Precision Instrument" grammar as the components — plate, molded key,

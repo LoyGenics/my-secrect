@@ -1177,6 +1177,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
   );
 
   const emptyList = emptyListState();
+  const viewRegion = { className: 'ms-content', role: 'region', 'aria-label': viewTitle, tabIndex: 0 } as const;
 
   return frame(
     <div className="ms-app" data-pushed={pushed}>
@@ -1247,7 +1248,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
         </div>
 
         {view === 'settings' ? (
-          <div className="ms-content">
+          <div {...viewRegion}>
             <SettingsView
               autoLockMinutes={autoLockMinutes}
               onAutoLockChange={setAutoLockMinutes}
@@ -1265,7 +1266,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
             />
           </div>
         ) : view === 'security' ? (
-          <div className="ms-content">
+          <div {...viewRegion}>
             <SecurityCenter
               security={securityClient}
               apiBaseUrl={apiBaseUrl}
@@ -1278,13 +1279,13 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
             />
           </div>
         ) : view === 'health' ? (
-          <div className="ms-content">
+          <div {...viewRegion}>
             <div className="ms-view">
               <HealthView items={liveItems} onFix={(item) => { setView('all'); setSelectedId(item.id); setEditingItem(item); setShowForm(true); }} />
             </div>
           </div>
         ) : view === 'generator' ? (
-          <div className="ms-content">
+          <div {...viewRegion}>
             <div className="ms-view ms-view--narrow grid gap-4">
               <div>
                 <h2 className="ms-heading ms-heading--lg">{dict.generator.title}</h2>
@@ -1297,7 +1298,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
             </div>
           </div>
         ) : view === 'media-gallery' ? (
-          <div className="ms-content">
+          <div {...viewRegion}>
             <MediaView
               items={items}
               api={mediaApi}
@@ -1306,7 +1307,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
             />
           </div>
         ) : view === 'shares' ? (
-          <div className="ms-content">
+          <div {...viewRegion}>
             <SharesView shares={shares} onCreate={handleCreateShare} onRevoke={handleRevokeShare} />
           </div>
         ) : (
