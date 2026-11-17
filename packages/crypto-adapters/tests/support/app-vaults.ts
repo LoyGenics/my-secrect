@@ -4,22 +4,25 @@
  * and mobile (apps/mobile/src/vault.ts) — into one Node process, for the
  * cross-implementation test and the TS fixture generator.
  *
- * Only each app's PLATFORM STORAGE is replaced, with an in-memory map:
- *  - desktop:   globalThis.localStorage
- *  - extension: globalThis.chrome.storage.local
- *  - mobile:    '@react-native-async-storage/async-storage', intercepted in
- *               Module._load (apps/mobile has no "type": "module", so tsx
- *               loads vault.ts as CJS and the bare require goes through it).
+ * Only each app's PLATFORM STORAGE is replaced:
+ *  - desktop:   globalThis.localStorage (in-memory map)
+ *  - extension: globalThis.chrome.storage.local (in-memory map)
+ *  - mobile:    vault.db on sql.js (real SQLite) through setVaultPlatform,
+ *               see apps/mobile/tests/support/node-mobile-platform.ts
  * The crypto, key hierarchy, export and restore code under test is the
  * production code, unmodified. Same approach as apps/desktop/portable-restore.test.ts,
  * apps/extension/vault-ext-restore.test.ts and apps/mobile/vault-restore.test.ts.
  */
-import { createRequire } from 'node:module';
+import { useSqlJsMobilePlatform, type MobileHostStorage } from '../../../../apps/mobile/tests/support/node-mobile-platform';
+
+let mobileHost: MobileHostStorage | null = null;
+let mobileReady: Promise<void> | null = null;
 
 export const storage = {
   desktop: new Map<string, string>(),
   extension: new Map<string, unknown>(),
-  mobile: new Map<string, string>(),
+  /** Rows in the mobile vault tables (0 = nothing stored). */
+  mobile: { get size() { return mobileHost?.size ?? 0; } },
 };
 
 let installed = false;
@@ -63,21 +66,6 @@ function installShims(): void {
     },
   };
 
-  const mobile = storage.mobile;
-  const asyncStorage = {
-    async getItem(k: string) { return mobile.has(k) ? mobile.get(k)! : null; },
-    async setItem(k: string, v: string) { mobile.set(k, String(v)); },
-    async removeItem(k: string) { mobile.delete(k); },
-  };
-  const ASYNC_STORAGE = '@react-native-async-storage/async-storage';
-  const cjs = createRequire(import.meta.url)('node:module') as {
-    _load: (request: string, ...rest: unknown[]) => unknown;
-  };
-  const originalLoad = cjs._load;
-  cjs._load = function (request: string, ...rest: unknown[]) {
-    if (request === ASYNC_STORAGE) return { __esModule: true, default: asyncStorage };
-    return originalLoad.call(this, request, ...rest);
-  };
 }
 
 export async function loadAppVaults() {
@@ -85,5 +73,7 @@ export async function loadAppVaults() {
   const desktop = await import('../../../../apps/desktop/src/vault.ts');
   const extension = await import('../../../../apps/extension/src/lib/vault-ext.ts');
   const mobile = await import('../../../../apps/mobile/src/vault.ts');
+  mobileReady ??= useSqlJsMobilePlatform(mobile).then((host) => { mobileHost = host; });
+  await mobileReady;
   return { desktop, extension, mobile };
 }
