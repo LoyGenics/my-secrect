@@ -13,10 +13,13 @@
 //   the same bytes libsodium produces on the Rust side (the Rust test
 //   asserts the identical vectors), i.e. TS/Rust KEK compatibility.
 // * What it does NOT prove: that libsodiumAdapter.deriveKek itself is
-//   correct. A test that imports the adapter directly (vitest / ts-node)
-//   is still missing — see docs/security-review.md M5. The
-//   `parameters match the adapter source` test below is only a guard
-//   against the constants drifting apart, not a substitute.
+//   correct. That is covered by tests that import the real adapter and
+//   app code under tsx (root `npm run test:real`):
+//   packages/crypto-adapters/tests/libsodium-adapter.import.test.mjs and
+//   packages/crypto-adapters/tests/cross-impl.test.ts (TS <-> Rust
+//   fixtures, OpenSSL re-derivation). The `parameters match the adapter
+//   source` test below is only a guard against the constants drifting
+//   apart, not a substitute.
 // * Run after `npm install` (needs libsodium-wrappers-sumo from the
 //   workspace). No network, no server, no secrets.
 import test from 'node:test';

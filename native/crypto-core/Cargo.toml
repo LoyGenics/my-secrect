@@ -19,3 +19,7 @@ thiserror = "1.0"
 
 [dev-dependencies]
 hex = "0.4"
+# Tests and the fixture generator (examples/gen_chain_vectors.rs) read and
+# write the shared JSON fixtures in tests/crypto-vectors/. Not a crypto
+# dependency; never linked into the library.
+serde_json = "1"
