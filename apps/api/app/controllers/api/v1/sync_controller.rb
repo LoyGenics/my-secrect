@@ -19,6 +19,8 @@ module Api
       end
 
       # POST /v1/vaults/:vault_id/sync/push
+      # Optional `signature` is opaque base64 stored on the event. It is
+      # not authenticated; omitting it is allowed. Invalid base64 is 422.
       def push
         vault = current_user.vaults.find(params[:vault_id])
         result = Sync::Push.call(

@@ -6,6 +6,7 @@ import {
   ApiError,
   LS_API_TOKEN,
   isStepUpRequired,
+  isUnauthorized,
   type ActivityEvent,
   type DeviceInfo,
   type PasskeyAuthenticator,
@@ -35,6 +36,11 @@ import { serializeCreateCredential, toCreationOptions } from '../utils/webauthn'
  *       recovery key + all devices is permanent loss — no reset.
  *   (d) Security activity — the server's event list, shown as-is.
  *       Nothing is ever invented here; an empty list renders empty.
+ *   (e) Delete account — DELETE /v1/auth/account via guarded(), so a
+ *       403 step_up_required re-prompts through the existing step-up
+ *       dialog and the delete does not proceed. The security
+ *       dictionary has no slot for this action, so its labels are
+ *       plain English (same exception as the WebAuthn note).
  *
  * Account auth is SEPARATE from vault unlock: signing in does not
  * unlock the vault, and the server never sees vault keys or contents.
@@ -73,6 +79,15 @@ export interface SecurityCenterProps {
   decryptWithVaultKey: (encoded: string) => Promise<string>;
   /** Open the App's step-up dialog, then run `run` on success. */
   requestStepUp: (run: () => void, opts?: { reason?: 'export'; onCancel?: () => void }) => void;
+  /** Email of the signed-in account (display only). */
+  signedInEmail?: string;
+  /** Sign out: revokes the current server session, clears the
+   *  stored token and locks the vault (owned by App). */
+  onSignOut?: () => void;
+  /** Called when the server answers 401 to every load: the stored
+   *  session is gone server-side. App clears the token and shows
+   *  the sign-in gate again; this screen never silently retries. */
+  onUnauthorized?: () => void;
 }
 
 type LoadStatus = 'not-configured' | 'loading' | 'ready' | 'error';
@@ -102,6 +117,9 @@ export default function SecurityCenter({
   encryptWithVaultKey,
   decryptWithVaultKey,
   requestStepUp,
+  signedInEmail,
+  onSignOut,
+  onUnauthorized,
 }: SecurityCenterProps) {
   const { dict, locale } = useTranslation();
   const s = dict.security;
@@ -154,6 +172,12 @@ export default function SecurityCenter({
   const [recoveryError, setRecoveryError] = useState('');
   const [recoveryMessage, setRecoveryMessage] = useState('');
 
+  // (e) account deletion — server account only; the local vault stays.
+  const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false);
+  const [deleteAccountBusy, setDeleteAccountBusy] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState('');
+  const [deleteAccountMessage, setDeleteAccountMessage] = useState('');
+
   const fmtDate = (iso: string | null | undefined): string => {
     if (!iso) return '—';
     const d = new Date(iso);
@@ -197,6 +221,9 @@ export default function SecurityCenter({
         );
         return false;
       }
+      // A 401 here means the session died mid-action: hand back to
+      // SignIn via App instead of showing a dead-end error.
+      if (isUnauthorized(err)) onUnauthorized?.();
       setError(describeError(err, s));
       return false;
     }
@@ -243,6 +270,10 @@ export default function SecurityCenter({
     if (failures === 4) {
       setStatus('error');
       setLoadError(describeError(firstError, s));
+      // Every call answered 401: the session is gone server-side
+      // (revoked or expired). Hand the user back to SignIn via App;
+      // never retry here with the same stale token.
+      if (isUnauthorized(firstError)) onUnauthorized?.();
     } else {
       setStatus('ready');
       if (failures > 0) setLoadError(describeError(firstError, s));
@@ -365,7 +396,9 @@ export default function SecurityCenter({
       async () => {
         const res = await security.mfaRecoveryCodes();
         // Shown once: kept in component state only, never persisted.
-        setRecoveryCodes(res.codes ?? []);
+        // Wire key is `recovery_codes` (was read as `res.codes`,
+        // which is always undefined — fixed 17 Nov 2026).
+        setRecoveryCodes(res.recovery_codes ?? []);
       },
       setMfaError,
     );
@@ -481,11 +514,57 @@ export default function SecurityCenter({
     }
   };
 
+  // --- (e) Delete account ------------------------------------------------------
+  const handleDeleteAccount = async () => {
+    if (!security) return;
+    setConfirmDeleteAccount(false);
+    setDeleteAccountError('');
+    setDeleteAccountMessage('');
+    setDeleteAccountBusy(true);
+    await guarded(
+      async () => { await security.deleteAccount(); },
+      setDeleteAccountError,
+      () => {
+        try {
+          localStorage.removeItem(LS_API_TOKEN);
+        } catch {
+          // The server session is already gone; a storage failure does not keep it alive.
+        }
+        setPasskeys([]);
+        setSessions([]);
+        setDevices([]);
+        setActivity([]);
+        setDeleteAccountMessage(
+          'Server account deleted. That account’s sessions no longer work. The local vault on this device was not erased.',
+        );
+      },
+    );
+    setDeleteAccountBusy(false);
+  };
+
   return (
     <div className="mx-auto w-full max-w-2xl space-y-6 p-5">
       <div>
         <h2 className="text-lg font-semibold">{s.title}</h2>
         <p className="mt-1 text-sm text-zinc-400">{s.subtitle}</p>
+        {security && onSignOut && (
+          <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm">
+            <span className="text-zinc-300">
+              {dict.signin.signedInAs} <strong>{signedInEmail || '—'}</strong>
+            </span>
+            <button
+              type="button"
+              className="btn-ghost !py-1 text-xs"
+              onClick={() => onSignOut()}
+              aria-label={dict.signin.signOut}
+            >
+              {dict.signin.signOut}
+            </button>
+            <span className="text-xs text-zinc-500">
+              Signing out revokes this server session and locks the vault. It does not erase secrets already downloaded on this device.
+            </span>
+          </div>
+        )}
       </div>
 
       {stepUpNotice && (
@@ -931,6 +1010,53 @@ export default function SecurityCenter({
                 ))}
               </ul>
             )}
+          </section>
+
+          {/* (e) Delete account. Dictionary has no keys for this action. */}
+          <section className="card p-5" aria-labelledby="security-delete-account-heading">
+            <h3 id="security-delete-account-heading" className="text-base font-semibold">
+              Delete account
+            </h3>
+            <p className="mt-1 text-sm text-zinc-400">
+              Permanently deletes this server account, its sessions, and its vault metadata.
+              The local vault on this device is not erased. The server requires a fresh verification.
+            </p>
+            <div className="mt-3">
+              {confirmDeleteAccount ? (
+                <span className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm text-zinc-300">
+                    Delete this server account permanently?
+                  </span>
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    disabled={deleteAccountBusy}
+                    onClick={() => setConfirmDeleteAccount(false)}
+                  >
+                    {s.cancel}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-danger"
+                    disabled={deleteAccountBusy || !security}
+                    onClick={() => void handleDeleteAccount()}
+                  >
+                    {s.confirm}
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="btn-danger"
+                  disabled={deleteAccountBusy || !security}
+                  onClick={() => setConfirmDeleteAccount(true)}
+                >
+                  Delete account
+                </button>
+              )}
+            </div>
+            {deleteAccountError && <p role="alert" className="mt-2 text-sm text-red-400">{deleteAccountError}</p>}
+            {deleteAccountMessage && <p role="status" className="mt-2 text-sm text-emerald-400">{deleteAccountMessage}</p>}
           </section>
         </>
       )}

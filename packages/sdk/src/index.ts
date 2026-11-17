@@ -193,12 +193,36 @@ export function createSyncClient(opts: CreateSyncClientOptions): SyncClient {
 // value used inside methods (never at module top level), so the cycle is
 // safe: by the time any SecurityApiClient method runs, ApiError is defined
 // (ApiError is declared near the top of this file, above this block).
-export { SecurityApiClient, STEP_UP_WINDOW_MS, isStepUpFresh, isStepUpRequired, LS_API_TOKEN } from './security';
+export {
+  SecurityApiClient,
+  STEP_UP_WINDOW_MS,
+  isStepUpFresh,
+  isStepUpRequired,
+  isUnauthorized,
+  isMfaRequiredResult,
+  LS_API_TOKEN,
+  LS_API_TOKEN_EXPIRES_AT,
+  LS_ACCOUNT_EMAIL,
+  webTokenStore,
+  saveSessionToken,
+  readStoredToken,
+  getValidToken,
+  getValidTokenSync,
+  clearSessionToken,
+  adoptRotatedToken,
+} from './security';
 export type {
+  TokenStore,
   PasskeyAuthenticator,
   PasskeyListResponse,
   MfaEnrollResponse,
+  MfaConfirmResponse,
   RecoveryCodesResponse,
+  SessionResult,
+  MfaRequiredResult,
+  SignInResult,
+  PasskeyRegisterOptionsResponse,
+  PasskeyAuthenticateOptionsResponse,
   SessionInfo,
   SessionListResponse,
   DeviceInfo,
@@ -207,3 +231,23 @@ export type {
   ActivityResponse,
   RecoveryChallengeResponse,
 } from './security';
+export {
+  initialSignInState,
+  startSignIn,
+  optionsReceived,
+  passkeyVerified,
+  mfaVerified,
+  signInFailed,
+  resetSignIn,
+  classifySignInError,
+} from './signin';
+export type {
+  SignInStep,
+  SignInMode,
+  SignInErrorKind,
+  SignInState,
+} from './signin';
+// NOTE: `signin.ts` must stay import-free of fetch/DOM: it is a pure
+// state machine (email -> passkey -> mfa -> signed-in) so the desktop,
+// web and mobile sign-in screens — and the plain-Node mirror tests in
+// tests/security/signin-client.test.mjs — all share the same rules.

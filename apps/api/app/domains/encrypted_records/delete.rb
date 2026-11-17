@@ -3,14 +3,22 @@ module EncryptedRecords
   # kept so a mistaken delete can be restored from version history.
   module Delete
     module_function
-    def call(vault:, item_id:, device: nil)
+    # base_revision must match the item, same rule as upsert. A missing
+    # or stale value raises Upsert::RevisionConflict and writes nothing,
+    # so a replay cannot append a second tombstone. signature is optional
+    # opaque bytes and is not authenticated.
+    def call(vault:, item_id:, base_revision:, device: nil, signature: nil)
       vault.transaction do
         item = vault.items.lock.find(item_id)
+        supplied = base_revision.presence
+        if supplied.nil? || item.current_revision != supplied.to_i
+          raise Upsert::RevisionConflict, item.current_revision
+        end
         item.current_revision += 1
         item.deleted_at = Time.current
         item.save!
         seq = (vault.sync_events.maximum(:sequence) || 0) + 1
-        vault.sync_events.create!(sequence: seq, item_id: item.id, revision: item.current_revision, operation: 'delete', device: device)
+        vault.sync_events.create!(sequence: seq, item_id: item.id, revision: item.current_revision, operation: 'delete', device: device, signature: signature)
         { item_id: item.id, revision: item.current_revision, sequence: seq, deleted_at: item.deleted_at }
       end
     end

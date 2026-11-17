@@ -23,6 +23,7 @@ Rails.application.routes.draw do
       get 'auth/sessions', to: 'sessions#index'
       delete 'auth/sessions/others', to: 'sessions#revoke_others'
       delete 'auth/sessions/:id', to: 'sessions#destroy'
+      delete 'auth/account', to: 'accounts#destroy'
       resources :devices, only: %i[index create update destroy] do
         post :enroll, on: :collection
       end

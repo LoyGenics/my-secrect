@@ -204,3 +204,24 @@ changed in this audit (no code was touched).
 - Session tokens are not bound to IP/device fingerprint (L2 partial: `user_agent`/`ip_address` are now recorded and listed).
 - Trusted-device transfer still unimplemented; no Unified Security Center UI yet (API only); activity feed has no pagination beyond capped `limit`.
 - The unauthenticated registration flow still creates the user row at options time (deliberate, documented in `passkeys.rb`).
+
+## Sign-in UI (WorkOS next step, 17 Nov 2026)
+
+> Code-read only. Nothing has been built, tested, or run on the Mac.
+
+| Subsystem | Status | Evidence | Next action |
+|---|---|---|---|
+| Account sign-in UI (desktop/web) | 🔨 Implemented, untested | `apps/desktop/src/components/SignInScreen.tsx` (passkey-first: create + login, MFA TOTP/recovery-code step, expiry-aware token storage, local-only bypass); `App.tsx` gates the vault on sign-in when a server is configured | `npm install && npm run build` in `apps/desktop`; run against the Rails API with `WEBAUTHN_ORIGIN` set; verify the MFA park + recovery-code path end to end |
+| Account sign-in UI (mobile) | 🔨 Implemented, untested | `apps/mobile/src/screens/SignInScreen.tsx` (recovery-key Ed25519 challenge only — no WebAuthn in Expo Go, no fake ceremony; yields a 15-min recovery session, honestly labelled) | `npx expo start`; sign in with a recovery key whose verifier was registered on Desktop/Web |
+| Sign-in state machine + token storage (SDK) | 🔨 Implemented, untested | `packages/sdk/src/signin.ts` (pure machine: email → passkey → mfa → signed-in; single-use challenge/MFA-token rules); `packages/sdk/src/security.ts` (`saveSessionToken` / `getValidToken` / `clearSessionToken` / `adoptRotatedToken`, `isUnauthorized`) | `node --test tests/security/signin-client.test.mjs`; `tsc` in desktop/mobile |
+| Sign-out (revokes server session) | 🔨 Implemented, untested | `SecurityApiClient.revokeCurrentSession()`; desktop `SecurityCenter` sign-out row + `App.handleSignOut` (revoke → clear token → lock vault); mobile `SecurityScreen` sign-out button + `App.handleSignedOut` | Verify revoke + lock on both clients; confirm a revoked token 401s |
+| 401 handling | 🔨 Implemented, untested | Desktop `SecurityCenter` + mobile `SecurityScreen` call `onUnauthorized` when every load 401s; Apps clear the token and show SignIn with a session-expired note; token getter never sends an expired token | Force-expire a token and confirm the gate reappears (no retry loop) |
+| SDK endpoint bugs fixed | 🔨 Implemented, untested | `mfaDisable` now `POST /v1/auth/mfa/disable` (was `DELETE /v1/auth/mfa`, no route); `mfaRecoveryCodes` now `POST /v1/auth/mfa/recovery_codes` (was `/recovery-codes`); recovery-codes wire key corrected to `recovery_codes` in SDK type + both Security Centers (was `res.codes`, always `undefined`); `rotated_token` now adopted automatically when the client is built with a `tokenStore` | RSpec + client flows above |
+| i18n for sign-in | 🔨 Implemented, untested | New `signin` section in `packages/i18n/src/en.ts` + `vi.ts` (identical keys, asserted by `tests/security/signin-client.test.mjs`); `security` 65-key contract untouched | `tsc` (vi.ts must satisfy `Dictionary`) |
+
+### Still not done (sign-in)
+
+- No password login exists in the API (passkey-only by design) — the clients correctly offer none; do not add one without a server endpoint + threat review.
+- Mobile has no full sign-in: no WebAuthn in Expo Go, and TOTP/MFA completion is impossible without a passkey assertion first. The recovery-key path is the only mobile sign-in and yields a 15-minute recovery session only.
+- No token refresh endpoint exists: sessions live 1 h (recovery 15 min) and then require signing in again. Rotation only happens on privilege changes via `rotated_token`.
+- Web sign-in needs a secure context and a matching `WEBAUTHN_ORIGIN`/`WEBAUTHN_RP_ID` on the server, or the ceremony fails; document per deployment.

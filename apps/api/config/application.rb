@@ -6,9 +6,11 @@ module MySecrectApi
   class Application < Rails::Application
     config.load_defaults 7.1
     config.api_only = true
-    # Modular monolith: domain logic lives in app/domains/*, autoloaded.
-    config.autoload_paths += Dir[Rails.root.join('app/domains/*/')]
-    config.eager_load_paths += Dir[Rails.root.join('app/domains/*/')]
+    # Domain files are app/domains/<context>/*.rb and must load as <Context>::*.
+    # app/domains is already an autoload root because it sits under app/.
+    # Do not add each child directory as its own root: Zeitwerk would expect
+    # top-level constants (UploadSession) and Blobs:: / Authentication:: would
+    # never be defined.
     config.active_record.schema_format = :ruby
     # The API never serves HTML. All responses are JSON, all payloads are
     # ciphertext + opaque ids. No plaintext vault content is ever logged.

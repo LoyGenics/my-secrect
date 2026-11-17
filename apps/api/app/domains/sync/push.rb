@@ -16,17 +16,31 @@ module Sync
     # The server still NEVER decrypts, merges, or last-write-wins:
     # a stale base_revision raises RevisionConflict (409) and the
     # client resolves it after decryption (see packages/sync).
+    #
+    # `signature` is optional client-supplied opaque bytes (standard
+    # base64 on the wire). It is stored on the sync event and echoed
+    # on pull. It is not authenticated: no device-signature algorithm
+    # is agreed, so a missing signature is accepted. Invalid base64
+    # raises ArgumentError (the controller turns that into 422).
     def call(vault:, item_id:, base_revision:, operation:, encrypted_payload:, encrypted_item_key:, encryption_version: 1, device: nil, signature: nil)
       raise ArgumentError, 'operation must be upsert or delete' unless %w[upsert delete].include?(operation.to_s)
       if operation.to_s == 'upsert'
         raise ArgumentError, 'encrypted_payload required' if encrypted_payload.blank?
         raise ArgumentError, 'encrypted_item_key required' if encrypted_item_key.blank?
       end
+      signature_bytes = decode_opaque_signature(signature)
       attempts = 0
       begin
         vault.with_lock do
-          return EncryptedRecords::Delete.call(vault: vault, item_id: item_id, device: device) if operation == 'delete'
-          EncryptedRecords::Upsert.call(vault: vault, item_id: item_id, base_revision: base_revision, encrypted_payload: encrypted_payload, encrypted_item_key: encrypted_item_key, encryption_version: encryption_version, device: device)
+          if operation.to_s == 'delete'
+            EncryptedRecords::Delete.call(vault: vault, item_id: item_id, base_revision: base_revision, device: device, signature: signature_bytes)
+          else
+            EncryptedRecords::Upsert.call(
+              vault: vault, item_id: item_id, base_revision: base_revision,
+              encrypted_payload: encrypted_payload, encrypted_item_key: encrypted_item_key,
+              encryption_version: encryption_version, device: device, signature: signature_bytes
+            )
+          end
         end
       rescue ActiveRecord::RecordNotUnique
         attempts += 1
@@ -35,6 +49,17 @@ module Sync
       end
     rescue EncryptedRecords::Upsert::RevisionConflict => e
       raise RevisionConflict, e.current_revision
+    end
+
+    # nil / "" means the client omitted a signature. Anything else must
+    # be standard base64. The decoded bytes are stored unchanged.
+    def decode_opaque_signature(signature)
+      return nil if signature.nil?
+      raise ArgumentError, 'invalid signature encoding' unless signature.is_a?(String)
+      return nil if signature.empty?
+      Base64.strict_decode64(signature)
+    rescue ArgumentError
+      raise ArgumentError, 'invalid signature encoding'
     end
   end
 end

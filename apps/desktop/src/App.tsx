@@ -49,7 +49,16 @@ import MediaView from './components/MediaView';
 import SharesView from './components/SharesView';
 import SecurityCenter from './components/SecurityCenter';
 import StepUpDialog from './components/StepUpDialog';
-import { SecurityApiClient, isStepUpFresh, LS_API_TOKEN } from '../../../packages/sdk/src/security';
+import SignInScreen from './components/SignInScreen';
+import {
+  SecurityApiClient,
+  isStepUpFresh,
+  LS_ACCOUNT_EMAIL,
+  clearSessionToken,
+  getValidToken,
+  getValidTokenSync,
+  webTokenStore,
+} from '../../../packages/sdk/src/security';
 import { I18nProvider } from '../../../packages/i18n/src/react';
 import { detectLocale } from '../../../packages/i18n/src/index';
 
@@ -184,17 +193,60 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
   const securityClient = useMemo<SecurityApiClient | null>(() => {
     const base = apiBaseUrl.trim();
     if (!base) return null;
+    // The token getter is expiry-aware (getValidToken): an expired
+    // token reads as null, so calls never go out with a stale token
+    // and the server never has to 401 them. tokenStore lets the
+    // client adopt `rotated_token` responses automatically.
+    const store = webTokenStore();
     return new SecurityApiClient({
       baseUrl: base,
-      getToken: async () => {
-        try {
-          return localStorage.getItem(LS_API_TOKEN);
-        } catch {
-          return null;
-        }
-      },
+      getToken: () => getValidToken(store),
+      tokenStore: store,
     });
   }, [apiBaseUrl]);
+  // --- Account sign-in state (WorkOS scope) --------------------------
+  // Signed-in = a valid (unexpired) session token is stored. The
+  // gate below shows SignInScreen before the vault whenever a server
+  // is configured and there is no valid session. Vault unlock
+  // (master passphrase) stays a SEPARATE step after sign-in.
+  const [signedIn, setSignedIn] = useState<boolean>(() => {
+    try {
+      return getValidTokenSync(webTokenStore()) !== null;
+    } catch {
+      return false;
+    }
+  });
+  const [accountEmail, setAccountEmail] = useState<string>(() => {
+    try {
+      return localStorage.getItem(LS_ACCOUNT_EMAIL) ?? '';
+    } catch {
+      return '';
+    }
+  });
+  // 'Continue without signing in' — local-only escape hatch so a
+  // configured-but-unreachable server can never brick the local
+  // vault. Account features stay signed out until sign-in succeeds.
+  const [localOnlyBypass, setLocalOnlyBypass] = useState(false);
+  // Set when a server call answers 401: the gate reappears with a
+  // 'session expired' note instead of silently retrying.
+  const [sessionExpired, setSessionExpired] = useState(false);
+
+  const handleSignedIn = useCallback((email: string) => {
+    setAccountEmail(email);
+    setSignedIn(true);
+    setLocalOnlyBypass(false);
+    setSessionExpired(false);
+  }, []);
+
+  const handleUnauthorized = useCallback(() => {
+    // A 401 means the stored session is gone server-side (revoked
+    // or expired). Clear it locally and send the user back to
+    // SignIn; never retry with the same stale token.
+    void clearSessionToken(webTokenStore());
+    setSignedIn(false);
+    setLocalOnlyBypass(false);
+    setSessionExpired(true);
+  }, []);
   // Step-up (10-minute window, STEP_UP_WINDOW_MS in the SDK): a pending
   // action runs only after a fresh verification. requestStepUp runs the
   // action at once when the window is still fresh, otherwise it opens
@@ -232,6 +284,12 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
   }, []);
   const handleApiBaseUrlChange = useCallback((url: string) => {
     setApiBaseUrl(url);
+    // A stored token belongs to the previous server (if any): a
+    // changed URL always requires signing in again. Clearing the URL
+    // returns to local-only, where the sign-in gate is off.
+    setSignedIn(false);
+    setLocalOnlyBypass(false);
+    setSessionExpired(false);
     try {
       const trimmed = url.trim();
       if (trimmed) localStorage.setItem(LS_API_BASE_URL, trimmed);
@@ -270,6 +328,30 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     setUseRecovery(false);
     if (lockTimerRef.current) window.clearTimeout(lockTimerRef.current);
   }, []);
+
+  /** Sign out of the account AND lock the vault. The server session
+   *  is revoked first (revokeCurrentSession finds the `current`
+   *  session and DELETEs it); when the server cannot confirm —
+   *  offline, or the session already expired — local sign-out
+   *  still proceeds and the token is cleared regardless, so the
+   *  user is never stuck signed in. Revocation invalidates the
+   *  server session only; it does NOT erase secrets already
+   *  downloaded or cached offline on this device. */
+  const handleSignOut = useCallback(async () => {
+    if (securityClient) {
+      try {
+        await securityClient.revokeCurrentSession();
+      } catch {
+        // Server revocation unconfirmed; local sign-out proceeds.
+      }
+    }
+    await clearSessionToken(webTokenStore());
+    setAccountEmail('');
+    setSignedIn(false);
+    setLocalOnlyBypass(false);
+    setSessionExpired(false);
+    doLock();
+  }, [securityClient, doLock]);
 
   // Auto-lock: reset the timer on pointer / key activity while unlocked.
   useEffect(() => {
@@ -734,6 +816,27 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
             ? `No items tagged “${view.slice(4)}”.`
             : 'No items in this view yet. Press Cmd/Ctrl+N to add one.';
 
+  // ---------- Account sign-in gate ----------
+  // When a server is configured and there is no valid session, the
+  // account sign-in comes FIRST — before vault onboarding / unlock.
+  // The vault itself stays local-first: 'Continue without signing
+  // in' skips the gate and the vault works offline, with account
+  // features signed out. With no server configured there is no gate
+  // at all. Sign-in never unlocks the vault: after it, the user
+  // still faces the lock screen / onboarding below.
+  if (securityClient && !signedIn && !localOnlyBypass) {
+    return (
+      <I18nProvider initialLocale={detectLocale()}>
+        <SignInScreen
+          security={securityClient}
+          sessionExpired={sessionExpired}
+          onSignedIn={handleSignedIn}
+          onContinueLocalOnly={() => setLocalOnlyBypass(true)}
+        />
+      </I18nProvider>
+    );
+  }
+
   // ---------- Onboarding (no vault yet) ----------
   if (!vaultExists) {
     const strength = passphraseScore(newPass);
@@ -973,6 +1076,9 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
               encryptWithVaultKey={encryptWithVaultKey}
               decryptWithVaultKey={decryptWithVaultKey}
               requestStepUp={requestStepUp}
+              signedInEmail={accountEmail}
+              onSignOut={() => void handleSignOut()}
+              onUnauthorized={handleUnauthorized}
             />
           </div>
         ) : view === 'health' ? (
