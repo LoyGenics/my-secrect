@@ -45,7 +45,9 @@ with the device Local Storage Key (LSK) from `modules/device-key`:
 It holds the same encrypted rows and wrapped-key JSON the AsyncStorage
 build kept, plus `device_unlock` and `autofill_index` (titles,
 usernames, hosts of login/passkey items — never secrets) for the
-credential providers. `src/storage/` has the schema, transactions and
+credential providers. The index exists only while biometric unlock is
+on: turning it off, an invalidated key, a passphrase change and wipe
+all clear it. `src/storage/` has the schema, transactions and
 migration; `src/storage/nativePlatform.ts` opens the real database and
 refuses to run if SQLCipher is not linked. Every multi-row write is one
 transaction.
@@ -112,6 +114,7 @@ Tests that run off-device (real SQLite via sql.js, real vault crypto):
 npx tsx --test apps/mobile/tests/vault-store.test.ts
 npx tsx --test apps/mobile/tests/vault-device-unlock.test.ts
 npx tsx --test apps/mobile/vault-restore.test.ts
+npx tsx --test apps/mobile/tests/libsodium-shim.test.ts
 ```
 
 `vault-device-unlock.test.ts` drives `src/vault.ts` with a software
@@ -119,10 +122,23 @@ stand-in for the native DeviceKey module; the Swift and Kotlin code is
 only exercised on a simulator / emulator.
 
 Build notes (SDK 52, checked with Xcode 26.6 and the Android SDK):
-- `index.js` imports `polyfills.js` first: Hermes has no Web Crypto,
-  so `expo-crypto` provides `crypto.getRandomValues` for libsodium.
-  Hermes also has no WebAssembly; libsodium falls back to its asm.js
-  build (a warning in the Metro log, not an error).
+- libsodium runs natively. Hermes has no WebAssembly, and
+  libsodium-wrappers' asm.js fallback is broken there (repeated "random"
+  bytes, AEAD that does not round-trip). `metro.config.js` resolves
+  `libsodium-wrappers-sumo` on iOS/Android to
+  `src/crypto/libsodium-react-native.ts`, a shim over
+  `react-native-libsodium` (JSI). It copies subarray views (the binding
+  reads `.buffer`), computes HMAC-SHA256 with native HKDF-Extract and
+  SHA-256 with `@noble/hashes` (no native binding for it). The binding
+  takes AEAD additional data only as a string: 7-bit AD works, AD with
+  bytes >= 0x80 (some item-v2 cases) fails closed. v1 uses no AD.
+- `index.js` imports `polyfills.js` first: `expo-crypto` provides
+  `crypto.getRandomValues` (Hermes has no Web Crypto).
+- Dev-only crypto check: `EXPO_PUBLIC_CRYPTO_CHECK=1 npx expo start`
+  mounts `dev/CryptoCheck.tsx` instead of the app. It runs the
+  `tests/crypto-vectors/*.json` found in this checkout plus the libsodium
+  self-test on the device, and can restore a desktop-made backup put in
+  `dev/fixtures/` (ignored by git). Release bundles do not include it.
 - `plugins/with-mobile-storage.js` builds the `fmt` pod as C++17
   (fmt 11 + Xcode 26 clang fail as C++20).
 - If `pod install` fails with `unknown keyword: quirks_mode`, the
