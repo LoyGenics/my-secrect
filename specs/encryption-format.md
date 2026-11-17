@@ -16,7 +16,7 @@
 | KDF (passphrase → KEK) | Argon2id (`crypto_pwhash`, `ALG_ARGON2ID13`) | opslimit = `OPSLIMIT_INTERACTIVE` = **2**; memlimit = `MEMLIMIT_INTERACTIVE` = **67108864 bytes (64 MiB)**; salt **16 bytes** ngẫu nhiên; output **32 bytes** |
 | Item nhỏ | XChaCha20-Poly1305 (`crypto_aead_xchacha20poly1305_ietf`) | key **32 bytes**; nonce **24 bytes** ngẫu nhiên mỗi lần mã hóa; tag Poly1305 **16 bytes** |
 | File tuần tự | libsodium `secretstream` | (ghi chú — chưa implement trong prototype) |
-| Media random-access | AEAD theo chunk, nonce + manifest riêng | (ghi chú — chưa implement trong prototype) |
+| Media random-access | AEAD theo chunk, nonce + manifest riêng | XChaCha20-Poly1305 IETF, AD rỗng, chunk 1 MiB plaintext, nonce 24 byte ngẫu nhiên mỗi chunk — xem § File / blob |
 | Subkey derivation | HKDF-SHA-256 | HMAC-SHA-256 based, RFC 5869; salt mặc định 32 byte 0; xem § HKDF |
 | Trao khóa | HPKE hoặc protocol đã kiểm chứng | (chưa implement) |
 | Random | CSPRNG của OS qua `sodium.randombytes_buf` | — |
@@ -84,10 +84,27 @@ item_plaintext (JSON, schema_version)
   - `length` cho phép 1..8160 byte (255 × 32).
 
 ## File / blob
-- Mỗi file có File Key riêng. Chunk độc lập, nonce không trùng (hoặc subkey riêng/chunk).
-- Manifest đã mã hóa ràng buộc: danh sách chunk, thứ tự, kích thước, hash, format version.
-- Thumbnail tạo trên client, mã hóa trước khi upload. Không dùng thumbnail generation của server.
-- Upload qua presigned URL ngắn hạn, client upload ciphertext trực tiếp lên R2/S3/MinIO.
+- Mỗi file có File Key riêng (32 byte ngẫu nhiên). Chunk độc lập, nonce không trùng (hoặc subkey riêng/chunk).
+- Manifest (`format_version` 1) mã hóa bằng Vault Key, ràng buộc: `blob_id`, kích thước plaintext,
+  `chunk_size`, danh sách chunk (part_number, byte range, nonce, kích thước + SHA-256 của ciphertext),
+  SHA-256 của toàn bộ plaintext (`plaintext_sha256_b64`, tùy chọn với manifest cũ), tên file, MIME,
+  và File Key đã wrap bằng Vault Key (`wrapped_file_key`). Thiết bị nào có Vault Key (thiết bị thứ hai
+  restore cùng vault) đều giải mã được. Download từ chối manifest có `blob_id` khác blob được yêu cầu.
+- Upload hai lượt (bộ nhớ không phụ thuộc kích thước file): lượt 1 mã hóa từng chunk với nonce mới chỉ để
+  ghi nonce + hash vào manifest; lượt 2 mã hóa lại với ĐÚNG nonce đã ghi (ra cùng ciphertext), so hash
+  với manifest rồi mới PUT. File đổi giữa hai lượt → hash lệch → không gửi gì (không bao giờ có hai
+  ciphertext khác nhau cùng một nonce rời thiết bị).
+- Download kiểm tra từng chunk (kích thước, SHA-256 theo manifest, tag AEAD) trước khi giải mã, rồi hash
+  toàn file; lỗi bất kỳ → hủy, không trả/hiển thị plaintext nào.
+- Thumbnail tạo trên client, mã hóa và upload thành blob RIÊNG (File Key riêng); item lưu
+  `thumbnail_blob_id`. Manifest cũ có thể nhúng `thumbnail` (mã hóa bằng File Key) — vẫn đọc được.
+  Không dùng thumbnail generation của server.
+- Upload qua presigned URL ngắn hạn (5 phút), client upload ciphertext trực tiếp lên R2/S3/MinIO.
+  API (`POST /v1/blobs/upload-session`) nhận `part_count`, `part_size`, `ciphertext_size`,
+  `encrypted_manifest`; mọi part trừ part cuối có đúng `part_size` byte, kích thước từng part được ký
+  vào URL (Content-Length là signed header) nên storage từ chối độ dài khác. Gọi lại cùng `blob_id` +
+  manifest + layout khi session chưa hết hạn (24 h) = resume: URL mới, mỗi part có `stored` theo
+  storage. Complete kiểm tra từng part tồn tại đúng kích thước và quota.
 - **File encryption qua libsodium `secretstream` (ghi chú — chưa implement
   trong prototype; chỉ dùng cho file tuần tự, không dùng cho item nhỏ).**
 

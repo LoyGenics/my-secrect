@@ -42,7 +42,7 @@ async function rawObjects(blobId: string): Promise<Uint8Array[]> {
 }
 async function upload(data: Uint8Array, name = 'photo.png'): Promise<PreparedUpload> {
   const prepared = await prepareUpload({ api, vaultId: VAULT, vaultKey, crypto: libsodiumAdapter, data, fileName: name, mimeType: 'image/png' });
-  await runUpload(api, prepared);
+  await runUpload(api, prepared, { vaultKey, crypto: libsodiumAdapter });
   return prepared;
 }
 const dl = (id: string, key = vaultKey) => downloadFile(api, id, key, libsodiumAdapter);
@@ -133,6 +133,12 @@ test('TAMPER in MinIO: chunk replaced by a chunk of ANOTHER file (same key space
 test('API refuses an upload session without an encrypted manifest and a complete with a lying size', async () => {
   await assert.rejects(api.createBlobUploadSession(VAULT, { blob_id: crypto.randomUUID(), part_count: 1, ciphertext_size: 100, encrypted_manifest: '' }), /422/);
   const p = await prepareUpload({ api, vaultId: VAULT, vaultKey, crypto: libsodiumAdapter, data: fileBytes(500), fileName: 'x', mimeType: 'x/y' });
-  for (const [n, u] of p.urls) await put(u, p.chunks[n - 1].ciphertext);
-  await assert.rejects(api.completeBlobUpload(p.blobId, [{ part_number: 1, ciphertext_size: p.chunks[0].ciphertext.length + 1, ciphertext_sha256_b64: p.manifest.chunks[0].ciphertext_sha256_b64 }]), /422/);
+  // Store the real part, but stop before the honest complete call…
+  const noComplete = { ...api, createBlobUploadSession: api.createBlobUploadSession.bind(api), createBlobDownloadSession: api.createBlobDownloadSession.bind(api), completeBlobUpload: async () => undefined };
+  await runUpload(noComplete, p, { vaultKey, crypto: libsodiumAdapter });
+  // …then lie about the size: the server compares against the session and storage.
+  const size = p.manifest.chunks[0].ciphertext_size;
+  await assert.rejects(api.completeBlobUpload(p.blobId, [{ part_number: 1, ciphertext_size: size + 1, ciphertext_sha256_b64: p.manifest.chunks[0].ciphertext_sha256_b64 }]), /422.*differs from the session/);
+  await api.completeBlobUpload(p.blobId, [{ part_number: 1, ciphertext_size: size, ciphertext_sha256_b64: p.manifest.chunks[0].ciphertext_sha256_b64 }]);
+  assert.equal((await dl(p.blobId)).bytes.length, 500);
 });
