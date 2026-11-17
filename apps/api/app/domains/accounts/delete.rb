@@ -62,6 +62,7 @@ module Accounts
         user.sessions.delete_all
         MfaChallenge.where(user_id: user.id).delete_all
         PasskeyChallenge.where(email: user.email).delete_all
+        EmailVerification.where(email: user.email).delete_all
         RecoveryChallenge.where(user_id: user.id).delete_all
         RecoveryVerifier.where(user_id: user.id).delete_all
         RecoveryCode.where(user_id: user.id).delete_all

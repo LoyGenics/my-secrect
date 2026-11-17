@@ -17,4 +17,9 @@ class User < ApplicationRecord
   validates :status, inclusion: { in: %w[active suspended deleted] }
 
   before_validation { self.email = email&.strip&.downcase }
+
+  # True once the account has ever had a passkey or MFA. Only an unclaimed
+  # row (a pre-email-verification leftover that never finished
+  # registration) may be completed by the verified-email sign-up flow.
+  def claimed? = authenticators.exists? || mfa_enabled?
 end

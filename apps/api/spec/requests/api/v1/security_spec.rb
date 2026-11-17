@@ -29,9 +29,7 @@ RSpec.describe 'Security API', type: :request do
 
   # Full registration ceremony through the real HTTP routes.
   def register_passkey(address:, client: WebAuthn::FakeClient.new(origin))
-    post '/api/v1/auth/passkeys/register', params: { email: address }, as: :json
-    expect(response).to have_http_status(:ok)
-    options = json_body
+    options = registration_options_via_api(address)
     credential = client.create(challenge: options['creation_options']['challenge'], user_verified: true)
     post '/api/v1/auth/passkeys/verify',
          params: { email: address, credential: credential, kind: 'registration' }, as: :json

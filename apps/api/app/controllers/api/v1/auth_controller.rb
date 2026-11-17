@@ -6,13 +6,46 @@ module Api
     # needs the master passphrase (or a device-protected key) to unwrap
     # the Account Master Key locally.
     class AuthController < ApplicationController
-      skip_before_action :authenticate_request!, only: %i[register_passkey verify_passkey authenticate_passkey verify_mfa]
+      skip_before_action :authenticate_request!,
+                         only: %i[request_email_code verify_email_code register_passkey verify_passkey
+                                  authenticate_passkey verify_mfa]
 
-      # POST /v1/auth/passkeys/register — step 1: creation options + challenge.
-      # Body: { email: }. Creates the user if new, stores a one-time challenge.
-      def register_passkey
-        result = Authentication::Passkeys.registration_options(email: params[:email])
+      # POST /v1/auth/email/request — sign-up step 1: email a 6-digit code.
+      # Body: { email: }. 202 { status: 'sent', expires_in: 600 } for EVERY
+      # valid address, whether or not it already has an account (an
+      # existing owner is emailed a notice instead of a code). 422 for a
+      # malformed address, 503 when mail cannot be sent. Rate-limited.
+      def request_email_code
+        result = Authentication::EmailOwnership.request_code(email: params[:email])
+        render json: result, status: :accepted
+      rescue Authentication::EmailOwnership::InvalidEmail
+        render json: { error: 'invalid_email' }, status: :unprocessable_entity
+      rescue Authentication::EmailOwnership::DeliveryError
+        render json: { error: 'email_unavailable' }, status: :service_unavailable
+      end
+
+      # POST /v1/auth/email/verify — sign-up step 2. Body: { email:, code: }.
+      # 200 { registration_ticket:, expires_in: 600 } (ticket shown once),
+      # or one generic 401 for every failure. 5 attempts per code, then
+      # the code is burned. Rate-limited.
+      def verify_email_code
+        result = Authentication::EmailOwnership.verify_code(email: params[:email], code: params[:code])
         render json: result, status: :ok
+      rescue Authentication::EmailOwnership::VerificationError
+        render json: { error: 'verification_failed' }, status: :unauthorized
+      end
+
+      # POST /v1/auth/passkeys/register — sign-up step 3: creation options
+      # + challenge. Body: { email:, registration_ticket: }. Requires the
+      # live ticket from /auth/email/verify; creates NO user row (the
+      # registration verify does). Generic 401 for a bad ticket.
+      def register_passkey
+        result = Authentication::Passkeys.registration_options(
+          email: params[:email], registration_ticket: params[:registration_ticket]
+        )
+        render json: result, status: :ok
+      rescue Authentication::Passkeys::VerificationError
+        render json: { error: 'verification_failed' }, status: :unauthorized
       end
 
       # POST /v1/auth/passkeys/verify — step 2: verify attestation OR assertion.

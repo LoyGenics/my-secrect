@@ -1,4 +1,6 @@
 class PasskeyChallenge < ApplicationRecord
+  # Set only on registration challenges minted with a verified-email ticket.
+  belongs_to :email_verification, optional: true
   validates :email, :challenge, :expires_at, presence: true
   scope :live, -> { where(consumed_at: nil).where('expires_at > ?', Time.current) }
 

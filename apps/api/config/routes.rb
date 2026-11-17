@@ -44,6 +44,13 @@ Rails.application.routes.draw do
       post 'recovery/verify', to: 'recovery#verify'
       get 'recovery/verifiers', to: 'recovery#verifiers'
       post 'recovery/verifiers', to: 'recovery#register_verifier'
+
+      # --- BEGIN auth: email ownership + device proof (Agent 02) ---------
+      # Sign-up email verification before the first passkey registration
+      # (Authentication::EmailOwnership).
+      post 'auth/email/request', to: 'auth#request_email_code'
+      post 'auth/email/verify', to: 'auth#verify_email_code'
+      # --- END auth: email ownership + device proof (Agent 02) -----------
     end
   end
 end

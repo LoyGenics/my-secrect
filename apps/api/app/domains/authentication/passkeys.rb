@@ -46,22 +46,22 @@ module Authentication
   #     ASCII bytes. verify() base64url-decodes it before use.
   #   sign_count    — last verified counter value.
   #
-  # Account-takeover guard: this endpoint is unauthenticated, so a
-  # 'registration' verification is only accepted when the user has NO
-  # active authenticator yet (i.e. account creation with its FIRST
-  # passkey). Once an account has a passkey, adding another one must go
-  # through the authenticated add-passkey flow
-  # (add_registration_options / verify_addition, step-up required).
-  # Without this guard, anyone who knows an email address could
-  # register a passkey for that account and take it over.
+  # Account creation needs proof of email ownership first
+  # (Authentication::EmailOwnership): registration_options requires a live
+  # registration ticket, the challenge it stores points at that
+  # verification, and the unauthenticated 'registration' verify only
+  # accepts such a challenge. The user row is created only there — after
+  # the email code AND the attestation verified — in one transaction with
+  # the authenticator and the ticket consumption. No row exists before.
   #
-  # The user row is still created at options time in the unauthenticated
-  # registration flow (registration_options): the row is inert until step
-  # 2 verifies a real attestation — no session is issued before then —
-  # and changing it would break the existing register/verify contract.
-  # The authenticated add flow (add_registration_options) never creates
-  # a user row: the user already exists and is taken from the session,
-  # never from a client-supplied email.
+  # Account-takeover guard: this endpoint is unauthenticated, so a
+  # 'registration' verification is refused for an address whose account
+  # is claimed (User#claimed?: it has ever had a passkey, or has MFA), and
+  # the first-passkey-only check below stays as a second guard. Adding a
+  # passkey to an existing account goes through the authenticated
+  # add-passkey flow (add_registration_options / verify_addition, step-up
+  # required). The authenticated add flow never creates a user row: the
+  # user is taken from the session, never from a client-supplied email.
   #
   # MFA gate: when the user has MFA enabled, verify() with kind
   # 'authentication' does NOT issue a session. It returns
@@ -83,26 +83,35 @@ module Authentication
 
     module_function
 
-    # Step 1 (registration): creation options + stored challenge.
-    # Creates the user row if new — the account is NOT authenticated
-    # until step 2 verifies a real attestation and persists an
-    # Authenticator (see verify). Returns the gem's standard options
-    # JSON (challenge is base64url; the client base64url-decodes it and
-    # user.id before calling navigator.credentials.create).
-    def registration_options(email:)
-      raise VerificationError, 'email required' if email.blank?
-      user = User.find_or_create_by!(email: email.strip.downcase)
+    # Step 1 (registration): creation options + stored challenge, for a
+    # verified email only. Requires a live registration ticket from
+    # EmailOwnership.verify_code for this address; creates NO user row
+    # (verify does, see register_account). The challenge is bound to the
+    # ticket's verification. user.id in the response is the id the account
+    # will get. Returns the gem's standard options JSON (challenge is
+    # base64url; the client base64url-decodes it and user.id before
+    # calling navigator.credentials.create). Raises VerificationError
+    # (generic) for a missing/expired/used ticket or a claimed account.
+    def registration_options(email:, registration_ticket:)
+      normalized = email.to_s.strip.downcase
+      verification = EmailOwnership.live_ticket!(email: normalized, ticket: registration_ticket)
+      raise VerificationError, 'verification failed' if User.find_by(email: normalized)&.claimed?
+
+      user_id = verification.pending_user_id
       options = WebAuthn::Credential.options_for_create(
-        user: { id: webauthn_user_id(user), name: user.email, display_name: user.email },
-        exclude: user.authenticators.active.pluck(:credential_id),
+        user: { id: webauthn_user_handle(user_id), name: normalized, display_name: normalized },
+        exclude: [],
         authenticator_selection: { user_verification: USER_VERIFICATION },
         timeout: OPTIONS_TIMEOUT_MS
       )
-      PasskeyChallenge.create!(email: user.email, challenge: options.challenge, kind: 'registration', expires_at: Time.current + CHALLENGE_TTL)
+      PasskeyChallenge.create!(email: normalized, challenge: options.challenge, kind: 'registration',
+                               expires_at: Time.current + CHALLENGE_TTL, email_verification: verification)
       {
-        user: { id: user.id, email: user.email },
+        user: { id: user_id, email: normalized },
         creation_options: options.as_json
       }
+    rescue EmailOwnership::VerificationError
+      raise VerificationError, 'verification failed'
     end
 
     # Step 1 (authentication): request options + stored challenge.
@@ -184,13 +193,13 @@ module Authentication
       raise VerificationError, 'challenge expired or already used' unless challenge_rec
       raise VerificationError, 'challenge expired or already used' unless challenge_rec.consume!
 
-      user = User.find_by(email: normalized_email)
-      raise VerificationError, 'verification failed' unless user
-
-      verified = case kind
-                 when 'registration' then verify_registration(user: user, params: params, challenge: challenge_rec.challenge)
-                 when 'authentication' then verify_authentication(user: user, params: params, challenge: challenge_rec.challenge)
-                 end
+      if kind == 'registration'
+        user, verified = register_account(email: normalized_email, params: params, challenge_rec: challenge_rec)
+      else
+        user = User.find_by(email: normalized_email)
+        raise VerificationError, 'verification failed' unless user
+        verified = verify_authentication(user: user, params: params, challenge: challenge_rec.challenge)
+      end
 
       device = user.devices.active.first || Devices::Enroll.call(user: user, public_key: decoded_public_key(verified[:public_key]), name_encrypted: nil)
       Audit::Log.call(user: user, device: device, event_type: "passkey_#{kind}_verified")
@@ -213,10 +222,46 @@ module Authentication
 
     # -- internals ---------------------------------------------------------
 
-    # Base64url encoding of the user's UUID bytes. Opaque, stable, and
-    # what the browser stores as the userHandle.
+    # Base64url encoding of the user's UUID string. Opaque, stable, and
+    # what the browser stores as the userHandle. For a sign-up it is
+    # computed from the pending id before the user row exists.
     def webauthn_user_id(user)
-      Base64.urlsafe_encode64(user.id.to_s, padding: false)
+      webauthn_user_handle(user.id)
+    end
+
+    def webauthn_user_handle(user_id)
+      Base64.urlsafe_encode64(user_id.to_s, padding: false)
+    end
+
+    # Unauthenticated account creation (kind 'registration'). Only for a
+    # challenge minted with a verified-email ticket, only while that ticket
+    # is live and unused, and never for a claimed account. Ticket
+    # consumption, the user row and the authenticator commit together: a
+    # failed attestation rolls everything back (the ticket stays usable
+    # until it expires). Returns [user, { public_key:, authenticator: }].
+    def register_account(email:, params:, challenge_rec:)
+      verification = challenge_rec.email_verification
+      raise VerificationError, 'verification failed' unless verification && verification.email == email
+
+      created = false
+      user, verified = ActiveRecord::Base.transaction do
+        EmailOwnership.consume_ticket!(verification)
+        user = User.lock.find_by(email: email)
+        if user
+          # Only an unclaimed leftover row with the very id the ticket was
+          # minted for may be completed.
+          raise VerificationError, 'verification failed' if user.claimed? || user.id != verification.pending_user_id
+        else
+          user = User.create!(id: verification.pending_user_id, email: email)
+          created = true
+        end
+        [user, verify_registration(user: user, params: params, challenge: challenge_rec.challenge)]
+      end
+      Audit::Log.call(user: user, event_type: 'account_created',
+                      metadata: { email_verification_id: verification.id }) if created
+      [user, verified]
+    rescue EmailOwnership::VerificationError, ActiveRecord::RecordInvalid, ActiveRecord::RecordNotUnique
+      raise VerificationError, 'verification failed'
     end
 
     # from_create/from_get read String keys ("type", "id", "rawId",

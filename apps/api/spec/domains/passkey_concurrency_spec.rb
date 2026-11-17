@@ -16,12 +16,13 @@ RSpec.describe 'Passkey verify concurrency' do
 
   after do
     conn = ActiveRecord::Base.connection
-    tables = %w[sessions devices authenticators passkey_challenges audit_events users].select { |t| conn.table_exists?(t) }
+    tables = %w[sessions devices authenticators passkey_challenges email_verifications audit_events users]
+             .select { |t| conn.table_exists?(t) }
     conn.execute("TRUNCATE #{tables.map { |t| conn.quote_table_name(t) }.join(', ')} RESTART IDENTITY CASCADE")
   end
 
   def register!
-    options = Authentication::Passkeys.registration_options(email: email)
+    options = Authentication::Passkeys.registration_options(email: email, registration_ticket: registration_ticket_for(email))
     credential = client.create(challenge: options[:creation_options][:challenge] || options['creation_options']['challenge'], user_verified: true)
     Authentication::Passkeys.verify(email: email, credential: credential, kind: 'registration')
   end
