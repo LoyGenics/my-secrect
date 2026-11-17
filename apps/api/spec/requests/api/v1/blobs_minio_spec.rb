@@ -91,7 +91,7 @@ RSpec.describe 'Blobs API against real MinIO', type: :request do
 
     result = travel(10.minutes) { OrphanBlobCleanupJob.new.perform }
 
-    expect(result).to eq(expired_blobs: 1, deleted_objects: 2, orphan_objects: 1)
+    expect(result).to eq(expired_blobs: 1, deleted_keys: 2, orphan_objects: 1)
     expect(raw.list_objects_v2(bucket: bucket).contents).to be_empty
     expect(Blob.exists?(blob_id)).to be(false)
   end

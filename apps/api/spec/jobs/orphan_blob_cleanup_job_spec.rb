@@ -3,6 +3,8 @@ require 'rails_helper'
 # Runs the real job against the real provider interface (Blobs.storage_provider)
 # backed by the in-memory adapter. Nothing under test is mocked.
 RSpec.describe OrphanBlobCleanupJob do
+  include ActiveSupport::Testing::TimeHelpers
+
   let(:store) { InMemoryStorage.new }
   let(:vault) { create(:vault) }
 
@@ -32,7 +34,7 @@ RSpec.describe OrphanBlobCleanupJob do
 
     result = described_class.new.perform
 
-    expect(result).to eq(expired_blobs: 2, deleted_objects: 5, orphan_objects: 0)
+    expect(result).to eq(expired_blobs: 2, deleted_keys: 5, orphan_objects: 0)
     expect(Blob.where(id: [expired.id, legacy.id])).to be_empty
     expect(BlobPart.where(blob_id: [expired.id, legacy.id])).to be_empty
     expect(store.objects.keys).to match_array(live_keys + done_keys)
@@ -49,7 +51,7 @@ RSpec.describe OrphanBlobCleanupJob do
     store.put(fresh_orphan, 'x', at: 1.minute.ago)
     store.put(foreign, 'x', at: 30.days.ago)
 
-    expect(described_class.new.perform).to eq(expired_blobs: 0, deleted_objects: 0, orphan_objects: 1)
+    expect(described_class.new.perform).to eq(expired_blobs: 0, deleted_keys: 0, orphan_objects: 1)
     expect(store.objects.keys).to match_array(done_keys + [fresh_orphan, foreign])
   end
 
@@ -63,8 +65,67 @@ RSpec.describe OrphanBlobCleanupJob do
     expect(BlobPart.where(blob_id: expired.id).count).to eq(3)
 
     store.fail_deletes_for = []
-    expect(described_class.new.perform).to eq(expired_blobs: 1, deleted_objects: 3, orphan_objects: 0) # part 1 again: deletes are idempotent
+    expect(described_class.new.perform).to eq(expired_blobs: 1, deleted_keys: 3, orphan_objects: 0) # part 1 again: deletes are idempotent
     expect(Blob.exists?(expired.id)).to be(false)
     expect(store.objects).to be_empty
+  end
+
+  it 'removes a chunk PUT after its account was deleted (no rows left) once the presign window has passed' do
+    blob, keys = seed(status: 'uploading', upload_expires_at: 1.hour.from_now, parts: 2)
+    Accounts::Delete.call(user: vault.owner)
+    expect(Blob.exists?(blob.id)).to be(false)
+    expect(store.objects).to be_empty
+    store.put(keys[1], 'late ciphertext') # a presigned PUT issued before the deletion lands after it
+
+    expect(described_class.new.perform).to eq(expired_blobs: 0, deleted_keys: 0, orphan_objects: 0) # URL may still be in use
+    travel(Blobs::StorageProvider::PRESIGN_TTL + 1) do
+      expect(described_class.new.perform).to eq(expired_blobs: 0, deleted_keys: 0, orphan_objects: 1)
+    end
+    expect(store.objects).to be_empty
+  end
+
+  # Real Redis (REDIS_URL, as in CI) and the ActiveJob test adapter.
+  describe 'schedule' do
+    include ActiveJob::TestHelper
+
+    def pending_claim = Sidekiq.redis { |r| r.call('GET', described_class::SCHEDULE_KEY) }
+    def claim_ttl = Sidekiq.redis { |r| r.call('TTL', described_class::SCHEDULE_KEY) }
+
+    around do |example|
+      Sidekiq.redis { |r| r.call('DEL', described_class::SCHEDULE_KEY) }
+      example.run
+    ensure
+      Sidekiq.redis { |r| r.call('DEL', described_class::SCHEDULE_KEY) }
+    end
+
+    it 'worker boot starts one chain; another worker booting meanwhile does not start a second' do
+      freeze_time do
+        expect(described_class.ensure_scheduled).to be(true)
+        expect(described_class.ensure_scheduled).to be(false)
+        expect(enqueued_jobs.size).to eq(1)
+        expect(enqueued_jobs.first).to include(job: described_class, queue: 'low', at: 1.minute.from_now.to_f)
+        expect(pending_claim).to eq(1.minute.from_now.to_i.to_s)
+      end
+    end
+
+    it 'each run claims the next one an hour ahead before sweeping; a failing sweep keeps the chain and its retry adds none' do
+      _blob, keys = seed(status: 'uploading', upload_expires_at: 1.minute.ago, parts: 1)
+      store.fail_deletes_for = keys
+      freeze_time do
+        described_class.perform_now # first execution: claims the next run, then the sweep fails -> retry_on
+
+        nxt, retried = enqueued_jobs.partition { |j| j['executions'].zero? }
+        expect(nxt.map { |j| j[:at] }).to eq([1.hour.from_now.to_f])
+        expect(retried.size).to eq(1)
+        expect(pending_claim).to eq(1.hour.from_now.to_i.to_s)
+        expect(claim_ttl).to be_within(5).of(2.hours.to_i)
+
+        store.fail_deletes_for = []
+        clear_enqueued_jobs
+        ActiveJob::Base.execute(retried.first) # executions 2: sweeps, schedules nothing
+        expect(enqueued_jobs).to be_empty
+        expect(store.objects).to be_empty
+      end
+    end
   end
 end
