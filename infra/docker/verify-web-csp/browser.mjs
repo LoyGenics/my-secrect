@@ -3,6 +3,7 @@
 // Run via infra/docker/verify-web-csp.sh (boots the stack, builds apps/web).
 //
 // Flow, all through the real UI against the real API + MinIO:
+//   sign-up email code (read from the test mail catcher, MAILPIT_URL) ->
 //   passkey account registration (CDP virtual authenticator; the API verifies
 //   the attestation) -> vault creation (libsodium Argon2id in WebAssembly) ->
 //   media upload (client-side encryption, presigned PUTs to s3.<site>) ->
@@ -24,6 +25,29 @@ if (!APP) throw new Error('CSP_APP_ORIGIN required (run via verify-web-csp.sh)')
 const SHOTS = process.env.CSP_SCREENSHOT_DIR || mkdtempSync(path.join(tmpdir(), 'a16-csp-'));
 const PASS = `csp check ${Math.random().toString(36).slice(2)} passphrase`;
 const log = (m) => console.log(`[browser] ${m}`);
+const MAILPIT = process.env.MAILPIT_URL;
+if (!MAILPIT) throw new Error('MAILPIT_URL required (run via verify-web-csp.sh)');
+
+// Sign-up codes mailed to `email`, oldest first (Mailpit's HTTP API lists newest first).
+async function mailedCodes(email) {
+  const list = await (await fetch(`${MAILPIT}/api/v1/search?query=${encodeURIComponent(`to:"${email}"`)}`)).json();
+  const codes = [];
+  for (const m of [...(list.messages ?? [])].reverse()) {
+    const msg = await (await fetch(`${MAILPIT}/api/v1/message/${m.ID}`)).json();
+    const hit = /verification code is (\d{6})/.exec(String(msg.Text ?? ''));
+    if (hit) codes.push(hit[1]);
+  }
+  return codes;
+}
+async function waitForCode(email, seen) {
+  const deadline = Date.now() + 20_000;
+  for (;;) {
+    const codes = await mailedCodes(email);
+    if (codes.length > seen) return codes[codes.length - 1];
+    if (Date.now() > deadline) throw new Error('no sign-up code reached the test mailbox');
+    await new Promise((r) => setTimeout(r, 300));
+  }
+}
 
 // Small valid PNG of noise (>1 MiB -> 2 encrypted chunks).
 function chunk(type, data) {
@@ -82,13 +106,17 @@ try {
   assert.doesNotMatch(h['content-security-policy'], /unsafe-inline|'unsafe-eval'/);
   log(`app loaded from Caddy; CSP: ${h['content-security-policy']}`);
 
-  // Account registration with a passkey (the Rails API verifies the attestation).
+  // Sign-up: email code from the test mailbox, then a passkey (the Rails API verifies the attestation).
   const email = `csp-${Date.now().toString(36)}@example.test`;
   await page.getByRole('tab', { name: 'Create account' }).click();
   await page.getByLabel('Account email').fill(email);
+  const seen = (await mailedCodes(email)).length;
+  await page.getByRole('button', { name: 'Email me a code' }).click();
+  await page.getByRole('heading', { name: 'Check your email' }).waitFor();
+  await page.getByLabel('Verification code').fill(await waitForCode(email, seen));
   await page.getByRole('button', { name: 'Create account with passkey' }).click();
   await page.getByRole('heading', { name: 'my-secrect' }).waitFor();
-  log('account registered with a passkey (WebAuthn ceremony in the page)');
+  log('account registered: emailed code entered, passkey created (WebAuthn ceremony in the page)');
 
   // Vault onboarding: Argon2id in libsodium's WebAssembly.
   await page.getByLabel('Master passphrase', { exact: true }).fill(PASS);

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Compose end-to-end smoke test. Brings the stack up with a THROWAWAY random
 # env (no secrets from the repo), migrates, round-trips a blob through real
-# MinIO via the real API (real WebAuthn registration with a software
-# authenticator) -- the presigned PUT/GET go to the PUBLIC s3.<site> endpoint
+# MinIO via the real API (sign-up email code read from the test mail catcher,
+# real WebAuthn registration with a software authenticator, device proof) -- the presigned PUT/GET go to the PUBLIC s3.<site> endpoint
 # FROM THE HOST (outside the compose network) -- deletes the account, asserts the MinIO object is gone, and
 # tears everything down (including volumes).  Usage: ./smoke.sh [--keep]
 set -euo pipefail
@@ -11,9 +11,16 @@ cd "$(dirname "$0")"
 PROJECT=${SMOKE_PROJECT:-vsmoke}
 HTTPS_PORT=${SMOKE_HTTPS_PORT:-18443}
 HTTP_PORT=${SMOKE_HTTP_PORT:-18080}
+MAILPIT_PORT=${SMOKE_MAILPIT_PORT:-18025}
 KEEP=${1:-}
-ENVF=$(mktemp -t vsmoke-env.XXXXXX)
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/vsmoke.XXXXXX")
+ENVF="$WORK/env"
 rand() { openssl rand -hex "$1"; }
+# Test-only mail catcher (docker-compose.test.yml): sign-up codes go over
+# STARTTLS to Mailpit (CA made for this run); flow.rb reads them from MAILPIT_URL.
+. ./lib/mail.sh
+mail_tls "$WORK/mail-tls"
+export MAILPIT_URL="http://127.0.0.1:$MAILPIT_PORT"
 cat >"$ENVF" <<ENV
 POSTGRES_PASSWORD=$(rand 16)
 S3_BUCKET=vault-blobs
@@ -28,24 +35,25 @@ HTTPS_PORT=$HTTPS_PORT
 WEBAUTHN_RP_ID=localhost
 WEBAUTHN_ORIGIN=https://localhost:$HTTPS_PORT
 CORS_ORIGINS=https://localhost:$HTTPS_PORT
+$(mail_env "$WORK/mail-tls" "$MAILPIT_PORT")
 ENV
 # Optional image overrides pass through (MINIO_IMAGE / MC_IMAGE).
 for v in MINIO_IMAGE MC_IMAGE; do [ -n "${!v:-}" ] && echo "$v=${!v}" >>"$ENVF"; done
-dc() { docker compose --env-file "$ENVF" -p "$PROJECT" "$@"; }
+dc() { docker compose -f docker-compose.yml -f docker-compose.test.yml --env-file "$ENVF" -p "$PROJECT" "$@"; }
 
 cleanup() {
   rc=$?
   if [ "$KEEP" != "--keep" ]; then
     dc down -v --remove-orphans >/dev/null 2>&1 || true
   fi
-  rm -f "$ENVF"
+  rm -rf "$WORK"
   echo "[smoke] exit code $rc"
   exit $rc
 }
 trap cleanup EXIT
 
 echo "[smoke] 0. compose must fail fast when required vars are unset"
-if docker compose -p "${PROJECT}-nokeys" config -q >/dev/null 2>&1; then
+if docker compose -f docker-compose.yml -p "${PROJECT}-nokeys" config -q >/dev/null 2>&1; then
   echo "[smoke] FAIL: compose accepted an empty environment"; exit 1
 fi
 echo "[smoke]    ok (refused)"

@@ -1,12 +1,19 @@
 # Shared helpers for the throwaway-stack scripts (verify-restore.sh,
-# verify-web-csp.sh). Source it; it defines functions only.
+# verify-web-csp.sh). Source it; it defines functions only. Stacks run with
+# the TEST-ONLY override docker-compose.test.yml (Mailpit as SMTP server).
 #   COMPOSE_DIR  infra/docker (set by the caller)
 #   PROJECT      compose project name (the caller's own; never a real stack)
 #   ENVF         path of the throwaway env file
+. "$COMPOSE_DIR/lib/mail.sh"
 
-# write_env HTTPS_PORT HTTP_PORT : random secrets, nothing read from the repo.
+# write_env HTTPS_PORT HTTP_PORT MAILPIT_PORT : random secrets, nothing read
+# from the repo; a per-run mail CA next to ENVF (mail-tls/). Exports
+# MAILPIT_URL for the test clients.
 write_env() {
-  local https=$1 http=$2 rand
+  local https=$1 http=$2 mailpit=$3 tls rand
+  tls="$(dirname "$ENVF")/mail-tls"
+  mail_tls "$tls"
+  export MAILPIT_URL="http://127.0.0.1:$mailpit"
   rand() { openssl rand -hex "$1"; }
   umask 077
   cat >"$ENVF" <<ENV
@@ -23,12 +30,13 @@ HTTPS_PORT=$https
 WEBAUTHN_RP_ID=localhost
 WEBAUTHN_ORIGIN=https://localhost:$https
 CORS_ORIGINS=https://localhost:$https
+$(mail_env "$tls" "$mailpit")
 ENV
   for v in MINIO_IMAGE MC_IMAGE WEB_DIST; do [ -n "${!v:-}" ] && echo "$v=${!v}" >>"$ENVF"; done
   return 0
 }
 
-dc() { docker compose --project-directory "$COMPOSE_DIR" -f "$COMPOSE_DIR/docker-compose.yml" --env-file "$ENVF" -p "$PROJECT" "$@"; }
+dc() { docker compose --project-directory "$COMPOSE_DIR" -f "$COMPOSE_DIR/docker-compose.yml" -f "$COMPOSE_DIR/docker-compose.test.yml" --env-file "$ENVF" -p "$PROJECT" "$@"; }
 
 envval() { grep -E "^$1=" "$ENVF" | head -1 | cut -d= -f2-; }
 

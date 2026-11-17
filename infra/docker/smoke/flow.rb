@@ -6,7 +6,8 @@
 #            so the SigV4 host-signing + Caddy host routing + MinIO CORS are
 #            exercised for real. Nothing here can resolve minio:9000.
 #
-# Exercises, for real: WebAuthn registration (software authenticator =
+# Exercises, for real: the email-ownership step (code read from the test
+# mail catcher, see signup.rb), WebAuthn registration (software authenticator =
 # webauthn gem FakeClient: real ES256 keys, real attestation/assertion,
 # verified by the server), vault create, blob upload-session -> presigned
 # PUT of RANDOM bytes (stand-in for ciphertext; no crypto is claimed) ->
@@ -22,6 +23,7 @@ require 'openssl'
 require 'forwardable'
 require 'webauthn'
 require 'webauthn/fake_client'
+require_relative 'signup'
 
 ORIGIN = ENV.fetch('SMOKE_ORIGIN')               # e.g. https://localhost:18443 (== WEBAUTHN_ORIGIN)
 HOST = URI(ORIGIN).host
@@ -79,14 +81,16 @@ def assert_public_url!(label, url)
   step "#{label}: presigned URL is public (#{u.host}:#{u.port})"
 end
 
-# --- registration (real WebAuthn ceremony)
+# --- registration: email code (Mailpit) -> ticket -> real WebAuthn ceremony + device proof
 email = "smoke-#{SecureRandom.hex(6)}@example.test"
 client = WebAuthn::FakeClient.new(ORIGIN)
-code, opts = api(:post, '/auth/passkeys/register', body: { email: email })
-expect_status!('passkey register options', code, 200)
-credential = client.create(challenge: opts['creation_options']['challenge'], user_verified: true)
-code, reg = api(:post, '/auth/passkeys/verify', body: { email: email, credential: credential, kind: 'registration' })
-expect_status!('passkey register verify', code, 200)
+device = TestSignup::DeviceKey.new
+begin
+  reg, credential = TestSignup.sign_up(method(:api), client, email, device)
+rescue StandardError => e
+  fail!("sign-up: #{e.message}")
+end
+step 'sign-up: email code read from the test mailbox, passkey registered, session bound to a new device key'
 token = reg['token'] or fail!('no session token')
 
 # --- vault
@@ -99,7 +103,7 @@ parts_data = Array.new(PARTS) { SecureRandom.random_bytes(PART_BYTES) }
 total = parts_data.sum(&:bytesize)
 blob_id = SecureRandom.uuid
 code, up = api(:post, '/blobs/upload-session', token: token, body: {
-  vault_id: vault_id, blob_id: blob_id, part_count: PARTS, ciphertext_size: total,
+  vault_id: vault_id, blob_id: blob_id, part_count: PARTS, part_size: PART_BYTES, ciphertext_size: total,
   encrypted_manifest: Base64.strict_encode64(SecureRandom.random_bytes(64))
 })
 expect_status!('upload-session', code, 201)

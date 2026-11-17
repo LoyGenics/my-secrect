@@ -6,8 +6,15 @@
  * authenticator (tests/sync-e2e/software-authenticator.ts) whose ceremonies the
  * Rails API verifies. It reaches the stack only through Caddy (public origin
  * + s3.<site>), with Caddy's local root CA trusted via NODE_EXTRA_CA_CERTS.
+ * Sign-up includes the email-ownership step: the 6-digit code is read from
+ * the test mail catcher's HTTP API (MAILPIT_URL, docker-compose.test.yml), the
+ * way a user reads their inbox. Every passkey ceremony carries a device proof
+ * (specs/device-identity.md §6.1): each device holds its own Ed25519 key,
+ * enrols it on its first ceremony and binds later sessions to it, because
+ * vaults/sync/items answer 403 to a session without an active device.
  *
- *   tsx client.ts seed          register, create vault, push items, upload media
+ *   tsx client.ts seed          sign up (email code + passkey + device), create vault,
+ *                                push items, upload media
  *   tsx client.ts verify <label> FRESH device: restore the empty-vault backup
  *                                (passphrase or recovery key), passkey sign-in,
  *                                pull + decrypt every item, download + decrypt
@@ -23,6 +30,8 @@ import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import sodium from 'libsodium-wrappers-sumo';
+import { deviceMessage, enrollPayload, sessionBindPayload, toBase64UrlNoPad } from '../../../packages/sdk/src/device-identity';
 
 const need = (n: string) => { const v = process.env[n]; if (!v) throw new Error(`${n} is required`); return v; };
 const DIR = need('SCENARIO_DIR');
@@ -45,7 +54,7 @@ const persist = () => writeFileSync(storeFile, JSON.stringify(store));
 };
 
 // ---- record every secret-bearing value crossing the wire (for the log scan)
-const NEEDLE_KEYS = /token|encrypted|ciphertext|signature|challenge|clientDataJSON|attestationObject|authenticatorData|userHandle|manifest|code|secret/i;
+const NEEDLE_KEYS = /token|ticket|encrypted|ciphertext|signature|challenge|clientDataJSON|attestationObject|authenticatorData|userHandle|manifest|code|secret/i;
 const needles = new Set<string>();
 const addNeedle = (v: string) => { if (v.length >= 16) needles.add(v); };
 function walk(v: unknown, key = ''): void {
@@ -67,6 +76,47 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 const flushNeedles = () => { if (needles.size) appendFileSync(path.join(DIR, 'needles.txt'), [...needles].join('\n') + '\n'); };
 
 const sha256Hex = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
+
+// ---- sign-up code from the test mail catcher (Mailpit HTTP API, newest first)
+const MAILPIT = need('MAILPIT_URL');
+async function mailedCodes(email: string): Promise<string[]> {
+  const list: any = await (await realFetch(`${MAILPIT}/api/v1/search?query=${encodeURIComponent(`to:"${email}"`)}`)).json();
+  const codes: string[] = [];
+  for (const m of [...(list.messages ?? [])].reverse()) {
+    const msg: any = await (await realFetch(`${MAILPIT}/api/v1/message/${m.ID}`)).json();
+    const hit = /verification code is (\d{6})/.exec(String(msg.Text ?? ''));
+    if (hit) codes.push(hit[1]);
+  }
+  return codes;
+}
+async function waitForCode(email: string, seen: number): Promise<string> {
+  const deadline = Date.now() + 20_000;
+  for (;;) {
+    const codes = await mailedCodes(email);
+    if (codes.length > seen) return codes[codes.length - 1];
+    if (Date.now() > deadline) throw new Error('no sign-up code reached the test mailbox');
+    await new Promise((r) => setTimeout(r, 300));
+  }
+}
+
+// ---- this device's Ed25519 key, kept in its localStorage (specs/device-identity.md §6.1)
+const LS_DEVICE_SEED = 'scenario-l.device-seed';
+const LS_DEVICE_ID = 'scenario-l.device-id';
+async function deviceProof(challenge: string) {
+  await sodium.ready;
+  let seed = localStorage.getItem(LS_DEVICE_SEED);
+  if (!seed) { seed = Buffer.from(sodium.randombytes_buf(32)).toString('hex'); localStorage.setItem(LS_DEVICE_SEED, seed); }
+  const kp = sodium.crypto_sign_seed_keypair(Uint8Array.from(Buffer.from(seed, 'hex')));
+  const sign = (msg: Uint8Array) => toBase64UrlNoPad(sodium.crypto_sign_detached(msg, kp.privateKey));
+  const id = localStorage.getItem(LS_DEVICE_ID);
+  if (id) return { id, signature: sign(deviceMessage('session-bind', sessionBindPayload(challenge, id))) };
+  const publicKey = toBase64UrlNoPad(kp.publicKey);
+  return { public_key: publicKey, signature: sign(deviceMessage('enroll', enrollPayload(challenge, publicKey))) };
+}
+function rememberDevice(res: any) {
+  assert.ok(res.device_id, 'the session is bound to a device');
+  localStorage.setItem(LS_DEVICE_ID, res.device_id);
+}
 
 interface Expected {
   email: string;
@@ -102,11 +152,16 @@ async function main() {
     const passphrase = `scenario L ${randomBytes(12).toString('base64url')}`;
     addNeedle(passphrase);
     const auth = SoftwareAuthenticator.create(ORIGIN, RP_ID);
-    const opts: any = await anon.passkeyRegisterOptions(email);
-    const reg: any = await anon.passkeyRegisterVerify(email, auth.create(opts.creation_options.challenge));
+    const seen = (await mailedCodes(email)).length;
+    await anon.requestEmailCode(email);
+    const { registration_ticket } = await anon.verifyEmailCode(email, await waitForCode(email, seen));
+    const opts: any = await anon.passkeyRegisterOptions(email, registration_ticket);
+    const challenge = opts.creation_options.challenge;
+    const reg: any = await anon.passkeyRegisterVerify(email, auth.create(challenge), await deviceProof(challenge));
+    rememberDevice(reg);
     const token: string = reg.token;
     assert.ok(token, 'registration returned a session token');
-    log('account registered (real WebAuthn attestation verified by the API)');
+    log('account registered: email code from the test mailbox -> ticket -> real WebAuthn attestation + device enrolment, verified by the API');
 
     const { recoveryKey } = await vault.createVault(passphrase);
     addNeedle(recoveryKey);
@@ -146,7 +201,7 @@ async function main() {
     assert.equal(engine.getStatus().pending, 0);
     const blobId = String((mediaItem.fields as any).blob_id);
     const back = await downloadMediaItem({ api, item: mediaItem, withVaultKey: vault.withVaultKey });
-    assert.equal(sha256Hex(back.bytes), sha256Hex(bytes), 'baseline download equals upload');
+    assert.equal(sha256Hex(new Uint8Array(await back.blob.arrayBuffer())), sha256Hex(bytes), 'baseline download equals upload');
     engine.stop();
     log(`media uploaded as encrypted chunks and its vault item synced; baseline download+decrypt OK (${bytes.length} bytes)`);
 
@@ -181,11 +236,13 @@ async function main() {
     // 3. Passkey sign-in against the (restored) authenticators table.
     const auth = SoftwareAuthenticator.importCredential(exp.authenticator, ORIGIN, RP_ID);
     const opts: any = await anon.passkeyAuthenticateOptions(exp.email);
-    const signed: any = await anon.passkeyLoginVerify(exp.email, auth.get(opts.request_options.challenge));
+    const challenge = opts.request_options.challenge;
+    const signed: any = await anon.passkeyLoginVerify(exp.email, auth.get(challenge), await deviceProof(challenge));
     assert.ok(signed.token, 'passkey sign-in returned a session token');
+    rememberDevice(signed);
     exp.authenticator = auth.exportCredential(); // keep the advanced sign counter for the next run
     writeFileSync(EXPECTED, JSON.stringify(exp));
-    log('passkey sign-in OK (assertion verified against the stored public key + sign counter)');
+    log('passkey sign-in OK (assertion verified against the stored public key + sign counter); this new device enrolled its key');
 
     // 4. Pull + decrypt everything from the server.
     const { engine, st } = await syncOnce(signed.token, exp.email);
@@ -207,15 +264,16 @@ async function main() {
     assert.ok(mediaItem, 'media item present');
     const api = new VaultApiClient({ baseUrl: API, getToken: async () => signed.token });
     const dl = await downloadMediaItem({ api, item: mediaItem!, withVaultKey: vault.withVaultKey });
+    const dlBytes = new Uint8Array(await dl.blob.arrayBuffer());
     assert.equal(dl.sha256Matches, true, 'sha256 recorded in the item matches');
-    assert.equal(dl.bytes.length, exp.media.size);
-    assert.equal(sha256Hex(dl.bytes), exp.media.sha256);
+    assert.equal(dlBytes.length, exp.media.size);
+    assert.equal(sha256Hex(dlBytes), exp.media.sha256);
     assert.equal(dl.fileName, exp.media.fileName);
     engine.stop();
     exp.lastToken = signed.token;
     writeFileSync(EXPECTED, JSON.stringify(exp));
     flushNeedles();
-    log(`media blob downloaded, chunk hashes verified, decrypted; sha256 identical (${dl.bytes.length} bytes)`);
+    log(`media blob downloaded, chunk hashes verified, decrypted; sha256 identical (${dlBytes.length} bytes)`);
     log('VERIFY_OK');
     return;
   }
