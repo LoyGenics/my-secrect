@@ -341,6 +341,21 @@ export async function decryptWithVaultKey(encoded: string): Promise<string> {
 }
 
 /**
+ * Run `fn` with a COPY of the in-memory Vault Key (zero-filled afterwards).
+ * Used by the media pipeline, which wraps a per-file File Key under the
+ * Vault Key and decrypts the encrypted manifest. Throws when locked.
+ */
+export async function withVaultKey<T>(fn: (key: Uint8Array) => Promise<T>): Promise<T> {
+  if (!vaultKey) throw new Error('vault locked');
+  const copy = vaultKey.slice();
+  try {
+    return await fn(copy);
+  } finally {
+    copy.fill(0);
+  }
+}
+
+/**
  * Change the master passphrase. Verifies the OLD passphrase first
  * (derives its KEK and unwraps the Account Master Key — a wrong old
  * passphrase fails the AEAD unwrap and nothing is changed), then

@@ -88,6 +88,10 @@ export class VaultApiClient {
     return res.json();
   }
   listVaults() { return this.req('/v1/vaults'); }
+  /** Create a server vault. `encryptedMetadataB64` is opaque ciphertext the server cannot read. */
+  createVault(encryptedMetadataB64: string): Promise<{ vault: { id: string } }> {
+    return this.req('/v1/vaults', { method: 'POST', body: JSON.stringify({ encrypted_metadata: encryptedMetadataB64 }) });
+  }
   getItem(vaultId: string, itemId: string) { return this.req(`/v1/vaults/${vaultId}/items/${itemId}`); }
   putItem(vaultId: string, itemId: string, body: unknown) { return this.req(`/v1/vaults/${vaultId}/items/${itemId}`, { method: 'PUT', body: JSON.stringify(body) }); }
 

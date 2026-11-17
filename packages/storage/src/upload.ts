@@ -579,6 +579,40 @@ export interface DownloadedFile {
   thumbnail?: { mimeType: string; bytes: Uint8Array };
 }
 
+export interface BlobMetadata {
+  manifest: BlobManifest;
+  thumbnail?: { mimeType: string; bytes: Uint8Array };
+}
+
+/**
+ * Fetch ONLY the encrypted manifest (no chunk is downloaded), decrypt +
+ * verify it, check it belongs to `blobId`, and decrypt the optional
+ * thumbnail. Used to show file name / size / thumbnail without pulling the
+ * whole file. Throws on any authentication or consistency failure.
+ */
+export async function loadBlobMetadata(
+  api: Pick<BlobApi, 'createBlobDownloadSession'>,
+  blobId: string,
+  vaultKey: Uint8Array,
+  crypto: CryptoAdapter,
+): Promise<BlobMetadata> {
+  const session = await api.createBlobDownloadSession(blobId);
+  if (session.blob_id !== blobId) throw new Error('download session is for a different blob than requested');
+  const manifest = await decryptManifest(parseEncryptedManifest(session.encrypted_manifest), vaultKey, crypto);
+  if (manifest.blob_id !== blobId) throw new Error('manifest belongs to a different blob — server returned a substituted manifest');
+  let thumbnail: BlobMetadata['thumbnail'];
+  if (manifest.thumbnail) {
+    const fileKey = await unwrapFileKey(requireWrappedFileKey(manifest), vaultKey, crypto);
+    try {
+      const t = manifest.thumbnail;
+      thumbnail = { mimeType: t.mime_type, bytes: await crypto.decrypt(fileKey, fromBase64(t.nonce_b64), fromBase64(t.ciphertext_b64)) };
+    } finally {
+      fileKey.fill(0);
+    }
+  }
+  return { manifest, thumbnail };
+}
+
 /**
  * download-session -> decrypt + verify manifest -> unwrap File Key ->
  * fetch every part -> verify count/order/length/hash/nonce -> decrypt.
