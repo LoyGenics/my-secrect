@@ -18,7 +18,8 @@ Images: `caddy:2-alpine` (Caddy v2.11.9), `postgres:16-alpine`,
 
 ### A.0 Scenario L — `infra/docker/verify-restore.sh` -> PASS (exit 0)
 
-Run 17 Nov 2026 16:50 UTC, commit `0ae3151`, 1 min 43 s. One command:
+Run 17 Nov 2026 16:57 UTC, commit `38ae0e4`, 2 min 14 s (an identical run at
+`0ae3151`, 16:50 UTC, also passed in 1 min 43 s). One command:
 `infra/docker/verify-restore.sh`. It creates its own compose project
 (`a16-scenl`, ports 19543/19580) with random secrets, starts from zero
 volumes, and fails on any mismatch. Observed:
@@ -27,7 +28,7 @@ volumes, and fails on any mismatch. Observed:
 2. Deploy: `up --build`, `rake db:migrate` (3 up, 0 down); api healthy,
    worker healthy (Sidekiq heartbeat), Caddy serves `/health` over TLS.
 3. Hardening (see §B):
-   - API boot refused for `SECRET_KEY_BASE=CHANGE_ME`, a 16-char
+   - API boot refused for `SECRET_KEY_BASE=CHANGE_ME`, a too-short
      `SECRET_KEY_BASE`, empty `REDIS_URL`, `CORS_ORIGINS=*`, empty `S3_BUCKET`
      (each error names the variable);
    - only `caddy` has published ports; `proxy` and `backend` networks are
@@ -65,12 +66,12 @@ volumes, and fails on any mismatch. Observed:
     pre-deletion backup still contains the account.
 12. Restoring that backup brings the deleted account back (users=1, 3 objects)
     — see `docs/privacy.md` §5.
-13. Log scan (`scan-logs.sh`) over 423 lines from all 7 containers, before
+13. Log scan (`scan-logs.sh`) over 425 lines from all 7 containers, before
     the destroy and after the restore: 126 fixed needles (every token,
     WebAuthn challenge/assertion, ciphertext field, encrypted manifest,
     presigned signature, the passphrase, recovery key and plaintext markers
     the client saw, plus the env secrets) + 8 pattern rules -> no match;
-    48 structured request lines present.
+    50 structured request lines present.
 
 Not covered: real domain + public CA, off-host backup copies, backups of a
 large data set, restore onto a different host or Postgres/MinIO version,
@@ -270,8 +271,10 @@ there is no release tagging. Rollback = previous commit + restore.
 
 | Date (UTC) | What | Commit | Command | Result |
 |---|---|---|---|---|
+| 17 Nov 2026 16:57 | Scenario L (A.0) | `38ae0e4` | `infra/docker/verify-restore.sh` | PASS, exit 0, 2m14s |
 | 17 Nov 2026 16:50 | Scenario L (A.0) | `0ae3151` | `infra/docker/verify-restore.sh` | PASS, exit 0, 1m43s |
 | 17 Nov 2026 16:50 | Web build under CSP (A.1) | `0ae3151` | `infra/docker/verify-web-csp.sh` | PASS, exit 0, 0 CSP violations |
+| 17 Nov 2026 16:55 | Web build under CSP, re-run (same dist) | `e3406a1` | `SKIP_WEB_BUILD=1 infra/docker/verify-web-csp.sh` | PASS, exit 0, 0 CSP violations |
 | 17 Nov 2026 | Media e2e on hardened stack | `0ae3151` | `E2E_PROJECT=a16-media E2E_HTTPS_PORT=19546 E2E_HTTP_PORT=19583 tests/media-e2e/run.sh` | PASS, 9/9 (presigned public URLs, 10 MiB round trip as ciphertext, wrong key + 5 tamper cases rejected, API validation) |
 | 17 Nov 2026 | Compose smoke on hardened stack | `0ae3151` | `SMOKE_PROJECT=a16-smoke SMOKE_HTTPS_PORT=19547 SMOKE_HTTP_PORT=19584 ./smoke.sh` | PASS, exit 0 (WebAuthn registration, CORS preflight, presigned PUT/GET via `s3.<site>`, forged signature 403, step-up + DELETE account 204, object 404 after deletion, bucket empty, 0 user rows) |
 | 17 Nov 2026 | smoke + backup proof (historical) | `feat/deploy-e2e` | `./smoke.sh`, `./backup-restore-proof.sh` | PASS |
