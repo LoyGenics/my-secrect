@@ -9,6 +9,9 @@ module Api
         require_step_up!
         Accounts::Delete.call(user: current_user)
         head :no_content
+      rescue Accounts::Delete::StorageDeletionError
+        render json: { error: 'storage_unavailable', message: 'object storage deletion failed; account not deleted, retry' },
+               status: :service_unavailable
       end
     end
   end
