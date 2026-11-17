@@ -7,8 +7,8 @@ import { colors, styles } from '../theme';
 import { changePassphrase, exportEncrypted, verifyPassphrase, wipeVault } from '../vault';
 import { useTranslation } from '../../../../packages/i18n/src/react';
 import { SecurityApiClient } from '../../../../packages/sdk/src/security';
-import { API_BASE_URL_KEY } from './SecurityScreen';
-import { isStepUpRequiredError } from '../utils/stepUp';
+import { API_BASE_URL_KEY, getApiToken } from './SecurityScreen';
+import { isStepUpRequired } from '../utils/stepUp';
 
 export type AutoLockMinutes = 1 | 5 | 15 | 0;
 
@@ -72,11 +72,11 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
     if (apiConfigured) {
       if (!stepUpCode.trim()) { setStepUpBusy(false); setStepUpError(t('security.stepUpFailed')); return; }
       try {
-        const c = new SecurityApiClient({ baseUrl: apiBaseUrl.trim(), getToken: async () => null });
+        const c = new SecurityApiClient({ baseUrl: apiBaseUrl.trim(), getToken: getApiToken });
         await c.stepUpTotp(stepUpCode.trim());
       } catch (e) {
         setStepUpBusy(false);
-        setStepUpError(isStepUpRequiredError(e) ? t('security.stepUpExpired') : t('security.stepUpFailed'));
+        setStepUpError(isStepUpRequired(e) ? t('security.stepUpExpired') : t('security.stepUpFailed'));
         return; // panel stays open: re-prompt, never proceed.
       }
     }

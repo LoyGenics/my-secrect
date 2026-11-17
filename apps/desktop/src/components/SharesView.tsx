@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { VaultShare, SharePermission } from '../../../../packages/core/src/sharing';
-import { canRead, canWrite, isWholeVaultShare, validateShareProposal } from '../../../../packages/core/src/sharing';
+import { canRead, canWrite, isWholeVaultShare, recordPendingProposal } from '../../../../packages/core/src/sharing';
 
 /**
  * SharesView — NEW FILE, does not modify App.tsx (another agent owns it).
@@ -8,11 +8,9 @@ import { canRead, canWrite, isWholeVaultShare, validateShareProposal } from '../
  * when it chooses; this component is complete on its own.
  *
  * Honest limits, shown in the UI itself:
- *  - Sharing is modelled, not production-ready: the key-exchange protocol
- *    (HPKE / verified key establishment) is not implemented yet, so the
- *    create form collects the proposal only — the caller must wire the
- *    envelope exchange before any real share is created. The App stores
- *    proposals as status 'pending' and never as 'active'.
+ *  - Sharing is not live. The create form records a local pending proposal
+ *    with no key and does not call POST /v1/shares. It never stores
+ *    status 'active'. The parent keeps the proposal pending.
  *  - Revocation removes the envelope + share record. It does NOT erase
  *    copies a recipient already decrypted. That is stated next to the
  *    Revoke button, not hidden in docs.
@@ -44,10 +42,24 @@ export default function SharesView({ shares, onCreate, onRevoke }: SharesViewPro
   const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null);
 
   const handleCreate = () => {
-    const err = validateShareProposal({ vault_id: 'current-vault', recipient_id: recipientId.trim(), permission, item_ids: [] });
-    if (err) { setError(err); return; }
+    const proposal = { vault_id: 'current-vault', recipient_id: recipientId.trim(), permission, item_ids: [] as string[] };
+    let pending: VaultShare;
+    try {
+      pending = recordPendingProposal(proposal, {
+        id: 'local-pending',
+        owner_id: 'local',
+        created_at: new Date().toISOString(),
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'share proposal rejected');
+      return;
+    }
+    if (pending.status !== 'pending') {
+      setError('share proposal must stay pending until a verified key wrap exists');
+      return;
+    }
     setError('');
-    onCreate?.({ recipient_id: recipientId.trim(), permission, item_ids: [] });
+    onCreate?.({ recipient_id: pending.recipient_id, permission: pending.permission, item_ids: pending.item_ids });
     setRecipientId('');
   };
 
@@ -58,7 +70,7 @@ export default function SharesView({ shares, onCreate, onRevoke }: SharesViewPro
         Share a vault with another person via a wrapped key envelope — the server sees only the envelope and opaque ids, never plaintext or the Vault Key.
       </p>
       <p className="mt-2 rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
-        Sharing is modelled here, not production-ready: the HPKE key-exchange step is not implemented yet. Do not treat a share created from this screen as secure until that protocol is wired and tested.
+        Sharing is not live. This records a pending proposal on this device only. It does not send the share to the server and it does not activate sharing.
       </p>
 
       <section className="card mt-4 p-4" aria-label="Create a share">

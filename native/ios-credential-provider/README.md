@@ -16,8 +16,8 @@ installed or working provider.
 | `DomainMatching.swift` | **Real, complete.** Pure domain/origin gate (https-only, IP-literal block incl. IPv6, subdomain match, punycode-any-label confirmation). Unit-testable without Xcode wiring. Mirrors `apps/extension/src/lib/domain.ts`. |
 | `VaultStore.swift` (rows + metadata parsing) | **Real code, no data yet.** Parses the encrypted rows and the metadata index from the App Group container. Today the main app writes neither file, so these throw `.storeUnavailable`. |
 | `VaultStore.swift` (`DeviceKeyStore`) | **Real Security-framework code.** Biometrics-gated (`biometryCurrentSet`), device-only Keychain storage of a random 32-byte device wrapping key. Stores no vault key and performs no wrapping yet. |
-| `VaultStore.credential(for:)` | **Explicitly NOT implemented** — `fatalError("not implemented")`. Decryption needs the Vault Key, which the extension does not have. |
-| `CredentialProviderViewController.swift` | **Skeleton.** Real system callbacks + picker UI, but every fill path funnels into the `fatalError` above. |
+| `VaultStore.credential(for:)` | **Explicitly NOT implemented** — throws `VaultStoreError.notImplemented`. Decryption needs the Vault Key, which the extension does not have. No password is returned. |
+| `CredentialProviderViewController.swift` | **Skeleton.** Real system callbacks + picker UI. Quick fill and interactive fill cancel with `ASExtensionError.credentialIdentityNotFound` when decryption throws. |
 | `CredentialProvider.entitlements` | **Draft.** App Group `group.com.loygenics.my-secrect` + AutoFill provider flag are real; Associated Domains still has a `TODO-REPLACE-WITH-YOUR-DOMAIN` placeholder. |
 | `Info.plist` | **Draft** extension plist (`com.apple.authentication-services.credential-provider`). |
 
@@ -52,8 +52,9 @@ installed or working provider.
    (b) a device-wrapped copy of the Vault Key (see `DeviceKeyStore` +
    `apps/mobile/native/keychain-keystore/README.md`) lets the extension
    decrypt one row after a biometric prompt.
-   Until one of these exists, `credential(for:)` stays a `fatalError`.
-   Never "fix" it by storing passwords in the Keychain.
+   Until one of these exists, `credential(for:)` throws `.notImplemented`
+   and the view controller cancels the AutoFill request. Never "fix" it
+   by returning a password or storing passwords in the Keychain.
 5. **Associated Domains.** Replace the placeholder with real
    `webcredentials:` entries, serve `apple-app-site-association` from
    each domain, and test matching in Safari.
@@ -93,8 +94,9 @@ the Xcode project, the AuthenticationServices SDK, and the entitlements.
   spec in `apps/mobile/native/ios-credential-provider/README.md`.
 - Extension bundle id `com.loygenics.my-secrect.CredentialProvider` —
   derived from the Tauri identifier `com.loygenics.my-secrect`.
-- `fatalError` (not a silent empty result) for the missing decryption —
-  a crash log names the gap; a silent failure would look like a wrong
-  passphrase.
+- Missing decryption fails closed (`VaultStoreError.notImplemented`,
+  then `cancelRequest` with `ASExtensionError.credentialIdentityNotFound`).
+  A crash would take down the extension; an empty credential would look
+  like a wrong passphrase.
 - Passkeys deferred: the skeleton is passwords only, rather than fake
   passkey methods with invented APIs.

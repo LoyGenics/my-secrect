@@ -6,6 +6,7 @@ import {
   ApiError,
   LS_API_TOKEN,
   isStepUpRequired,
+  isUnauthorized,
   type ActivityEvent,
   type DeviceInfo,
   type PasskeyAuthenticator,
@@ -78,6 +79,15 @@ export interface SecurityCenterProps {
   decryptWithVaultKey: (encoded: string) => Promise<string>;
   /** Open the App's step-up dialog, then run `run` on success. */
   requestStepUp: (run: () => void, opts?: { reason?: 'export'; onCancel?: () => void }) => void;
+  /** Email of the signed-in account (display only). */
+  signedInEmail?: string;
+  /** Sign out: revokes the current server session, clears the
+   *  stored token and locks the vault (owned by App). */
+  onSignOut?: () => void;
+  /** Called when the server answers 401 to every load: the stored
+   *  session is gone server-side. App clears the token and shows
+   *  the sign-in gate again; this screen never silently retries. */
+  onUnauthorized?: () => void;
 }
 
 type LoadStatus = 'not-configured' | 'loading' | 'ready' | 'error';
@@ -107,6 +117,9 @@ export default function SecurityCenter({
   encryptWithVaultKey,
   decryptWithVaultKey,
   requestStepUp,
+  signedInEmail,
+  onSignOut,
+  onUnauthorized,
 }: SecurityCenterProps) {
   const { dict, locale } = useTranslation();
   const s = dict.security;
@@ -208,6 +221,9 @@ export default function SecurityCenter({
         );
         return false;
       }
+      // A 401 here means the session died mid-action: hand back to
+      // SignIn via App instead of showing a dead-end error.
+      if (isUnauthorized(err)) onUnauthorized?.();
       setError(describeError(err, s));
       return false;
     }
@@ -254,6 +270,10 @@ export default function SecurityCenter({
     if (failures === 4) {
       setStatus('error');
       setLoadError(describeError(firstError, s));
+      // Every call answered 401: the session is gone server-side
+      // (revoked or expired). Hand the user back to SignIn via App;
+      // never retry here with the same stale token.
+      if (isUnauthorized(firstError)) onUnauthorized?.();
     } else {
       setStatus('ready');
       if (failures > 0) setLoadError(describeError(firstError, s));
@@ -376,7 +396,9 @@ export default function SecurityCenter({
       async () => {
         const res = await security.mfaRecoveryCodes();
         // Shown once: kept in component state only, never persisted.
-        setRecoveryCodes(res.codes ?? []);
+        // Wire key is `recovery_codes` (was read as `res.codes`,
+        // which is always undefined — fixed 17 Nov 2026).
+        setRecoveryCodes(res.recovery_codes ?? []);
       },
       setMfaError,
     );
@@ -525,6 +547,24 @@ export default function SecurityCenter({
       <div>
         <h2 className="text-lg font-semibold">{s.title}</h2>
         <p className="mt-1 text-sm text-zinc-400">{s.subtitle}</p>
+        {security && onSignOut && (
+          <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm">
+            <span className="text-zinc-300">
+              {dict.signin.signedInAs} <strong>{signedInEmail || '—'}</strong>
+            </span>
+            <button
+              type="button"
+              className="btn-ghost !py-1 text-xs"
+              onClick={() => onSignOut()}
+              aria-label={dict.signin.signOut}
+            >
+              {dict.signin.signOut}
+            </button>
+            <span className="text-xs text-zinc-500">
+              Signing out revokes this server session and locks the vault. It does not erase secrets already downloaded on this device.
+            </span>
+          </div>
+        )}
       </div>
 
       {stepUpNotice && (
