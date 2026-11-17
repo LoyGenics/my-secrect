@@ -102,6 +102,9 @@ module Accounts
         Device.where(id: device_ids).delete_all unless device_ids.empty?
         user.destroy!
       end
+      # Recorded after the rows are gone, so it has no user and no metadata:
+      # the fact of a deletion is kept, nothing that identifies the account.
+      Audit::Log.call(event_type: 'account_deleted')
     end
   end
 end

@@ -47,8 +47,12 @@ module Recovery
         step_up_verified_at: Time.current, step_up_method: 'recovery_key'
       )
       Audit::Log.call(user: user, device: device, event_type: 'recovery_verified')
+      Audit::Log.call(user: user, device: device, event_type: 'sign_in_succeeded', metadata: { method: 'recovery_key' })
       { token: token, user_id: user.id, device_id: device&.id,
         expires_in: Authentication::SessionTokens::RECOVERY_TTL_SECONDS, recovery_session: true }
+    rescue VerificationError
+      Audit::Log.call(user: user, event_type: 'sign_in_failed', metadata: { method: 'recovery_key' })
+      raise
     end
 
     # -- internals ---------------------------------------------------------

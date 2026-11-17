@@ -224,10 +224,14 @@ module Authentication
 
       Audit::Log.call(user: user, device: session_device, event_type: "passkey_#{kind}_verified")
       token = SessionTokens.issue(user: user, device: session_device, user_agent: user_agent, ip_address: ip_address)
+      Audit::Log.call(user: user, device: session_device, event_type: 'sign_in_succeeded',
+                      metadata: { method: kind == 'registration' ? 'passkey_registration' : 'passkey' })
       { token: token, user_id: user.id, device_id: session_device&.id, expires_in: SessionTokens::TTL_SECONDS }
     rescue VerificationError
+      audit_sign_in_failure(email)
       raise
     rescue DeviceProof::VerificationError
+      audit_sign_in_failure(email)
       raise DeviceVerificationError, 'device verification failed'
     rescue WebAuthn::Error, ArgumentError, TypeError, NoMethodError, RuntimeError => _e
       # The gem raises plain RuntimeError for 'invalid type' / 'invalid
@@ -235,7 +239,15 @@ module Authentication
       # subclasses for every failed check. All of them mean the same thing
       # here: the credential did not verify. Fail closed, issue nothing,
       # and do not leak which check failed.
+      audit_sign_in_failure(email)
       raise VerificationError, 'verification failed'
+    end
+
+    # Attributed to the account when the address has one (its owner sees
+    # it in their activity); never records the address or the reason.
+    def audit_sign_in_failure(email)
+      Audit::Log.call(user: User.find_by(email: email.to_s.strip.downcase), event_type: 'sign_in_failed',
+                      metadata: { method: 'passkey' })
     end
 
     # -- internals ---------------------------------------------------------
