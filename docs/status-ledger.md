@@ -62,12 +62,12 @@ On main cb1bca6: npm run test:acceptance 45 pass / 3 todo; npm run test:acceptan
 Covered: A, B, D, E, I, K, M. Partial: C, F, H. Pending: G, J, L. Open defects: H1/H2 device revocation (re-check on main), H3 pull 401 not handled, H4 local-only choice not sticky, C1 different vault key pushes unreadable items (high), K3 rollback (high, needs v2 AD + signed events), K2 backup item omission undetected, E1 relations rewritten on save.
 
 ## In progress
-- No agents running. Waiting on the user: logo choice (app icon slot empty; expo prebuild warns "No icon"), and approval to push so GitHub CI can run.
+- No agents running. Waiting on the user: logo choice (app icon slot empty; expo prebuild warns "No icon").
 
 ## Open (not assigned yet)
 - Mobile UI: "+ New" and detail "Back" sit under the status bar on iOS and Android (reported by three agents).
 - Mobile: app should refresh iOS QuickType identities after each autofill_index rewrite; Android allowBackup should exclude the device-only vault.
-- GitHub CI has never run on the current main (not pushed).
+- GitHub CI has never run on the current main: local main is ahead of origin and only the user pushes.
 - K3 rollback (high): v2 AD with revision + device-signed sync events (plan in specs/sync-protocol.md).
 - Review L1: Vault-Key string cipher has no per-purpose AD.
 - RetentionJob and expiry of tombstones / sessions / unfinished email verifications not scheduled.
