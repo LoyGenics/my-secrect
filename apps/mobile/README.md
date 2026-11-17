@@ -16,7 +16,7 @@ and recovery key = lose the vault. No server copy, no reset.
 ## Screens (all working, no stubs)
 
 - **Onboarding** — create passphrase (strength meter, mismatch validation) → recovery key shown once + copy + confirm checkbox → done.
-- **Lock** — passphrase, recovery key, biometrics (see below).
+- **Lock** — passphrase, recovery key, Face ID / fingerprint once turned on (see below).
 - **Vault tab** — All / Favorites / Trash / 8 categories / tags, item list, + New, load/clear example data (fake values only).
 - **Search tab** — instant local search (title, tags, fields); the query never leaves the device.
 - **Generate tab** — password generator (length 12–32, symbols/numbers/uppercase, pronounceable) + passphrase generator + strength.
@@ -31,57 +31,106 @@ input has a visible label, `accessibilityLabel` and `testID`.
 
 ## Storage
 
-AsyncStorage holds encrypted rows + wrapped keys only (`src/vault.ts`,
-`StorageBackend` seam). Production mobile storage is SQLCipher
-(encrypted SQLite) — swap the backend, crypto and item logic unchanged.
+Contract: `specs/mobile-local-store.md`. `vault.db` is SQLite encrypted
+with SQLCipher 4 (`expo-sqlite`, `useSQLCipher` in `app.json`), keyed
+with the device Local Storage Key (LSK) from `modules/device-key`:
+
+- iOS: App Group `group.com.loygenics.my-secrect` container,
+  `Library/Application Support/my-secrect/vault.db`; LSK in the shared
+  keychain access group (`plugins/with-mobile-storage.js` adds both
+  entitlements).
+- Android: `filesDir/my-secrect/vault.db`; LSK wrapped by an
+  AndroidKeyStore AES-GCM key in `filesDir/my-secrect/lsk.bin`.
+
+It holds the same encrypted rows and wrapped-key JSON the AsyncStorage
+build kept, plus `device_unlock` and `autofill_index` (titles,
+usernames, hosts of login/passkey items — never secrets) for the
+credential providers. `src/storage/` has the schema, transactions and
+migration; `src/storage/nativePlatform.ts` opens the real database and
+refuses to run if SQLCipher is not linked. Every multi-row write is one
+transaction.
+
+**Migration:** the first launch of this build copies the AsyncStorage
+keys `my-secrect.local-vault.v1(.keys)` into `vault.db` in one
+transaction, checks the row count, then deletes those two keys. If
+anything is unreadable the copy is rolled back, AsyncStorage is left
+as is, and the lock screen shows the error; no row is dropped.
+
 Media/documents store metadata + encrypted blob manifest + SHA-256;
 file bytes are **not** stored in this build (labelled in the UI).
 
-## Biometrics — honest limitation
+## Biometric unlock
 
-`expo-local-authentication` confirms the user is present (Face ID /
-fingerprint). **It does not unlock the vault on its own in this build:**
-the vault key is derived from the passphrase via Argon2id, and a
-fingerprint cannot derive it. After a biometric check succeeds the
-screen says so and still asks for the passphrase. Real biometric
-quick-unlock needs a device-protected key wrap (Keychain / Keystore) —
-see `native/keychain-keystore/README.md`. It is NOT faked here.
+Real device-protected unlock (contract §4), not a presence check:
+
+- After a passphrase or recovery-key unlock, the lock screen offers
+  "Turn on Face ID / fingerprint unlock". Settings can turn it on too,
+  after the passphrase is entered again. A copy of the Account Master
+  Key is wrapped by a biometric-gated device key — Secure Enclave
+  P-256 ECIES (`ios-se-p256-ecies-v1`), a Keychain AES-GCM key when
+  there is no Secure Enclave such as the simulator (`ios-kc-aesgcm-v1`),
+  or an AndroidKeyStore AES-GCM key used through `BiometricPrompt`
+  `CryptoObject` (`android-ks-aesgcm-v1`). The wrap is stored in
+  `device_unlock`; the plaintext Master Key never touches disk.
+- Biometric unlock releases the Master Key, which then unwraps the
+  Vault Key and items exactly as after a passphrase unlock.
+- Changing enrolled faces / fingerprints invalidates the device key.
+  The app deletes the `device_unlock` row, says so, and asks for the
+  passphrase. Cancel, no match and lockout only ever fall back to the
+  passphrase — never to the device passcode.
+- Turning it off, wiping the vault and changing the passphrase delete
+  the device key and the row.
+- Auto-lock also applies when the app comes back from the background.
 
 ## Native integrations — implemented vs planned
 
 | Integration | Status |
 |---|---|
-| Face ID / Touch ID / Android biometrics (presence check) | Implemented via `expo-local-authentication` |
-| Keychain (iOS) / Keystore (Android) key wrapping | Planned — see `native/keychain-keystore/README.md` |
+| Face ID / Touch ID / Android biometric unlock (Master Key wrap) | Implemented in `modules/device-key` (Swift + Kotlin) |
+| Keychain (iOS) / Keystore (Android) key wrapping | Implemented — see `native/keychain-keystore/README.md` |
 | iOS Credential Provider Extension (AutoFill) | Planned — see `native/ios-credential-provider/README.md` |
 | Android Credential Manager (Android 14+) | Planned — see `native/android-credential-manager/README.md` |
-| Encrypted SQLite (SQLCipher) | Planned — storage seam ready in `src/vault.ts` |
+| Encrypted SQLite (SQLCipher) | Implemented — `vault.db`, see Storage |
 | Sync with Rails API | Not built — local-only, like desktop Phase 1 |
 
 ## Run
 
+SQLCipher and the DeviceKey module are native code, so Expo Go cannot
+run this app; use a development build.
+
 ```bash
-cd /Users/loihuynh/Personal/LoyGenics/my-secrect/apps/mobile
+cd apps/mobile
 npm install
-npx expo start        # scan the QR code with Expo Go, or press i / a
-# iOS simulator (needs Xcode):   npx expo run:ios
-# Android emulator (needs Android Studio): npx expo run:android
+npx expo prebuild                 # generates ios/ and android/ (gitignored)
+npx expo run:ios                  # simulator; needs Xcode + CocoaPods
+npx expo run:android              # emulator; needs Android SDK + JDK 17
 ```
 
-First run notes (verify these — nothing has been run yet, no shell
-is available from the agent):
-- `Buffer` is polyfilled in `index.js` (`packages/crypto-adapters`
-  uses `Buffer.from` for base64). If Metro complains, check the
-  `buffer` package installed.
-- `libsodium-wrappers-sumo` is a WASM build; `metro.config.js`
-  adds `.wasm` to asset extensions. If Expo Go cannot load the WASM
-  module, use a development build (`npx expo run:ios/android`)
-  instead of Expo Go.
+Tests that run off-device (real SQLite via sql.js, real vault crypto):
+
+```bash
+npx tsx --test apps/mobile/tests/vault-store.test.ts
+npx tsx --test apps/mobile/tests/vault-device-unlock.test.ts
+npx tsx --test apps/mobile/vault-restore.test.ts
+```
+
+`vault-device-unlock.test.ts` drives `src/vault.ts` with a software
+stand-in for the native DeviceKey module; the Swift and Kotlin code is
+only exercised on a simulator / emulator.
+
+Build notes (SDK 52, checked with Xcode 26.6 and the Android SDK):
+- `index.js` imports `polyfills.js` first: Hermes has no Web Crypto,
+  so `expo-crypto` provides `crypto.getRandomValues` for libsodium.
+  Hermes also has no WebAssembly; libsodium falls back to its asm.js
+  build (a warning in the Metro log, not an error).
+- `plugins/with-mobile-storage.js` builds the `fmt` pod as C++17
+  (fmt 11 + Xcode 26 clang fail as C++20).
+- If `pod install` fails with `unknown keyword: quirks_mode`, the
+  `json` gem is 3.x; run CocoaPods with json 2.9:
+  `ruby -e 'gem "json", "2.9.0"; load Gem.bin_path("cocoapods", "pod")' install`.
 - `app.json` currently sets no icon (no placeholder is shipped).
   Add a 1024×1024 icon at `assets/icon.png` and reference it in
   `app.json` before a store build — do not ship with a blank icon.
-- `npx tsc --noEmit` (via `npm run typecheck`) is the first check
-  to run; it has not been run yet.
 
 ## Not audited
 
