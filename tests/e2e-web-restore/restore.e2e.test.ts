@@ -12,7 +12,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
@@ -45,7 +45,9 @@ async function waitForServer(): Promise<void> {
 }
 
 before(async () => {
-  server = spawn('npx', ['vite', '--port', String(PORT), '--strictPort', '--host', '127.0.0.1'], {
+  // Serve the BUILT app (apps/web/dist; run `npm --workspace apps/web run build` first).
+  if (!existsSync(path.join(root, 'apps/web/dist/index.html'))) throw new Error('apps/web/dist missing: build the web app first');
+  server = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort', '--host', '127.0.0.1'], {
     cwd: path.join(root, 'apps/web'),
     stdio: 'ignore',
   });
@@ -205,7 +207,7 @@ test('negative cases leave storage unchanged and show specific errors', async ()
   const v3 = { ...good, format_version: 3 };
   await expectRejected(page, JSON.stringify(v3), 'passphrase', PASS, /Unsupported backup version[\s\S]*newer version/, '17-version-3');
   const v1 = { ...good, format_version: 1 };
-  await expectRejected(page, JSON.stringify(v1), 'passphrase', PASS, /Unsupported backup version/, '18-version-1');
+  await expectRejected(page, JSON.stringify(v1), 'passphrase', PASS, /format_version 1 has no key envelope; restore needs a v2 backup/, '18-version-1');
 
   const dup = structuredClone(good);
   dup.items.push(structuredClone(dup.items[0]));

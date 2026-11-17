@@ -67,6 +67,12 @@ export function describeRestoreError(err: unknown): RestoreErrorInfo {
         'Nothing was restored. Do not trust this file; use another copy.',
     };
   }
+  if (/format_version 1\b.*no wrapped key envelope/.test(raw)) {
+    return {
+      kind: 'unsupported-version',
+      message: 'format_version 1 has no key envelope; restore needs a v2 backup. Nothing was restored.',
+    };
+  }
   if (has('newer version') || has('Unsupported export version') || has('format_version 1')) {
     return {
       kind: 'unsupported-version',

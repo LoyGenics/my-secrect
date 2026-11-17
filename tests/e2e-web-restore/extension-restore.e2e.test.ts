@@ -44,8 +44,15 @@ async function launch(): Promise<{ ctx: BrowserContext; extId: string; admin: Pa
 const bg = (p: Page, msg: Record<string, unknown>) =>
   p.evaluate((m) => chrome.runtime.sendMessage(m) as Promise<Record<string, any>>, msg);
 
+// Snapshot of vault storage. The options page lazily writes its own UI
+// settings key on load (async, unrelated to the vault), which made the
+// snapshot racy; exclude only that key so every vault key is still compared.
 async function storage(p: Page): Promise<string> {
-  return p.evaluate(() => new Promise<string>((r) => chrome.storage.local.get(null, (v) => r(JSON.stringify(v, Object.keys(v).sort())))));
+  return p.evaluate(() => new Promise<string>((r) => chrome.storage.local.get(null, (v) => {
+    const vault: Record<string, unknown> = {};
+    for (const k of Object.keys(v).sort()) if (k !== 'my-secrect.ext.settings.v1') vault[k] = v[k];
+    r(JSON.stringify(vault));
+  })));
 }
 
 function flipBit(b64: string): string {
