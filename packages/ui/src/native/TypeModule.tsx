@@ -17,9 +17,9 @@ export function TypeModule({ type, theme, size = 32 }: NativeTypeModuleProps) {
   return (
     <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }} accessible={false} importantForAccessibility="no-hide-descendants">
       <Svg width={size} height={size} viewBox={MODULE_VIEWBOX} style={{ position: 'absolute' }}>
-        <Path d={moduleSilhouette[key]} fill={theme.itemType[key]} stroke={theme.border.strong} strokeWidth={1} />
+        <Path d={moduleSilhouette[key]} fill={theme.itemType[key]} stroke="rgba(27, 28, 30, 0.22)" strokeWidth={1} />
       </Svg>
-      <Icon name={moduleIcon[key]} size={size >= 44 ? 'lg' : size >= 30 ? 'sm' : 'xs'} color={theme.text.primary} />
+      <Icon name={moduleIcon[key]} size={size >= 44 ? 'lg' : size >= 30 ? 'sm' : 'xs'} color={theme.text.onModule} />
     </View>
   );
 }

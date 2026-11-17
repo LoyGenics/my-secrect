@@ -112,7 +112,7 @@ export function RestoreSuccess({ itemCount, onContinue }: { itemCount: number; o
   return (
     <div data-testid="restore-success">
       <EmptyState
-        art={illustrations.success}
+        art={illustrations.restored}
         title={r.successTitle}
         body={tp(r.successBody, itemCount)}
         primaryAction={{ label: r.continue, icon: 'unlock', onClick: onContinue }}

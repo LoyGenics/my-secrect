@@ -109,10 +109,10 @@ export function ItemTypeArt({ type, size = 'lg', label, className }: TypeModuleP
   const key = isItemTypeKey(type) ? type : 'custom';
   const src = typeArt[key];
   if (!src) return <TypeModule type={key} size={size} label={label} className={className} />;
-  const px = size === 'lg' ? 48 : size === 'sm' ? 24 : 32;
+  const px = size === 'lg' ? 64 : size === 'sm' ? 24 : 40;
   return (
     <img
-      className={cn('ms-module', size !== 'md' && `ms-module--${size}`, className)}
+      className={cn('ms-art', className)}
       src={src}
       width={px}
       height={px}

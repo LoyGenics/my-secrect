@@ -22,6 +22,7 @@ export * from './illustrations';
 export * from './clipboard';
 export * from './useUiStrings';
 export * from './components/Icon';
+export * from './components/Art';
 export * from './components/Button';
 export * from './components/Card';
 export * from './components/Input';

@@ -67,6 +67,7 @@ import { I18nProvider } from '../../../packages/i18n/src/react';
 import { detectLocale, format, getDictionary, plural, storeLocale, type Locale, type PluralForms } from '../../../packages/i18n/src/index';
 import {
   Alert,
+  Art,
   Button,
   Card,
   Checkbox,
@@ -82,12 +83,14 @@ import {
   SecureField,
   Select,
   Sheet,
+  brandMark,
   copyWithClear,
   illustrations,
   initTheme,
   type IconName,
   type LedStripState,
   type LedTone,
+  type ArtSource,
 } from './theme';
 
 /**
@@ -916,14 +919,14 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     if (q) return { art: illustrations.noResults, title: sh.empty.searchTitle, body: format(sh.empty.searchBody, q) };
     if (view === 'trash') return { art: illustrations.emptyTrash, title: sh.empty.trashTitle, body: sh.empty.trashBody };
     if (view === 'archived') return { art: illustrations.emptyArchive, title: sh.empty.archivedTitle, body: sh.empty.archivedBody };
-    if (view === 'favorites') return { art: illustrations.emptyFavorites, title: sh.empty.favoritesTitle, body: sh.empty.favoritesBody };
+    if (view === 'favorites') return { art: illustrations.emptyFavorites as ArtSource, title: sh.empty.favoritesTitle, body: sh.empty.favoritesBody };
     if (view.startsWith('tag:')) return { art: illustrations.emptyVault, title: sh.empty.tagTitle, body: format(sh.empty.tagBody, view.slice(4)) };
     return { art: illustrations.emptyVault, title: sh.empty.allTitle, body: sh.empty.allBody };
   };
 
   // ---------- Device face (sign-in gate aside: onboarding, restore, lock) ----------
   const deviceFace = (opts: {
-    art?: string;
+    art?: ArtSource;
     artWideOnly?: boolean;
     led: LedStripState;
     lede?: string;
@@ -934,17 +937,11 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     <div className="ms-device-screen">
       <div className="ms-device-stage">
         {opts.art && (
-          <img
-            className={opts.artWideOnly ? 'ms-device__art ms-device__art--wide' : 'ms-device__art'}
-            src={opts.art}
-            alt=""
-            width={200}
-            height={200}
-            decoding="async"
-          />
+          <Art src={opts.art} size={240} eager className={opts.artWideOnly ? 'ms-device__art ms-device__art--wide' : 'ms-device__art'} />
         )}
         <section className={opts.wide ? 'ms-device ms-device--wide' : 'ms-device'} aria-labelledby="device-wordmark">
           <div className="ms-device__head">
+            {brandMark.src && <img src={brandMark.src} alt="" width={40} height={40} />}
             <h1 id="device-wordmark" className="ms-device__wordmark">{dict.common.appName}</h1>
             <LedStrip state={opts.led} />
           </div>
@@ -987,12 +984,16 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     const art = restoreUi
       ? restoreUi.count === null
         ? illustrations.restore
-        : illustrations.success
-      : onboardingStep === 0
-        ? illustrations.deviceHero
-        : onboardingStep === 1
-          ? illustrations.recoveryKey
-          : illustrations.success;
+        : illustrations.restored
+      : creating
+        ? illustrations.working
+        : onboardingStep === 0
+          ? newPass
+            ? illustrations.passphrase
+            : illustrations.deviceHero
+          : onboardingStep === 1
+            ? illustrations.recoveryKey
+            : illustrations.success;
     return frame(
       deviceFace({
         art,
@@ -1090,7 +1091,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     const lk = dict.lock;
     return frame(
       deviceFace({
-        art: illustrations.lockHero,
+        art: unlocking ? illustrations.working : illustrations.splash,
         artWideOnly: true,
         led: unlocking ? 'working' : lockError ? 'error' : 'locked',
         children: (

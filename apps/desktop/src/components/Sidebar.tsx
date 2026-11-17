@@ -1,6 +1,6 @@
 import { useId, type ReactNode } from 'react';
 import type { ItemType } from '../../../../packages/core/src/types';
-import { Button, Icon, Led, Readout, TypeModule, categoryModule, cn, type IconName } from '../theme';
+import { Button, Icon, Led, Readout, TypeModule, brandMark, categoryModule, cn, type IconName } from '../theme';
 import { useTranslation } from '../../../../packages/i18n/src/react';
 
 export type CategoryKey =
@@ -152,7 +152,7 @@ export default function Sidebar({
   return (
     <nav className={cn('ms-rail', inDrawer && 'ms-rail--drawer')} aria-label={s.navLabel}>
       <div className="ms-rail__brand">
-        <Led tone="ok" />
+        {brandMark.src ? <img src={brandMark.src} alt="" width={28} height={28} /> : <Led tone="ok" />}
         <span className="ms-rail__brand-text">
           <span className="ms-heading ms-heading--md block uppercase tracking-[0.14em]">{dict.common.appName}</span>
           <span className="ms-legend block normal-case tracking-normal">{s.tagline}</span>

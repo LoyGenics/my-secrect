@@ -49,7 +49,8 @@ export interface ThemeTokens {
   colorScheme: 'light' | 'dark';
   /** base = the device chassis; surface = machined plates; sunken/input = recessed wells; muted = tracks and chips. */
   background: { base: string; surface: string; raised: string; sunken: string; input: string; muted: string };
-  text: { primary: string; secondary: string; muted: string; faint: string; onBrand: string; onDanger: string; link: string };
+  /** onModule: ink printed on item-type modules (pastel clay fills in both finishes). */
+  text: { primary: string; secondary: string; muted: string; faint: string; onBrand: string; onDanger: string; onModule: string; link: string };
   /** default = the 1px hairline; control = the only border meeting 3:1 (wells, switches). */
   border: { default: string; strong: string; subtle: string; control: string };
   /** The orange key: primary action and focus only. */
@@ -63,7 +64,11 @@ export interface ThemeTokens {
   focus: { ring: string; outline: string; width: string; offset: string };
   /** Machining: plate top highlight, key lower edges, well inner shadow. */
   edge: { highlight: string; key: string; keyBrand: string; keyDanger: string; well: string };
-  /** One muted code colour per item type (module fills). Icon ink on every fill is >= 7:1. */
+  /**
+   * One code colour per item type, from the clay illustration palette
+   * (sky, mint, butter, coral, lavender, tangerine). Pastel in both finishes,
+   * printed with `text.onModule` ink (>= 10:1 on every fill).
+   */
   itemType: Record<ItemTypeKey, string>;
   shadow: { sm: string; md: string; lg: string; overlay: string };
 }
@@ -86,6 +91,7 @@ export const darkTheme: ThemeTokens = {
     faint: '#6E7073',
     onBrand: '#1B1C1E',
     onDanger: '#FFFFFF',
+    onModule: '#1B1C1E',
     link: '#ECEBE7',
   },
   border: { default: '#2E3033', strong: '#3A3C40', subtle: '#26282A', control: '#6E7073' },
@@ -116,18 +122,18 @@ export const darkTheme: ThemeTokens = {
     well: 'rgba(0, 0, 0, 0.45)',
   },
   itemType: {
-    login: '#2F3A4A',
-    passkey: '#29403C',
-    bank_account: '#3A4030',
-    card: '#40334A',
-    identity: '#4A3F30',
-    ssh_key: '#33383F',
-    api_key: '#304230',
-    secure_note: '#4A4226',
-    document: '#4A3530',
-    media: '#3E3249',
-    collection: '#2E4237',
-    custom: '#3A3834',
+    login: '#B4D6F5',
+    passkey: '#AEE3CB',
+    bank_account: '#F2DD8F',
+    card: '#F2B8AD',
+    identity: '#CFC2F0',
+    ssh_key: '#9FC6EC',
+    api_key: '#9ED8BE',
+    secure_note: '#EDCF6B',
+    document: '#F7C29B',
+    media: '#EFA9BB',
+    collection: '#BFAEEC',
+    custom: '#F5CFAF',
   },
   shadow: {
     sm: '0 1px 2px rgba(0, 0, 0, 0.40)',
@@ -155,6 +161,7 @@ export const lightTheme: ThemeTokens = {
     faint: '#8A8C8F',
     onBrand: '#1B1C1E',
     onDanger: '#FFFFFF',
+    onModule: '#1B1C1E',
     link: '#1B1C1E',
   },
   border: { default: '#C4C2BC', strong: '#ABA9A3', subtle: '#D4D2CC', control: '#7C7A74' },
@@ -185,18 +192,18 @@ export const lightTheme: ThemeTokens = {
     well: 'rgba(0, 0, 0, 0.14)',
   },
   itemType: {
-    login: '#C9D3E0',
-    passkey: '#C5DDD8',
-    bank_account: '#D6DCC4',
-    card: '#DCCFDD',
-    identity: '#E3D6C2',
-    ssh_key: '#CBD0D6',
-    api_key: '#CFE0C9',
-    secure_note: '#E8DDB5',
-    document: '#E2CDC3',
-    media: '#D9CCE3',
-    collection: '#C8D9CF',
-    custom: '#D6D3CC',
+    login: '#CFE6FB',
+    passkey: '#CDEFE0',
+    bank_account: '#FBEDB8',
+    card: '#FAD3CC',
+    identity: '#E3DAF7',
+    ssh_key: '#BBD8F2',
+    api_key: '#B8E5D0',
+    secure_note: '#F6E09A',
+    document: '#FCD9BF',
+    media: '#F7C4D0',
+    collection: '#D5C8F2',
+    custom: '#FDE6D3',
   },
   shadow: {
     sm: '0 1px 2px rgba(60, 55, 45, 0.12)',

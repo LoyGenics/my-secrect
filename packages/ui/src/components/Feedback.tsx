@@ -5,6 +5,8 @@ import { useUiStrings } from '../useUiStrings';
 import type { IconName } from '../icons';
 import { Button } from './Button';
 import { Icon } from './Icon';
+import { Art } from './Art';
+import { illustrations, type ArtSource } from '../illustrations';
 
 // ---------------------------------------------------------------------------
 // Skeleton
@@ -78,11 +80,8 @@ export interface StateAction {
 export interface EmptyStateProps {
   title?: string;
   body?: ReactNode;
-  /**
-   * 3D object (onboarding, empty and success states only): an image URL from
-   * packages/ui/assets/3d via `illustrations`. Decorative — alt="".
-   */
-  art?: string;
+  /** Illustration slot from `illustrations` (empty, error and success states only). Decorative. */
+  art?: ArtSource;
   /** Lucide glyph when there is no 3D object. */
   icon?: IconName;
   primaryAction?: StateAction;
@@ -119,7 +118,7 @@ export function EmptyState({
   return (
     <div className={cn('ms-state', className)}>
       {art ? (
-        <img className="ms-state__art" src={art} alt="" width={112} height={112} loading="lazy" decoding="async" />
+        <Art src={art} size={144} className="ms-state__art" />
       ) : icon ? (
         <Icon name={icon} size={32} className="ms-state__icon" />
       ) : null}
@@ -146,6 +145,8 @@ export function EmptyState({
 }
 
 export interface ErrorStateProps {
+  /** Illustration slot; defaults to `illustrations.error`. */
+  art?: ArtSource;
   title?: string;
   body?: string;
   onRetry?: () => void;
@@ -156,11 +157,11 @@ export interface ErrorStateProps {
 }
 
 /** Failed load. role="alert". Never render raw error objects here — pass a safe, localized message. */
-export function ErrorState({ title, body, onRetry, retryLabel, onGoBack, locale, children }: ErrorStateProps) {
+export function ErrorState({ art = illustrations.error, title, body, onRetry, retryLabel, onGoBack, locale, children }: ErrorStateProps) {
   const strings = useUiStrings({ locale });
   return (
     <div className="ms-state" role="alert">
-      <Icon name="error" size={32} className="ms-state__icon" />
+      <Art src={art} size={144} className="ms-state__art" />
       <h2 className="ms-state__title">{title ?? strings.errorState.title}</h2>
       <p className="ms-state__body">{body ?? strings.errorState.body}</p>
       {children}

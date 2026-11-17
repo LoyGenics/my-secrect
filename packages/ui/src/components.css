@@ -575,10 +575,10 @@ select.ms-input { padding-right: 32px; cursor: pointer; }
   flex: none;
   width: 32px;
   height: 32px;
-  color: var(--ms-color-text-primary);
+  color: var(--ms-color-text-on-module);
 }
 .ms-module svg.ms-module__shape { position: absolute; inset: 0; width: 100%; height: 100%; }
-.ms-module__shape path { stroke: var(--ms-color-border-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.ms-module__shape path { stroke: rgba(27, 28, 30, 0.22); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .ms-module .ms-icon { position: relative; }
 .ms-module--sm { width: 24px; height: 24px; }
 .ms-module--lg { width: 48px; height: 48px; }
@@ -813,7 +813,8 @@ select.ms-input { padding-right: 32px; cursor: pointer; }
   margin: auto;
   max-width: 440px;
 }
-.ms-state__art { width: 112px; height: 112px; object-fit: contain; margin-bottom: var(--ms-space-2); }
+.ms-art { display: block; object-fit: contain; flex: none; }
+.ms-state__art { width: 144px; height: 144px; margin-bottom: var(--ms-space-1); }
 .ms-state__icon { color: var(--ms-color-text-muted); }
 .ms-state__title { font-family: var(--ms-font-legend); font-size: var(--ms-text-lg); line-height: var(--ms-leading-lg); font-weight: 600; color: var(--ms-color-text-primary); margin: 0; text-wrap: balance; }
 .ms-state__body { font-size: var(--ms-text-md); line-height: var(--ms-leading-md); color: var(--ms-color-text-muted); margin: 0; text-wrap: pretty; }
@@ -1218,7 +1219,7 @@ select.ms-input { padding-right: 32px; cursor: pointer; }
 .ms-device__lede { margin: 10px 0 0; color: var(--ms-color-text-muted); font-size: var(--ms-text-sm); line-height: var(--ms-leading-sm); }
 .ms-device__body { margin-top: 22px; display: grid; gap: 14px; }
 .ms-device__foot { margin: 20px 0 0; padding-top: 14px; border-top: 1px solid var(--ms-color-border-default); font-size: var(--ms-text-sm); line-height: var(--ms-leading-sm); color: var(--ms-color-text-muted); }
-.ms-device__art { width: 200px; height: 200px; object-fit: contain; flex: none; }
+.ms-device__art { width: 240px; height: 240px; }
 .ms-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 18px; list-style: none; padding: 0; }
 .ms-steps__item { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .ms-steps__item .ms-legend { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1238,7 +1239,7 @@ select.ms-input { padding-right: 32px; cursor: pointer; }
 }
 @media (max-width: 767.98px) {
   .ms-device-stage { flex-direction: column-reverse; gap: 12px; }
-  .ms-device__art { width: 96px; height: 96px; }
+  .ms-device__art { width: 120px; height: 120px; }
   .ms-device { padding: 22px 16px 18px; }
 }
 
