@@ -5,15 +5,27 @@ require 'securerandom'
 # session tokens; nothing in the Sharing domain is stubbed.
 RSpec.describe 'Identity keys API', type: :request do
   let(:user) { create(:user, email: 'alice@example.test') }
-  let(:headers) { auth_headers_for(user) }
+  # Registration and rotation need a fresh step-up on the session.
+  let(:headers) { stepped_up_headers_for(user) }
   let(:public_key) { SecureRandom.random_bytes(32) }
   let(:encrypted_secret) { SecureRandom.random_bytes(120) }
 
   def b64(bytes) = Base64.strict_encode64(bytes)
   def json = JSON.parse(response.body)
 
+  def stepped_up_headers_for(user)
+    token = Authentication::SessionTokens.issue(
+      user: user, device: create(:device, user: user), step_up_verified_at: Time.current, step_up_method: 'passkey'
+    )
+    { 'Authorization' => "Bearer #{token}" }
+  end
+
   def register(pk: public_key, secret: encrypted_secret, as_headers: headers)
     put '/api/v1/identity-key', params: { public_key: b64(pk), encrypted_secret_key: b64(secret) }, headers: as_headers, as: :json
+  end
+
+  def rotate(pk:, secret: SecureRandom.random_bytes(120), as_headers: headers)
+    post '/api/v1/identity-key/rotate', params: { public_key: b64(pk), encrypted_secret_key: b64(secret) }, headers: as_headers, as: :json
   end
 
   it 'requires a session for every endpoint' do
@@ -21,9 +33,89 @@ RSpec.describe 'Identity keys API', type: :request do
     expect(response).to have_http_status(:unauthorized)
     put '/api/v1/identity-key', params: { public_key: b64(public_key), encrypted_secret_key: b64(encrypted_secret) }, as: :json
     expect(response).to have_http_status(:unauthorized)
+    post '/api/v1/identity-key/rotate', params: { public_key: b64(public_key), encrypted_secret_key: b64(encrypted_secret) }, as: :json
+    expect(response).to have_http_status(:unauthorized)
     post '/api/v1/identity-keys/lookup', params: { email: user.email }, as: :json
     expect(response).to have_http_status(:unauthorized)
     expect(IdentityKey.count).to eq(0)
+  end
+
+  it 'requires a fresh step-up to register or rotate, and stores nothing without it' do
+    plain = auth_headers_for(user)
+    register(as_headers: plain)
+    expect(response).to have_http_status(:forbidden)
+    expect(json.fetch('error')).to eq('step_up_required')
+    expect(IdentityKey.count).to eq(0)
+
+    expired = stepped_up_headers_for(user)
+    Session.order(:created_at).last.update!(step_up_verified_at: 11.minutes.ago)
+    register(as_headers: expired)
+    expect(response).to have_http_status(:forbidden)
+    expect(IdentityKey.count).to eq(0)
+
+    register
+    expect(response).to have_http_status(:created)
+    rotate(pk: SecureRandom.random_bytes(32), as_headers: plain)
+    expect(response).to have_http_status(:forbidden)
+    expect(json.fetch('error')).to eq('step_up_required')
+    expect(IdentityKey.find_by!(user_id: user.id).public_key.b).to eq(public_key.b)
+  end
+
+  describe 'rotation' do
+    let(:contact) { create(:user) }
+    let!(:contact_key) { IdentityKey.create!(user: contact, public_key: SecureRandom.random_bytes(32), encrypted_secret_key: SecureRandom.random_bytes(120)) }
+
+    def share_between(owner, recipient, owner_pk, recipient_pk, status: 'active')
+      ItemShare.create!(
+        id: SecureRandom.uuid, owner: owner, recipient: recipient, permission: 'read', status: status,
+        owner_public_key: owner_pk, recipient_public_key: recipient_pk, revision: 1, last_writer_id: owner.id,
+        encrypted_payload: SecureRandom.random_bytes(80), encrypted_item_key: SecureRandom.random_bytes(104),
+        encrypted_owner_metadata: SecureRandom.random_bytes(60)
+      )
+    end
+
+    it 'replaces the key, revokes every share of the caller (erasing ciphertext) and leaves others alone' do
+      register
+      owned = share_between(user, contact, public_key, contact_key.public_key)
+      received = share_between(contact, user, contact_key.public_key, public_key, status: 'pending')
+      bystander = create(:user)
+      unrelated = share_between(contact, bystander, contact_key.public_key, SecureRandom.random_bytes(32))
+      new_key = SecureRandom.random_bytes(32)
+      new_secret = SecureRandom.random_bytes(130)
+
+      rotate(pk: new_key, secret: new_secret)
+
+      expect(response).to have_http_status(:ok)
+      expect(json.fetch('revoked_shares')).to eq(2)
+      expect(json.dig('identity_key', 'public_key')).to eq(b64(new_key))
+      stored = IdentityKey.find_by!(user_id: user.id)
+      expect(stored.public_key.b).to eq(new_key.b)
+      expect(stored.encrypted_secret_key.b).to eq(new_secret.b)
+      [owned, received].each do |share|
+        share.reload
+        expect(share.status).to eq('revoked')
+        expect([share.encrypted_payload, share.encrypted_item_key, share.encrypted_owner_metadata]).to eq([nil, nil, nil])
+      end
+      expect(unrelated.reload.status).to eq('active')
+      expect(AuditEvent.where(user_id: user.id, event_type: 'identity_key_rotated').pluck(:metadata)).to eq([{ 'revoked_shares' => 2 }])
+
+      post '/api/v1/identity-keys/lookup', params: { email: user.email }, headers: auth_headers_for(contact), as: :json
+      expect(json.fetch('public_key')).to eq(b64(new_key)) # what contacts see as a key change
+    end
+
+    it 'refuses without an existing key, with the same key, or with a malformed key' do
+      rotate(pk: SecureRandom.random_bytes(32))
+      expect(response).to have_http_status(:not_found)
+      expect(json.fetch('error')).to eq('no_identity_key')
+
+      register
+      rotate(pk: public_key)
+      expect(response).to have_http_status(:unprocessable_entity)
+      rotate(pk: SecureRandom.random_bytes(31))
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(IdentityKey.find_by!(user_id: user.id).public_key.b).to eq(public_key.b)
+      expect(AuditEvent.where(event_type: 'identity_key_rotated')).to be_empty
+    end
   end
 
   it 'returns 404 before registration, then stores raw bytes and returns them once-encoded' do

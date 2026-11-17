@@ -13,12 +13,25 @@ module Api
         render json: { identity_key: own_key_json(key) }
       end
 
-      # PUT /v1/identity-key — write-once registration.
+      # PUT /v1/identity-key — write-once registration. Step-up required:
+      # whoever registers the key decides what contacts will verify.
       def update
+        require_step_up!
         key, created = Sharing::RegisterIdentityKey.call(
           user: current_user, public_key: params[:public_key], encrypted_secret_key: params[:encrypted_secret_key]
         )
         render json: { identity_key: own_key_json(key) }, status: created ? :created : :ok
+      end
+
+      # POST /v1/identity-key/rotate — replace the key (lost vault key,
+      # suspected compromise). Step-up required. Revokes every share the
+      # caller is part of; contacts see a key change on their next lookup.
+      def rotate
+        require_step_up!
+        key, revoked = Sharing::RotateIdentityKey.call(
+          user: current_user, public_key: params[:public_key], encrypted_secret_key: params[:encrypted_secret_key]
+        )
+        render json: { identity_key: own_key_json(key), revoked_shares: revoked }
       end
 
       # POST /v1/identity-keys/lookup { email } — email in the body, not the URL.

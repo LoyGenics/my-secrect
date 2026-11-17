@@ -42,6 +42,7 @@ Rails.application.routes.draw do
       # --- Sharing v1 (specs/sharing-protocol.md) -------------------------
       get 'identity-key', to: 'identity_keys#show'
       put 'identity-key', to: 'identity_keys#update'
+      post 'identity-key/rotate', to: 'identity_keys#rotate'
       post 'identity-keys/lookup', to: 'identity_keys#lookup'
       resources :shares, only: %i[index create destroy] do
         member do
