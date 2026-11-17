@@ -33,6 +33,19 @@ Proven in real Chromium by `e2e/hardening.spec.ts`.
 entry in the manifest). The content script is injected on demand with
 `chrome.scripting.executeScript` into the active tab only, for one fill.
 
+- `storage`: the encrypted vault + settings. `activeTab` + `scripting`: inject
+  into the tab the user clicked, nowhere else. `alarms`: auto-lock.
+- No `web_accessible_resources` (pages cannot frame or fetch extension pages),
+  `externally_connectable: { ids: [] }` (no web page, no other extension).
+- CSP `script-src 'self' 'wasm-unsafe-eval'; object-src 'none'`.
+  `'wasm-unsafe-eval'` is required for libsodium's WebAssembly; without it
+  libsodium fell back to asm.js, which returned non-random bytes (see
+  `vite.config.ts`). It permits compiling wasm, not JS `eval`.
+- Guarded by `tests/manifest.test.ts` (`npm --workspace apps/extension test`)
+  and `e2e/build-output.spec.ts` (production `dist/`: manifest unchanged, no
+  source maps, no eval/`Function`, no inline scripts, classic `content.js`,
+  no private keys or fixtures).
+
 ## Autofill security rules (enforced in `src/lib/domain.ts` + `src/content/`)
 
 1. Fill only on **https** (except `http://localhost` for development).
