@@ -18,7 +18,10 @@ import {
   hasVault, lockVault, isUnlocked, listItems, listTrash, upsertItem,
   deleteItem, restoreItem, permanentlyDeleteItem, toggleFavorite,
 } from './vault';
-import { colors, styles } from './theme';
+import { useMobileTheme } from './theme';
+import { Icon, type IconName } from '../../../packages/ui/src/native';
+import { I18nProvider, useTranslation } from '../../../packages/i18n/src/react';
+import { LOCALE_STORAGE_KEY, detectLocale, type Locale } from '../../../packages/i18n/src/index';
 import OnboardingScreen from './screens/OnboardingScreen';
 import LockScreen from './screens/LockScreen';
 import VaultScreen from './screens/VaultScreen';
@@ -34,13 +37,33 @@ import ItemFormScreen from './screens/ItemFormScreen';
 type Tab = 'vault' | 'search' | 'generator' | 'health' | 'settings';
 type Boot = 'loading' | 'signin' | 'onboarding' | 'locked' | 'unlocked';
 
-const TABS: Array<{ key: Tab; label: string; icon: string }> = [
-  { key: 'vault', label: 'Vault', icon: '🔒' },
-  { key: 'search', label: 'Search', icon: '🔍' },
-  { key: 'generator', label: 'Generate', icon: '⚡' },
-  { key: 'health', label: 'Health', icon: '🛡️' },
-  { key: 'settings', label: 'Settings', icon: '⚙️' },
+const TABS: Array<{ key: Tab; label: 'vault' | 'search' | 'generator' | 'watchtower' | 'settings'; icon: IconName }> = [
+  { key: 'vault', label: 'vault', icon: 'items' },
+  { key: 'search', label: 'search', icon: 'search' },
+  { key: 'generator', label: 'generator', icon: 'generate' },
+  { key: 'health', label: 'watchtower', icon: 'health' },
+  { key: 'settings', label: 'settings', icon: 'settings' },
 ];
+
+/**
+ * Root: restores the language choice (AsyncStorage, same key as web's
+ * localStorage) and mounts ONE I18nProvider for every screen; switching
+ * language anywhere (useTranslation().setLocale) persists it.
+ */
+export default function App() {
+  const [locale, setLocale] = useState<Locale | null>(null);
+  useEffect(() => {
+    AsyncStorage.getItem(LOCALE_STORAGE_KEY)
+      .then((v) => setLocale(v === 'en' || v === 'vi' ? v : detectLocale()))
+      .catch(() => setLocale(detectLocale()));
+  }, []);
+  if (!locale) return null;
+  return (
+    <I18nProvider initialLocale={locale} onLocaleChange={(next) => void AsyncStorage.setItem(LOCALE_STORAGE_KEY, next)}>
+      <AppShell />
+    </I18nProvider>
+  );
+}
 
 /**
  * Mobile shell. Navigation is a small custom state machine (no
@@ -48,7 +71,10 @@ const TABS: Array<{ key: Tab; label: string; icon: string }> = [
  * trash overlays. Every screen is a real, working screen — see
  * src/screens/. Auto-lock is enforced by an inactivity timer.
  */
-export default function App() {
+function AppShell() {
+  const { colors, styles, scheme } = useMobileTheme();
+  const { dict } = useTranslation();
+  const statusBar = scheme === 'light' ? 'dark' : 'light';
   const [boot, setBoot] = useState<Boot>('loading');
   const [items, setItems] = useState<VaultItem[]>([]);
   const [trash, setTrash] = useState<VaultItem[]>([]);
@@ -168,17 +194,17 @@ export default function App() {
   const inTrash = selectedItem ? trash.some((t) => t.id === selectedItem.id) : false;
 
   if (boot === 'loading') {
-    return (<View style={[styles.screen, { alignItems: 'center', justifyContent: 'center' }]}><ActivityIndicator size="large" color={colors.accent} /><Text style={{ color: colors.muted, marginTop: 12 }}>Loading vault…</Text><StatusBar style="light" /></View>);
+    return (<View style={[styles.screen, { alignItems: 'center', justifyContent: 'center' }]}><ActivityIndicator size="large" color={colors.accent} /><Text style={{ color: colors.muted, marginTop: 12 }}>{dict.common.loading}</Text><StatusBar style={statusBar} /></View>);
   }
-  if (boot === 'onboarding') return (<><StatusBar style="light" /><OnboardingScreen onDone={handleUnlocked} onRestored={() => setBoot('locked')} /></>);
-  if (boot === 'locked') return (<><StatusBar style="light" /><LockScreen onUnlocked={handleUnlocked} /></>);
+  if (boot === 'onboarding') return (<><StatusBar style={statusBar} /><OnboardingScreen onDone={handleUnlocked} onRestored={() => setBoot('locked')} /></>);
+  if (boot === 'locked') return (<><StatusBar style={statusBar} /><LockScreen onUnlocked={handleUnlocked} /></>);
   // Account sign-in comes BEFORE the vault whenever a server is
   // configured and there is no valid session. 'Continue without
   // signing in' keeps the local vault usable offline.
   if (boot === 'signin') {
     return (
       <View style={styles.screen}>
-        <StatusBar style="light" />
+        <StatusBar style={statusBar} />
         <SignInScreen
           baseUrl={apiBaseUrl}
           sessionExpired={sessionExpired}
@@ -197,7 +223,7 @@ export default function App() {
 
   return (
     <View style={styles.screen} onTouchStart={markActivity}>
-      <StatusBar style="light" />
+      <StatusBar style={statusBar} />
       {showSecurity ? (
         <SecurityScreen
           onClose={() => setShowSecurity(false)}
@@ -223,17 +249,21 @@ export default function App() {
       )}
       {notice && !showForm && !selectedItem && !showTrash && !showSecurity ? (
         <Pressable testID="app-notice" accessibilityLabel="Dismiss notice" onPress={() => setNotice('')} style={{ backgroundColor: colors.card, borderTopColor: colors.cardBorder, borderTopWidth: 1, padding: 10 }}>
-          <Text style={{ color: '#A5B4FC', fontSize: 13, textAlign: 'center' }}>{notice} — tap to dismiss</Text>
+          <Text style={{ color: colors.secondary, fontSize: 13, textAlign: 'center' }}>{notice}</Text>
         </Pressable>
       ) : null}
       {!showForm && !selectedItem && !showTrash && !showSecurity ? (
-        <View style={{ flexDirection: 'row', borderTopColor: colors.cardBorder, borderTopWidth: 1, backgroundColor: colors.card, paddingBottom: 20, paddingTop: 8 }}>
-          {TABS.map((t) => (
-            <Pressable key={t.key} testID={`tab-${t.key}`} accessibilityLabel={`${t.label} tab`} accessibilityRole="tab" accessibilityState={{ selected: tab === t.key }} onPress={() => { setTab(t.key); clearSelection(); }} style={{ flex: 1, alignItems: 'center', minHeight: 48, justifyContent: 'center' }}>
-              <Text style={{ fontSize: 22 }}>{t.icon}</Text>
-              <Text style={{ color: tab === t.key ? colors.accent : colors.muted, fontSize: 11, fontWeight: tab === t.key ? '700' : '500', marginTop: 2 }}>{t.label}</Text>
-            </Pressable>
-          ))}
+        <View accessibilityRole="tablist" style={{ flexDirection: 'row', borderTopColor: colors.cardBorder, borderTopWidth: 1, backgroundColor: colors.card, paddingBottom: 20, paddingTop: 6 }}>
+          {TABS.map((t) => {
+            const selected = tab === t.key;
+            const label = dict.shell.tabs[t.label];
+            return (
+              <Pressable key={t.key} testID={`tab-${t.key}`} accessibilityLabel={label} accessibilityRole="tab" accessibilityState={{ selected }} onPress={() => { setTab(t.key); clearSelection(); }} style={{ flex: 1, alignItems: 'center', minHeight: 52, justifyContent: 'center', gap: 3 }}>
+                <Icon name={t.icon} size="lg" color={selected ? colors.accent : colors.muted} />
+                <Text style={[styles.legend, { fontSize: 10, color: selected ? colors.text : colors.muted }]}>{label}</Text>
+              </Pressable>
+            );
+          })}
         </View>
       ) : null}
     </View>

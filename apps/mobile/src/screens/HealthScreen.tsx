@@ -1,11 +1,13 @@
 import React from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, Text, View } from 'react-native';
 import type { VaultItem } from '../../../../packages/core/src/types';
-import { colors, styles } from '../theme';
+import { useMobileTheme } from '../theme';
+import { Icon, illustrations, typeArt } from '../../../../packages/ui/src/native';
 import { computeHealth } from '../utils/health';
 import { isArchived } from '../utils/itemMeta';
 
 export default function HealthScreen({ items, onFix }: { items: VaultItem[]; onFix: (item: VaultItem) => void }) {
+  const { colors, styles } = useMobileTheme();
   // Archived items are excluded from health, like trashed items.
   const h = computeHealth(items.filter((i) => !isArchived(i)));
   const color = h.score >= 80 ? colors.ok : h.score >= 50 ? colors.warn : colors.danger;
@@ -59,7 +61,7 @@ export default function HealthScreen({ items, onFix }: { items: VaultItem[]; onF
         </View>
       )}
       {h.weakItems.length === 0 && h.reusedGroups.length === 0 && h.expiringItems.length === 0 ? (
-        <View style={{ alignItems: 'center', marginTop: 32 }}><Text style={{ fontSize: 40 }}>✅</Text><Text style={{ color: colors.muted, fontSize: 14, marginTop: 8, textAlign: 'center' }}>All clear — no weak or reused passwords, nothing expiring soon.</Text></View>
+        <View style={{ alignItems: 'center', marginTop: 32 }}><Image source={illustrations.healthClear} style={{ width: 120, height: 120 }} accessibilityIgnoresInvertColors /><Text style={{ color: colors.muted, fontSize: 14, marginTop: 8, textAlign: 'center' }}>All clear — no weak or reused passwords, nothing expiring soon.</Text></View>
       ) : null}
     </ScrollView>
   );

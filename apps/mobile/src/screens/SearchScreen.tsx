@@ -1,12 +1,14 @@
 import React, { useMemo, useState } from 'react';
-import { FlatList, Text, TextInput, View } from 'react-native';
+import { FlatList, Image, Text, TextInput, View } from 'react-native';
 import type { VaultItem } from '../../../../packages/core/src/types';
 import ItemRow from '../components/ItemRow';
-import { colors, styles } from '../theme';
+import { useMobileTheme } from '../theme';
+import { Icon, illustrations, typeArt } from '../../../../packages/ui/src/native';
 import { searchLocal } from '../vault';
 import { isArchived } from '../utils/itemMeta';
 
 export default function SearchScreen({ items, onSelect, onToggleFavorite }: { items: VaultItem[]; onSelect: (id: string) => void; onToggleFavorite: (id: string) => void }) {
+  const { colors, styles } = useMobileTheme();
   const [q, setQ] = useState('');
   // Local search only, and archived items are excluded (find them under Archived).
   const results = useMemo(() => searchLocal(q).filter((i) => !isArchived(i)), [q]);
@@ -23,7 +25,7 @@ export default function SearchScreen({ items, onSelect, onToggleFavorite }: { it
       </View>
       {q.trim() === '' ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <Text style={{ fontSize: 40 }}>🔍</Text>
+          <Image source={illustrations.noResults} style={{ width: 120, height: 120 }} accessibilityIgnoresInvertColors />
           <Text style={{ color: colors.muted, fontSize: 14, textAlign: 'center', marginTop: 12 }}>Type to search across {items.length} item(s) — titles, tags and fields.</Text>
         </View>
       ) : results.length === 0 ? (

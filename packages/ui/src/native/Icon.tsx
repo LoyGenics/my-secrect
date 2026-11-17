@@ -1,4 +1,3 @@
-import type { ComponentType } from 'react';
 import {
   Activity,
   Archive,
@@ -65,13 +64,12 @@ import {
   Undo2,
   Upload,
   X,
+  type LucideIcon,
 } from 'lucide-react-native';
 import { iconSize, iconStrokeWidth, type IconName, type IconSize } from '../icons';
 
-type NativeGlyph = ComponentType<{ size?: number; color?: string; strokeWidth?: number }>;
-
 /** Same semantic map as the web wrapper (components/Icon.tsx); `Record<IconName, …>` keeps them in lockstep. */
-const glyphs: Record<IconName, NativeGlyph> = {
+const glyphs: Record<IconName, LucideIcon> = {
   items: LayoutList,
   favorite: Star,
   trash: Trash2,

@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { FlatList, Pressable, Text, View } from 'react-native';
+import { Image, FlatList, Pressable, Text, View } from 'react-native';
 import type { VaultItem } from '../../../../packages/core/src/types';
-import { colors, styles } from '../theme';
+import { useMobileTheme } from '../theme';
+import { Icon, illustrations, typeArt } from '../../../../packages/ui/src/native';
 
 /**
  * Media gallery (mobile) — encrypted-manifest view only.
@@ -37,11 +38,12 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-const ICON: Record<Filter, string> = { all: '🗂️', photo: '🖼️', video: '🎬', document: '📄', other: '📦' };
+const ICON: Record<Filter, 'collections' | 'media' | 'gallery' | 'documents' | 'custom'> = { all: 'collections', photo: 'media', video: 'gallery', document: 'documents', other: 'custom' };
 
 export default function MediaScreen({ items, onClose, onSelect }: {
   items: VaultItem[]; onClose: () => void; onSelect: (id: string) => void;
 }) {
+  const { colors, styles } = useMobileTheme();
   const [filter, setFilter] = useState<Filter>('all');
   const media = useMemo(() => {
     const list = items
@@ -56,7 +58,7 @@ export default function MediaScreen({ items, onClose, onSelect }: {
   }, [items, filter]);
   const chip = (key: Filter, label: string) => (
     <Pressable key={key} testID={`media-filter-${key}`} accessibilityLabel={`Filter ${label}`} onPress={() => setFilter(key)} style={{ backgroundColor: filter === key ? colors.accent : colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, marginRight: 8, marginBottom: 8 }}>
-      <Text style={{ color: filter === key ? '#FFF' : colors.text, fontSize: 13, fontWeight: '600' }}>{label}</Text>
+      <Text style={{ color: filter === key ? colors.onAccent : colors.text, fontSize: 13, fontWeight: '600' }}>{label}</Text>
     </Pressable>
   );
   return (
@@ -73,7 +75,7 @@ export default function MediaScreen({ items, onClose, onSelect }: {
       </View>
       {media.length === 0 ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <Text style={{ fontSize: 44 }}>🖼️</Text>
+          <Image source={illustrations.emptyVault} style={{ width: 136, height: 136 }} accessibilityIgnoresInvertColors />
           <Text style={{ color: colors.muted, fontSize: 14, textAlign: 'center', marginTop: 12 }}>No media or documents yet. Add a media item — only its name, type, size and SHA-256 hash are kept.</Text>
         </View>
       ) : (
@@ -84,7 +86,7 @@ export default function MediaScreen({ items, onClose, onSelect }: {
           renderItem={({ item: m }) => (
             <Pressable testID={`media-${m.item.id}`} accessibilityLabel={`Open ${m.item.title}`} onPress={() => onSelect(m.item.id)} style={{ backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Text style={{ fontSize: 28, marginRight: 12 }}>{ICON[m.kind]}</Text>
+                <View style={{ marginRight: 12 }}><Icon name={ICON[m.kind]} size="xl" color={colors.text} /></View>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }} numberOfLines={1}>{m.item.title}</Text>
                   <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }}>{m.mime} · {formatBytes(m.size)}</Text>

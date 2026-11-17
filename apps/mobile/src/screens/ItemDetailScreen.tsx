@@ -1,14 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
+import { Alert, Image, Pressable, ScrollView, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import type { VaultItem } from '../../../../packages/core/src/types';
-import { colors, styles } from '../theme';
+import { useMobileTheme } from '../theme';
+import { Icon, illustrations, typeArt } from '../../../../packages/ui/src/native';
 import { typeLabel } from '../components/ItemRow';
 import MarkdownText from '../components/MarkdownText';
 import { generateTotp } from '../utils/totp';
 import { getPasswordHistory, getNoteRevisions, isArchived } from '../utils/itemMeta';
 
 function FieldRow({ label, value, secret, testID }: { label: string; value: string; secret?: boolean; testID: string }) {
+  const { colors, styles } = useMobileTheme();
   const [show, setShow] = useState(false);
   const display = secret && !show ? '•'.repeat(Math.min(12, Math.max(4, value.length))) : value;
   return (
@@ -17,9 +19,9 @@ function FieldRow({ label, value, secret, testID }: { label: string; value: stri
       <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.input, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, minHeight: 48 }}>
         <Text selectable style={{ flex: 1, color: colors.text, fontSize: 15 }} numberOfLines={secret && !show ? 1 : undefined}>{display}</Text>
         {secret ? (
-          <Pressable testID={`${testID}-toggle`} accessibilityLabel={show ? `Hide ${label}` : `Show ${label}`} onPress={() => setShow((v) => !v)} hitSlop={10} style={{ padding: 6 }}><Text style={{ color: '#A5B4FC', fontSize: 13, fontWeight: '600' }}>{show ? 'Hide' : 'Show'}</Text></Pressable>
+          <Pressable testID={`${testID}-toggle`} accessibilityLabel={show ? `Hide ${label}` : `Show ${label}`} onPress={() => setShow((v) => !v)} hitSlop={10} style={{ padding: 6 }}><Icon name={show ? 'hide' : 'show'} color={colors.text} /></Pressable>
         ) : null}
-        <Pressable testID={`${testID}-copy`} accessibilityLabel={`Copy ${label}`} onPress={() => { void Clipboard.setStringAsync(value); }} hitSlop={10} style={{ padding: 6 }}><Text style={{ color: '#A5B4FC', fontSize: 13, fontWeight: '600' }}>Copy</Text></Pressable>
+        <Pressable testID={`${testID}-copy`} accessibilityLabel={`Copy ${label}`} onPress={() => { void Clipboard.setStringAsync(value); }} hitSlop={10} style={{ padding: 6 }}><Icon name="copy" color={colors.text} /></Pressable>
       </View>
     </View>
   );
@@ -29,6 +31,7 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
   item: VaultItem; allItems: VaultItem[]; inTrash: boolean;
   onEdit: () => void; onDelete: () => void; onRestore: () => void; onToggleFavorite: () => void; onClose: () => void; onSelectRelated: (id: string) => void;
 }) {
+  const { colors, styles } = useMobileTheme();
   const f = item.fields as Record<string, unknown>;
   const str = (k: string) => (typeof f[k] === 'string' ? (f[k] as string) : '');
   const [totp, setTotp] = useState('');
@@ -58,12 +61,15 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
   if (item.type === 'collection' || item.type === 'custom') { add('Description', 'description'); for (const [k, v] of Object.entries(f)) if (typeof v === 'string' && v && k !== 'description') entries.push([k, v, false]); }
   return (
     <ScrollView style={styles.screen} contentContainerStyle={{ padding: 16 }}>
-      <Pressable testID="detail-back" accessibilityLabel="Back to vault" onPress={onClose} hitSlop={10} style={{ alignSelf: 'flex-start', paddingVertical: 8 }}><Text style={{ color: '#A5B4FC', fontSize: 15 }}>‹ Back</Text></Pressable>
-      <Text style={styles.title}>{item.title}</Text>
-      <Text style={{ color: colors.muted, fontSize: 14, marginTop: 4 }}>{typeLabel(item.type)}{item.favorite ? '  ★ Favorite' : ''}{inTrash ? '  • In Trash' : ''}{archived ? '  • 📦 Archived' : ''}</Text>
+      <Pressable testID="detail-back" accessibilityLabel="Back to vault" onPress={onClose} hitSlop={10} style={{ alignSelf: 'flex-start', paddingVertical: 8 }}><View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}><Icon name="back" color={colors.text} /><Text style={styles.legend}>Back</Text></View></Pressable>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 4 }}>
+        <Image source={typeArt[item.type as keyof typeof typeArt] ?? typeArt.custom} style={{ width: 56, height: 56 }} accessibilityIgnoresInvertColors />
+        <Text style={[styles.heading, { flex: 1 }]}>{item.title}</Text>
+      </View>
+      <Text style={{ color: colors.muted, fontSize: 14, marginTop: 4 }}>{typeLabel(item.type)}{item.favorite ? '  · Favorite' : ''}{inTrash ? '  • In Trash' : ''}{archived ? '  · Archived' : ''}</Text>
       {parent ? (
         <Pressable testID="detail-parent" accessibilityLabel={`Open parent collection ${parent.title}`} onPress={() => onSelectRelated(parent.id)} style={{ marginTop: 6 }}>
-          <Text style={{ color: '#A5B4FC', fontSize: 14 }}>In collection: {parent.title} ›</Text>
+          <Text style={{ color: colors.text, fontSize: 14, textDecorationLine: 'underline' }}>In collection: {parent.title}</Text>
         </Pressable>
       ) : null}
       {str('totp_secret') ? (
@@ -141,16 +147,16 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
       {item.type === 'card' ? <Text style={{ color: colors.warn, fontSize: 13, lineHeight: 18, marginTop: 12 }}>Card metadata only — CVV and PIN are never stored.</Text> : null}
       <View style={{ flexDirection: 'row', gap: 10, marginTop: 20 }}>
         {!inTrash ? <Pressable testID="detail-edit" accessibilityLabel="Edit item" style={[styles.primaryButton, { flex: 1 }]} onPress={onEdit}><Text style={styles.primaryButtonText}>Edit</Text></Pressable> : null}
-        <Pressable testID="detail-favorite" accessibilityLabel={item.favorite ? 'Remove from favorites' : 'Add to favorites'} style={[styles.ghostButton, { flex: 1 }]} onPress={onToggleFavorite}><Text style={styles.ghostButtonText}>{item.favorite ? '★ Favorited' : '☆ Favorite'}</Text></Pressable>
+        <Pressable testID="detail-favorite" accessibilityLabel={item.favorite ? 'Remove from favorites' : 'Add to favorites'} style={[styles.ghostButton, { flex: 1 }]} onPress={onToggleFavorite}><Icon name="favorite" color={colors.text} /><Text style={styles.ghostButtonText}>{item.favorite ? 'Favorited' : 'Favorite'}</Text></Pressable>
       </View>
       {inTrash ? (
         <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
           <Pressable testID="detail-restore" accessibilityLabel="Restore item" style={[styles.primaryButton, { flex: 1 }]} onPress={onRestore}><Text style={styles.primaryButtonText}>Restore</Text></Pressable>
-          <Pressable testID="detail-delete-permanent" accessibilityLabel="Delete permanently" style={[styles.dangerButton, { flex: 1 }]} onPress={() => Alert.alert('Delete permanently?', 'This cannot be undone.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: onDelete }])}><Text style={styles.primaryButtonText}>Delete forever</Text></Pressable>
+          <Pressable testID="detail-delete-permanent" accessibilityLabel="Delete permanently" style={[styles.dangerButton, { flex: 1 }]} onPress={() => Alert.alert('Delete permanently?', 'This cannot be undone.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: onDelete }])}><Text style={styles.dangerButtonText}>Delete forever</Text></Pressable>
         </View>
       ) : (
-        <Pressable testID="detail-delete" accessibilityLabel="Move to trash" style={[styles.ghostButton, { marginTop: 10, borderColor: colors.danger }]} onPress={() => Alert.alert('Move to Trash?', 'You can restore it from Trash later.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Move to Trash', style: 'destructive', onPress: onDelete }])}>
-          <Text style={[styles.ghostButtonText, { color: colors.danger }]}>Move to Trash</Text>
+        <Pressable testID="detail-delete" accessibilityLabel="Move to trash" style={[styles.ghostButton, { marginTop: 10 }]} onPress={() => Alert.alert('Move to Trash?', 'You can restore it from Trash later.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Move to Trash', style: 'destructive', onPress: onDelete }])}>
+          <View style={[styles.led, { backgroundColor: colors.danger }]} /><Text style={[styles.ghostButtonText, { color: colors.dangerText }]}>Move to Trash</Text>
         </Pressable>
       )}
       <Text style={{ color: colors.faint, fontSize: 12, marginTop: 16 }}>Created {new Date(item.created_at).toLocaleString()} · Updated {new Date(item.updated_at).toLocaleString()}</Text>

@@ -4,7 +4,8 @@ import type { ItemType, VaultItem } from '../../../../packages/core/src/types';
 import Field from '../components/Field';
 import StrengthMeter from '../components/StrengthMeter';
 import MarkdownText from '../components/MarkdownText';
-import { colors, styles } from '../theme';
+import { useMobileTheme } from '../theme';
+import { Icon, illustrations, typeArt } from '../../../../packages/ui/src/native';
 import { libsodiumAdapter as crypto } from '../../../../packages/crypto-adapters/src/index';
 import { generatePassword } from '../utils/password';
 import { getPasswordHistory, appendPasswordHistory, getNoteRevisions, appendNoteRevision } from '../utils/itemMeta';
@@ -41,6 +42,7 @@ export default function ItemFormScreen({ initial, allItems, onSave, onCancel }: 
   initial?: VaultItem; allItems: VaultItem[];
   onSave: (item: VaultItem) => void; onCancel: () => void;
 }) {
+  const { colors, styles } = useMobileTheme();
   const [type, setType] = useState<ItemType>(initial?.type ?? 'login');
   const [title, setTitle] = useState(initial?.title ?? '');
   const [fields, setFields] = useState<Record<string, string>>(() => {
@@ -117,7 +119,7 @@ export default function ItemFormScreen({ initial, allItems, onSave, onCancel }: 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
         {TYPES.map((t) => (
           <Pressable key={t.type} testID={`type-${t.type}`} accessibilityLabel={`Type ${t.label}`} accessibilityRole="button" onPress={() => setType(t.type)} style={{ backgroundColor: type === t.type ? colors.accent : colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, marginRight: 6, marginBottom: 6 }}>
-            <Text style={{ color: type === t.type ? '#FFF' : colors.text, fontSize: 13, fontWeight: '600' }}>{t.label}</Text>
+            <Text style={{ color: type === t.type ? colors.onAccent : colors.text, fontSize: 13, fontWeight: '600' }}>{t.label}</Text>
           </Pressable>
         ))}
       </View>
@@ -152,11 +154,11 @@ export default function ItemFormScreen({ initial, allItems, onSave, onCancel }: 
           <Text style={styles.label}>Parent collection (optional — nested folders)</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
             <Pressable testID="parent-none" accessibilityLabel="No parent collection" onPress={() => setParentId('')} style={{ backgroundColor: parentId === '' ? colors.accent : colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, marginRight: 6, marginBottom: 6 }}>
-              <Text style={{ color: parentId === '' ? '#FFF' : colors.text, fontSize: 13, fontWeight: '600' }}>None — top level</Text>
+              <Text style={{ color: parentId === '' ? colors.onAccent : colors.text, fontSize: 13, fontWeight: '600' }}>None — top level</Text>
             </Pressable>
             {parentCandidates.map((c) => (
               <Pressable key={c.id} testID={`parent-${c.id}`} accessibilityLabel={`Parent collection ${c.title}`} onPress={() => setParentId(c.id)} style={{ backgroundColor: parentId === c.id ? colors.accent : colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, marginRight: 6, marginBottom: 6 }}>
-                <Text style={{ color: parentId === c.id ? '#FFF' : colors.text, fontSize: 13, fontWeight: '600' }}>{c.title}</Text>
+                <Text style={{ color: parentId === c.id ? colors.onAccent : colors.text, fontSize: 13, fontWeight: '600' }}>{c.title}</Text>
               </Pressable>
             ))}
           </View>
@@ -179,7 +181,7 @@ export default function ItemFormScreen({ initial, allItems, onSave, onCancel }: 
             const on = relationIds.includes(r.id);
             return (
               <Pressable key={r.id} testID={`relation-${r.id}`} accessibilityLabel={`Link to ${r.title}`} accessibilityRole="checkbox" accessibilityState={{ checked: on }} onPress={() => setRelationIds((ids) => (on ? ids.filter((x) => x !== r.id) : [...ids, r.id]))} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 6 }}>
-                <Text style={{ fontSize: 18, color: on ? colors.accent : colors.faint }}>{on ? '☑' : '☐'}</Text>
+                <View style={{ width: 22, height: 22, borderRadius: 4, borderWidth: 1, borderColor: on ? colors.text : colors.control, backgroundColor: on ? colors.text : colors.input, alignItems: 'center', justifyContent: 'center' }}>{on ? <Icon name="check" size="sm" color={colors.bg} /> : null}</View>
                 <Text style={{ color: colors.text, fontSize: 15, flex: 1 }}>{r.title}</Text>
               </Pressable>
             );
@@ -187,7 +189,7 @@ export default function ItemFormScreen({ initial, allItems, onSave, onCancel }: 
         </View>
       ) : null}
       <Pressable testID="item-favorite-toggle" accessibilityLabel={favorite ? 'Remove from favorites' : 'Add to favorites'} accessibilityRole="checkbox" accessibilityState={{ checked: favorite }} onPress={() => setFavorite((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-        <Text style={{ fontSize: 20, color: favorite ? '#F59E0B' : colors.faint }}>{favorite ? '★' : '☆'}</Text>
+        <Icon name="favorite" size="lg" color={favorite ? colors.warn : colors.muted} />
         <Text style={{ color: colors.text, fontSize: 15 }}>Favorite</Text>
       </Pressable>
       {error ? <Text testID="form-error" style={[styles.error, { marginBottom: 12 }]}>{error}</Text> : null}
