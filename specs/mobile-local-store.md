@@ -151,3 +151,28 @@ empty or fabricated credential.
 (extension target, provider service, entitlements, Gradle deps,
 SQLCipher) goes through Expo config plugins under `apps/mobile/plugins/`
 or the local module under `apps/mobile/modules/`.
+
+## 8. Decisions after implementation (2026-11-18)
+
+Recorded by the orchestrator after the first implementation on
+feat/mobile-secure-storage:
+
+1. `DeviceKey.getStorageDirectory(): Promise<string>` is part of the
+   module API: it returns the section 1 directory for the platform.
+2. `autofill_index` is cleared on wipe and when biometric unlock is
+   disabled; it is rebuilt after each unlock and item write.
+3. `autofill_index.host` uses the same normalisation as
+   `DomainMatching.normalizeHost`: lower-case, no scheme, no port, no
+   leading `www.` (not eTLD+1).
+4. On Android, any strong biometric class is reported as `fingerprint`
+   in `isAvailable().biometry`; the value is informational only.
+5. Known limitation: the AMK crosses the native bridge as a base64 string
+   during enrol/unwrap and cannot be zeroed on the JS side; it is dropped
+   as soon as the Vault Key is unwrapped.
+6. `vault.db` and its keys are device-only by design (iOS
+   `ThisDeviceOnly` Keychain items, Android Keystore). A device backup or
+   a new phone cannot open it; the supported path to a new phone is the
+   encrypted portable backup (Restore from backup) or sync.
+7. React Native has no WebAssembly on Hermes; libsodium must run natively
+   there (JSI binding), and `sodiumReady` must pass its self-test before
+   any key is generated.
