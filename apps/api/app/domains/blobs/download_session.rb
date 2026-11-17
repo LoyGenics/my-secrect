@@ -19,7 +19,7 @@ module Blobs
     def call(blob:)
       raise ArgumentError, 'blob not complete' unless blob.status == 'complete'
       raise ArgumentError, 'blob has no encrypted manifest — cannot be decrypted on download' if blob.encrypted_manifest.blank?
-      provider = StorageProvider.new
+      provider = Blobs.storage_provider
       {
         blob_id: blob.id,
         status: blob.status,

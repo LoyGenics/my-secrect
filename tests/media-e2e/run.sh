@@ -21,13 +21,15 @@ APP_ORIGIN=https://localhost:$HTTPS_PORT
 KEEP=${1:-}
 ENVF=$(mktemp -t vmedia-env.XXXXXX)
 rand() { openssl rand -hex "$1"; }
+S3_ACCESS="ak$(rand 6)"
+S3_SECRET="$(rand 16)"
 cat >"$ENVF" <<ENV
 POSTGRES_PASSWORD=$(rand 16)
 S3_BUCKET=vault-blobs
 S3_PUBLIC_ENDPOINT=https://s3.localhost:$HTTPS_PORT
 S3_REGION=us-east-1
-S3_ACCESS_KEY=ak$(rand 6)
-S3_SECRET_KEY=$(rand 16)
+S3_ACCESS_KEY=$S3_ACCESS
+S3_SECRET_KEY=$S3_SECRET
 SECRET_KEY_BASE=$(rand 64)
 SITE_ADDRESS=localhost
 HTTP_PORT=$HTTP_PORT
@@ -78,7 +80,12 @@ if [ -n "$BROWSER" ]; then
 else
   echo "[media-e2e] running tests"
   # NODE_TLS_REJECT_UNAUTHORIZED=0 only because Caddy uses its internal CA for `localhost`; throwaway stack.
+  # E2E_S3_* = the throwaway stack's storage root credentials: tests use them
+  # (tests/media-e2e/s3-admin.mts) to tamper with stored objects as a hostile
+  # storage operator would.
   E2E_API="https://localhost:$HTTPS_PORT/api" E2E_ORIGIN="$APP_ORIGIN" \
     E2E_TOKEN="$E2E_TOKEN" E2E_VAULT_ID="$E2E_VAULT_ID" NODE_TLS_REJECT_UNAUTHORIZED=0 \
+    E2E_S3_ENDPOINT="https://s3.localhost:$HTTPS_PORT" E2E_S3_BUCKET=vault-blobs \
+    E2E_S3_ACCESS_KEY="$S3_ACCESS" E2E_S3_SECRET_KEY="$S3_SECRET" \
     npx tsx --test --test-concurrency=1 tests/media-e2e/media.e2e.test.mts
 fi

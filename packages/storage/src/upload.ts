@@ -376,7 +376,7 @@ export async function downloadPart(url: string): Promise<Uint8Array> {
 
 /** The subset of VaultApiClient the pipeline needs (structurally compatible). */
 export interface BlobApi {
-  createBlobUploadSession(vaultId: string, body: { blob_id: string; part_count: number; ciphertext_size: number; encrypted_manifest: string }): Promise<{ blob_id: string; parts: Array<{ part_number: number; url: string }> }>;
+  createBlobUploadSession(vaultId: string, body: { blob_id: string; part_count: number; part_size: number; ciphertext_size: number; encrypted_manifest: string }): Promise<{ blob_id: string; parts: Array<{ part_number: number; url: string }> }>;
   completeBlobUpload(blobId: string, parts: Array<{ part_number: number; ciphertext_size: number; ciphertext_sha256_b64: string }>): Promise<unknown>;
   createBlobDownloadSession(blobId: string): Promise<{ blob_id: string; encrypted_manifest: string; parts: Array<{ part_number: number; ciphertext_size: number; url: string }> }>;
 }
@@ -527,6 +527,7 @@ export async function prepareUpload(input: PrepareUploadInput): Promise<Prepared
     const session = await api.createBlobUploadSession(vaultId, {
       blob_id: blobId,
       part_count: chunks.length,
+      part_size: chunks[0].ciphertext.length, // every part but the last has this size; the API signs each exact size into its URL
       ciphertext_size: total,
       encrypted_manifest: serializeEncryptedManifest(enc),
     });

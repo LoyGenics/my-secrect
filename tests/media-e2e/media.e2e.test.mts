@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import { libsodiumAdapter, sodiumReady } from '../../packages/crypto-adapters/src/index';
 import { VaultApiClient } from '../../packages/sdk/src/index';
 import { CHUNK_SIZE, prepareUpload, runUpload, downloadFile, type PreparedUpload } from '../../packages/storage/src/upload';
+import { s3Admin } from './s3-admin.mts';
 
 const need = (n: string) => { const v = process.env[n]; if (!v) throw new Error(`${n} is required (run via tests/media-e2e/run.sh)`); return v; };
 const API = need('E2E_API'), ORIGIN = need('E2E_ORIGIN'), TOKEN = need('E2E_TOKEN'), VAULT = need('E2E_VAULT_ID');
@@ -105,11 +106,20 @@ test('TAMPER in MinIO: duplicated chunk is rejected', async () => {
   await assert.rejects(dl(p.blobId), /chunk 3 hash mismatch/);
 });
 
-test('TAMPER in MinIO: truncated chunk is rejected', async () => {
+test('TAMPER in MinIO: a presigned upload URL refuses a different length (signed Content-Length)', async () => {
   const p = await upload(fileBytes(2 * CHUNK_SIZE + 700));
   const objs = await rawObjects(p.blobId);
-  await put(p.urls.get(3)!, objs[2].subarray(0, objs[2].length - 100));
-  await assert.rejects(dl(p.blobId), /size/);
+  const r = await fetch(p.urls.get(3)!, { method: 'PUT', body: objs[2].subarray(0, objs[2].length - 100) as unknown as BodyInit, headers: { Origin: ORIGIN } });
+  assert.equal(r.status, 403, 'storage must refuse a part whose length differs from the signed size');
+  assert.match(await r.text(), /SignatureDoesNotMatch/);
+});
+
+test('TAMPER in MinIO: truncated chunk (written with storage root credentials) is rejected', async () => {
+  const p = await upload(fileBytes(2 * CHUNK_SIZE + 700));
+  const objs = await rawObjects(p.blobId);
+  const key = `vaults/${VAULT}/blobs/${p.blobId}/part-00003`;
+  await s3Admin().put(key, objs[2].subarray(0, objs[2].length - 100));
+  await assert.rejects(dl(p.blobId), /chunk 3 size mismatch — possible truncation|server part 3 size differs|size/);
 });
 
 test('TAMPER in MinIO: chunk replaced by a chunk of ANOTHER file (same key space, valid ciphertext) is rejected', async () => {
