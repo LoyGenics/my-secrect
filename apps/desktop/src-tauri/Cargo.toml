@@ -30,6 +30,16 @@ keyring = "4"
 getrandom = "0.3"
 zeroize = "1"
 
+[features]
+# Embed the built frontend (`../dist`) instead of loading the dev server.
+# `tauri build` turns this on by itself; the e2e harness needs it explicitly.
+custom-protocol = ["tauri/custom-protocol"]
+
+# UI-driven restart/migration check; opt-in (see the file header).
+[[test]]
+name = "e2e_app"
+harness = false
+
 [profile.release]
 lto = true
 codegen-units = 1
