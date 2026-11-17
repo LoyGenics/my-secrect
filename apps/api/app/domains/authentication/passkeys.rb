@@ -153,7 +153,7 @@ module Authentication
       challenge_rec = PasskeyChallenge.live.where(email: user.email, kind: 'registration')
                                            .order(created_at: :desc).first
       raise VerificationError, 'challenge expired or already used' unless challenge_rec
-      challenge_rec.consume!
+      raise VerificationError, 'challenge expired or already used' unless challenge_rec.consume!
       params = normalize_credential_params(credential)
       verify_registration(user: user, params: params, challenge: challenge_rec.challenge, first_only: false)[:authenticator]
     rescue VerificationError
@@ -175,14 +175,18 @@ module Authentication
       raise VerificationError, 'unknown ceremony' unless %w[registration authentication].include?(kind)
 
       normalized_email = email.to_s.strip.downcase
-      challenge_rec = PasskeyChallenge.live.find_by(email: normalized_email, kind: kind)
+      params = normalize_credential_params(credential)
+      challenge_rec = PasskeyChallenge.live.find_by(
+        email: normalized_email,
+        kind: kind,
+        challenge: credential_challenge(params)
+      )
       raise VerificationError, 'challenge expired or already used' unless challenge_rec
-      challenge_rec.consume!
+      raise VerificationError, 'challenge expired or already used' unless challenge_rec.consume!
 
       user = User.find_by(email: normalized_email)
       raise VerificationError, 'verification failed' unless user
 
-      params = normalize_credential_params(credential)
       verified = case kind
                  when 'registration' then verify_registration(user: user, params: params, challenge: challenge_rec.challenge)
                  when 'authentication' then verify_authentication(user: user, params: params, challenge: challenge_rec.challenge)
@@ -231,6 +235,22 @@ module Authentication
       hash.deep_stringify_keys
     end
 
+    # Select the exact stored challenge named by clientDataJSON. This is
+    # only record lookup: WebAuthn::Credential#verify below still validates
+    # the challenge, origin, RP ID, flags, signature, and sign count.
+    def credential_challenge(params)
+      encoded = params.dig('response', 'clientDataJSON')
+      raise VerificationError, 'verification failed' unless encoded.is_a?(String)
+
+      client_data = JSON.parse(WebAuthn::Encoder.new.decode(encoded))
+      challenge = client_data['challenge']
+      raise VerificationError, 'verification failed' unless challenge.is_a?(String) && challenge.present?
+
+      challenge
+    rescue JSON::ParserError, ArgumentError
+      raise VerificationError, 'verification failed'
+    end
+
     # Verify an attestation and persist the Authenticator. Returns
     # { public_key:, authenticator: } (public_key is base64url, as the
     # gem returns it, for device binding). With first_only: true (the
@@ -269,22 +289,30 @@ module Authentication
       authenticator = user.authenticators.active.find_by(credential_id: provisional.id)
       raise VerificationError, 'verification failed' unless authenticator
 
-      # The gem verifies the signature against the stored key, the
-      # challenge, origin, RP ID, UP/UV flags, and the sign count
-      # (rejects a counter that did not increase — replay protection).
-      provisional.verify(
-        challenge,
-        public_key: authenticator.public_key,
-        sign_count: authenticator.sign_count,
-        user_presence: true,
-        user_verification: true
-      )
-      # Advance the stored counter monotonically. Synced passkeys report
-      # 0 forever (stored stays 0); a real counter only ever increases,
-      # so never write a smaller value back.
-      new_count = provisional.sign_count || 0
-      authenticator.update!(sign_count: new_count) if new_count > authenticator.sign_count
+      # Lock the authenticator row so the sign-count check and the
+      # advance are one atomic step: two concurrent verifications cannot
+      # both accept the same counter. with_lock reloads the row, so the
+      # counter checked below is the committed one.
+      authenticator.with_lock do
+        # The gem verifies the signature against the stored key, the
+        # challenge, origin, RP ID, UP/UV flags, and the sign count
+        # (rejects a counter that did not increase — replay protection).
+        provisional.verify(
+          challenge,
+          public_key: authenticator.public_key,
+          sign_count: authenticator.sign_count,
+          user_presence: true,
+          user_verification: true
+        )
+        # Advance the stored counter monotonically. Synced passkeys report
+        # 0 forever (stored stays 0); a real counter only ever increases,
+        # so never write a smaller value back.
+        new_count = provisional.sign_count || 0
+        authenticator.update!(sign_count: new_count) if new_count > authenticator.sign_count
+      end
       { public_key: authenticator.public_key }
+    rescue OpenSSL::PKey::PKeyError
+      raise VerificationError, 'verification failed'
     end
 
     # Decode a base64url public key (as stored) to raw bytes for

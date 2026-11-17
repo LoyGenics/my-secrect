@@ -442,7 +442,7 @@ RSpec.describe 'Security API', type: :request do
       expect(Session.count).to eq(sessions_before)
 
       expired = create_challenge(email)
-      RecoveryChallenge.last.update!(expires_at: 1.minute.ago)
+      RecoveryChallenge.find(expired['challenge_id']).update!(expires_at: 1.minute.ago)
       verify_challenge(challenge_id: expired['challenge_id'], email: email,
                        signing_key: signing_key, challenge: expired['challenge'])
       expect(response).to have_http_status(:unauthorized)
