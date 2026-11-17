@@ -95,7 +95,7 @@ boot_refusal() { # LABEL EXPECTED_MESSAGE -e VAR=VALUE...
   say "   boot refused: $label -> \"$want\""
 }
 boot_refusal 'SECRET_KEY_BASE=CHANGE_ME' 'Placeholder value (CHANGE_ME) in: SECRET_KEY_BASE' -e SECRET_KEY_BASE=CHANGE_ME
-boot_refusal 'short SECRET_KEY_BASE' 'SECRET_KEY_BASE must be at least 64 characters' -e SECRET_KEY_BASE=0123456789abcdef
+boot_refusal 'short SECRET_KEY_BASE' 'SECRET_KEY_BASE must be at least 64 characters' -e SECRET_KEY_BASE=too-short
 boot_refusal 'empty REDIS_URL' 'Missing required environment variables: REDIS_URL' -e REDIS_URL=
 boot_refusal 'CORS_ORIGINS=*' 'CORS_ORIGINS must list exact origins, never *' -e 'CORS_ORIGINS=*'
 boot_refusal 'empty S3_BUCKET' 'S3_BUCKET is required but not set' -e S3_BUCKET=
