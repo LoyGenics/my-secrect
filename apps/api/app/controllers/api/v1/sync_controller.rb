@@ -11,6 +11,8 @@ module Api
     # and no ciphertext. Responses contain ciphertext + opaque ids only —
     # never plaintext titles/tags/types/relations.
     class SyncController < ApplicationController
+      include ActiveDeviceRequired
+
       # GET /v1/vaults/:vault_id/sync?since=cursor
       def pull
         vault = current_user.vaults.find(params[:vault_id])

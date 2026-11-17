@@ -7,6 +7,8 @@ module Api
     # rules and per-vault sequence allocation as POST sync/push. A stale
     # base_revision is 409.
     class ItemsController < ApplicationController
+      include ActiveDeviceRequired
+
       # GET /v1/vaults/:vault_id/items/:id
       def show
         item = scope.find(params[:id])
