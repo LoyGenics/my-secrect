@@ -14,6 +14,7 @@ import {
   LS_API_BASE_URL,
   newVirtualAuthenticator,
   signedInWithVault,
+  stepUpWithPasskey,
   test,
   uniqueEmail,
 } from '../e2e-web/fixtures';
@@ -40,6 +41,19 @@ async function openSharing(page: Page): Promise<string> {
   return (await fp.innerText()).trim();
 }
 
+/** First visit: creating the sharing key needs a server step-up (passkey). */
+async function createSharingKey(page: Page): Promise<string> {
+  await page.getByRole('button', { name: /All Items/ }).click();
+  await page.getByRole('button', { name: /Sharing/ }).click();
+  await expect(page.getByText('Creating your sharing key needs a fresh verification')).toBeVisible();
+  await expect(page.getByTestId('my-fingerprint')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Verify it’s you' }).click();
+  await stepUpWithPasskey(page);
+  const fp = page.getByTestId('my-fingerprint');
+  await expect(fp).toHaveText(/^\d{5}( \d{5}){5}$/);
+  return (await fp.innerText()).trim();
+}
+
 test('A shares an item read-only with B through the UI; B verifies, accepts, opens; A revokes', async ({ page, authenticator, apiUrl, browser }) => {
   void authenticator; // attaches the virtual authenticator to A's page
   const emailA = uniqueEmail('share-a');
@@ -48,7 +62,7 @@ test('A shares an item read-only with B through the UI; B verifies, accepts, ope
 
   await signedInWithVault(page, { email: emailA });
   await signedInWithVault(pageB, { email: emailB });
-  const fingerprintB = await openSharing(pageB);
+  const fingerprintB = await createSharingKey(pageB);
 
   // A creates an item.
   await page.getByRole('button', { name: /All Items/ }).click();
@@ -60,7 +74,7 @@ test('A shares an item read-only with B through the UI; B verifies, accepts, ope
   await expect(page.getByText(TITLE).first()).toBeVisible();
 
   // A looks B up, compares the digits with B's screen, verifies and shares.
-  const fingerprintA = await openSharing(page);
+  const fingerprintA = await createSharingKey(page);
   await page.getByLabel('Item', { exact: true }).selectOption({ label: TITLE });
   await page.getByLabel('Recipient email').fill(emailB);
   await page.getByRole('button', { name: 'Look up' }).click();
@@ -74,11 +88,13 @@ test('A shares an item read-only with B through the UI; B verifies, accepts, ope
 
   // B sees the pending share, verifies A's digits, accepts and opens it.
   await openSharing(pageB);
-  await expect(pageB.getByText(`From ${emailA}`)).toBeVisible();
+  // Unverified: the email is labelled as only what the server says.
+  await expect(pageB.getByText(`From ${emailA} (as the server reports it — not verified)`, { exact: true })).toBeVisible();
   await expect(pageB.getByRole('button', { name: 'Open', exact: true })).toHaveCount(0);
   await pageB.getByRole('button', { name: `Verify ${emailA}’s key` }).click();
   await expect(pageB.getByText(fingerprintA)).toBeVisible();
   await pageB.getByRole('button', { name: 'Every digit matches — verify' }).click();
+  await expect(pageB.getByText(`From ${emailA}`, { exact: true })).toBeVisible(); // now the pinned email
   await pageB.getByRole('button', { name: 'Verify key exchange and accept' }).click();
   await expect(pageB.getByText(`Accepted. The key exchange verified with ${emailA}’s key.`)).toBeVisible();
   await pageB.getByRole('button', { name: 'Open', exact: true }).click();
