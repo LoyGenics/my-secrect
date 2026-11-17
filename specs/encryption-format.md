@@ -20,7 +20,7 @@
 | Item ciphertext | `encryption_version` (export item, sync push/pull, Rails `item_versions`) | **1** = writer mặc định, AD = null. **2** = AD-bound, chỉ có primitives | `DEFAULT_ITEM_ENCRYPTION_VERSION`, `ITEM_ENCRYPTION_V1/V2` (`packages/crypto-adapters/src/index.ts`); `ITEM_ENCRYPTION_V1/V2` (`native/crypto-core/src/lib.rs`) |
 | Local row (desktop localStorage, extension `chrome.storage.local`, mobile AsyncStorage / SQLCipher `rows`) | **không có field version** → ngầm hiểu 1 | — | `StoredRow` trong mỗi `vault.ts`; `specs/mobile-local-store.md` §2 |
 | KDF profile | `ARGON2ID_PARAMS.version` = `'1.0'`; Rust `CRYPTO_FORMAT_VERSION` = 1; export `kdf` object | Argon2id INTERACTIVE (bảng dưới) | `ARGON2ID_PARAMS`, `KDF_OPSLIMIT/KDF_MEMLIMIT/KDF_SALT_BYTES`, `EXPORT_KDF_METADATA` |
-| Encrypted backup | `format: "my-secrect-vault-export"`, `format_version` | **2** (có key envelope). 1 bị từ chối | `packages/import-export/src/index.ts` |
+| Encrypted backup | `format: "my-secrect-vault-export"`, `format_version` | **3** = writer (key envelope + `item_index` đã xác thực, § Backup item index). **2** vẫn restore/import được nhưng danh sách item KHÔNG xác minh được (UI phải báo). 1 và ≥ 4 bị từ chối | `packages/import-export/src/index.ts` |
 | Plaintext export | `format: "my-secrect-vault-plaintext-export"` | 1 | không mã hóa |
 | Blob manifest | `BlobManifest.format_version`; `EncryptedManifest.encryption_version`; `WrappedFileKey.encryption_version` | 1 / 1 / 1 | `packages/storage/src/upload.ts` |
 
@@ -32,7 +32,7 @@
 | Item nhỏ + mọi key wrap | XChaCha20-Poly1305 IETF (`crypto_aead_xchacha20poly1305_ietf`) | key **32 bytes**; nonce **24 bytes** ngẫu nhiên mỗi lần; tag Poly1305 **16 bytes**; AD = null (v1) |
 | File / media (TS, `packages/storage`) | XChaCha20-Poly1305 IETF theo chunk 1 MiB | File Key 32B ngẫu nhiên / file; nonce 24B ngẫu nhiên / chunk; manifest (thứ tự, byte range, kích thước, SHA-256 của ciphertext) mã hóa bằng Vault Key |
 | File tuần tự (Rust) | libsodium `secretstream_xchacha20poly1305` | `EncryptStream` / `DecryptStream` trong `native/crypto-core` — CHƯA có caller, không tương thích với định dạng chunk của `packages/storage` |
-| Subkey derivation | HKDF-SHA-256 | RFC 5869; salt cố định 32 byte 0; xem § HKDF. Hiện **không** có đường production nào gọi |
+| Subkey derivation | HKDF-SHA-256 | RFC 5869; salt cố định 32 byte 0; xem § HKDF. Vault: chỉ dùng cho khóa niêm phong item index của backup v3 (`info = "my-secrect/backup-item-index/v1"`) |
 | Trao khóa | HPKE hoặc protocol đã kiểm chứng | (chưa implement — `packages/core/src/sharing.ts` từ chối activation) |
 | Random | CSPRNG của OS qua `sodium.randombytes_buf` / `randombytes` | — |
 
@@ -86,6 +86,7 @@ Mất cả passphrase lẫn recovery key = mất vault. Không có reset.
 | Account Master Key | Vault Key → `wrapped_vault` | 3 app `vault.ts` |
 | **Vault Key** | Item Key; File Key (`manifest.wrapped_file_key`); BlobManifest JSON; tên thiết bị (`encryptWithVaultKey` → `name_encrypted`, gửi server); Ed25519 private key của thiết bị (desktop localStorage) | `vault.ts`, `packages/storage/src/upload.ts`, `apps/desktop/src/components/SecurityCenter.tsx:433,492,498`, `apps/mobile/src/screens/SecurityScreen.tsx:355` |
 | Item Key | payload VaultItem JSON | 3 app `vault.ts` |
+| Index key = HKDF-SHA-256(Vault Key, salt 32×0, `"my-secrect/backup-item-index/v1"`, 32) | `item_index` của backup v3 (danh sách item, § Backup item index). Khóa riêng, không phải Vault Key → ciphertext khác dưới Vault Key không thay được | `packages/import-export/src/index.ts` (`sealItemIndex` / `verifyItemIndex`), gọi từ 3 app |
 | File Key | chunk 1 MiB | `packages/storage/src/upload.ts` |
 | Device unlock key (Keychain / Keystore / Secure Enclave) | bản sao AMK, chỉ trên thiết bị (AES-GCM / ECIES của nền tảng, không phải libsodium) | `specs/mobile-local-store.md` §4 |
 
@@ -99,7 +100,7 @@ hệ quả ở § Phân tích thay thế (a').
   ciphertext = `len(plaintext) + 16`.
 - Trong row lưu local / DB, nonce và ciphertext lưu **tách riêng** thành
   2 field base64 (`nonce`, `ciphertext`) — xem `StoredRow`. Khi export
-  (backup `format_version` 2), 2 field được gộp lại thành 1 chuỗi base64
+  (backup `format_version` 3 và 2), 2 field được gộp lại thành 1 chuỗi base64
   theo layout `nonce (24B) || ciphertext+tag`, và import tách 24 byte đầu làm nonce.
 - Key wrap dùng cùng AEAD: wrapped key = ciphertext (gồm tag 16B) của
   key bytes (luôn 32 byte → 48 byte), kèm nonce 24B riêng, lưu tách riêng
@@ -152,9 +153,12 @@ wrapped Item Key cần AD nhãn `item-key-wrap`, ciphertext AD-null không mở 
 
 **(b) Phát lại revision cũ (rollback) — KHÔNG được chặn ở v1.**
 - `revision` là metadata plaintext ở row local, item trong backup, `SyncEvent`.
-- Backup: `importEncrypted` chỉ so revision (`apps/desktop/src/vault.ts:653`,
-  mobile `:366`, extension `:422`). Đã kiểm chứng: ciphertext CŨ của một item,
+- Backup v2: `importEncrypted` chỉ so revision. Đã kiểm chứng: ciphertext CŨ của một item,
   sửa `revision` thành 99 → import ghi đè bản mới → item quay về nội dung cũ.
+  Backup v3: `item_index` ràng buộc (item_id, revision) → sửa revision trong file
+  bị từ chối. Vẫn KHÔNG chặn: phát lại NGUYÊN một backup v3 cũ hợp lệ (index của
+  chính nó khớp) — import merge bỏ qua row có revision thấp hơn local, nhưng restore
+  lên thiết bị trống sẽ ra trạng thái cũ đó.
 - Sync: `applyRemoteEvents` (`packages/sync/src/index.ts:362`) áp dụng ciphertext
   cũ nếu server gắn revision mới hơn. Đã kiểm chứng.
 - `SyncEvent.signature` không được client kiểm tra; Rails ghi rõ không xác thực
@@ -241,6 +245,46 @@ Không bước nào được bật một mình. Mỗi bước là một PR có t
 Test bắt buộc cho bước 2–4: row v1 cũ vẫn mở; row v2 đổi nhãn sang v1 bị từ chối;
 vault trộn v1/v2; sau bước 4, row v1 bị từ chối; backup v2 qua Rust ↔ TS.
 
+## Backup item index (`format_version` 3)
+Lỗi đã sửa: DEFECT-K2-omission — backup v2 không xác thực danh sách item, nên
+file bị xóa bớt 1 row (các row còn lại vẫn hợp lệ) restore "thành công" thành N-1 item.
+
+```
+index key = HKDF-SHA-256(IKM = Vault Key, salt = 32 byte 0,
+                         info = "my-secrect/backup-item-index/v1", L = 32)
+
+index = u32be(len(format))   || format          ("my-secrect-vault-export")
+     || u32be(format_version)                    (3)
+     || u32be(len(vault_id)) || vault_id         (UTF-8)
+     || u32be(count)
+     || với mỗi item, sắp theo byte UTF-8 của item_id (tăng dần):
+          u32be(len(item_id)) || item_id || u64be(revision)   (0 .. 2^53-1)
+
+item_index = { nonce: base64(24B),
+               sealed: base64(XChaCha20-Poly1305(index key, nonce, index, AD = null)) }
+```
+- Writer: `sealItemIndex` khi export (cần vault đang mở; key dẫn xuất bị zero-fill).
+  Thứ tự row trong file không quan trọng; tập (id, revision) và số lượng thì có.
+- Reader (`verifyItemIndex`), ở cả restore lẫn import merge của 3 app: SAU khi mọi
+  row giải mã + so id, TRƯỚC mọi lần ghi. Mở `sealed` bằng index key của Vault Key
+  vừa unwrap, so byte-for-byte với `index` tính lại từ file. Lệch bất kỳ (thiếu/thừa
+  row, đổi revision, đổi vault_id, index bị sửa/tráo/của vault khác) → lỗi
+  `item list does not match its authenticated index`, không ghi gì (fail closed).
+- Validator: v3 thiếu hoặc sai dạng `item_index` → từ chối trước khi giải mã;
+  revision > 2^53-1 → từ chối. id/vault_id chứa lone surrogate → từ chối (TextEncoder
+  sẽ biến nó thành U+FFFD, làm encoding không còn đơn ánh).
+- Migration: v2 (không index) vẫn restore/import được; hàm trả `'unverifiable-legacy'`
+  và UI hiện `backup.itemListUnverified` ("integrity of the item list not verifiable —
+  made with an older version"). Không có cách đọc lại hay nâng cấp file v2 cũ: export
+  lại từ app để có v3.
+- Giới hạn đã biết: (1) downgrade — kẻ sửa file có thể xóa `item_index` và đặt
+  `format_version` 2; file vẫn restore nhưng UI hiện cảnh báo legacy. Muốn chặn hẳn
+  phải bỏ hỗ trợ v2. (2) Phát lại nguyên một backup v3 cũ hợp lệ (§ rollback (b)).
+- Test: `packages/import-export/tests/backup-corruption.real.test.ts` (known-answer
+  của `index`, mọi kiểu thiếu/thừa/đổi, index giả bằng Vault Key trực tiếp),
+  `tests/acceptance/recovery-failures.test.ts` (K2-omission × 3 app),
+  `tests/e2e-web-restore/*` (UI), vector HKDF ở `tests/crypto-vectors/hkdf-vectors.json`.
+
 ## HKDF-SHA-256 (RFC 5869)
 - KHÔNG dùng `crypto_kdf_derive_from_key`: hàm đó dùng BLAKE2b, subkey
   theo context 8 byte cố định, không phải HKDF và không nhận `info` tùy ý
@@ -251,8 +295,11 @@ vault trộn v1/v2; sau bước 4, row v1 bị từ chối; backup v2 qua Rust �
   - `length` cho phép 1..8160 byte (255 × 32).
 - Rust `hkdf_sha256(ikm, salt, info, len)` (RustCrypto `hkdf`). Với salt `None`
   hoặc 32 byte 0 cho cùng kết quả với TS (HMAC pad key bằng 0).
-- Hiện không có đường production nào gọi HKDF. Vector chéo: `tests/crypto-vectors/hkdf-vectors.json`
-  (Rust tạo; TS adapter + OpenSSL `hkdfSync` kiểm) và RFC 5869 A.3 ở cả hai phía.
+- Nhãn `info` đang dùng: `"my-secrect/backup-item-index/v1"` (index key của backup v3,
+  IKM = Vault Key) và `"my-secrect/recovery-verifier/v1"` (`specs/recovery-protocol.md`).
+  Nhãn mới = thêm vector. Vector chéo: `tests/crypto-vectors/hkdf-vectors.json`
+  (Rust tạo, có vector cho nhãn backup-item-index; TS adapter + OpenSSL `hkdfSync` kiểm)
+  và RFC 5869 A.3 ở cả hai phía.
 
 ## File / blob (`packages/storage/src/upload.ts`)
 - Mỗi file có File Key riêng (32 byte ngẫu nhiên). Chunk độc lập, nonce không trùng (hoặc subkey riêng/chunk).
@@ -302,10 +349,15 @@ vault trộn v1/v2; sau bước 4, row v1 bị từ chối; backup v2 qua Rust �
 | `chain-ts.json` | code app TS thật (desktop, extension, mobile: `createVault` + `upsertItem` + `exportEncrypted`) — `npx tsx packages/crypto-adapters/scripts/gen-chain-vectors.ts` | Rust `native/crypto-core/tests/cross_impl.rs` mở từng tầng + recovery |
 | `chain-rust.json` | chỉ Rust crate — `cargo run --example gen_chain_vectors` (trong `native/crypto-core`) | TS: adapter từng tầng + `restoreEncrypted` / `unlockVault` / `unlockWithRecoveryKey` thật của desktop, extension, mobile |
 | `item-v2-vectors.json` | Rust, nonce cố định (tất định) | Rust + TS dựng lại AD và ciphertext từng byte |
-| `hkdf-vectors.json` | Rust (tất định) | TS adapter + OpenSSL `hkdfSync` |
+| `hkdf-vectors.json` | Rust (tất định), gồm nhãn `my-secrect/backup-item-index/v1` | TS adapter + OpenSSL `hkdfSync`; test import-export kiểm nhãn nó dùng có vector |
 
 Chạy: `cd native/crypto-core && cargo test`; `npx tsx --test packages/crypto-adapters/tests/cross-impl.test.ts`
 (cũng nằm trong root `npm test`). Không bao giờ sửa tay giá trị expected; sinh lại bằng đúng lệnh trên.
+
+`chain-ts.json` / `chain-rust.json` là backup `format_version` 2 (chưa sinh lại sau v3):
+TS restore chúng qua đường legacy (`'unverifiable-legacy'`). Rust chưa có reader cho
+`item_index`; sinh lại `chain-ts.json` sẽ ra v3 và `cross_impl.rs` (đang assert
+`format_version` 2) phải được cập nhật cùng lúc.
 
 ## Những gì spec này CHƯA quyết (phải chốt trước khi code dữ liệu thật)
 - Tham số Argon2id trên mobile thấp: v1 dùng INTERACTIVE (2 / 64 MiB);

@@ -5,6 +5,14 @@
 2. Chuyển khóa từ thiết bị tin cậy (HPKE / protocol đã kiểm chứng, có challenge chống replay).
 3. Recovery key entropy cao lưu offline + quy trình khôi phục tài khoản.
 
+Khôi phục vault lên thiết bị mới từ **bản sao lưu mã hóa** (passphrase hoặc
+recovery key + file backup) — định dạng ở `specs/encryption-format.md`:
+- Backup `format_version` 3: danh sách item có xác thực (§ Backup item index).
+  File bị bớt/thêm/đổi revision một row → restore thất bại, không ghi gì.
+- Backup `format_version` 2 (bản cũ): vẫn restore được, nhưng KHÔNG phát hiện được
+  row bị xóa; UI phải báo "integrity of the item list not verifiable — made with
+  an older version" (`backup.itemListUnverified`). Export lại để có v3.
+
 ## Yêu cầu cho mọi endpoint recovery
 - Challenge + chống replay + xác thực lại + kiểm tra quyền đặc biệt.
 - Không bao giờ để server suy ra được khóa giải mã từ quá trình recovery.
