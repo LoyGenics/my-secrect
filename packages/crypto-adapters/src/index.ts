@@ -21,7 +21,7 @@
  * Dependency note: `libsodium-wrappers-sumo` must be listed as a
  * dependency of this package (package.json) — this file only imports it.
  * Callers must `await sodiumReady` (or just call the async methods, which
- * await `sodium.ready` internally) before the first operation.
+ * await `sodiumReady` internally, which includes a self-test) before the first operation.
  */
 import sodium from 'libsodium-wrappers-sumo';
 
@@ -35,8 +35,33 @@ export interface CryptoAdapter {
   unwrapKey(wrappingKey: Uint8Array, nonce: Uint8Array, wrapped: Uint8Array): Promise<Uint8Array>;
 }
 
-/** Resolves once libsodium's WASM module is initialised. */
-export const sodiumReady: Promise<void> = sodium.ready;
+// BLAKE2b-256 of the input below, computed with libsodium and checked
+// against Python's hashlib.blake2b(digest_size=32).
+const SELF_TEST_INPUT = 'my-secrect/self-test/v1';
+const SELF_TEST_BLAKE2B_HEX = '27f3f413ffd07bde022640dcc0a79e9781fb296df32c7f068ea5b6ad4fcfdd89';
+
+/**
+ * Fail closed when libsodium is not healthy. If WebAssembly is blocked (for
+ * example a CSP without 'wasm-unsafe-eval'), libsodium-wrappers silently
+ * falls back to asm.js; in the Tauri WKWebView that fallback returned stale
+ * heap bytes from randombytes_buf, so "random" keys repeated earlier input.
+ * Refuse to run rather than produce predictable keys.
+ */
+export function libsodiumSelfTest(): void {
+  const kat = sodium.to_hex(sodium.crypto_generichash(32, sodium.from_string(SELF_TEST_INPUT)));
+  if (kat !== SELF_TEST_BLAKE2B_HEX) throw new Error('libsodium self-test failed: BLAKE2b known answer mismatch');
+  const seen = new Set<string>([kat]);
+  for (let i = 0; i < 4; i++) {
+    const r = sodium.randombytes_buf(32);
+    if (r.every((b) => b === 0)) throw new Error('libsodium self-test failed: random bytes are all zero');
+    const hex = sodium.to_hex(r);
+    if (seen.has(hex)) throw new Error('libsodium self-test failed: random bytes repeated');
+    seen.add(hex);
+  }
+}
+
+/** Resolves once libsodium is initialised and has passed the self-test. */
+export const sodiumReady: Promise<void> = sodium.ready.then(libsodiumSelfTest);
 
 /**
  * Locked Argon2id parameters (see specs/encryption-format.md and
@@ -92,7 +117,7 @@ export function fromBase64Url(s: string): Uint8Array {
 
 /** SHA-256 of `data` via libsodium (`crypto_hash_sha256`). Used by the vault for the recovery-key KEK. */
 export async function sha256(data: Uint8Array): Promise<Uint8Array> {
-  await sodium.ready;
+  await sodiumReady;
   return sodium.crypto_hash_sha256(data);
 }
 
@@ -113,7 +138,7 @@ async function sealXChaCha(
   plaintext: Uint8Array,
   ad: Uint8Array | null,
 ): Promise<{ nonce: Uint8Array; ciphertext: Uint8Array }> {
-  await sodium.ready;
+  await sodiumReady;
   assertKeyLength(key);
   const nonce = sodium.randombytes_buf(sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES);
   const ciphertext = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(
@@ -128,7 +153,7 @@ async function openXChaCha(
   ciphertext: Uint8Array,
   ad: Uint8Array | null,
 ): Promise<Uint8Array> {
-  await sodium.ready;
+  await sodiumReady;
   assertKeyLength(key);
   if (nonce.length !== sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES) {
     throw new Error('nonce must be 24 bytes');
@@ -176,7 +201,7 @@ function assertWrappedKeyLength(key: Uint8Array, what: string): void {
  * `length` must be 1..255 * 32 (HashLen = 32 for SHA-256).
  */
 async function hkdfSha256(ikm: Uint8Array, info: string, length = 32): Promise<Uint8Array> {
-  await sodium.ready;
+  await sodiumReady;
   if (length < 1 || length > 255 * sodium.crypto_auth_hmacsha256_BYTES) {
     throw new Error('hkdf length must be between 1 and 8160 bytes');
   }
@@ -232,7 +257,7 @@ export const libsodiumAdapter: CryptoAdapter = {
     return sodium.randombytes_buf(n);
   },
   async deriveKek(passphrase, salt) {
-    await sodium.ready;
+    await sodiumReady;
     if (salt.length !== ARGON2ID_PARAMS.saltBytes) {
       throw new Error(`salt must be ${ARGON2ID_PARAMS.saltBytes} bytes`);
     }

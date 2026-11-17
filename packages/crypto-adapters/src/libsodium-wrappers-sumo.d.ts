@@ -53,6 +53,9 @@ declare module 'libsodium-wrappers-sumo' {
       privateKey: SodiumOut;
     };
     crypto_sign_detached(message: SodiumBytes, privateKey: SodiumBytes): SodiumOut;
+    crypto_generichash(hashLength: number, message: SodiumBytes, key?: SodiumBytes | null): SodiumOut;
+    from_string(text: string): SodiumOut;
+    to_hex(bytes: SodiumBytes): string;
   }
 
   const sodium: LibsodiumSumo;
