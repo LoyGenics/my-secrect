@@ -5,6 +5,11 @@ class User < ApplicationRecord
   has_many :blobs, through: :vaults
   has_many :shares, foreign_key: :recipient_id, dependent: :destroy
   has_many :owned_shares, class_name: 'Share', foreign_key: :owner_id, dependent: :destroy
+  # Sharing v1 (specs/sharing-protocol.md). Deleted with the user so account
+  # deletion leaves no identity key or share ciphertext behind.
+  has_one :identity_key, dependent: :delete
+  has_many :owned_item_shares, class_name: 'ItemShare', foreign_key: :owner_id, dependent: :delete_all
+  has_many :received_item_shares, class_name: 'ItemShare', foreign_key: :recipient_id, dependent: :delete_all
   has_many :audit_events, dependent: :nullify
   has_many :sessions, dependent: :destroy
   has_many :recovery_challenges, dependent: :destroy

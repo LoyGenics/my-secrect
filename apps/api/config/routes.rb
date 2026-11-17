@@ -39,7 +39,18 @@ Rails.application.routes.draw do
       post 'blobs/:id/complete', to: 'blobs#complete'
       get 'blobs/:id/download-session', to: 'blobs#download_session'
 
-      resources :shares, only: %i[create destroy]
+      # --- Sharing v1 (specs/sharing-protocol.md) -------------------------
+      get 'identity-key', to: 'identity_keys#show'
+      put 'identity-key', to: 'identity_keys#update'
+      post 'identity-keys/lookup', to: 'identity_keys#lookup'
+      resources :shares, only: %i[index create destroy] do
+        member do
+          get :record
+          put :record, action: :write_record
+          post :accept
+        end
+      end
+      # --- end Sharing ------------------------------------------------------
       post 'recovery/challenges', to: 'recovery#create_challenge'
       post 'recovery/verify', to: 'recovery#verify'
       get 'recovery/verifiers', to: 'recovery#verifiers'
