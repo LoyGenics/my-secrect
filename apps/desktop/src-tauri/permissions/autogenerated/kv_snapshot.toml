@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-kv-snapshot"
+description = "Enables the kv_snapshot command without any pre-configured scope."
+commands.allow = ["kv_snapshot"]
+
+[[permission]]
+identifier = "deny-kv-snapshot"
+description = "Denies the kv_snapshot command without any pre-configured scope."
+commands.deny = ["kv_snapshot"]
