@@ -1,143 +1,209 @@
-# Privacy — MY SECRET Personal Digital Vault (Phase H, 17 Nov 2026)
+# Privacy — MY SECRET Personal Digital Vault (updated 17 Nov 2026)
 
-> **STATUS: DRAFT — NOT A PUBLISHED PRIVACY POLICY.**
+> **STATUS: DRAFT — NOT A PUBLISHED PRIVACY POLICY. NOT LEGAL ADVICE.**
 >
-> This document describes privacy by design **as implemented or planned**
-> in the code as read on 17 Nov 2026. Each claim is marked
-> IMPLEMENTED (code read) / PLANNED (designed, not built) / UNVERIFIED
-> (code exists but never ran). It is **not legal advice** and **not the
-> hosted privacy policy** the stores require — a human must turn it into
-> a published policy (and ideally have a lawyer review it) before any
-> store submission. See `docs/store-prep.md`.
->
-> Nothing in this document has been verified by running the app.
+> This describes what the code does today. Each claim is marked:
+> **VERIFIED (run)** — observed in a scripted run on 17 Nov 2026 (see
+> `docs/deployment.md` §A.0 for commit, host and output);
+> **CODE** — read in the code, not observed at runtime;
+> **PLANNED / TODO / PENDING** — not built, or a human decision.
+> A human must turn this into a published policy, and a lawyer should
+> review it, before any store submission (PENDING, see §10).
 
 ## 1. Principles
 
-- **Local-first.** The vault lives on the user's device. The server is
-  an untrusted sync + blob store, not a trusted custodian.
-- **End-to-end encryption.** Vault content is encrypted on the device
-  before it leaves it. The server never sees plaintext or decryption keys.
-- **Data minimisation.** The server stores only what sync needs:
-  ciphertext, item ids, revisions, timestamps, sizes — no plaintext
-  titles, usernames, passwords, notes, or file contents.
-- **No ads, no trackers.** No ads SDKs, no third-party analytics, no
-  cross-app tracking. Diagnostics (if any) are opt-in only.
-- **No recovery by the operator.** There is no backdoor, no master key,
-  no password reset that can reveal vault content. A lost passphrase +
-  lost recovery key means the vault is unrecoverable — by design, and
-  the user must be told so.
+- **Local-first.** The vault lives on the user's device. The server is an
+  untrusted sync + blob store, not a trusted custodian.
+- **End-to-end encryption.** Vault content is encrypted on the device before
+  it leaves it. The server never receives plaintext or decryption keys.
+- **Data minimisation.** The server stores what sync and sign-in need:
+  ciphertext, opaque ids, revisions, timestamps, sizes, the account email,
+  passkey public keys, and per-session metadata (below).
+- **No ads, no trackers, no third-party analytics.**
+- **No operator recovery.** No master key, no backdoor. Lost passphrase +
+  lost recovery key = unrecoverable vault, by design; users must be told so.
 
 ## 2. What data exists, and where
 
-| Data | Where | Encryption | Status |
+| Data | Where | Protection | Status |
 |---|---|---|---|
-| Vault items (passwords, notes, files) | Device (encrypted SQLite / local store) + server as ciphertext | Argon2id-derived key + XChaCha20-Poly1305 (libsodium, desktop/mobile); AES-GCM + PBKDF2 in the web reference adapter | IMPLEMENTED (code read) — **but** the Argon2id parameter set differs between TS (INTERACTIVE) and Rust (SENSITIVE): gate 2 FAIL; and local storage is reported unencrypted in Phase A (High risk) — see §6 |
-| Master passphrase | User's memory only; never stored, never sent | — (derived key only) | IMPLEMENTED (design) / UNVERIFIED (runtime) |
-| Recovery key | User-held (offline storage recommended) | — | IMPLEMENTED (code) / UNVERIFIED (runtime) |
-| Account identity (passkey) | Server: public key + credential id; device: private key in platform authenticator | WebAuthn | PLANNED — verification is NOT wired (gate 1 FAIL); non-prod issues tokens without verification |
-| Sync metadata (ids, revisions, timestamps, device ids) | Server Postgres | Plaintext metadata (ciphertext stays opaque) | IMPLEMENTED (code read) |
-| File blobs (encrypted chunks) | Server MinIO/R2/S3 via 5-min presigned URLs | Client-side chunk encryption; server never sees plaintext | IMPLEMENTED (code) / UNVERIFIED — no blob has ever been uploaded; File Key storage missing (gate 8 FAIL) |
-| Audit log (who did what, when) | Server | Metadata only — no plaintext secrets in logs (`filter_parameters` + audit-log discipline) | IMPLEMENTED (code) / UNVERIFIED (runtime logs never observed) |
-| Diagnostics / crash reports | Nowhere by default | — | PLANNED — opt-in only; no SDK integrated |
-| Advertising / tracking data | Nowhere | — | IMPLEMENTED — no ads SDKs in any `package.json` (verified by reading) |
+| Vault items (logins, notes, identities, keys, …) | Device + server (`item_versions.encrypted_payload` / `encrypted_item_key`) | Client-side libsodium encryption; format in `specs/encryption-format.md` | **VERIFIED (run)**: scenario L pushed 4 items; a fresh device restored the key envelope, pulled them from the server (also after a full backup/destroy/restore) and decrypted identical titles and fields; no plaintext marker appeared in any server log |
+| Files / media | Server object storage (MinIO / S3 / R2), 1 MiB encrypted chunks via 5-minute presigned URLs; encrypted manifest in the `blobs` row | Per-file key wrapped by the Vault Key; the server never sees file name or type | **VERIFIED (run)**: 2.5 MiB file stored as 3 ciphertext chunks, restored, downloaded and decrypted with matching SHA-256 |
+| Master passphrase, recovery key | User only; never sent | — | **CODE** (never in any request); **VERIFIED (run)**: neither value appeared in any container log |
+| Account identity | Server: email, passkey public key + credential id + sign counter | WebAuthn; the server verifies every ceremony | **VERIFIED (run)**: real attestation/assertion verified by the API (software authenticator; Chromium virtual authenticator in the CSP check) |
+| Session metadata | Server `sessions`: token **digest**, expiry, user agent, IP address, step-up state | Raw token shown to the client once; TTL 1 h (`session_tokens.rb`) | **CODE**. Expired/revoked session rows are not purged until account deletion (TODO, §7) |
+| Sync metadata | Server: item ids, revisions, timestamps, device ids, sizes | Plaintext metadata; content stays opaque | **CODE** |
+| Audit events | Server `audit_events`: event type, small metadata (e.g. `{method: "totp"}`, counts), timestamps | No IPs, tokens or content in metadata | **CODE** |
+| Request logs | Container stdout (Docker json-file, 5 × 10 MB per container, rotated) | One JSON line per request: method, path (opaque ids only, no query string), status, duration, request id. **No IP, no parameters, no headers, no bodies** | **VERIFIED (run)**: format observed; the log scan found no token, challenge, assertion, ciphertext, signature, passphrase, recovery key, marker or env secret in any container log |
+| Reverse-proxy access logs | None (Caddy access logging is off) | — | **CODE** (`infra/docker/Caddyfile`) |
+| Diagnostics / crash reports | Nowhere | — | **CODE**: no SDK integrated. PLANNED: opt-in only, if ever added |
+| Ads / tracking | Nowhere | — | **CODE**: no ads or analytics SDK in any `package.json`; the web build connects only to its own origin and the S3 endpoint (CSP `connect-src`, **VERIFIED (run)**: 0 violations) |
 
-## 3. Data minimisation (as implemented)
+## 3. Data minimisation in practice
 
-- IMPLEMENTED — Server stores ciphertext only; sync pull/push carry
-  encrypted payloads (except gate 5: pull currently OMITS ciphertext —
-  a functional bug, not a privacy leak, but it means sync does not work).
-- IMPLEMENTED — No CVV/PIN fields anywhere in forms or schemas; the
-  detail view suppresses them (Phase A).
-- IMPLEMENTED — Presigned blob URLs expire in 5 minutes
-  (`PRESIGN_TTL = 300`, code-read).
-- UNVERIFIED — Whether the API logs request bodies or URLs that could
-  contain sensitive metadata; `filter_parameters` covers Rails params,
-  but runtime logs have never been observed.
-- PLANNED — Per-user storage isolation is deferred (code comment in
-  `Blobs::StorageProvider`); one bucket today.
+- **VERIFIED (run)** — Server stores ciphertext only for items and files; the
+  server-visible blob manifest is encrypted (no file name / MIME).
+- **VERIFIED (run)** — Logs carry no request parameters, query strings,
+  bodies or client IPs (`apps/api/config/initializers/logging.rb`), checked by
+  `infra/docker/scan-logs.sh` against every value the client actually sent or
+  received. Before 17 Nov 2026 Rails' default request log recorded the client
+  IP and filtered parameters in a file inside the container.
+- **CODE** — Presigned URLs expire after 300 s (`PRESIGN_TTL`).
+- **CODE** — One bucket for all accounts (per-user storage deferred).
+- **CODE** — The web client served by Caddy may only talk to its own origin
+  and the S3 endpoint (CSP); no third-party hosts are contacted.
 
 ## 4. Telemetry, ads, third parties
 
-- **No ads SDKs.** None in any `package.json` (desktop/web/extension/
-  mobile) as read 17 Nov 2026.
-- **No third-party analytics.** No analytics SDK in any app.
-- **Opt-in diagnostics only (PLANNED).** If diagnostics are ever added:
-  explicit opt-in, no vault content, no identifiers beyond what is
-  needed to debug, and a visible toggle to turn them off. Nothing is
-  implemented today — there is nothing to opt out of.
-- **Third-party services the server touches:** object storage (MinIO /
-  R2 / S3) holds ciphertext blobs; Postgres/Redis hold metadata +
-  ciphertext. No other processors are integrated.
+- No ads SDKs, no third-party analytics, no tracking. Nothing to opt out of.
+- Self-hosted: the operator's own Postgres, Redis and MinIO hold the data;
+  Caddy contacts Let's Encrypt for certificates. No other processors.
+- Managed cloud (if used): the chosen Postgres/Redis/object-storage providers
+  become processors — PENDING human decision and disclosure.
 
-## 5. Account deletion
+## 5. Account deletion — what, when, what the user sees
 
-- **Status: NOT IMPLEMENTED (blocker for both stores).** The API has no
-  delete-account endpoint (routes cover devices, vaults, items, sync,
-  blobs, shares, recovery only). Apple and Google both require
-  in-app account deletion for apps with account creation.
-- **Required behaviour (PLANNED):** in-app "Delete my account" that
-  deletes the account, all vaults, ciphertext, blobs, and devices
-  server-side; deletes the local vault on the device; and confirms
-  deletion. A web deletion-request link is also required by Google Play.
-- **Retention after deletion:** server backups may retain ciphertext
-  until the backup cycle rotates — that must be stated in the published
-  policy with a concrete retention period (TODO: set one).
+Endpoint: `DELETE /api/v1/auth/account` (`apps/api/app/controllers/api/v1/accounts_controller.rb`,
+`apps/api/app/domains/accounts/delete.rb`). Behaviour **VERIFIED (run)** in
+scenario L on 17 Nov 2026 unless marked CODE.
+
+**Who / how.** Only the signed-in caller, after a fresh step-up (passkey or
+TOTP within 10 minutes). Without it the API answers 403 (run). The request
+ignores any user id in the body (CODE).
+
+**When.** Synchronously, inside that one request. On success the API answers
+204 and every session token of the account stops working at once (run: 401).
+There is no grace period and no undo.
+
+**What is deleted.**
+
+1. Object storage first: every ciphertext chunk object of every blob in the
+   account's vaults, any upload status, including chunks of unfinished uploads
+   (their part rows exist from the upload session on). Run: bucket left with
+   0 objects. If any object delete fails, **nothing in the database is
+   deleted**, an `account_deletion_storage_failed` audit event (counts and
+   error classes only) is written, the API answers 503 `storage_unavailable`
+   and the user retries (CODE; covered by
+   `apps/api/spec/requests/api/v1/account_deletion_storage_spec.rb`).
+2. Then, in one database transaction: the user row, sessions, passkeys
+   (authenticators), MFA secret and recovery codes, MFA/passkey/recovery
+   challenges, recovery verifiers, devices, device checkpoints, vaults, items,
+   all item versions (ciphertext history), sync events, blobs and blob parts,
+   key envelopes, and shares the account owns or receives. Run: all 18 of
+   these tables at 0 rows afterwards.
+
+**What remains on the server after deletion.**
+
+- **Audit events** — kept, with `user_id` and `device_id` set to NULL
+  (`User has_many :audit_events, dependent: :nullify`). They hold an event
+  type, small metadata (method names, counts) and timestamps, no email, IP or
+  content. Run: the account's audit rows remained, all unlinked. Retention:
+  `RetentionJob` deletes audit events older than 1 year, **but nothing
+  schedules that job** (no cron/scheduler in the repo), so today they stay
+  until an operator runs it — TODO (§7).
+- **Sync events in someone else's vault** made by the deleted account's
+  devices keep the event with `device_id` NULL (CODE; sharing has no key
+  exchange yet, so this does not arise in practice today).
+- **Database files.** Deleted rows are gone logically at once; Postgres
+  reuses their space later (autovacuum). Not readable through the app.
+- **Logs.** Request lines (no IP, no email; opaque ids in paths) stay in the
+  rotated container logs until rotated out or the containers are removed.
+- **Object versions.** The compose MinIO bucket is unversioned, so a delete is
+  final. If an operator enables **bucket versioning** (S3/R2), a delete only
+  adds a delete marker: the ciphertext stays as a noncurrent version until a
+  lifecycle rule expires it — PENDING operator decision (`infra/cloud/README.md`).
+- **Backups.** Every backup made before the deletion still contains the whole
+  account (DB rows and ciphertext chunks) **until that backup is deleted**.
+  Run: the pre-deletion backup still held the account; **restoring it brought
+  the deleted account and its blob back**. `backup.sh` has no rotation and
+  the server keeps no record of deleted accounts, so after restoring an older
+  backup the operator must delete those accounts again by hand — PENDING
+  (rotation period + post-restore procedure, §7).
+
+**Known gaps (code, not fixed here — apps/api is outside this change).**
+
+- A presigned PUT URL issued just before deletion stays valid for up to
+  300 s (`apps/api/app/domains/blobs/storage_provider.rb:33,99`). A chunk
+  uploaded with it after the deletion lands in the bucket with no database
+  row; `OrphanBlobCleanupJob` only walks database rows
+  (`apps/api/app/jobs/orphan_blob_cleanup_job.rb:6`), so that ciphertext is
+  never removed. Fix options: delete by prefix `vaults/<id>/` after the
+  transaction, or a periodic bucket-vs-DB sweep.
+- No record of a completed deletion is kept (`delete.rb` writes an audit
+  event only on storage failure, `delete.rb:44`), so deletions cannot be
+  re-applied after a backup restore without an external list.
+- `OrphanBlobCleanupJob` and `RetentionJob` exist but nothing enqueues them.
+- In development/test (lazy loading) `Blobs.storage_provider` is undefined
+  until `Blobs::StorageProvider` has been autoloaded
+  (`storage_provider.rb:7-11`), so `DELETE /auth/account` returns 500 there
+  and the deletion specs fail when run alone (they pass when
+  `spec/domains/storage_provider_spec.rb` runs first). Production eager-loads
+  and is not affected (verified by the run).
+
+**What the user sees** (desktop and web Security Center; strings in
+`packages/i18n/src/en.ts`): a "Delete account" card explaining that the server
+account, its sessions and server-side vault data are deleted permanently and
+that the vault on this device is **not** erased; a confirmation ("Delete this
+server account permanently?"); a step-up prompt; then "Server account deleted.
+Its sessions no longer work. The local vault on this device was not erased."
+and the sign-in screen. On a storage failure the card shows the error and the
+account stays. The **mobile app has no account-deletion UI** (no
+`deleteAccount` call in `apps/mobile/src`) — a store blocker
+(`docs/store-prep.md`). Erasing the local vault is a separate action
+("wipe vault").
 
 ## 6. Data export
 
-- **Status: IMPLEMENTED (code) / UNVERIFIED (runtime).** Encrypted
-  export/import format v1 exists in desktop, mobile, and web
-  (`packages/import-export`) and is exercised only by mirror tests
-  (gate 6). Export is encrypted; there is no plaintext export path in
-  the export format itself.
-- **Contradiction (open):** Phase A found plaintext export IS reachable
-  via the shared desktop App despite the web client's "limited" banner
-  claim. This must be resolved before the export story is told to users
-  or reviewers.
-- **User guidance:** export regularly, store the export offline, and
-  keep the recovery key with it — the export alone is useless without
-  the key, and the key alone is useless without the export.
+- **CODE** — Encrypted export/import (format v1, `packages/import-export`).
+  The web client is built with `allowPlaintextExport={false}` (encrypted-only).
+- Users should keep an encrypted export offline together with the recovery key.
 
 ## 7. Retention
 
-| Data | Retention (as designed) | Status |
+| Data | Retention today | Status |
 |---|---|---|
-| Vault ciphertext + metadata | Until the user deletes the vault/account | IMPLEMENTED (code) / UNVERIFIED |
-| Deleted items (tombstones) | Kept as tombstones for sync; no defined expiry | PLANNED — no retention policy set; TODO |
-| Orphan blobs | Cleanup job (Sidekiq) — designed, schedule unverified | PLANNED / UNVERIFIED |
-| Audit logs | No defined retention period | TODO — set one before launch |
-| Server backups | Until the backup cycle rotates (no cycle defined) | TODO — define + test restores |
-| Diagnostics (if ever added) | Opt-in only; retention TBD | PLANNED |
+| Vault ciphertext + metadata | Until the user deletes the item/vault/account | CODE; deletion VERIFIED (run) |
+| Deleted items (tombstones) | Tombstone + last version kept for sync; `RetentionJob` would prune older versions 90 days after deletion | Job **not scheduled** — TODO |
+| Expired / revoked sessions (incl. IP, user agent) | Until account deletion | TODO: purge expired sessions after N days |
+| Audit events | Unlinked at account deletion; `RetentionJob` would delete after 1 year | Job **not scheduled** — TODO |
+| Orphaned uploads (> 24 h unfinished) | `OrphanBlobCleanupJob` would delete objects + rows | Job **not scheduled** — TODO |
+| Container logs | Docker json-file, 5 × 10 MB per container, rotated; removed with the container | CODE (`docker-compose.yml`); time span depends on traffic |
+| Server backups | Kept until the operator deletes them (no rotation in `backup.sh`) | PENDING: rotation period (e.g. 30 days) — this is the period to publish as "deleted data may persist in backups for up to N days" |
+| Diagnostics | None collected | — |
 
 ## 8. Security practices relevant to privacy
 
-- Keys never leave the device; the server never holds a decryption key.
-- Passkeys (WebAuthn) separate account auth from vault unlock —
-  PLANNED, verification unwired (gate 1).
-- Rate limiting on auth + recovery endpoints (`rack-attack` — code
-  read, never observed).
-- Session TTLs and device revocation — designed; enforcement unverified.
-- No CSP on web / Caddy yet (Phase A + `infra/docker/VALIDATION.md`).
-- No external security audit (gate 10 FAIL).
+- Keys never leave the device; the server holds no decryption key.
+- Passkeys (WebAuthn) authenticate the account; they do not unlock the vault.
+- TLS 1.2/1.3 only, HSTS, strict CSP for the web client, no third-party
+  origins — VERIFIED (run, local CA). Real-domain certificates: PENDING.
+- Only the reverse proxy is reachable from outside; database, cache and
+  object storage sit on internal networks without internet access — VERIFIED (run).
+- Rate limiting on auth/recovery (`rack_attack.rb`, CODE; per-process store).
+- No external security audit — PENDING (human).
 
-## 9. What users must be told (for the published policy)
+## 9. What users must be told (published policy)
 
-1. We cannot recover your vault if you lose your passphrase and
-   recovery key. No one can — not us, not the server host.
-2. We collect no vault content. The server sees ciphertext and sync
-   metadata only.
-3. No ads, no tracking, no sale of data. Diagnostics are opt-in only.
-4. You can export your encrypted vault at any time and delete your
-   account (once the deletion flow is implemented — it is not yet).
-5. Backups of the server contain ciphertext + metadata and are kept
-   for [TODO: period] before rotation.
+1. We cannot recover your vault if you lose both your passphrase and your
+   recovery key. No one can.
+2. The server sees ciphertext and sync metadata, never vault content.
+3. No ads, no tracking, no sale of data.
+4. You can export your encrypted vault and delete your account in the app
+   (desktop/web today; mobile PENDING). Deletion is immediate and permanent on
+   the live server; it does not erase the vault on your device.
+5. Backups made before your deletion keep your (encrypted) data until they
+   are rotated after **[PENDING: N] days**.
+6. The server records, per session, the IP address and browser/app name, kept
+   until **[PENDING: purge period]**.
 
 ## 10. Open items before this can be published
 
-- [ ] Resolve the plaintext-export contradiction (§6).
-- [ ] Implement account deletion (§5) + set retention periods (§7).
-- [ ] Verify the privacy-label / data-safety answers against real
-      network behaviour (no hidden analytics, no unexpected hosts).
-- [ ] Human + legal review; publish at a public URL; link it from both
-      store listings and from inside the app.
+- [ ] PENDING (human): set backup rotation, session-purge and audit-retention
+      periods; schedule the existing jobs; write the post-restore re-deletion
+      procedure.
+- [ ] PENDING (code owners): the account-deletion gaps in §5.
+- [ ] PENDING (mobile): in-app account deletion.
+- [ ] PENDING (human + lawyer): legal review; publish at a public URL; link
+      from both store listings and from inside the app.
+- [ ] PENDING (human): verify privacy-label / data-safety answers against real
+      network behaviour of the shipped mobile builds.

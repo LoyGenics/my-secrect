@@ -1,102 +1,39 @@
-# infra/docker — validation notes (Phase G, 17 Nov 2026)
+# infra/docker — validation status (17 Nov 2026)
 
-> **Scope of this file:** static validation only. The files under
-> `infra/docker/` were READ and cross-checked against `apps/api/` and the
-> infra READMEs. **Nothing was run**: no `docker compose up`, no migration,
-> no health check, no TLS issuance, no backup/restore. Every item below is
-> marked by what the code says, not by what was observed. The deployment
-> validation checklist (with exact commands) lives in
-> `docs/deployment.md` — it is a TODO list until someone runs it.
+What was RUN, on one macOS arm64 host (Docker Desktop 28.5.1, Compose 2.40.0),
+local stack only (`SITE_ADDRESS=localhost`, Caddy internal CA). Full output
+summaries: `docs/deployment.md` §A and §9.
 
-## What was checked
+| Script | What it proves | Last run | Result |
+|---|---|---|---|
+| `verify-restore.sh` | Scenario L: fresh project + volumes -> deploy -> migrate -> hardening checks -> real client (WebAuthn account, vault, 4 encrypted items, encrypted media blob) -> restart all -> fresh device decrypts -> backup -> `down -v` -> restore -> identical table/object fingerprints -> fresh device (recovery key) decrypts everything -> account deletion (what goes/stays; old backup resurrects it) -> log secret scan | 17 Nov 2026, `0ae3151` | PASS |
+| `verify-web-csp.sh` | Built `apps/web` served by Caddy runs passkey registration, vault creation (wasm), encrypted media upload/preview/download, Security Center, reload/unlock under the strict CSP with 0 violations; inline-script negative control blocked + reported; headers | 17 Nov 2026, `0ae3151` | PASS |
+| `scan-logs.sh` | No client-observed secret, env secret or pattern (session token, presigned signature/credential, bearer, PEM key, marker, unfiltered sensitive param, Rails `Parameters:` line) in any container log; positive control | inside both runs above | PASS |
+| `smoke.sh` | WebAuthn registration, blob round trip via public `s3.<site>`, CORS, forged signature refused, step-up + account deletion, object gone | 17 Nov 2026, `0ae3151` (project `a16-smoke`) | PASS |
+| `tests/media-e2e/run.sh` | Real crypto/storage pipeline through Caddy + MinIO, tamper cases | 17 Nov 2026, `0ae3151` (project `a16-media`) | PASS 9/9 |
+| `backup-restore-proof.sh` | SQL-seeded rows + one object survive destroy/restore | 17 Nov 2026, `feat/deploy-e2e` | PASS (superseded by scenario L) |
 
-| File | What the code says |
-|---|---|
-| `docker-compose.yml` | Caddy 2-alpine + api + worker + Postgres 16-alpine + Redis 7-alpine + MinIO latest. Build context `../../apps/api`, Dockerfile there. |
-| `Caddyfile` | `vault.example.com` reverse-proxies `api:3000`; sets HSTS, nosniff, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`. |
-| `Dockerfile.api` | Deprecated stub only; live Dockerfile is `apps/api/Dockerfile`. Correct as a pointer. |
-| `apps/api/Dockerfile` | `ruby:3.3-slim`, `bundle install --without development test`, `HEALTHCHECK curl http://localhost:3000/health`, `rails server -b 0.0.0.0 -p 3000`. |
-| `apps/api/config/routes.rb` | `GET /health` returns `{"ok":true}` — matches the curl in the self-host README. |
-| `.env.example` | **Created in Phase G.** It did not exist before, although both READMEs told the user to `cp .env.example .env`. Placeholders only. |
+## Earlier static findings (Phase G) — current state
 
-## Findings (static only — none verified by running)
+| # | Finding | State | Evidence |
+|---|---|---|---|
+| 1 | api/MinIO ports published on the host | FIXED: only Caddy publishes; internal `proxy`/`backend` networks; MinIO console off | scenario L step 3 |
+| 2 | No CSP anywhere | FIXED: strict CSP for the web build, `default-src 'none'` for the API, sandbox CSP for S3 | `verify-web-csp.sh` |
+| 3 | `mc mirror` instructions wrong | SUPERSEDED: `backup.sh` / `restore.sh` | scenario L steps 6-8 |
+| 4 | R2 path-style unverified | OPEN (not run against R2) | `infra/cloud/README.md` |
+| 5 | No lockfiles | FIXED: `package-lock.json` and `apps/api/Gemfile.lock` committed, CI `lockfiles` job | git |
+| 6 | Missing env vars fail late; weak defaults | FIXED: compose `${VAR:?}` + production boot check (placeholder/short/`*`/missing) | scenario L steps 1, 3 |
+| 7 | Caddy proxies before Rails is ready | FIXED: `depends_on: api: service_healthy` | scenario L step 2 |
+| 8 | Worker env incomplete | FIXED: shared env anchor; worker healthcheck (Sidekiq heartbeat) | scenario L step 2 |
+| 9 | Restore never tested | FIXED for one host / same versions | scenario L steps 6-9 |
 
-### 1. Ports exposed wider than the docs promise — UNVALIDATED, needs a decision
-- Compose publishes `3000:3000` (api) and `9000:9000` + `9001:9001`
-  (MinIO API + console) on the host. The self-host README checklist says
-  "Only 80/443 exposed; MinIO console (9001) not public" — as written,
-  the compose file contradicts that checklist. In production the api and
-  MinIO ports should be removed from `ports:` (Caddy reaches the api over
-  the internal network) or bound to localhost (`127.0.0.1:9001:9001`).
-  **Not changed in Phase G** (compose edits are out of the validation-only
-  scope for this pass); recorded here so the deployer fixes it before
-  first public run. See `docs/deployment.md` §2.
+## Not verified (open)
 
-### 2. Caddy has no CSP and no Permissions-Policy — CONFIRMED by reading
-- The Caddyfile sets four headers but no `Content-Security-Policy`.
-  The web client also ships no CSP (`apps/web/vite.config.ts`,
-  `index.html` — no meta CSP, no headers). Phase A already recorded
-  "No CSP/headers on web". This is a hardening gap, not a typo: fixing
-  it requires app-side work (CSP in the web build / Caddy), which is
-  outside Phase G scope. Recorded as a release blocker in
-  `docs/release-readiness.md`.
-
-### 3. `mc mirror` backup command in the self-host README is wrong — FIXED
-- The README told the user to run `docker compose exec minio mc mirror`.
-  The `minio/minio` image does not ship the `mc` client, so that command
-  fails. Fixed in `infra/self-host/README.md` (volume/`docker cp` backup
-  + `mc` as an optional separate container). The corrected commands are
-  still **unvalidated by running**.
-
-### 4. Cloud README misstates `force_path_style` — FIXED
-- It said to set `force_path_style: true` "only for MinIO" and remove it
-  for R2. The code (`apps/api/app/domains/blobs/storage_provider.rb`)
-  hardcodes `force_path_style: true` unconditionally, and the presigned
-  TTL of 300s (5 min) is confirmed in code (`PRESIGN_TTL = 300`). Fixed
-  in `infra/cloud/README.md`: R2 compatibility with path-style URLs is
-  **unverified** and needs a live test before any cloud cutover.
-
-### 5. No lockfiles — compose builds resolve dependencies fresh — CONFIRMED
-- `apps/api/Dockerfile` does `COPY Gemfile Gemfile.lock*` (lockfile
-  optional) and there is no `Gemfile.lock` in the repo, and no
-  `package-lock.json` at the root. A compose build therefore resolves
-  gem versions at build time — two builds on different days can produce
-  different images. Generate and commit lockfiles first
-  (`bundle lock`, `npm install`); CI enforces their presence
-  (`.github/workflows/ci.yml`, `lockfiles` job).
-
-### 6. Missing env vars fail late, not at boot — CONFIRMED by reading
-- Compose interpolates `${POSTGRES_PASSWORD}`, `${S3_ACCESS_KEY}`,
-  `${S3_SECRET_KEY}`, `${RAILS_MASTER_KEY}` with no defaults: unset vars
-  become empty strings. The API code falls back to weak defaults
-  (historical: `S3_ACCESS_KEY` → `'minio'`, `S3_SECRET_KEY` → `'minio123'` in
-  `storage_provider.rb`) when env is empty, and Rails fails to boot
-  without a master key. There is no fail-fast env validation. Add a
-  boot-time check (or `? :-` required-var syntax in compose) before
-  first deployment. The weak `'minio123'` default is a known finding —
-  it is deliberately NOT allowlisted in `.github/gitleaks.toml`.
-
-### 7. Caddy may proxy before Rails is ready — UNVALIDATED
-- Caddy `depends_on: [api]` has no health condition, and compose defines
-  no healthcheck for the `api` service (the Dockerfile HEALTHCHECK exists
-  but compose does not wait on it). Expect 502s for the first seconds
-  after `up`. Add `depends_on: api: { condition: service_healthy }` (or
-  accept the warm-up 502s) — unvalidated either way.
-
-### 8. Worker environment is incomplete — UNVALIDATED
-- The `worker` service gets `DATABASE_URL`, `REDIS_URL` and
-  `RAILS_MASTER_KEY` only — no S3 env. Whether Sidekiq jobs need S3
-  (orphan-blob cleanup, quota, retention) is unverified from the code
-  read; confirm against the job classes before first run.
-
-### 9. Restore procedure destroys data before restoring — CONFIRMED wording risk
-- The self-host README's restore step starts with `docker compose down -v`,
-  which deletes all named volumes (Postgres + MinIO + Caddy data). That is
-  only safe AFTER a verified backup exists. The README now carries that
-  warning explicitly. The restore itself has never been tested.
-
-## Not checked (out of scope for a static pass)
-- Whether the image actually builds (`docker build` — CI does this, never run).
-- Whether migrations run cleanly, Sidekiq picks up jobs, MinIO buckets are created, Caddy obtains a Let's Encrypt certificate, or `GET /health` answers through Caddy.
-- Resource sizing (2 GB RAM / 10 GB disk in the README is an assertion, not a measurement).
-- Any secret ever committed to git history (first history scan is the weekly gitleaks job in `.github/workflows/security.yml` — never run).
+- Real domain, Let's Encrypt issuance, real DNS for `s3.<domain>` — PENDING (human).
+- Managed cloud / R2 / AWS S3; egress for api/worker when storage is external.
+- Off-host encrypted backups, restore on a different host or Postgres/MinIO
+  version, large data sets, RTO/RPO, upgrade/rollback, load and sizing.
+- Image digests are not pinned (MinIO/mc use `:latest`); the API image runs as
+  root (`apps/api/Dockerfile` has no `USER`); Redis has no password (only on
+  the internal `backend` network).
+- `/health` is liveness only (Rails answers), not a dependency readiness check.
