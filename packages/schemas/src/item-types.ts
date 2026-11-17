@@ -68,7 +68,8 @@ export const ITEM_SCHEMA_VERSIONS: Record<ItemTypeName, VersionedItemSchema> = O
       forbidden: FORBIDDEN_FIELDS,
     } satisfies VersionedItemSchema,
   ]),
-) as Record<ItemTypeName, VersionedItemSchema>;
+// Object.fromEntries widens keys to string; every ItemTypeName key is built above.
+) as unknown as Record<ItemTypeName, VersionedItemSchema>;
 
 export function getItemSchema(type: ItemTypeName): VersionedItemSchema {
   return ITEM_SCHEMA_VERSIONS[type];
