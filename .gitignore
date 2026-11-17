@@ -15,6 +15,7 @@ vault-*.json
 apps/api/tmp/
 apps/api/log/
 apps/desktop/src-tauri/target/
+target/
 coverage/
 infra/docker/backups/
 
