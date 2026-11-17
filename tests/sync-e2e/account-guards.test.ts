@@ -2,7 +2,9 @@
  * Real clients (desktop vault + SyncEngine + SyncClient + libsodium) against the
  * REAL Rails API and Postgres, for the guards around WHO may sync WHAT:
  *  - a device whose Vault Key differs from the account's vault (it created a new
- *    vault instead of restoring) never uploads anything (QA DEFECT-C1).
+ *    vault instead of restoring) never uploads anything (QA DEFECT-C1);
+ *  - a 401 or 403 on pull stops sync, clears the token and signs the device out,
+ *    exactly like on push (QA DEFECT-H3).
  * Separate from two-clients.test.ts so its sign-ins get their own passkey throttle
  * window (10/min per IP) on a freshly booted API.
  *
@@ -116,4 +118,31 @@ test('DEFECT-C1 remedy: the same account on a device that RESTORED the backup sy
   await D.call('startSync');
   await settled(D);
   assert.equal((await D.find(M.a))?.id, ID.a);
+});
+
+test('DEFECT-H3: a 401 on PULL stops sync, clears the token and signs the device out', async () => {
+  await settled(A);
+  assert.equal((await A.call('status')).pending, 0, 'nothing queued: the pull is the first request to fail');
+  psql(`UPDATE sessions SET revoked_at = now() WHERE token_digest='${await tokenDigest(A)}'`);
+  const st = await A.call('syncNow');
+  assert.equal(st.state, 'signed_out', JSON.stringify(st));
+  assert.match(st.error, /Sign-in expired \(401\)/);
+  assert.deepEqual(await A.call('session'), { hasToken: false, unauthorizedCalls: 1 });
+  await new Promise((r) => setTimeout(r, RETRY_MS * 4));
+  assert.equal((await A.call('status')).state, 'signed_out', 'no retry loop with a dead session');
+  // Signing in again resumes sync.
+  await signIn(A);
+  await A.call('startSync');
+  await settled(A);
+});
+
+test('DEFECT-H3: a 403 device_not_authorized on PULL is treated the same way', async () => {
+  await settled(A);
+  psql(`UPDATE devices SET revoked_at = now() WHERE id='${await deviceOf(A)}'`); // session itself still live
+  const st = await A.call('syncNow');
+  assert.equal(st.state, 'signed_out', JSON.stringify(st));
+  assert.match(st.error, /no longer authorized to sync \(403\)/);
+  assert.deepEqual(await A.call('session'), { hasToken: false, unauthorizedCalls: 2 }, 'second sign-out of this client process');
+  await new Promise((r) => setTimeout(r, RETRY_MS * 4));
+  assert.equal((await A.call('status')).state, 'signed_out');
 });

@@ -9,6 +9,7 @@ const LABEL: Record<SyncStatus['state'], string> = {
   syncing: 'Syncing…',
   offline: 'Offline',
   error: 'Sync error',
+  signed_out: 'Signed out — sync stopped',
   vault_mismatch: 'Vault mismatch — sync off',
 };
 
@@ -25,7 +26,7 @@ export default function SyncBar({ status, conflicts, onSyncNow, onKeepBoth, reso
   const [open, setOpen] = useState(false);
   if (status.state === 'disabled') return null;
   const tone =
-    status.state === 'error' || status.state === 'vault_mismatch' ? 'border-red-900/60 bg-red-950/40 text-red-200'
+    status.state === 'error' || status.state === 'signed_out' || status.state === 'vault_mismatch' ? 'border-red-900/60 bg-red-950/40 text-red-200'
     : status.state === 'offline' ? 'border-amber-900/60 bg-amber-950/40 text-amber-200'
     : 'border-zinc-800 bg-zinc-900 text-zinc-300';
   const showConflicts = status.unresolvedConflicts > 0 || open;

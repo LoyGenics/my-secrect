@@ -13,6 +13,9 @@
  *    new checkpoint. A checkpoint is saved only after events apply.
  *  - `syncAll()` = push, then pull. Offline => returns { offline: true }
  *    with the queue intact; the caller retries later. Nothing is lost.
+ *  - 401 (session gone) or 403 (device not authorized) on push OR pull =>
+ *    `signedOut` is set and the run stops; the caller must stop syncing and
+ *    ask for sign-in. The queue is kept.
  *
  * The client sends ONLY ciphertext + opaque ids. It never sends plaintext
  * titles, tags, types, or relations to the server.
@@ -60,8 +63,18 @@ export interface SyncClientOptions {
   maxPullPages?: number;
 }
 
+/** The server refused this session (401) or its device (403 device_not_authorized,
+ *  the only 403 the sync endpoints return). Sync must stop until the user signs in
+ *  again; queued changes are kept. */
+export interface SignedOut {
+  status: 401 | 403;
+  message: string;
+}
+
 export interface SyncRunResult {
   offline: boolean;
+  /** Non-null when a push or the pull was refused with 401/403 (see SignedOut). */
+  signedOut: SignedOut | null;
   pushed: string[];
   pulled: ApplyResult | null;
   conflicts: number;
@@ -74,6 +87,12 @@ export interface SyncRunResult {
 function statusOf(err: unknown): number | null {
   const status = (err as { status?: unknown } | null)?.status;
   return typeof status === 'number' ? status : null;
+}
+
+function signedOutBy(err: unknown): SignedOut | null {
+  const status = statusOf(err);
+  if (status !== 401 && status !== 403) return null;
+  return { status, message: err instanceof Error ? err.message : String(err) };
 }
 
 function isOfflineError(err: unknown): boolean {
@@ -90,10 +109,11 @@ export class SyncClient {
   ) {}
 
   /** Drain the persisted push queue, FIFO. Returns pushed item ids. */
-  async pushQueue(): Promise<{ pushed: string[]; errors: string[]; offline: boolean }> {
+  async pushQueue(): Promise<{ pushed: string[]; errors: string[]; offline: boolean; signedOut: SignedOut | null }> {
     const pushed: string[] = [];
     const errors: string[] = [];
     let offline = false;
+    let signedOut: SignedOut | null = null;
     // Snapshot the queue at start; new local edits enqueue behind it.
     const queue = loadQueue(this.opts.storage);
     for (const entry of queue) {
@@ -119,8 +139,11 @@ export class SyncClient {
           markQueueAttempt(this.opts.storage, entry.item_id, msg);
           break; // connectivity is gone: stop, keep the rest queued in order
         }
-        if (statusOf(err) === 401) {
-          errors.push(`unauthorized (401): sign in again — ${queue.length} change(s) stay queued`);
+        const refused = signedOutBy(err);
+        if (refused) {
+          signedOut = refused;
+          const what = refused.status === 401 ? 'unauthorized (401)' : 'device not authorized (403)';
+          errors.push(`${what}: sign in again — ${queue.length} change(s) stay queued`);
           markQueueAttempt(this.opts.storage, entry.item_id, msg);
           break;
         }
@@ -137,7 +160,7 @@ export class SyncClient {
         markQueueAttempt(this.opts.storage, entry.item_id, msg);
       }
     }
-    return { pushed, errors, offline };
+    return { pushed, errors, offline, signedOut };
   }
 
   /**
@@ -202,22 +225,25 @@ export class SyncClient {
     const errors: string[] = [];
     const pushed: string[] = [];
     let offline = false;
+    let signedOut: SignedOut | null = null;
     try {
       const push = await this.pushQueue();
       pushed.push(...push.pushed);
       errors.push(...push.errors);
       offline = push.offline;
+      signedOut = push.signedOut;
     } catch (err) {
       if (isOfflineError(err)) offline = true;
       else errors.push(err instanceof Error ? err.message : String(err));
     }
-    if (offline) {
-      return { offline: true, pushed, pulled: null, conflicts: loadConflicts(this.opts.storage).filter((c) => c.resolution === 'unresolved').length, errors, checkpoint: loadCheckpoint(this.opts.storage, this.opts.vaultId) };
+    if (offline || signedOut) {
+      return { offline, signedOut, pushed, pulled: null, conflicts: loadConflicts(this.opts.storage).filter((c) => c.resolution === 'unresolved').length, errors, checkpoint: loadCheckpoint(this.opts.storage, this.opts.vaultId) };
     }
     try {
       const { result } = await this.pull();
       return {
         offline: false,
+        signedOut: null,
         pushed,
         pulled: result,
         conflicts: loadConflicts(this.opts.storage).filter((c) => c.resolution === 'unresolved').length,
@@ -225,9 +251,11 @@ export class SyncClient {
         checkpoint: loadCheckpoint(this.opts.storage, this.opts.vaultId),
       };
     } catch (err) {
-      if (isOfflineError(err)) return { offline: true, pushed, pulled: null, conflicts: 0, errors, checkpoint: loadCheckpoint(this.opts.storage, this.opts.vaultId) };
+      if (isOfflineError(err)) return { offline: true, signedOut: null, pushed, pulled: null, conflicts: 0, errors, checkpoint: loadCheckpoint(this.opts.storage, this.opts.vaultId) };
+      // A pull refused with 401/403 is the same signed-out state as a refused push.
+      signedOut = signedOutBy(err);
       errors.push(err instanceof Error ? err.message : String(err));
-      return { offline: false, pushed, pulled: null, conflicts: 0, errors, checkpoint: loadCheckpoint(this.opts.storage, this.opts.vaultId) };
+      return { offline: false, signedOut, pushed, pulled: null, conflicts: 0, errors, checkpoint: loadCheckpoint(this.opts.storage, this.opts.vaultId) };
     }
   }
 }

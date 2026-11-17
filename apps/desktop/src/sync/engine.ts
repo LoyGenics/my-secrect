@@ -20,6 +20,8 @@
  *    server vault this device's Vault Key cannot open (state 'vault_mismatch':
  *    nothing is pushed — a device that created a new vault instead of
  *    restoring must not upload items no other device can read).
+ *  - A 401 (session gone) or 403 (device not authorized) on ANY request stops
+ *    sync, clears the stored token and reports 'signed_out'.
  */
 import { createSyncClient, VaultApiClient } from '../../../../packages/sdk/src/index';
 import {
@@ -53,7 +55,7 @@ import {
   upsertItem,
 } from '../vault';
 
-export type SyncState = 'disabled' | 'idle' | 'syncing' | 'offline' | 'error' | 'vault_mismatch';
+export type SyncState = 'disabled' | 'idle' | 'syncing' | 'offline' | 'error' | 'signed_out' | 'vault_mismatch';
 
 export interface SyncStatus {
   state: SyncState;
@@ -74,8 +76,11 @@ export interface SyncEngineConfig {
   /** Called after sync changed local items (re-render). */
   onItemsChanged?: () => void;
   onStatus?: (s: SyncStatus) => void;
-  /** Called when the server answers 401 (session gone). */
+  /** Called once when the server answers 401 (session gone) or 403 (device not
+   *  authorized): sync has stopped and the user must sign in again. */
   onUnauthorized?: () => void;
+  /** Drops the stored session token; called before onUnauthorized. */
+  clearToken?: () => void | Promise<void>;
   /** Override for tests / non-browser hosts. Default: localStorage. */
   storage?: SyncStorage;
   /** Delay before a local edit is pushed (ms). Default 400. */
@@ -375,9 +380,23 @@ export class SyncEngine {
   }
 
   /** Stop for good (until a new engine starts) and show why. Nothing more is sent. */
-  private halt(state: 'vault_mismatch', message: string): void {
+  private halt(state: 'signed_out' | 'vault_mismatch', message: string): void {
     this.stop();
     this.setStatus({ state, error: message });
+  }
+
+  /** 401 / 403 from the server: stop, drop the token, hand over to sign-in. */
+  private async signOut(status: number): Promise<void> {
+    let message = status === 403
+      ? 'This device is no longer authorized to sync (403). Sign in again; local changes stay queued on this device.'
+      : 'Sign-in expired (401). Sign in again to sync; local changes stay queued on this device.';
+    try {
+      await this.cfg.clearToken?.();
+    } catch (err) {
+      message += `\nThe stored session could not be cleared: ${errText(err)}`;
+    }
+    this.halt('signed_out', message);
+    this.cfg.onUnauthorized?.();
   }
 
   private buildClient(vaultId: string): SyncClient {
@@ -492,6 +511,11 @@ export class SyncEngine {
       if (!this.client) this.client = this.buildClient(vaultId);
       const res = await this.client.syncAll();
       await this.storage.flush();
+      if (res.pushed.length > 0) this.cfg.onItemsChanged?.();
+      if (res.signedOut) {
+        await this.signOut(res.signedOut.status);
+        return false;
+      }
 
       // A 409 is an expected stale-revision outcome: it is surfaced as a conflict
       // record (shown in the conflict list) once the pull returns the other
@@ -502,11 +526,9 @@ export class SyncEngine {
       for (const s of res.pulled?.skipped ?? []) {
         if (/no ciphertext/i.test(s.reason)) problems.push(`item ${s.item_id}: ${s.reason}`);
       }
-      if (problems.some((p) => /unauthorized \(401\)/.test(p))) this.cfg.onUnauthorized?.();
       if (res.pulled && (res.pulled.applied.length > 0 || res.pulled.tombstones.length > 0 || res.pulled.conflicts.length > 0)) {
         this.cfg.onItemsChanged?.();
       }
-      if (res.pushed.length > 0) this.cfg.onItemsChanged?.();
       if (res.offline) {
         this.setStatus({ state: 'offline', error: 'Offline — changes are saved locally and will sync when the connection is back.' });
         retry = true;
@@ -522,9 +544,8 @@ export class SyncEngine {
       const status = statusOf(err);
       if (err instanceof VaultMismatchError) {
         this.halt('vault_mismatch', err.message);
-      } else if (status === 401) {
-        this.setStatus({ state: 'error', error: 'Sign-in expired (401). Sign in again to sync; local changes stay queued.' });
-        this.cfg.onUnauthorized?.();
+      } else if (status === 401 || status === 403) {
+        await this.signOut(status);
       } else if (isNetworkError(err)) {
         this.setStatus({ state: 'offline', error: 'Offline — changes are saved locally and will sync when the connection is back.' });
         retry = true;

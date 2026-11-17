@@ -97,6 +97,7 @@ async function main() {
   let engine: InstanceType<typeof SyncEngine> | null = null;
   let email = store['sync-e2e.email'] ?? ''; // models the persisted LS_ACCOUNT_EMAIL
   let itemsChanged = 0;
+  let unauthorizedCalls = 0;
 
   function summary(item: any) {
     return { id: item.id, title: item.title, fields: item.fields, deleted_at: item.deleted_at ?? null };
@@ -153,6 +154,9 @@ async function main() {
       engine = new SyncEngine({
         baseUrl: apiBase, getToken: async () => token, accountKey: email,
         onItemsChanged: () => { itemsChanged += 1; },
+        // What the app does (useSync + App): drop the stored token, then show sign-in.
+        clearToken: () => { token = null; localStorage.removeItem('sync-e2e.token'); },
+        onUnauthorized: () => { unauthorizedCalls += 1; },
         pushDebounceMs: Number(process.env.PUSH_DEBOUNCE_MS ?? 100),
         retryMs: Number(process.env.RETRY_MS ?? 400),
       });
@@ -164,6 +168,7 @@ async function main() {
     conflicts() { return engine!.getConflicts(); },
     async keepBoth({ id }) { await engine!.resolveKeepBoth(id); return engine!.getStatus(); },
     itemsChanged() { return itemsChanged; },
+    session() { return { hasToken: token !== null, unauthorizedCalls }; },
 
     // --- vault operations (the same functions the UI calls) ---
     async createItem({ id, title, fields, type }) {
