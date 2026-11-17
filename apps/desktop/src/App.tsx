@@ -497,7 +497,9 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     try {
       const { recoveryKey: key } = await createVault(newPass);
       setRecoveryKey(key);
-      setVaultExists(true);
+      // vaultExists flips only when onboarding finishes ("Open vault"): the
+      // onboarding branch below must stay mounted to show the one-time
+      // recovery key. Flipping it here unmounted it and the key was never shown.
       setUnlocked(true);
       setNewPass('');
       setNewPassConfirm('');
@@ -919,7 +921,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
             <div className="mt-5 space-y-3 text-center">
               <p className="text-2xl">✓</p>
               <p className="text-sm text-zinc-300">Your vault is created and unlocked. Add your first item to get started.</p>
-              <button className="btn-primary w-full" onClick={() => { setOnboardingStep(0); setView('all'); }}>
+              <button className="btn-primary w-full" onClick={() => { setRecoveryKey(''); setOnboardingStep(0); setView('all'); setVaultExists(true); }}>
                 Open vault
               </button>
             </div>

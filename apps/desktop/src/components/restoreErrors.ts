@@ -79,7 +79,7 @@ export function describeRestoreError(err: unknown): RestoreErrorInfo {
       message: `The backup lists the same item id more than once, so it cannot be trusted. ${raw.replace(/^restore:\s*/, '')} Nothing was restored.`,
     };
   }
-  if (has('not valid JSON') || has('missing') || has('"kdf') || has('relations_included') || has('not an object')) {
+  if (has('not valid JSON') || has('Not a my-secrect') || has('missing') || has('"kdf') || has('relations_included') || has('not an object')) {
     return {
       kind: 'not-a-backup',
       message: `This file is not a valid, complete backup. ${raw.replace(/^restore:\s*/, '')} Nothing was restored.`,
