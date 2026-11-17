@@ -5,50 +5,45 @@
  * Platform-neutral: this file imports nothing from React, the DOM or
  * React Native, so desktop, web AND mobile can all import it. Mobile
  * consumes these values only (see apps/mobile/src/theme.ts); DOM components
- * consume the same values through CSS variables (see tokens.css).
+ * consume the same values through CSS variables (see tokens.css). The two
+ * files are kept identical by packages/ui/tests/tokens-sync.test.ts.
  *
- * Origin: the Phase A audit. Desktop was the de-facto source (dark-only,
- * bg #0B0F14, zinc-100 text, indigo #6366F1 accent) and its values are
- * preserved exactly in the dark theme. Web's sky accent was drift, not a
- * decision, and is removed (see apps/web/src/index.css).
+ * Origin: desktop was the de-facto source (dark, bg #0B0F14, zinc text,
+ * indigo accent) and its values are preserved in the dark theme.
  *
- * CONTRAST — WCAG 2.2 AA targets, computed from relative luminance
- * (sRGB), NOT verified in a browser (no browser test has been run):
+ * CONTRAST — WCAG 2.2 AA, computed from relative luminance (sRGB). The
+ * rendered pairs are also checked in a real browser by axe-core
+ * (tests/a11y-web, both themes) — see docs/design-system.md.
  *
  *   Dark theme
- *   - text.primary   #F4F4F5 on bg.base #0B0F14        17.49:1 (AAA)
- *   - text.secondary #D4D4D8 on bg.base                13.00:1 (AAA)
- *   - text.muted     #A1A1AA on bg.base                 7.50:1 (AAA)
- *   - text.muted     #A1A1AA on input bg #18181B        6.91:1 (AAA)
- *   - text.faint     #71717A on bg.base                 3.98:1 — FAILS 4.5:1
- *     for normal text. RESTRICTED to large text (>= 18pt / 24px, or bold
- *     >= 14pt) and non-text decoration only, where the bar is 3:1.
- *     Never use it for body copy, labels or placeholders.
- *   - on-brand white #FFFFFF on brand.600 #4F46E5        6.29:1 (AA)
- *   - brand.500 #6366F1 with white text                  4.47:1 — just
- *     BELOW 4.5:1. brand.500 is therefore NEVER a text-on-brand color.
- *     It is used for focus rings, large-text accents and decoration only.
- *     Primary buttons use brand.600 (desktop already did).
- *   - focus ring brand.500 vs dark bg                    4.30:1 (> 3:1
- *     non-text minimum, WCAG 1.4.11 / 2.4.7)
- *   - danger text #FECACA on danger bg (dark)           12.39:1 (AAA)
- *   - success #34D399 / warning #FBBF24 / danger #F87171 on dark bg
- *     are 10.00 / 11.51 / 6.95:1 — all pass AA as text.
+ *   - text.primary   #F4F4F5 on bg.base #0B0F14        17.49:1
+ *   - text.secondary #D4D4D8 on bg.surface #141519     12.34:1
+ *   - text.muted     #A1A1AA on bg.base / surface      7.50 / 7.12:1
+ *   - text.faint     #71717A on bg.base                 3.98:1 — FAILS 4.5:1.
+ *     Large text (>= 24px, or bold >= 18.7px) and decoration only.
+ *     Never body copy, labels, hints or placeholders.
+ *   - white on brand.DEFAULT #4F46E5                    6.29:1
+ *   - white on brand.hover   #4338CA                    7.90:1 (hover used
+ *     to be #6366F1 = 4.47:1, below AA; it now darkens in both themes)
+ *   - #6366F1 (brand.500) is NEVER a text-on-brand color: focus rings,
+ *     decoration and large accents only. Focus ring vs bg.base 4.30:1.
+ *   - border.control #71717A vs bg.surface 3.78:1 / vs bg.input 3.67:1
+ *     (WCAG 1.4.11 non-text contrast for input / checkbox boundaries;
+ *     border.strong #3F3F46 is 1.75:1 and is for dividers only).
+ *   - success.text #34D399 / warning.text #FBBF24 / danger.softText
+ *     #FECACA on bg.surface: 9.49 / 10.93 / 13.28:1.
  *
  *   Light theme
- *   - text.primary   #18181B on #FFFFFF                 17.72:1 (AAA)
- *   - text.secondary #3F3F46 on #FFFFFF                 10.44:1 (AAA)
- *   - text.muted     #52525B on #FFFFFF                  7.73:1 (AAA)
- *   - text.faint     #71717A on #FFFFFF                  4.83:1 (AA) — but
- *     only 4.40:1 on surface #F4F4F5, so the same restriction applies:
- *     large text / decoration only, never body copy on surfaces.
- *   - on-brand white on brand.600                         6.29:1 (AA)
- *   - brand.700 #4338CA on #FFFFFF (links)                7.90:1 (AAA)
- *   - focus ring brand.600 vs white                      6.29:1 (> 3:1)
- *
- * These ratios are arithmetic on the hex values above. A real AA claim
- * still needs a browser check (rendered text, real backgrounds, zoom and
- * forced-colors mode) — that check has NOT been run.
+ *   - text.primary   #18181B on #FFFFFF                 17.72:1
+ *   - text.secondary #3F3F46 on #FFFFFF                 10.44:1
+ *   - text.muted     #52525B on bg.surface #F4F4F5       7.03:1
+ *   - text.faint     #71717A on bg.surface               4.40:1 — same
+ *     restriction as dark: large text / decoration only.
+ *   - white on brand #4F46E5 / hover #4338CA          6.29 / 7.90:1
+ *   - text.link #4338CA on #F4F4F5                       7.19:1
+ *   - border.control #71717A on #FFFFFF                  4.83:1
+ *   - success.text #047857 / warning.text #B45309 on #F4F4F5  4.99 / 4.57:1
+ *   - danger.softText #B91C1C on #FFFFFF                 6.47:1
  */
 
 // ---------------------------------------------------------------------------
@@ -107,14 +102,18 @@ export const semantic = {
 
 export interface ThemeTokens {
   colorScheme: 'light' | 'dark';
-  background: { base: string; surface: string; raised: string; sunken: string; input: string };
+  /** `muted`: neutral fill for chips, badges and progress tracks. */
+  background: { base: string; surface: string; raised: string; sunken: string; input: string; muted: string };
   text: { primary: string; secondary: string; muted: string; faint: string; onBrand: string; onDanger: string; link: string };
-  border: { default: string; strong: string; subtle: string };
+  /** `control`: the only border that meets 3:1 — inputs, selects, checkboxes. */
+  border: { default: string; strong: string; subtle: string; control: string };
   brand: { DEFAULT: string; hover: string; active: string; soft: string; softText: string; focus: string };
   danger: { DEFAULT: string; hover: string; soft: string; softText: string; border: string };
   success: { DEFAULT: string; text: string; soft: string };
   warning: { DEFAULT: string; text: string; soft: string };
   focus: { ring: string; width: string; offset: string };
+  /** Elevation. One light source (top), shadows only, no border+glow pairs. */
+  shadow: { sm: string; md: string; lg: string; overlay: string };
 }
 
 /** Dark theme — preserves the desktop look exactly. Default theme. */
@@ -129,6 +128,8 @@ export const darkTheme: ThemeTokens = {
     // Desktop .input bg-zinc-900. Mobile previously used #1B222C here;
     // it now adopts this value (one-token change, see mobile theme.ts).
     input: '#18181B',
+    // Desktop's bg-zinc-800 (count badges, score track).
+    muted: '#27272A',
   },
   text: {
     primary: '#F4F4F5',
@@ -139,18 +140,18 @@ export const darkTheme: ThemeTokens = {
     onDanger: '#FFFFFF',
     link: '#A5B4FC',
   },
-  border: { default: '#27272A', strong: '#3F3F46', subtle: '#1F1F23' },
+  border: { default: '#27272A', strong: '#3F3F46', subtle: '#1F1F23', control: '#71717A' },
   brand: {
     DEFAULT: '#4F46E5',
-    hover: '#6366F1',
-    active: '#4338CA',
+    hover: '#4338CA',
+    active: '#3730A3',
     soft: 'rgba(99, 102, 241, 0.20)',
     softText: '#C7D2FE',
     focus: '#6366F1',
   },
   danger: {
     DEFAULT: '#DC2626',
-    hover: '#EF4444',
+    hover: '#B91C1C',
     soft: 'rgba(220, 38, 38, 0.18)',
     softText: '#FECACA',
     border: 'rgba(220, 38, 38, 0.60)',
@@ -158,6 +159,12 @@ export const darkTheme: ThemeTokens = {
   success: { DEFAULT: '#10B981', text: '#34D399', soft: 'rgba(16, 185, 129, 0.15)' },
   warning: { DEFAULT: '#F59E0B', text: '#FBBF24', soft: 'rgba(245, 158, 11, 0.15)' },
   focus: { ring: '#6366F1', width: '2px', offset: '2px' },
+  shadow: {
+    sm: '0 1px 2px rgba(0, 0, 0, 0.20)',
+    md: '0 4px 12px rgba(0, 0, 0, 0.30)',
+    lg: '0 12px 32px rgba(0, 0, 0, 0.45)',
+    overlay: '0 16px 48px rgba(0, 0, 0, 0.55)',
+  },
 };
 
 /** Light theme — same brand, inverted surfaces. Opt-in via data-theme="light". */
@@ -169,6 +176,7 @@ export const lightTheme: ThemeTokens = {
     raised: '#FFFFFF',
     sunken: '#E4E4E7',
     input: '#FFFFFF',
+    muted: '#E4E4E7',
   },
   text: {
     primary: '#18181B',
@@ -179,7 +187,7 @@ export const lightTheme: ThemeTokens = {
     onDanger: '#FFFFFF',
     link: '#4338CA',
   },
-  border: { default: '#D4D4D8', strong: '#A1A1AA', subtle: '#E4E4E7' },
+  border: { default: '#D4D4D8', strong: '#A1A1AA', subtle: '#E4E4E7', control: '#71717A' },
   brand: {
     DEFAULT: '#4F46E5',
     hover: '#4338CA',
@@ -198,6 +206,12 @@ export const lightTheme: ThemeTokens = {
   success: { DEFAULT: '#059669', text: '#047857', soft: 'rgba(5, 150, 105, 0.10)' },
   warning: { DEFAULT: '#D97706', text: '#B45309', soft: 'rgba(217, 119, 6, 0.10)' },
   focus: { ring: '#4F46E5', width: '2px', offset: '2px' },
+  shadow: {
+    sm: '0 1px 2px rgba(0, 0, 0, 0.08)',
+    md: '0 4px 12px rgba(0, 0, 0, 0.12)',
+    lg: '0 12px 32px rgba(0, 0, 0, 0.18)',
+    overlay: '0 16px 48px rgba(0, 0, 0, 0.22)',
+  },
 };
 
 export const themes = { light: lightTheme, dark: darkTheme } as const;
@@ -212,6 +226,22 @@ export const fontFamily = {
   mono: "ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace",
 } as const;
 
+/**
+ * Type scale: [font-size, line-height] in px. Emitted as --ms-text-<step> /
+ * --ms-leading-<step>; every component reads these, so a type change is a
+ * one-place edit here (plus `fontFamily`).
+ */
+export const textScale = {
+  xs: [12, 16],
+  sm: [14, 20],
+  md: [16, 24],
+  lg: [20, 28],
+  xl: [24, 32],
+  '2xl': [32, 40],
+} as const;
+
+export type TextStep = keyof typeof textScale;
+
 export const typography = {
   display: { fontSize: 32, lineHeight: 40, fontWeight: 700, letterSpacing: '-0.01em' },
   title: { fontSize: 24, lineHeight: 32, fontWeight: 700, letterSpacing: '-0.01em' },
@@ -220,8 +250,8 @@ export const typography = {
   body: { fontSize: 16, lineHeight: 24, fontWeight: 400, letterSpacing: '0em' },
   bodySmall: { fontSize: 14, lineHeight: 20, fontWeight: 400, letterSpacing: '0em' },
   caption: { fontSize: 12, lineHeight: 16, fontWeight: 500, letterSpacing: '0em' },
-  /** Desktop `.label`: uppercase, tracking-wide, xs. */
-  label: { fontSize: 12, lineHeight: 16, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' as const },
+  /** Desktop `.label`: uppercase, tracking-wide (0.025em), xs, medium. */
+  label: { fontSize: 12, lineHeight: 16, fontWeight: 500, letterSpacing: '0.025em', textTransform: 'uppercase' as const },
   mono: { fontSize: 14, lineHeight: 20, fontWeight: 400, letterSpacing: '0em' },
 } as const;
 
@@ -241,12 +271,8 @@ export const radii = {
   full: 9999,
 } as const;
 
-export const shadows = {
-  sm: '0 1px 2px rgba(0, 0, 0, 0.20)',
-  md: '0 4px 12px rgba(0, 0, 0, 0.30)',
-  lg: '0 12px 32px rgba(0, 0, 0, 0.45)',
-  overlay: '0 16px 48px rgba(0, 0, 0, 0.55)',
-} as const;
+/** Dark-theme shadows (kept for existing imports); per-theme values live in `ThemeTokens.shadow`. */
+export const shadows = darkTheme.shadow;
 
 export const borders = { width: { hairline: 1, default: 1, strong: 2 } } as const;
 
@@ -257,8 +283,9 @@ export const motion = {
     decelerate: 'cubic-bezier(0, 0, 0.2, 1)',
     accelerate: 'cubic-bezier(0.4, 0, 1, 1)',
   },
-  /** Honor `prefers-reduced-motion` — see tokens.css, which disables
-   *  transitions/animations under this media query. */
+  /** Under this query components swap movement for an opacity crossfade
+   *  and stop decorative loops (see components.css); state changes stay
+   *  visible, nothing slides, scales or shimmers. */
   reduceMotionQuery: '(prefers-reduced-motion: reduce)',
 } as const;
 
@@ -290,6 +317,7 @@ export const tokens = {
   dark: darkTheme,
   light: lightTheme,
   fontFamily,
+  textScale,
   typography,
   spacing,
   radii,

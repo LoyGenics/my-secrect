@@ -1,14 +1,11 @@
 /*
- * My Secret tokens as CSS custom properties.
- * Single source of truth alongside tokens.ts — keep the two in sync;
- * tokens.ts is authoritative for values, this file is the web runtime.
+ * GENERATED from tokens.ts by src/tokens-css.ts — do not edit by hand.
+ * Change tokens.ts, then: npm --workspace @my-secrect/ui run tokens
  *
  * Theme selection (see src/theme.ts):
- * - No attribute, or data-theme="dark"   -> dark (default; preserves the
- *   desktop/web look exactly as it shipped).
+ * - No attribute, or data-theme="dark"   -> dark (default).
  * - data-theme="light"                    -> light.
  * - data-theme="system" + prefers-color-scheme: light -> light.
- * Apps set the attribute on <html> via applyTheme() / initTheme().
  */
 
 :root,
@@ -20,6 +17,7 @@
   --ms-color-bg-raised: #1b222c;
   --ms-color-bg-sunken: #080b0f;
   --ms-color-bg-input: #18181b;
+  --ms-color-bg-muted: #27272a;
   --ms-color-text-primary: #f4f4f5;
   --ms-color-text-secondary: #d4d4d8;
   --ms-color-text-muted: #a1a1aa;
@@ -30,14 +28,15 @@
   --ms-color-border-default: #27272a;
   --ms-color-border-strong: #3f3f46;
   --ms-color-border-subtle: #1f1f23;
+  --ms-color-border-control: #71717a;
   --ms-color-brand: #4f46e5;
-  --ms-color-brand-hover: #6366f1;
-  --ms-color-brand-active: #4338ca;
+  --ms-color-brand-hover: #4338ca;
+  --ms-color-brand-active: #3730a3;
   --ms-color-brand-soft: rgba(99, 102, 241, 0.2);
   --ms-color-brand-soft-text: #c7d2fe;
   --ms-color-brand-focus: #6366f1;
   --ms-color-danger: #dc2626;
-  --ms-color-danger-hover: #ef4444;
+  --ms-color-danger-hover: #b91c1c;
   --ms-color-danger-soft: rgba(220, 38, 38, 0.18);
   --ms-color-danger-soft-text: #fecaca;
   --ms-color-danger-border: rgba(220, 38, 38, 0.6);
@@ -62,6 +61,7 @@
   --ms-color-bg-raised: #ffffff;
   --ms-color-bg-sunken: #e4e4e7;
   --ms-color-bg-input: #ffffff;
+  --ms-color-bg-muted: #e4e4e7;
   --ms-color-text-primary: #18181b;
   --ms-color-text-secondary: #3f3f46;
   --ms-color-text-muted: #52525b;
@@ -72,6 +72,7 @@
   --ms-color-border-default: #d4d4d8;
   --ms-color-border-strong: #a1a1aa;
   --ms-color-border-subtle: #e4e4e7;
+  --ms-color-border-control: #71717a;
   --ms-color-brand: #4f46e5;
   --ms-color-brand-hover: #4338ca;
   --ms-color-brand-active: #3730a3;
@@ -96,7 +97,8 @@
   --ms-shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.22);
 }
 
-/* System mode: only when the app explicitly opts in with data-theme="system". */
+/* System mode: plain CSS cannot share a block between a selector and a
+ * media query, so the light values are emitted twice. */
 @media (prefers-color-scheme: light) {
   [data-theme='system'] {
     color-scheme: light;
@@ -106,6 +108,7 @@
     --ms-color-bg-raised: #ffffff;
     --ms-color-bg-sunken: #e4e4e7;
     --ms-color-bg-input: #ffffff;
+    --ms-color-bg-muted: #e4e4e7;
     --ms-color-text-primary: #18181b;
     --ms-color-text-secondary: #3f3f46;
     --ms-color-text-muted: #52525b;
@@ -116,6 +119,7 @@
     --ms-color-border-default: #d4d4d8;
     --ms-color-border-strong: #a1a1aa;
     --ms-color-border-subtle: #e4e4e7;
+    --ms-color-border-control: #71717a;
     --ms-color-brand: #4f46e5;
     --ms-color-brand-hover: #4338ca;
     --ms-color-brand-active: #3730a3;
@@ -141,10 +145,22 @@
   }
 }
 
-/* Shared scale tokens (theme-independent). */
+/* Theme-independent scales. */
 :root {
   --ms-font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --ms-font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+  --ms-text-xs: 12px;
+  --ms-leading-xs: 16px;
+  --ms-text-sm: 14px;
+  --ms-leading-sm: 20px;
+  --ms-text-md: 16px;
+  --ms-leading-md: 24px;
+  --ms-text-lg: 20px;
+  --ms-leading-lg: 28px;
+  --ms-text-xl: 24px;
+  --ms-leading-xl: 32px;
+  --ms-text-2xl: 32px;
+  --ms-leading-2xl: 40px;
   --ms-radius-xs: 4px;
   --ms-radius-sm: 8px;
   --ms-radius-md: 12px;
@@ -158,32 +174,42 @@
   --ms-space-5: 20px;
   --ms-space-6: 24px;
   --ms-space-8: 32px;
+  --ms-space-10: 40px;
+  --ms-space-12: 48px;
+  --ms-space-16: 64px;
+  --ms-space-20: 80px;
+  --ms-space-24: 96px;
   --ms-duration-fast: 120ms;
   --ms-duration-base: 200ms;
   --ms-duration-slow: 320ms;
   --ms-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ms-easing-decelerate: cubic-bezier(0, 0, 0.2, 1);
+  --ms-easing-accelerate: cubic-bezier(0.4, 0, 1, 1);
   --ms-control-height: 40px;
+  --ms-control-height-sm: 32px;
   --ms-control-height-touch: 48px;
   --ms-focus-width: 2px;
   --ms-focus-offset: 2px;
 }
 
 /* Global focus indicator: 2px ring, 2px offset (WCAG 2.4.7 / 1.4.11).
- * Component CSS in components.css refines this per component; this is the
- * safety net for any focusable element. */
+ * components.css refines it per component; this is the safety net. */
 :focus-visible {
   outline: var(--ms-focus-width) solid var(--ms-color-focus-ring);
   outline-offset: var(--ms-focus-offset);
 }
 
-/* Reduced motion: honor the OS setting everywhere. */
+/* Browser surfaces carry the palette too. */
+::selection {
+  background: var(--ms-color-brand-soft);
+  color: var(--ms-color-text-primary);
+}
+
+/* Reduced motion: components define their own alternative (opacity
+ * crossfade instead of movement, no decorative loops) in components.css;
+ * this only stops smooth scrolling. */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
+  html {
+    scroll-behavior: auto;
   }
 }
