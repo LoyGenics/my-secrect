@@ -1133,7 +1133,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
             {visibleItems.length === 0 ? (
               <div className="px-2 py-8 text-center">
                 <p className="text-sm text-zinc-500">{emptyMessage}</p>
-                {items.length === 0 && view !== 'trash' && view !== 'health' && (
+                {items.length === 0 && view !== 'trash' && (
                   <button type="button" className="btn-ghost mt-4" onClick={() => void handleLoadExampleData()}>
                     Load example data
                   </button>
@@ -1143,7 +1143,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
                     Clear example data
                   </button>
                 )}
-                {items.length === 0 && view !== 'trash' && view !== 'health' && (
+                {items.length === 0 && view !== 'trash' && (
                   <p className="mt-3 text-xs text-zinc-600">Example data is clearly labelled EXAMPLE DATA — every value is fake.</p>
                 )}
               </div>

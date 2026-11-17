@@ -126,24 +126,26 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
     const email = st.email;
     try {
       // Step 1: fresh single-use options (5 min). Never reused.
-      const options =
-        mode === 'create'
-          ? await security.passkeyRegisterOptions(email)
-          : await security.passkeyAuthenticateOptions(email);
+      // The two modes return different response shapes, so each branch
+      // fetches its own options and only touches its own field.
+      const registerOptions =
+        mode === 'create' ? await security.passkeyRegisterOptions(email) : null;
+      const authenticateOptions =
+        mode === 'create' ? null : await security.passkeyAuthenticateOptions(email);
       st = optionsReceived(st);
       setMachine(st);
       // Step 2: the browser ceremony (user presence + verification
       // are required server-side; the authenticator enforces them).
       let credential: unknown;
-      if (mode === 'create') {
+      if (registerOptions) {
         const cred = await navigator.credentials.create({
-          publicKey: toCreationOptions(options.creation_options),
+          publicKey: toCreationOptions(registerOptions.creation_options),
         });
         if (!cred) throw new Error('no credential returned');
         credential = serializeCreateCredential(cred as PublicKeyCredential);
-      } else {
+      } else if (authenticateOptions) {
         const cred = await navigator.credentials.get({
-          publicKey: toRequestOptions(options.request_options),
+          publicKey: toRequestOptions(authenticateOptions.request_options),
         });
         if (!cred) throw new Error('no credential returned');
         credential = serializeGetCredential(cred as PublicKeyCredential);
@@ -245,7 +247,7 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
                 {s.createAccount}
               </button>
             </div>
-            <form className="mt-4 space-y-3" onSubmit={(e) => void submitEmail()}>
+            <form className="mt-4 space-y-3" onSubmit={(e) => void submitEmail(e)}>
               <div>
                 <label className="label" htmlFor="signin-email">{s.emailLabel}</label>
                 <input
@@ -270,7 +272,7 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
         )}
 
         {machine.step === 'mfa' && (
-          <form className="mt-4 space-y-3" onSubmit={(e) => void submitMfa()}>
+          <form className="mt-4 space-y-3" onSubmit={(e) => void submitMfa(e)}>
             <h2 className="text-base font-semibold">{s.mfaTitle}</h2>
             <p className="text-sm text-zinc-400">{s.mfaBody}</p>
             <div>
