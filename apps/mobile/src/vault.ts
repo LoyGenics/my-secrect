@@ -143,9 +143,23 @@ async function finishUnlock(master: Uint8Array, keys: StoredKeys): Promise<'ok' 
   try { unlockedItems = await decryptRows(await loadRows()); return 'ok'; }
   catch { clearMemory(); return 'bad_rows'; }
 }
-/** The providers' candidate list; rewritten after every unlock. A failure only leaves it stale until the next one. */
+/**
+ * autofill_index is the providers' candidate list, and providers can only
+ * fill with biometric unlock on, so it exists only while that is on
+ * (contract §2: cleared on wipe and when biometric unlock is turned off).
+ * Rewritten after every unlock and enrolment; a failure only leaves it
+ * stale until the next one.
+ */
 async function refreshAutofillIndex(): Promise<void> {
-  try { await (await getStore()).replaceAutofillIndex(autofillIndexFor(unlockedItems)); } catch { /* see above */ }
+  try {
+    const store = await getStore();
+    const enabled = (await store.getDeviceUnlock()) !== null;
+    await store.replaceAutofillIndex(enabled ? autofillIndexFor(unlockedItems) : []);
+  } catch { /* see above */ }
+}
+/** The index entry for an item write, or null (= remove) while biometric unlock is off. */
+async function indexEntryFor(store: VaultStore, item: VaultItem) {
+  return (await store.getDeviceUnlock()) !== null ? autofillEntryFor(item) : null;
 }
 
 /**
@@ -270,6 +284,7 @@ async function enrollMaster(master: Uint8Array, prompt: string): Promise<DeviceU
     await platform.deviceKey.remove().catch(() => undefined);
     return { ok: false, code: 'STORAGE' };
   }
+  await refreshAutofillIndex();
   return { ok: true };
 }
 
@@ -404,9 +419,10 @@ export async function upsertItem(item: VaultItem): Promise<void> {
   const wrapped = await crypto.wrapKey(vaultKey, itemKey);
   const { nonce, ciphertext } = await crypto.encrypt(itemKey, Buffer.from(JSON.stringify(stored), 'utf8'));
   itemKey.fill(0);
-  await (await getStore()).upsertItemRow(
+  const store = await getStore();
+  await store.upsertItemRow(
     { id: stored.id, nonce: toBase64(nonce), ciphertext: toBase64(ciphertext), wrapped_item_key: toBase64(wrapped.wrapped), wrapped_nonce: toBase64(wrapped.nonce), deleted_at: null },
-    autofillEntryFor(stored),
+    await indexEntryFor(store, stored),
   );
   unlockedItems = [...unlockedItems.filter((i) => i.id !== stored.id), stored];
 }
@@ -418,7 +434,8 @@ export async function deleteItem(id: string): Promise<void> {
 }
 export async function restoreItem(id: string): Promise<void> {
   const item = unlockedItems.find((i) => i.id === id);
-  await (await getStore()).setDeletedAt(id, null, item ? autofillEntryFor({ ...item, deleted_at: null }) : null);
+  const store = await getStore();
+  await store.setDeletedAt(id, null, item ? await indexEntryFor(store, { ...item, deleted_at: null }) : null);
   if (item) item.deleted_at = null;
 }
 export async function permanentlyDeleteItem(id: string): Promise<void> {
@@ -513,7 +530,7 @@ export async function importEncrypted(json: string): Promise<void> {
     accepted.push(row);
     nextItems = [...nextItems.filter((i) => i.id !== item.id), item];
   }
-  await store.mergeRows(accepted, autofillIndexFor(nextItems));
+  await store.mergeRows(accepted, (await store.getDeviceUnlock()) !== null ? autofillIndexFor(nextItems) : []);
   unlockedItems = nextItems;
 }
 export type VaultRestoreSecret =
@@ -582,7 +599,8 @@ export async function restoreEncrypted(json: string, secret: VaultRestoreSecret)
       opened.push(decrypted);
       rows.push(rowFromExportItem(item));
     }
-    await store.restoreVault(JSON.stringify(envelopeToStoredKeys(data.keys)), rows, autofillIndexFor(opened));
+    // A restore lands in an empty store: no biometric unlock yet, so no autofill index.
+    await store.restoreVault(JSON.stringify(envelopeToStoredKeys(data.keys)), rows, []);
     masterKey = master;
     vaultKey = vk;
     unlockedItems = opened;

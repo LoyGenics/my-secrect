@@ -123,11 +123,12 @@ export class VaultStore {
     });
   }
 
-  /** Passphrase change: new key envelope, and the device-unlock wrap goes with it (contract §4). */
+  /** Passphrase change: new key envelope; the device-unlock wrap and the autofill index go with it (contract §2, §4). */
   async replaceKeysAndDropDeviceUnlock(keysJson: string): Promise<void> {
     await this.db.transaction(async (tx) => {
       await tx.run('UPDATE vault_keys SET json = ? WHERE id = 1', [keysJson]);
       await tx.run('DELETE FROM device_unlock');
+      await tx.run('DELETE FROM autofill_index');
     });
   }
 
@@ -179,7 +180,13 @@ export class VaultStore {
       [row.scheme, row.wrapped_amk, row.created_at],
     );
   }
-  async deleteDeviceUnlock(): Promise<void> { await this.db.run('DELETE FROM device_unlock'); }
+  /** Biometric unlock off: the wrap row and the autofill index are removed together (contract §2). */
+  async deleteDeviceUnlock(): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      await tx.run('DELETE FROM device_unlock');
+      await tx.run('DELETE FROM autofill_index');
+    });
+  }
 
   async listAutofillIndex(): Promise<AutofillEntry[]> {
     return this.db.all<AutofillEntry>('SELECT id, title, username, host, type FROM autofill_index ORDER BY id');

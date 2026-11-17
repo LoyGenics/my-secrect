@@ -59,7 +59,7 @@ test('mobile: v2 backup restores with recovery key; tampered ciphertext rejected
   assert.ok(got);
   assert.equal(got.title, entry.title);
   assert.deepEqual(got.fields, entry.fields);
-  assert.deepEqual(await store.listAutofillIndex(), [{ id: entry.id, title: entry.title, username: 'ada', host: 'example.test', type: 'login' }]);
+  assert.deepEqual(await store.listAutofillIndex(), []); // no biometric unlock on a restored vault yet
 
   vault.lockVault();
   assert.equal(await vault.unlockVault(PASSPHRASE), true);

@@ -139,8 +139,11 @@ test('disable, passphrase change and wipe each delete the row and the key', { ti
   assert.equal(dk.removeCalls, 1);
 
   await vault.enableDeviceUnlockWithPassphrase(PASS, 'p');
+  await vault.upsertItem(login);
+  assert.equal((await store.listAutofillIndex()).length, 1);
   await vault.changePassphrase(PASS, 'a-brand-new-passphrase');
   assert.equal(await store.getDeviceUnlock(), null);
+  assert.deepEqual(await store.listAutofillIndex(), []);
   assert.equal(dk.removeCalls, 2);
   vault.lockVault();
   assert.equal(await vault.unlockVault('a-brand-new-passphrase'), true);
@@ -156,9 +159,14 @@ test('disable, passphrase change and wipe each delete the row and the key', { ti
   assert.equal(await vault.hasVault(), false);
 });
 
-test('autofill index follows item writes: trash removes, restore re-adds, delete removes', { timeout: 120_000 }, async () => {
+test('autofill index exists only while biometric unlock is on, and follows item writes', { timeout: 120_000 }, async () => {
   const { store } = await setup();
   await vault.createVault(PASS);
+  await vault.upsertItem(login);
+  assert.deepEqual(await store.listAutofillIndex(), []); // biometric unlock off: no index
+  await vault.enableDeviceUnlockWithPassphrase(PASS, 'p');
+  assert.deepEqual((await store.listAutofillIndex()).map((e) => e.id), [login.id]); // enrolment fills it
+  await vault.permanentlyDeleteItem(login.id);
   await vault.upsertItem(login);
   assert.equal((await store.listAutofillIndex()).length, 1);
   await vault.deleteItem(login.id);
@@ -168,6 +176,14 @@ test('autofill index follows item writes: trash removes, restore re-adds, delete
   await vault.permanentlyDeleteItem(login.id);
   assert.deepEqual(await store.listAutofillIndex(), []);
   assert.equal(await store.countRows(), 0);
+  await vault.upsertItem(login);
+  assert.equal((await store.listAutofillIndex()).length, 1);
+  await vault.disableDeviceUnlock();
+  assert.deepEqual(await store.listAutofillIndex(), []); // turning it off clears the index
+  await vault.upsertItem({ ...login, title: 'renamed' });
+  vault.lockVault();
+  await vault.unlockVault(PASS);
+  assert.deepEqual(await store.listAutofillIndex(), []); // and unlock does not refill it
 });
 
 test('AsyncStorage vault from the old build migrates on first open and unlocks with its passphrase', { timeout: 180_000 }, async () => {
@@ -191,7 +207,7 @@ test('AsyncStorage vault from the old build migrates on first open and unlocks w
   assert.equal(await vault.unlockVault(PASS), true);
   assert.equal(vault.listItems().find((i) => i.id === login.id)?.fields.password, 'pw-DO-NOT-LEAK');
   assert.deepEqual(vault.listTrash().map((i) => i.id), [note.id]);
-  assert.deepEqual((await fresh.store.listAutofillIndex()).map((e) => e.id), [login.id]);
+  assert.deepEqual(await fresh.store.listAutofillIndex(), []); // biometric unlock not on yet
 });
 
 test('failed migration: lock screen gets the error, nothing unlocks, AsyncStorage untouched', { timeout: 60_000 }, async () => {
