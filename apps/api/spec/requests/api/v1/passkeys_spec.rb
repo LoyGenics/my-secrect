@@ -30,11 +30,10 @@ RSpec.describe 'Passkeys API', type: :request do
     Base64.urlsafe_encode64(bytes, padding: false)
   end
 
-  # Step 1 (registration) through the real HTTP route.
+  # Step 1 (registration) through the real HTTP routes: email code ->
+  # ticket -> creation options (spec/support/registration_helper.rb).
   def registration_options_for(address)
-    post '/api/v1/auth/passkeys/register', params: { email: address }, as: :json
-    expect(response).to have_http_status(:ok)
-    json_body
+    registration_options_via_api(address)
   end
 
   # Full registration ceremony through the real HTTP routes. Returns
@@ -75,7 +74,9 @@ RSpec.describe 'Passkeys API', type: :request do
       expect(response).to have_http_status(:ok)
       expect(json_body['token']).to start_with('sess_')
       expect(json_body['user_id']).to be_present
-      expect(json_body['device_id']).to be_present
+      # No device proof was sent, so the session is unbound
+      # (device binding: spec/requests/api/v1/device_binding_spec.rb).
+      expect(json_body['device_id']).to be_nil
 
       authenticator = Authenticator.last
       expect(authenticator.credential_id).to eq(credential['id'])
@@ -118,13 +119,38 @@ RSpec.describe 'Passkeys API', type: :request do
       expect(Session.count).to eq(1) # no second session was issued
     end
 
-    it 'rejects a second passkey for an account that already has one (takeover guard)' do
+    it 'never issues sign-up options for an address that already has an account (takeover guard)' do
       register_passkey
       expect(response).to have_http_status(:ok)
 
-      other_client = WebAuthn::FakeClient.new(origin)
-      options = registration_options_for(email)
-      credential = other_client.create(challenge: options['creation_options']['challenge'], user_verified: true)
+      # Same 202 as for a new address, but the owner gets a notice, no code.
+      post '/api/v1/auth/email/request', params: { email: email }, as: :json
+      expect(response).to have_http_status(:accepted)
+      expect(delivered_code_for(email)).to be_nil
+      # Without a ticket there are no creation options at all.
+      post '/api/v1/auth/passkeys/register', params: { email: email }, as: :json
+      expect(response).to have_http_status(:unauthorized)
+      expect(Authenticator.count).to eq(1)
+    end
+
+    it 'refuses a ticket minted before the address was claimed by another sign-up' do
+      ticket = registration_ticket_via_api(email)
+      register_passkey # a second, parallel sign-up for the same address wins
+      expect(response).to have_http_status(:ok)
+
+      post '/api/v1/auth/passkeys/register', params: { email: email, registration_ticket: ticket }, as: :json
+      expect(response).to have_http_status(:unauthorized)
+      expect(User.where(email: email).count).to eq(1)
+      expect(Authenticator.count).to eq(1)
+    end
+
+    it 'refuses a registration challenge that was not minted with a verified-email ticket' do
+      register_passkey
+      user = User.find_by!(email: email)
+      # The authenticated add-passkey flow stores a 'registration' challenge
+      # for the same address; it must not be usable on the sign-up endpoint.
+      add_options = Authentication::Passkeys.add_registration_options(user: user)
+      credential = WebAuthn::FakeClient.new(origin).create(challenge: add_options[:creation_options][:challenge], user_verified: true)
       post '/api/v1/auth/passkeys/verify',
            params: { email: email, credential: credential, kind: 'registration' }, as: :json
       expect(response).to have_http_status(:unauthorized)

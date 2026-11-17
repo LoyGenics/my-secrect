@@ -53,7 +53,7 @@ module Accounts
       pre_vault_ids = user.vaults.pluck(:id)
       deleted = pre_vault_ids.empty? ? [] : delete_storage_objects!(user: user, vault_ids: pre_vault_ids)
 
-      user.with_lock do
+      tombstone = user.with_lock do
         device_ids = user.devices.pluck(:id)
         vault_ids = user.vaults.pluck(:id)
 
@@ -62,6 +62,7 @@ module Accounts
         user.sessions.delete_all
         MfaChallenge.where(user_id: user.id).delete_all
         PasskeyChallenge.where(email: user.email).delete_all
+        EmailVerification.where(email: user.email).delete_all
         RecoveryChallenge.where(user_id: user.id).delete_all
         RecoveryVerifier.where(user_id: user.id).delete_all
         RecoveryCode.where(user_id: user.id).delete_all
@@ -99,8 +100,19 @@ module Accounts
         end
 
         Device.where(id: device_ids).delete_all unless device_ids.empty?
+        # Same transaction as the deletion: a tombstone exists iff the
+        # account is gone. Lets a later backup restore re-apply it
+        # (Accounts::Tombstones has the runbook).
+        tombstone = Tombstones.record!(user: user)
         user.destroy!
+        tombstone
       end
+      # Out-of-database copy of the tombstone (hashed id + time, no PII),
+      # for when the database itself has to be restored.
+      Rails.logger.info(Tombstones.log_line(tombstone))
+      # Recorded after the rows are gone, so it has no user and no metadata:
+      # the fact of a deletion is kept, nothing that identifies the account.
+      Audit::Log.call(event_type: 'account_deleted')
     end
   end
 end

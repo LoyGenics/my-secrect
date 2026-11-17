@@ -11,6 +11,7 @@ import {
   saveSessionToken,
 } from '../../../../packages/sdk/src/security';
 import { fromBase64Url, toBase64 } from '../../../../packages/crypto-adapters/src/index';
+import { legacyRecoveryVerifierKeyPair, recoveryVerifierKeyPair } from '../../../../packages/sdk/src/recovery-verifier';
 import { apiStatus, isNetworkError } from '../utils/stepUp';
 
 /**
@@ -26,9 +27,13 @@ import { apiStatus, isNetworkError } from '../utils/stepUp';
  * challenge, using the API exactly as specified:
  *   POST /v1/recovery/challenges { email, kind: 'recovery_key' }
  *     -> { challenge_id, challenge, expires_in } (5 min, single-use)
- *   Ed25519 sign the challenge bytes with the keypair derived from
- *   the 32 recovery-key bytes (crypto_sign_seed_keypair — the same
- *   derivation SecurityScreen uses to register a recovery verifier)
+ *   Ed25519 sign the challenge bytes with the verifier keypair derived
+ *   from the 32 recovery-key bytes (HKDF-SHA-256 with info
+ *   "my-secrect/recovery-verifier/v1" — the derivation SecurityScreen
+ *   uses to register a verifier; packages/sdk/src/recovery-verifier.ts).
+ *   A verifier registered before that derivation existed (v0: seed =
+ *   the recovery key) still works: on a 401 the screen retries ONCE
+ *   with the legacy key over a fresh challenge.
  *   POST /v1/recovery/verify { challenge_id, email, signature }
  *     -> { token, expires_in: 900, recovery_session: true }
  *
@@ -90,11 +95,9 @@ export default function SignInScreen({ baseUrl, sessionExpired, onSignedIn, onCo
     }
     setBusy(true);
     setError('');
-    let privateKey: Uint8Array | null = null;
-    try {
-      await sodium.ready;
-      const keypair = sodium.crypto_sign_seed_keypair(seed);
-      privateKey = keypair.privateKey;
+    const privateKeys: Uint8Array[] = [];
+    // One full challenge round with one verifier key.
+    const attempt = async (privateKey: Uint8Array) => {
       // Step 1: single-use challenge (5 min).
       const { challenge_id, challenge } = await client.recoveryChallenge(normalizedEmail, 'recovery_key');
       // Step 2: sign the exact challenge bytes. The challenge is
@@ -103,7 +106,22 @@ export default function SignInScreen({ baseUrl, sessionExpired, onSignedIn, onCo
       const signature = sodium.crypto_sign_detached(new Uint8Array(challengeBytes), privateKey);
       // Step 3: verify. Only the signature leaves the device —
       // never the recovery key, the seed, or the private key.
-      const res = await client.recoveryVerify(challenge_id, normalizedEmail, toBase64(signature));
+      return client.recoveryVerify(challenge_id, normalizedEmail, toBase64(signature));
+    };
+    try {
+      await sodium.ready;
+      const current = await recoveryVerifierKeyPair(seed);
+      privateKeys.push(current.privateKey);
+      let res;
+      try {
+        res = await attempt(current.privateKey);
+      } catch (first) {
+        if (apiStatus(first) !== 401) throw first;
+        // Verifier registered before v1: retry once with the legacy key.
+        const legacy = await legacyRecoveryVerifierKeyPair(seed);
+        privateKeys.push(legacy.privateKey);
+        res = await attempt(legacy.privateKey);
+      }
       const store = {
         getItem: (k: string) => AsyncStorage.getItem(k),
         setItem: (k: string, v: string) => AsyncStorage.setItem(k, v),
@@ -118,7 +136,7 @@ export default function SignInScreen({ baseUrl, sessionExpired, onSignedIn, onCo
       else setError(t('signin.unknownError'));
     } finally {
       seed?.fill(0);
-      privateKey?.fill(0);
+      for (const key of privateKeys) key.fill(0);
       setRecoveryKey('');
       setBusy(false);
     }

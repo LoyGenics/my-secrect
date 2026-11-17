@@ -46,22 +46,22 @@ module Authentication
   #     ASCII bytes. verify() base64url-decodes it before use.
   #   sign_count    — last verified counter value.
   #
-  # Account-takeover guard: this endpoint is unauthenticated, so a
-  # 'registration' verification is only accepted when the user has NO
-  # active authenticator yet (i.e. account creation with its FIRST
-  # passkey). Once an account has a passkey, adding another one must go
-  # through the authenticated add-passkey flow
-  # (add_registration_options / verify_addition, step-up required).
-  # Without this guard, anyone who knows an email address could
-  # register a passkey for that account and take it over.
+  # Account creation needs proof of email ownership first
+  # (Authentication::EmailOwnership): registration_options requires a live
+  # registration ticket, the challenge it stores points at that
+  # verification, and the unauthenticated 'registration' verify only
+  # accepts such a challenge. The user row is created only there — after
+  # the email code AND the attestation verified — in one transaction with
+  # the authenticator and the ticket consumption. No row exists before.
   #
-  # The user row is still created at options time in the unauthenticated
-  # registration flow (registration_options): the row is inert until step
-  # 2 verifies a real attestation — no session is issued before then —
-  # and changing it would break the existing register/verify contract.
-  # The authenticated add flow (add_registration_options) never creates
-  # a user row: the user already exists and is taken from the session,
-  # never from a client-supplied email.
+  # Account-takeover guard: this endpoint is unauthenticated, so a
+  # 'registration' verification is refused for an address whose account
+  # is claimed (User#claimed?: it has ever had a passkey, or has MFA), and
+  # the first-passkey-only check below stays as a second guard. Adding a
+  # passkey to an existing account goes through the authenticated
+  # add-passkey flow (add_registration_options / verify_addition, step-up
+  # required). The authenticated add flow never creates a user row: the
+  # user is taken from the session, never from a client-supplied email.
   #
   # MFA gate: when the user has MFA enabled, verify() with kind
   # 'authentication' does NOT issue a session. It returns
@@ -76,6 +76,9 @@ module Authentication
   # as a lookup key and is not trusted.
   module Passkeys
     class VerificationError < StandardError; end
+    # The passkey verified but the accompanying device proof did not
+    # (specs/device-identity.md §6.1). No session is issued.
+    class DeviceVerificationError < VerificationError; end
 
     CHALLENGE_TTL = 5.minutes
     OPTIONS_TIMEOUT_MS = 300_000 # matches CHALLENGE_TTL; the browser must answer in time
@@ -83,26 +86,35 @@ module Authentication
 
     module_function
 
-    # Step 1 (registration): creation options + stored challenge.
-    # Creates the user row if new — the account is NOT authenticated
-    # until step 2 verifies a real attestation and persists an
-    # Authenticator (see verify). Returns the gem's standard options
-    # JSON (challenge is base64url; the client base64url-decodes it and
-    # user.id before calling navigator.credentials.create).
-    def registration_options(email:)
-      raise VerificationError, 'email required' if email.blank?
-      user = User.find_or_create_by!(email: email.strip.downcase)
+    # Step 1 (registration): creation options + stored challenge, for a
+    # verified email only. Requires a live registration ticket from
+    # EmailOwnership.verify_code for this address; creates NO user row
+    # (verify does, see register_account). The challenge is bound to the
+    # ticket's verification. user.id in the response is the id the account
+    # will get. Returns the gem's standard options JSON (challenge is
+    # base64url; the client base64url-decodes it and user.id before
+    # calling navigator.credentials.create). Raises VerificationError
+    # (generic) for a missing/expired/used ticket or a claimed account.
+    def registration_options(email:, registration_ticket:)
+      normalized = email.to_s.strip.downcase
+      verification = EmailOwnership.live_ticket!(email: normalized, ticket: registration_ticket)
+      raise VerificationError, 'verification failed' if User.find_by(email: normalized)&.claimed?
+
+      user_id = verification.pending_user_id
       options = WebAuthn::Credential.options_for_create(
-        user: { id: webauthn_user_id(user), name: user.email, display_name: user.email },
-        exclude: user.authenticators.active.pluck(:credential_id),
+        user: { id: webauthn_user_handle(user_id), name: normalized, display_name: normalized },
+        exclude: [],
         authenticator_selection: { user_verification: USER_VERIFICATION },
         timeout: OPTIONS_TIMEOUT_MS
       )
-      PasskeyChallenge.create!(email: user.email, challenge: options.challenge, kind: 'registration', expires_at: Time.current + CHALLENGE_TTL)
+      PasskeyChallenge.create!(email: normalized, challenge: options.challenge, kind: 'registration',
+                               expires_at: Time.current + CHALLENGE_TTL, email_verification: verification)
       {
-        user: { id: user.id, email: user.email },
+        user: { id: user_id, email: normalized },
         creation_options: options.as_json
       }
+    rescue EmailOwnership::VerificationError
+      raise VerificationError, 'verification failed'
     end
 
     # Step 1 (authentication): request options + stored challenge.
@@ -169,7 +181,15 @@ module Authentication
     # has MFA enabled, no session is issued: the result is
     # { mfa_required: true, mfa_token: } and the login completes via
     # Authentication::Totp.complete_mfa_login.
-    def verify(email:, credential:, kind:, user_agent: nil, ip_address: nil)
+    #
+    # Device (specs/device-identity.md §6.1): `device` is the optional
+    # proof { public_key, signature, ... } (enrol a new device) or
+    # { id, signature } (bind an existing one), signed over THIS
+    # ceremony's challenge. It is checked only after the passkey verified;
+    # a bad proof raises DeviceVerificationError and issues nothing (for a
+    # sign-up it also rolls the new account back). Without `device` the
+    # session is unbound (device_id nil) — the server never picks a device.
+    def verify(email:, credential:, kind:, device: nil, user_agent: nil, ip_address: nil)
       raise VerificationError, 'credential required' if credential.blank?
       kind = kind.to_s
       raise VerificationError, 'unknown ceremony' unless %w[registration authentication].include?(kind)
@@ -184,39 +204,97 @@ module Authentication
       raise VerificationError, 'challenge expired or already used' unless challenge_rec
       raise VerificationError, 'challenge expired or already used' unless challenge_rec.consume!
 
-      user = User.find_by(email: normalized_email)
-      raise VerificationError, 'verification failed' unless user
-
-      verified = case kind
-                 when 'registration' then verify_registration(user: user, params: params, challenge: challenge_rec.challenge)
-                 when 'authentication' then verify_authentication(user: user, params: params, challenge: challenge_rec.challenge)
-                 end
-
-      device = user.devices.active.first || Devices::Enroll.call(user: user, public_key: decoded_public_key(verified[:public_key]), name_encrypted: nil)
-      Audit::Log.call(user: user, device: device, event_type: "passkey_#{kind}_verified")
-      if kind == 'authentication' && user.mfa_enabled?
-        mfa_token = MfaTokens.issue(user: user, device: device)
-        return { mfa_required: true, mfa_token: mfa_token, user_id: user.id }
+      if kind == 'registration'
+        user, session_device = register_account(email: normalized_email, params: params,
+                                                 challenge_rec: challenge_rec, device_proof: device)
+      else
+        user = User.find_by(email: normalized_email)
+        raise VerificationError, 'verification failed' unless user
+        verify_authentication(user: user, params: params, challenge: challenge_rec.challenge)
+        proof = DeviceProof.sign_in_proof!(user: user, challenge: challenge_rec.challenge, proof: device)
+        if user.mfa_enabled?
+          # Second factor still due: hold the proven device / enrolment on
+          # the single-use MFA challenge; nothing is bound or created yet.
+          Audit::Log.call(user: user, event_type: "passkey_#{kind}_verified")
+          mfa_token = MfaTokens.issue(user: user, device: proof&.dig(:device), pending_device: proof&.dig(:enroll))
+          return { mfa_required: true, mfa_token: mfa_token, user_id: user.id }
+        end
+        session_device = DeviceProof.device_for!(user: user, proof: proof)
       end
-      token = SessionTokens.issue(user: user, device: device, user_agent: user_agent, ip_address: ip_address)
-      { token: token, user_id: user.id, device_id: device.id, expires_in: SessionTokens::TTL_SECONDS }
+
+      Audit::Log.call(user: user, device: session_device, event_type: "passkey_#{kind}_verified")
+      token = SessionTokens.issue(user: user, device: session_device, user_agent: user_agent, ip_address: ip_address)
+      Audit::Log.call(user: user, device: session_device, event_type: 'sign_in_succeeded',
+                      metadata: { method: kind == 'registration' ? 'passkey_registration' : 'passkey' })
+      { token: token, user_id: user.id, device_id: session_device&.id, expires_in: SessionTokens::TTL_SECONDS }
     rescue VerificationError
+      audit_sign_in_failure(email)
       raise
+    rescue DeviceProof::VerificationError
+      audit_sign_in_failure(email)
+      raise DeviceVerificationError, 'device verification failed'
     rescue WebAuthn::Error, ArgumentError, TypeError, NoMethodError, RuntimeError => _e
       # The gem raises plain RuntimeError for 'invalid type' / 'invalid
       # id', ArgumentError for bad base64url, and WebAuthn::VerificationError
       # subclasses for every failed check. All of them mean the same thing
       # here: the credential did not verify. Fail closed, issue nothing,
       # and do not leak which check failed.
+      audit_sign_in_failure(email)
       raise VerificationError, 'verification failed'
+    end
+
+    # Attributed to the account when the address has one (its owner sees
+    # it in their activity); never records the address or the reason.
+    def audit_sign_in_failure(email)
+      Audit::Log.call(user: User.find_by(email: email.to_s.strip.downcase), event_type: 'sign_in_failed',
+                      metadata: { method: 'passkey' })
     end
 
     # -- internals ---------------------------------------------------------
 
-    # Base64url encoding of the user's UUID bytes. Opaque, stable, and
-    # what the browser stores as the userHandle.
+    # Base64url encoding of the user's UUID string. Opaque, stable, and
+    # what the browser stores as the userHandle. For a sign-up it is
+    # computed from the pending id before the user row exists.
     def webauthn_user_id(user)
-      Base64.urlsafe_encode64(user.id.to_s, padding: false)
+      webauthn_user_handle(user.id)
+    end
+
+    def webauthn_user_handle(user_id)
+      Base64.urlsafe_encode64(user_id.to_s, padding: false)
+    end
+
+    # Unauthenticated account creation (kind 'registration'). Only for a
+    # challenge minted with a verified-email ticket, only while that ticket
+    # is live and unused, and never for a claimed account. Ticket
+    # consumption, the user row and the authenticator commit together: a
+    # failed attestation — or a failed device proof — rolls everything back
+    # (the ticket stays usable until it expires). Returns [user, device]
+    # (device nil when no proof was sent).
+    def register_account(email:, params:, challenge_rec:, device_proof: nil)
+      verification = challenge_rec.email_verification
+      raise VerificationError, 'verification failed' unless verification && verification.email == email
+
+      created = false
+      user, device = ActiveRecord::Base.transaction do
+        EmailOwnership.consume_ticket!(verification)
+        user = User.lock.find_by(email: email)
+        if user
+          # Only an unclaimed leftover row with the very id the ticket was
+          # minted for may be completed.
+          raise VerificationError, 'verification failed' if user.claimed? || user.id != verification.pending_user_id
+        else
+          user = User.create!(id: verification.pending_user_id, email: email)
+          created = true
+        end
+        verify_registration(user: user, params: params, challenge: challenge_rec.challenge)
+        proof = DeviceProof.sign_in_proof!(user: user, challenge: challenge_rec.challenge, proof: device_proof)
+        [user, DeviceProof.device_for!(user: user, proof: proof)]
+      end
+      Audit::Log.call(user: user, event_type: 'account_created',
+                      metadata: { email_verification_id: verification.id }) if created
+      [user, device]
+    rescue EmailOwnership::VerificationError, ActiveRecord::RecordInvalid, ActiveRecord::RecordNotUnique
+      raise VerificationError, 'verification failed'
     end
 
     # from_create/from_get read String keys ("type", "id", "rawId",
@@ -313,15 +391,6 @@ module Authentication
       { public_key: authenticator.public_key }
     rescue OpenSSL::PKey::PKeyError
       raise VerificationError, 'verification failed'
-    end
-
-    # Decode a base64url public key (as stored) to raw bytes for
-    # Device#public_key. The bytes are the verified COSE public key of
-    # the passkey, used ONLY to bind the session's device record to that
-    # credential — it is NOT a sync signing key (sync signatures are
-    # unverified, H7, and need their own device-key ceremony).
-    def decoded_public_key(base64url_key)
-      WebAuthn::Encoder.new.decode(base64url_key)
     end
   end
 end

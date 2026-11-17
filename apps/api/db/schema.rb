@@ -14,6 +14,14 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_17_100010) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
+  create_table "account_tombstones", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.string "user_id_digest", null: false
+    t.datetime "deleted_at", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["user_id_digest"], name: "index_account_tombstones_on_user_id_digest", unique: true
+  end
+
   create_table "audit_events", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.uuid "user_id"
     t.uuid "device_id"
@@ -58,6 +66,20 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_17_100010) do
     t.index ["vault_id"], name: "index_blobs_on_vault_id"
   end
 
+  create_table "device_challenges", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "user_id", null: false
+    t.uuid "session_id", null: false
+    t.string "purpose", null: false
+    t.string "challenge_digest", null: false
+    t.datetime "expires_at", null: false
+    t.datetime "consumed_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["challenge_digest"], name: "index_device_challenges_on_challenge_digest", unique: true
+    t.index ["session_id"], name: "index_device_challenges_on_session_id"
+    t.index ["user_id"], name: "index_device_challenges_on_user_id"
+  end
+
   create_table "device_checkpoints", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.uuid "device_id", null: false
     t.uuid "vault_id", null: false
@@ -79,7 +101,26 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_17_100010) do
     t.datetime "updated_at", null: false
     t.string "platform"
     t.datetime "trusted_at"
+    t.string "public_key_alg"
+    t.index ["public_key"], name: "index_devices_on_ed25519_public_key", unique: true, where: "((public_key_alg)::text = 'ed25519'::text)"
     t.index ["user_id"], name: "index_devices_on_user_id"
+  end
+
+  create_table "email_verifications", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.string "email", null: false
+    t.string "code_digest", null: false
+    t.datetime "expires_at", null: false
+    t.integer "attempts", default: 0, null: false
+    t.datetime "consumed_at"
+    t.datetime "verified_at"
+    t.string "ticket_digest"
+    t.datetime "ticket_expires_at"
+    t.datetime "ticket_consumed_at"
+    t.uuid "pending_user_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["email"], name: "index_email_verifications_on_email"
+    t.index ["ticket_digest"], name: "index_email_verifications_on_ticket_digest", unique: true
   end
 
   create_table "identity_keys", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -151,6 +192,7 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_17_100010) do
     t.datetime "consumed_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.jsonb "pending_device"
     t.index ["device_id"], name: "index_mfa_challenges_on_device_id"
     t.index ["token_digest"], name: "index_mfa_challenges_on_token_digest", unique: true
     t.index ["user_id"], name: "index_mfa_challenges_on_user_id"
@@ -164,7 +206,9 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_17_100010) do
     t.datetime "consumed_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.uuid "email_verification_id"
     t.index ["email", "challenge"], name: "index_passkey_challenges_on_email_and_challenge", unique: true
+    t.index ["email_verification_id"], name: "index_passkey_challenges_on_email_verification_id"
   end
 
   create_table "recovery_challenges", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -196,6 +240,7 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_17_100010) do
     t.datetime "revoked_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "derivation", default: "v0-raw-recovery-key", null: false
     t.index ["user_id"], name: "index_recovery_verifiers_on_user_id"
   end
 
@@ -274,6 +319,8 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_17_100010) do
   add_foreign_key "authenticators", "users"
   add_foreign_key "blob_parts", "blobs"
   add_foreign_key "blobs", "vaults"
+  add_foreign_key "device_challenges", "sessions", on_delete: :cascade
+  add_foreign_key "device_challenges", "users", on_delete: :cascade
   add_foreign_key "device_checkpoints", "devices"
   add_foreign_key "device_checkpoints", "vaults"
   add_foreign_key "devices", "users"
@@ -285,6 +332,7 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_17_100010) do
   add_foreign_key "key_envelopes", "vaults"
   add_foreign_key "mfa_challenges", "devices"
   add_foreign_key "mfa_challenges", "users"
+  add_foreign_key "passkey_challenges", "email_verifications", on_delete: :cascade
   add_foreign_key "recovery_challenges", "users"
   add_foreign_key "recovery_codes", "users"
   add_foreign_key "recovery_verifiers", "users"

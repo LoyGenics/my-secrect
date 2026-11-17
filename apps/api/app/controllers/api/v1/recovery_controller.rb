@@ -40,12 +40,18 @@ module Api
 
       # POST /v1/recovery/verifiers — register an Ed25519 verify key.
       # Step-up required; revokes all previous verifiers; rotates the
-      # session token. Body: { public_key: } (base64, 32 bytes decoded).
+      # session token. Body: { public_key: (base64, 32 bytes decoded),
+      # derivation: 'v1-hkdf-sha256' } — any other derivation is 422
+      # unsupported_derivation (specs/recovery-protocol.md).
       def register_verifier
         require_step_up!
-        verifier = Recovery::Verifiers.register(user: current_user, public_key: params[:public_key])
-        render json: { verifier: { id: verifier.id, fingerprint: verifier.fingerprint, created_at: verifier.created_at },
+        verifier = Recovery::Verifiers.register(user: current_user, public_key: params[:public_key],
+                                                derivation: params[:derivation])
+        render json: { verifier: { id: verifier.id, fingerprint: verifier.fingerprint, derivation: verifier.derivation,
+                                   created_at: verifier.created_at },
                        rotated_token: rotate_current_session! }, status: :created
+      rescue Recovery::Verifiers::UnsupportedDerivation
+        render json: { error: 'unsupported_derivation' }, status: :unprocessable_entity
       rescue Recovery::Verifiers::Error => e
         render json: { error: 'invalid_public_key', detail: e.message }, status: :unprocessable_entity
       end

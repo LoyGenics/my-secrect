@@ -29,9 +29,7 @@ RSpec.describe 'Security API', type: :request do
 
   # Full registration ceremony through the real HTTP routes.
   def register_passkey(address:, client: WebAuthn::FakeClient.new(origin))
-    post '/api/v1/auth/passkeys/register', params: { email: address }, as: :json
-    expect(response).to have_http_status(:ok)
-    options = json_body
+    options = registration_options_via_api(address)
     credential = client.create(challenge: options['creation_options']['challenge'], user_verified: true)
     post '/api/v1/auth/passkeys/verify',
          params: { email: address, credential: credential, kind: 'registration' }, as: :json
@@ -351,12 +349,18 @@ RSpec.describe 'Security API', type: :request do
     it 'requires step-up to enrol, stores platform, and gates trust on step-up' do
       email = fresh_email
       client, token = register_passkey(address: email)
-      device_params = { public_key: Base64.strict_encode64('device-key-1'),
-                        name_encrypted: Base64.strict_encode64('macbook'), platform: 'macOS' }
-      post '/api/v1/devices/enroll', headers: auth_headers(token), params: device_params, as: :json
+      device_key = new_device_key
+      enroll_params = lambda do
+        post '/api/v1/devices/challenges', headers: auth_headers(token), params: { purpose: 'enroll' }, as: :json
+        challenge = json_body['challenge']
+        { public_key: device_public_key(device_key), challenge: challenge,
+          signature: device_signature(device_key, 'enroll', challenge: challenge, public_key: device_public_key(device_key)),
+          name_encrypted: Base64.strict_encode64('macbook'), platform: 'macOS' }
+      end
+      post '/api/v1/devices/enroll', headers: auth_headers(token), params: enroll_params.call, as: :json
       expect(response).to have_http_status(:forbidden)
       step_up_with_passkey(token, address: email, client: client)
-      post '/api/v1/devices/enroll', headers: auth_headers(token), params: device_params, as: :json
+      post '/api/v1/devices/enroll', headers: auth_headers(token), params: enroll_params.call, as: :json
       expect(response).to have_http_status(:created)
       device_id = json_body['device']['id']
       expect(json_body['device']['platform']).to eq('macOS')
@@ -381,7 +385,7 @@ RSpec.describe 'Security API', type: :request do
     def register_verifier(token, signing_key)
       verify_b64 = Base64.strict_encode64(signing_key.verify_key.to_bytes)
       post '/api/v1/recovery/verifiers', headers: auth_headers(token),
-           params: { public_key: verify_b64 }, as: :json
+           params: { public_key: verify_b64, derivation: 'v1-hkdf-sha256' }, as: :json
       expect(response).to have_http_status(:created)
       expect(json_body['verifier']['fingerprint']).to eq(Digest::SHA256.hexdigest(signing_key.verify_key.to_bytes)[0, 16])
       expect(json_body['rotated_token']).to start_with('sess_')
@@ -490,7 +494,7 @@ RSpec.describe 'Security API', type: :request do
       expect(response).to have_http_status(:forbidden)
       step_up_with_passkey(token, address: email, client: client)
       post '/api/v1/recovery/verifiers', headers: auth_headers(token),
-           params: { public_key: Base64.strict_encode64('short') }, as: :json
+           params: { public_key: Base64.strict_encode64('short'), derivation: 'v1-hkdf-sha256' }, as: :json
       expect(response).to have_http_status(:unprocessable_entity)
       new_token = register_verifier(token, signing_key)
       get '/api/v1/recovery/verifiers', headers: auth_headers(new_token), as: :json
@@ -508,7 +512,10 @@ RSpec.describe 'Security API', type: :request do
       get '/api/v1/auth/activity', headers: auth_headers(token), as: :json
       expect(response).to have_http_status(:ok)
       types = json_body['events'].map { |e| e['event_type'] }
-      expect(types).to include('passkey_registration_verified', 'device_enrolled', 'passkey_authentication_verified')
+      # No device proof is sent here, so no device is enrolled (devices are
+      # never created implicitly any more — see device_binding_spec.rb).
+      expect(types).to include('account_created', 'passkey_registration_verified', 'passkey_authentication_verified')
+      expect(types).not_to include('device_enrolled')
       expect(json_body['events'].length).to be <= 50
       expect(json_body['events'].first).to have_key('metadata')
     end

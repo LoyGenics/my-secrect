@@ -14,6 +14,8 @@ import {
   type SessionInfo,
 } from '../../../../packages/sdk/src/security';
 import { fromBase64Url, sha256, toBase64 } from '../../../../packages/crypto-adapters/src/index';
+import { deviceMessage as deviceSignedMessage, enrollPayload, toBase64UrlNoPad } from '../../../../packages/sdk/src/device-identity';
+import { recoveryVerifierKeyPair } from '../../../../packages/sdk/src/recovery-verifier';
 import { serializeCreateCredential, toCreationOptions } from '../utils/webauthn';
 import StepUpDialog from './StepUpDialog';
 
@@ -32,9 +34,11 @@ const LS_DEVICE_KEY_PREFIX = 'my-secrect:device-key:';
  *       on a device (that sentence is in the i18n strings and shown
  *       next to the revoke controls).
  *   (c) Recovery settings — register a recovery verifier: an Ed25519
- *       keypair is derived on-device from the recovery key
- *       (crypto_sign_seed_keypair, seed = the 32 recovery-key bytes)
- *       and ONLY the public key is sent to the server. The seed and
+ *       keypair is derived on-device from the recovery key with domain
+ *       separation (seed = HKDF-SHA-256(recovery key,
+ *       "my-secrect/recovery-verifier/v1"), never the recovery key
+ *       itself — packages/sdk/src/recovery-verifier.ts) and ONLY the
+ *       public key is sent to the server. The seed and
  *       the private key are zero-filled immediately after use, and the
  *       pasted recovery key is cleared from state. Losing passphrase +
  *       recovery key + all devices is permanent loss — no reset.
@@ -469,9 +473,11 @@ export default function SecurityCenter({
   };
 
   /** Enroll THIS browser: a fresh Ed25519 device key pair; only the
-   *  public key and a Vault-Key-encrypted name are sent. The private
+   *  public key, a proof-of-possession signature over a fresh server
+   *  challenge, and a Vault-Key-encrypted name are sent. The private
    *  half is stored encrypted under the Vault Key (never in clear) and
-   *  zero-filled in memory. Enrolling grants no vault access. */
+   *  zero-filled in memory. Enrolling grants no vault access. (Sign-in
+   *  binding uses a separate, non-extractable key — device-key-store.) */
   const handleEnrollDevice = async () => {
     if (!security) return;
     const name = enrollName.trim();
@@ -487,8 +493,15 @@ export default function SecurityCenter({
         const kp = sodium.crypto_sign_seed_keypair(seed);
         seed.fill(0);
         privateKey = kp.privateKey;
+        // Proof of possession (specs/device-identity.md §6.2): the new key
+        // signs a fresh single-use server challenge for 'enroll'.
+        const { challenge } = await security.deviceChallenge('enroll');
+        const publicKey = toBase64UrlNoPad(kp.publicKey);
+        const signature = sodium.crypto_sign_detached(deviceSignedMessage('enroll', enrollPayload(challenge, publicKey)), kp.privateKey);
         const res = await security.enrollDevice({
-          public_key: toBase64(kp.publicKey),
+          public_key: publicKey,
+          challenge,
+          signature: toBase64UrlNoPad(signature),
           name_encrypted: await encryptWithVaultKey(name),
           platform: typeof navigator !== 'undefined' ? navigator.platform || 'web' : 'web',
         });
@@ -549,7 +562,7 @@ export default function SecurityCenter({
         throw new Error(x.recoveryKeyInvalid);
       }
       if (seed.length !== 32) throw new Error(x.recoveryKeyInvalid);
-      const keypair = sodium.crypto_sign_seed_keypair(seed);
+      const keypair = await recoveryVerifierKeyPair(seed);
       privateKey = keypair.privateKey;
       const publicKeyB64 = toBase64(keypair.publicKey);
       const fp = await sha256(keypair.publicKey);

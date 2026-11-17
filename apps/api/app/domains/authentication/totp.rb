@@ -38,6 +38,7 @@ module Authentication
       raise Error, 'mfa_already_enabled' if user.mfa_enabled?
       secret = ROTP::Base32.random
       user.update!(totp_secret_ciphertext: encrypt_secret(secret), totp_confirmed_at: nil)
+      Audit::Log.call(user: user, event_type: 'mfa_enrollment_started')
       { secret: secret, otpauth_url: ROTP::TOTP.new(secret, issuer: ISSUER).provisioning_uri(user.email) }
     end
 
@@ -122,19 +123,29 @@ module Authentication
     # (single-use either way); on success a full session is issued.
     # NOTE: completing MFA does NOT mark the session step-up verified —
     # step-up is a separate, explicit re-verification (StepUp).
+    # Device: only what the passkey step PROVED (specs/device-identity.md)
+    # — an existing device (re-checked active) or a pending enrolment,
+    # applied now that both factors passed. Without a proof the session is
+    # unbound; the server never picks a device on its own.
     def complete_mfa_login(mfa_token:, code:, user_agent: nil, ip_address: nil)
       pending = MfaTokens.consume(mfa_token)
-      raise VerificationError, 'verification failed' unless pending
-      user = pending.user
-      factor = verify_second_factor(user: user, code: code)
+      user = pending&.user
+      factor = user && verify_second_factor(user: user, code: code)
       raise VerificationError, 'verification failed' unless factor
-      device = pending.device
-      device = nil if device&.revoked?
-      device ||= user.devices.active.first
-      raise VerificationError, 'verification failed' unless device
+      device = DeviceProof.device_for!(user: user, proof: pending_device_proof(pending))
       token = SessionTokens.issue(user: user, device: device, user_agent: user_agent, ip_address: ip_address)
       Audit::Log.call(user: user, device: device, event_type: 'mfa_verified', metadata: { method: factor.to_s })
-      { token: token, user_id: user.id, device_id: device.id, expires_in: SessionTokens::TTL_SECONDS }
+      Audit::Log.call(user: user, device: device, event_type: 'sign_in_succeeded', metadata: { method: "passkey+#{factor}" })
+      { token: token, user_id: user.id, device_id: device&.id, expires_in: SessionTokens::TTL_SECONDS }
+    rescue VerificationError, DeviceProof::VerificationError
+      Audit::Log.call(user: user, event_type: 'sign_in_failed', metadata: { method: 'mfa' })
+      raise VerificationError, 'verification failed'
+    end
+
+    def pending_device_proof(pending)
+      return { device: pending.device } if pending.device
+      return { enroll: pending.pending_device.symbolize_keys } if pending.pending_device.present?
+      nil
     end
 
     # Test/support helper: decrypt a stored TOTP ciphertext. Exposed so

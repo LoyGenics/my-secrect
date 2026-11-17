@@ -7,15 +7,24 @@
  *  - RAILS_ENV=test is used for the API process. Its only relevant effect is
  *    that Rack::Attack throttles are disabled (a full spec run drives far
  *    more than 10 passkey calls/min from one IP). Throttling is NOT covered
- *    by these specs. Authentication, WebAuthn verification, sessions and
- *    step-up are the production code paths.
+ *    by these specs; it is covered by apps/api/spec/requests/api/v1/
+ *    rate_limiting_spec.rb (real Rack::Attack middleware). Authentication,
+ *    WebAuthn verification, sessions and step-up are the production code
+ *    paths.
  *  - S3_* point at a placeholder (127.0.0.1:9, the discard port). Auth specs
  *    never touch blobs; any blob call would fail loudly.
  *  - The database is DROPPED and recreated on every startStack(); the name
  *    must end in `_e2eauth` (enforced) so a dev database can never be wiped.
+ *  - Mail: the API runs with MAIL_FILE_DIR=<mailDir>, so Action Mailer's
+ *    :file delivery writes every message to <mailDir>/<recipient address>
+ *    (appending). Specs read the sign-up verification code from that file,
+ *    exactly as a user reads their inbox (fixtures.ts waitForMailCode).
+ *    There is no server-side bypass: the API never returns the code, and
+ *    :file delivery is refused in production (SMTP is mandatory there).
+ *    The directory is emptied on every startStack().
  */
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
-import { mkdirSync, openSync } from 'node:fs';
+import { mkdirSync, openSync, rmSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -30,6 +39,8 @@ export interface StackConfig {
   webPort: number;
   dbName: string;
   logDir: string;
+  /** Where the API's :file mail delivery writes messages (one file per recipient). */
+  mailDir: string;
 }
 
 export interface Stack {
@@ -40,11 +51,13 @@ export interface Stack {
 }
 
 export function stackConfigFromEnv(env = process.env): StackConfig {
+  const logDir = env.E2E_LOG_DIR ?? path.join(here, '.logs');
   return {
     apiPort: Number(env.E2E_API_PORT ?? 3101),
     webPort: Number(env.E2E_WEB_PORT ?? 5201),
     dbName: env.E2E_DB_NAME ?? 'vault_e2eauth',
-    logDir: env.E2E_LOG_DIR ?? path.join(here, '.logs'),
+    logDir,
+    mailDir: env.E2E_MAIL_DIR ?? path.join(logDir, 'mail'),
   };
 }
 
@@ -63,6 +76,8 @@ function railsEnv(cfg: StackConfig): NodeJS.ProcessEnv {
     WEBAUTHN_RP_ID: 'localhost',
     WEBAUTHN_ORIGIN: webOrigin,
     CORS_ORIGINS: webOrigin,
+    // Sign-up codes go to files the specs read (see header). Test env only.
+    MAIL_FILE_DIR: cfg.mailDir,
     // Placeholder storage: required by StorageProvider (no defaults), unused by auth specs.
     S3_ENDPOINT: 'http://127.0.0.1:9',
     S3_REGION: 'us-east-1',
@@ -118,6 +133,8 @@ export async function startStack(partial: Partial<StackConfig> = {}): Promise<St
     throw new Error(`E2E database name must end with _e2eauth (got ${cfg.dbName}); refusing to drop it`);
   }
   mkdirSync(cfg.logDir, { recursive: true });
+  rmSync(cfg.mailDir, { recursive: true, force: true });
+  mkdirSync(cfg.mailDir, { recursive: true });
   await assertPortFree(cfg.apiPort, 'API');
   await assertPortFree(cfg.webPort, 'web');
   const env = railsEnv(cfg);

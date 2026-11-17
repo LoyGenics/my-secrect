@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
-import sodium from 'libsodium-wrappers-sumo';
 import Field from '../components/Field';
 import { colors, styles } from '../theme';
 import { useTranslation } from '../../../../packages/i18n/src/react';
@@ -14,6 +13,7 @@ import { useTranslation } from '../../../../packages/i18n/src/react';
 // Method names follow the SDK as landed (mfaEnroll, mfaConfirm, mfaDisable, mfaRecoveryCodes). Do not “fix” it by inlining a client here.
 import { SecurityApiClient, clearSessionToken, getValidToken, isUnauthorized } from '../../../../packages/sdk/src/security';
 import { fromBase64Url, sha256, toBase64 } from '../../../../packages/crypto-adapters/src/index';
+import { recoveryVerifierKeyPair } from '../../../../packages/sdk/src/recovery-verifier';
 import { decryptWithVaultKey, encryptWithVaultKey } from '../vault';
 import { apiStatus, isNetworkError, isStepUpFresh, isStepUpRequired } from '../utils/stepUp';
 
@@ -454,12 +454,13 @@ export default function SecurityScreen({ onClose, onSignedOut, onUnauthorized }:
     if (!seed || seed.length !== 32) { setError(t('security.error')); return; }
     setBusy(true);
     try {
-      // Ed25519 keypair deterministically derived from the 32 recovery-key
-      // bytes (libsodium crypto_sign_seed_keypair). ONLY the public key
-      // ever leaves the device; the seed is zero-filled below and the
-      // recovery key itself is never stored or logged.
-      await sodium.ready;
-      const kp = sodium.crypto_sign_seed_keypair(seed);
+      // Ed25519 keypair derived from the 32 recovery-key bytes with domain
+      // separation (HKDF-SHA-256, info "my-secrect/recovery-verifier/v1" —
+      // packages/sdk/src/recovery-verifier.ts), so the verifier key is never
+      // the vault's recovery secret itself. ONLY the public key ever leaves
+      // the device; the recovery key is zero-filled below and never stored
+      // or logged.
+      const kp = await recoveryVerifierKeyPair(seed);
       const publicKeyB64 = toBase64(kp.publicKey);
       kp.privateKey.fill(0); // only the public key is ever needed afterwards
       await runWithStepUp(async () => {

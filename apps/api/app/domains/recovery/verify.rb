@@ -36,7 +36,9 @@ module Recovery
         raise VerificationError, 'verification failed' if challenge.consumed_at.present? || challenge.expired?
         challenge.update!(consumed_at: Time.current)
       end
-      device = user.devices.active.first
+      # Unbound: the recovery proof says nothing about which device is
+      # asking, so no device is attached (specs/device-identity.md §6.1).
+      device = nil
       token = Authentication::SessionTokens.issue(
         user: user, device: device,
         user_agent: user_agent, ip_address: ip_address,
@@ -45,8 +47,12 @@ module Recovery
         step_up_verified_at: Time.current, step_up_method: 'recovery_key'
       )
       Audit::Log.call(user: user, device: device, event_type: 'recovery_verified')
+      Audit::Log.call(user: user, device: device, event_type: 'sign_in_succeeded', metadata: { method: 'recovery_key' })
       { token: token, user_id: user.id, device_id: device&.id,
         expires_in: Authentication::SessionTokens::RECOVERY_TTL_SECONDS, recovery_session: true }
+    rescue VerificationError
+      Audit::Log.call(user: user, event_type: 'sign_in_failed', metadata: { method: 'recovery_key' })
+      raise
     end
 
     # -- internals ---------------------------------------------------------

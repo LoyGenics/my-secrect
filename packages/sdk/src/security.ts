@@ -29,6 +29,8 @@
  * tests/security/step-up-client.test.mjs.
  */
 import { ApiError } from './index';
+import type { DevicePurpose, SignInDeviceProof } from './device-identity';
+import { RECOVERY_VERIFIER_DERIVATION } from './recovery-verifier';
 import type { ApiClientConfig } from './index';
 
 export { ApiError };
@@ -178,6 +180,14 @@ export function isUnauthorized(error: unknown): boolean {
  *  code on POST /v1/auth/mfa/confirm (the session is alive; only the code was
  *  wrong). Deliberately scoped to that path via ApiError.path: any other 401
  *  counts as a dead session. */
+/** True when a passkey verified but its device proof did not
+ *  (POST /v1/auth/passkeys/verify -> 401 device_verification_failed,
+ *  specs/device-identity.md §6.1). The client should forget its local
+ *  device key and enrol a fresh one on the next attempt. */
+export function isDeviceVerificationFailed(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401 && error.message.includes('device_verification_failed');
+}
+
 export function isVerificationFailed(error: unknown): boolean {
   return (
     isUnauthorized(error) &&
@@ -279,8 +289,24 @@ export function isMfaRequiredResult(res: SignInResult): res is MfaRequiredResult
 }
 
 export interface PasskeyRegisterOptionsResponse {
+  /** `id` is the id the account WILL get; no user row exists until the
+   *  registration verify succeeds. */
   user: { id: string; email: string };
   creation_options: unknown;
+}
+
+/** POST /v1/auth/email/request — identical for every valid address
+ *  (no account enumeration). The code itself only travels by email. */
+export interface EmailCodeRequestResponse {
+  status: 'sent';
+  expires_in: number;
+}
+
+/** POST /v1/auth/email/verify — single-use registration ticket
+ *  (10 minutes). Keep it in memory only; never persist or log it. */
+export interface EmailCodeVerifyResponse {
+  registration_ticket: string;
+  expires_in: number;
 }
 
 export interface PasskeyAuthenticateOptionsResponse {
@@ -341,7 +367,9 @@ export interface RecoveryChallengeResponse {
 }
 
 export class SecurityApiClient {
-  private readonly baseUrl: string;
+  /** API base URL (no trailing slash). Public so callers can scope
+   *  per-server local state, e.g. the device key (deviceKeyScope). */
+  readonly baseUrl: string;
   private readonly getToken: () => Promise<string | null>;
   /** Optional token store for automatic rotation adoption: any
    *  response carrying `rotated_token` (privilege changes rotate
@@ -449,24 +477,51 @@ export class SecurityApiClient {
   // token; it does NOT unlock the vault (master passphrase is a
   // separate, later step, handled by the apps, never by this client).
   //
-  // Create account (first passkey): register options ->
-  // navigator.credentials.create -> registerVerify(kind 'registration').
+  // Create account (first passkey): requestEmailCode -> the user types
+  // the emailed code -> verifyEmailCode (registration ticket) ->
+  // register options WITH the ticket -> navigator.credentials.create ->
+  // registerVerify(kind 'registration'). The account is created only
+  // by that last call; the ticket survives a failed ceremony.
   // Sign in: authenticate options -> navigator.credentials.get ->
   // loginVerify(kind 'authentication') -> SessionResult, or
   // MfaRequiredResult when the account has MFA enabled.
   // Challenges are single-use, 5 minutes; a failed or expired
   // attempt burns the challenge and the caller must request fresh
   // options — never retry the same credential payload.
-  passkeyRegisterOptions(email: string): Promise<PasskeyRegisterOptionsResponse> {
-    return this.post<PasskeyRegisterOptionsResponse>('/v1/auth/passkeys/register', { email });
+  /** Sign-up step 1: mail a 6-digit code to `email`. 422 for a
+   *  malformed address, 503 when the server cannot send mail. */
+  requestEmailCode(email: string): Promise<EmailCodeRequestResponse> {
+    return this.post<EmailCodeRequestResponse>('/v1/auth/email/request', { email });
   }
 
-  passkeyRegisterVerify(email: string, credential: unknown): Promise<SessionResult> {
-    return this.post<SessionResult>('/v1/auth/passkeys/verify', { email, credential, kind: 'registration' });
+  /** Sign-up step 2: trade the emailed code for a registration ticket.
+   *  One generic 401 for every failure; 5 tries per code. */
+  verifyEmailCode(email: string, code: string): Promise<EmailCodeVerifyResponse> {
+    return this.post<EmailCodeVerifyResponse>('/v1/auth/email/verify', { email, code });
   }
 
-  passkeyLoginVerify(email: string, credential: unknown): Promise<SignInResult> {
-    return this.post<SignInResult>('/v1/auth/passkeys/verify', { email, credential, kind: 'authentication' });
+  /** Sign-up step 3: creation options. Requires the ticket from
+   *  verifyEmailCode (401 when it is missing, expired or spent). */
+  passkeyRegisterOptions(email: string, registrationTicket: string): Promise<PasskeyRegisterOptionsResponse> {
+    return this.post<PasskeyRegisterOptionsResponse>('/v1/auth/passkeys/register', {
+      email,
+      registration_ticket: registrationTicket,
+    });
+  }
+
+  /** `device` (optional): proof signed over this ceremony's challenge
+   *  (device-key-store.ts prepareSignInDeviceProof). Without it the
+   *  session is unbound (device_id null). */
+  passkeyRegisterVerify(email: string, credential: unknown, device?: SignInDeviceProof): Promise<SessionResult> {
+    return this.post<SessionResult>('/v1/auth/passkeys/verify', {
+      email, credential, kind: 'registration', ...(device ? { device } : {}),
+    });
+  }
+
+  passkeyLoginVerify(email: string, credential: unknown, device?: SignInDeviceProof): Promise<SignInResult> {
+    return this.post<SignInResult>('/v1/auth/passkeys/verify', {
+      email, credential, kind: 'authentication', ...(device ? { device } : {}),
+    });
   }
 
   // --- MFA (TOTP + recovery codes) ------------------------------------------
@@ -573,12 +628,33 @@ export class SecurityApiClient {
     });
   }
 
-  /** Enroll a device record. Step-up required server-side.
-   *  `public_key` is the device's Ed25519 verify key (base64); only the
-   *  PUBLIC key is sent. `name_encrypted` is Vault-Key-encrypted. Enrolling
-   *  grants no vault access — the vault still needs the passphrase. */
-  enrollDevice(body: { public_key: string; name_encrypted?: string; platform?: string }): Promise<{ device: DeviceInfo }> {
-    return this.post<{ device: DeviceInfo }>('/v1/devices/enroll', body);
+  /** Fresh single-use challenge (2 minutes) for the explicit device
+   *  flow, bound to THIS session and `purpose` (spec §6.2). */
+  deviceChallenge(purpose: DevicePurpose): Promise<{ challenge: string; purpose: DevicePurpose; expires_in: number }> {
+    return this.post('/v1/devices/challenges', { purpose });
+  }
+
+  /** Enroll a device record. Step-up required server-side, AND proof of
+   *  possession: `signature` is the device key's Ed25519 signature over
+   *  deviceMessage('enroll', enrollPayload(challenge, public_key)) with a
+   *  challenge from deviceChallenge('enroll'). `public_key` is the 32-byte
+   *  verify key, base64url; only the PUBLIC key is sent. `name_encrypted`
+   *  is Vault-Key-encrypted. Enrolling grants no vault access. */
+  enrollDevice(body: {
+    public_key: string;
+    challenge: string;
+    signature: string;
+    name_encrypted?: string;
+    platform?: string;
+  }): Promise<{ device: DeviceInfo; session_bound: boolean }> {
+    return this.post<{ device: DeviceInfo; session_bound: boolean }>('/v1/devices/enroll', body);
+  }
+
+  /** Bind the current (unbound) session to device `id`: `signature` over
+   *  deviceMessage('session-bind', sessionBindPayload(challenge, id)).
+   *  409 when the session is already bound. */
+  bindDevice(id: string, challenge: string, signature: string): Promise<{ device_id: string; session_bound: true }> {
+    return this.post(`/v1/devices/${encodeURIComponent(id)}/bind`, { challenge, signature });
   }
 
   /** Revoke a device: the server marks it revoked and ends its server
@@ -629,9 +705,12 @@ export class SecurityApiClient {
   }
 
   /** Register a recovery verifier: ONLY the Ed25519 public key is sent.
-   *  The private key is derived from the recovery key on-device and
-   *  never leaves the device. Authenticated + step-up server-side. */
+   *  The key pair MUST come from recoveryVerifierKeyPair() (v1,
+   *  domain-separated from the vault's recovery KEK — see
+   *  recovery-verifier.ts); the server records that derivation and
+   *  refuses any other. The private key never leaves the device.
+   *  Authenticated + step-up server-side. */
   registerRecoveryVerifier(publicKey: string): Promise<unknown> {
-    return this.post('/v1/recovery/verifiers', { public_key: publicKey });
+    return this.post('/v1/recovery/verifiers', { public_key: publicKey, derivation: RECOVERY_VERIFIER_DERIVATION });
   }
 }
