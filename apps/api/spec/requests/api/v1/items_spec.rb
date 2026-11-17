@@ -6,6 +6,7 @@ RSpec.describe 'Items API', type: :request do
   let(:headers) { auth_headers_for(user) }
   let(:ciphertext) { Base64.strict_encode64('fake-ciphertext-bytes') }
   let(:item_key) { Base64.strict_encode64('fake-wrapped-item-key') }
+  let(:other_ciphertext) { Base64.strict_encode64('other-device-ciphertext') }
 
   it 'returns only ciphertext + opaque ids — never a title, tag or type' do
     item_id = SecureRandom.uuid
@@ -23,8 +24,9 @@ RSpec.describe 'Items API', type: :request do
     item_id = SecureRandom.uuid
     put "/api/v1/vaults/#{vault.id}/items/#{item_id}", params: { base_revision: 0, encrypted_payload: ciphertext, encrypted_item_key: item_key, encryption_version: 1 }, headers: headers, as: :json
     expect(response).to have_http_status(:ok)
+    # Different ciphertext from the same base: a stale write, not a replay.
     expect {
-      put "/api/v1/vaults/#{vault.id}/items/#{item_id}", params: { base_revision: 0, encrypted_payload: ciphertext, encrypted_item_key: item_key, encryption_version: 1 }, headers: headers, as: :json
+      put "/api/v1/vaults/#{vault.id}/items/#{item_id}", params: { base_revision: 0, encrypted_payload: other_ciphertext, encrypted_item_key: item_key, encryption_version: 1 }, headers: headers, as: :json
     }.not_to change { SyncEvent.where(vault_id: vault.id).count }
     expect(response).to have_http_status(:conflict)
     body = JSON.parse(response.body)
@@ -42,7 +44,7 @@ RSpec.describe 'Items API', type: :request do
     expect(response).to have_http_status(:not_found)
   end
 
-  it 'tombstones once with an optional opaque signature and conflicts on a repeated delete' do
+  it 'tombstones once with an optional opaque signature; a repeated delete returns that tombstone' do
     raw = 'item-delete-sig'.b
     signature = Base64.strict_encode64(raw)
     item_id = SecureRandom.uuid
@@ -63,11 +65,11 @@ RSpec.describe 'Items API', type: :request do
     expect {
       delete "/api/v1/vaults/#{vault.id}/items/#{item_id}", params: { base_revision: 1 }, headers: headers, as: :json
     }.not_to change { SyncEvent.where(vault_id: vault.id).count }
-    expect(response).to have_http_status(:conflict)
+    expect(response).to have_http_status(:ok)
     body = JSON.parse(response.body)
-    expect(body['error']).to eq('revision_conflict')
-    expect(body['current_revision']).to eq(2)
+    expect(body).to eq('item_id' => item_id, 'revision' => 2, 'sequence' => stored.sequence, 'replayed' => true)
     expect(body.to_s.downcase).not_to include('verified')
+    expect(SyncEvent.where(item_id: item_id, operation: 'delete').count).to eq(1)
   end
 
   it 'returns 422 for an invalid delete signature and does not tombstone the item' do
