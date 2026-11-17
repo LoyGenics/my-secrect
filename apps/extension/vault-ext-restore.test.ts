@@ -49,7 +49,7 @@ function snapshot(): string {
   return JSON.stringify([...store.entries()].sort(([a], [b]) => a.localeCompare(b)));
 }
 
-test('extension: v2 backup restores with recovery key; tampered ciphertext rejected', { timeout: 180_000 }, async () => {
+test('extension: v3 backup restores with recovery key; tampered ciphertext or item list rejected', { timeout: 180_000 }, async () => {
   const vault = await import('./src/lib/vault-ext.ts');
   const { recoveryKey } = await vault.createVault(PASSPHRASE);
   await vault.unlockVault(PASSPHRASE);
@@ -57,9 +57,10 @@ test('extension: v2 backup restores with recovery key; tampered ciphertext rejec
   const backup = await vault.exportEncrypted();
   const doc = JSON.parse(backup) as {
     format_version: number;
-    items: Array<{ encrypted_payload: string }>;
+    items: Array<{ item_id: string; revision: number; encrypted_payload: string }>;
+    item_index?: unknown;
   };
-  assert.equal(doc.format_version, 2);
+  assert.equal(doc.format_version, 3);
 
   await vault.wipeVault();
   assert.equal(store.size, 0);
@@ -75,7 +76,22 @@ test('extension: v2 backup restores with recovery key; tampered ciphertext rejec
   assert.equal(store.size, 0);
   assert.equal(vault.isUnlocked(), false);
 
-  await vault.restoreEncrypted(backup, { recoveryKey });
+  // DEFECT-K2-omission: the only row removed / re-versioned -> item list mismatch, nothing written.
+  for (const edit of [(d: typeof doc) => { d.items = []; }, (d: typeof doc) => { d.items[0].revision += 1; }]) {
+    const edited = structuredClone(doc);
+    edit(edited);
+    await assert.rejects(() => vault.restoreEncrypted(JSON.stringify(edited), { recoveryKey }), /restore: item list does not match its authenticated index/);
+    assert.equal(snapshot(), before);
+    assert.equal(vault.isUnlocked(), false);
+  }
+
+  // Legacy format_version 2 still restores, flagged unverifiable.
+  const { item_index: _index, ...legacy } = doc;
+  assert.equal(await vault.restoreEncrypted(JSON.stringify({ ...legacy, format_version: 2 }), { recoveryKey }), 'unverifiable-legacy');
+  await vault.wipeVault();
+  assert.equal(store.size, 0);
+
+  assert.equal(await vault.restoreEncrypted(backup, { recoveryKey }), 'verified');
   const got = vault.listUnlockedItems().find((i) => i.id === entry.id);
   assert.ok(got);
   assert.equal(got.title, entry.title);

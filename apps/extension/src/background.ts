@@ -324,13 +324,13 @@ async function handle(req: ExtRequest): Promise<ExtResponse> {
       // write and throws (writing nothing) otherwise; errors reach the caller
       // through the generic handler as { ok:false, error }.
       const hasPass = typeof req.passphrase === 'string';
-      await vault.restoreEncrypted(
+      const itemList = await vault.restoreEncrypted(
         req.json,
         hasPass ? { passphrase: req.passphrase as string } : { recoveryKey: req.recoveryKey ?? '' },
       );
       const restoredCount = vault.listUnlockedItems().filter((i) => !i.deleted_at).length;
       vault.lockVault(); // a normal unlock is required after restore
-      return { ok: true, restoredCount };
+      return { ok: true, restoredCount, itemList };
     }
     case 'lock': {
       vault.lockVault();

@@ -182,7 +182,7 @@ describe('K2: corrupted backup fails safely', () => {
 
     // Fixed by the authenticated item index (backup format_version 3); the
     // apps not integrated yet keep the todo.
-    const omissionTodo = name === 'desktop' ? undefined : defect('DEFECT-K2-omission: backup has no authenticated item list; a dropped item restores "successfully" as N-1 items');
+    const omissionTodo = name !== 'mobile' ? undefined : defect('DEFECT-K2-omission: backup has no authenticated item list; a dropped item restores "successfully" as N-1 items');
     test(`${name}: a backup with one item silently removed is detected`, { todo: omissionTodo }, async () => {
       const t = T[name];
       const doc = JSON.parse(backups.desktop!.json) as Doc;
