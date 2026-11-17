@@ -15,6 +15,7 @@ import {
 } from '../../../../packages/sdk/src/security';
 import { fromBase64Url, sha256, toBase64 } from '../../../../packages/crypto-adapters/src/index';
 import { deviceMessage as deviceSignedMessage, enrollPayload, toBase64UrlNoPad } from '../../../../packages/sdk/src/device-identity';
+import { recoveryVerifierKeyPair } from '../../../../packages/sdk/src/recovery-verifier';
 import { serializeCreateCredential, toCreationOptions } from '../utils/webauthn';
 import StepUpDialog from './StepUpDialog';
 
@@ -33,9 +34,11 @@ const LS_DEVICE_KEY_PREFIX = 'my-secrect:device-key:';
  *       on a device (that sentence is in the i18n strings and shown
  *       next to the revoke controls).
  *   (c) Recovery settings — register a recovery verifier: an Ed25519
- *       keypair is derived on-device from the recovery key
- *       (crypto_sign_seed_keypair, seed = the 32 recovery-key bytes)
- *       and ONLY the public key is sent to the server. The seed and
+ *       keypair is derived on-device from the recovery key with domain
+ *       separation (seed = HKDF-SHA-256(recovery key,
+ *       "my-secrect/recovery-verifier/v1"), never the recovery key
+ *       itself — packages/sdk/src/recovery-verifier.ts) and ONLY the
+ *       public key is sent to the server. The seed and
  *       the private key are zero-filled immediately after use, and the
  *       pasted recovery key is cleared from state. Losing passphrase +
  *       recovery key + all devices is permanent loss — no reset.
@@ -559,7 +562,7 @@ export default function SecurityCenter({
         throw new Error(x.recoveryKeyInvalid);
       }
       if (seed.length !== 32) throw new Error(x.recoveryKeyInvalid);
-      const keypair = sodium.crypto_sign_seed_keypair(seed);
+      const keypair = await recoveryVerifierKeyPair(seed);
       privateKey = keypair.privateKey;
       const publicKeyB64 = toBase64(keypair.publicKey);
       const fp = await sha256(keypair.publicKey);

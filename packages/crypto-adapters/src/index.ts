@@ -124,7 +124,7 @@ function assertKeyLength(key: Uint8Array): void {
  *
  * `length` must be 1..255 * 32 (HashLen = 32 for SHA-256).
  */
-async function hkdfSha256(ikm: Uint8Array, info: string, length = 32): Promise<Uint8Array> {
+export async function hkdfSha256(ikm: Uint8Array, info: string, length = 32): Promise<Uint8Array> {
   await sodium.ready;
   if (length < 1 || length > 255 * sodium.crypto_auth_hmacsha256_BYTES) {
     throw new Error('hkdf length must be between 1 and 8160 bytes');

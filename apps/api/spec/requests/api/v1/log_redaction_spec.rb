@@ -124,7 +124,7 @@ RSpec.describe 'Security event logging', type: :request do
     # Recovery key: register a verifier, then sign in with it.
     recovery_key = RbNaCl::SigningKey.generate
     post '/api/v1/recovery/verifiers', headers: auth(bound_token),
-                                       params: { public_key: Base64.strict_encode64(recovery_key.verify_key.to_bytes) }, as: :json
+                                       params: { public_key: Base64.strict_encode64(recovery_key.verify_key.to_bytes), derivation: 'v1-hkdf-sha256' }, as: :json
     secrets << json_body['rotated_token']
     post '/api/v1/recovery/challenges', params: { email: email, kind: 'recovery_key' }, as: :json
     recovery_challenge = json_body['challenge']

@@ -385,7 +385,7 @@ RSpec.describe 'Security API', type: :request do
     def register_verifier(token, signing_key)
       verify_b64 = Base64.strict_encode64(signing_key.verify_key.to_bytes)
       post '/api/v1/recovery/verifiers', headers: auth_headers(token),
-           params: { public_key: verify_b64 }, as: :json
+           params: { public_key: verify_b64, derivation: 'v1-hkdf-sha256' }, as: :json
       expect(response).to have_http_status(:created)
       expect(json_body['verifier']['fingerprint']).to eq(Digest::SHA256.hexdigest(signing_key.verify_key.to_bytes)[0, 16])
       expect(json_body['rotated_token']).to start_with('sess_')
@@ -494,7 +494,7 @@ RSpec.describe 'Security API', type: :request do
       expect(response).to have_http_status(:forbidden)
       step_up_with_passkey(token, address: email, client: client)
       post '/api/v1/recovery/verifiers', headers: auth_headers(token),
-           params: { public_key: Base64.strict_encode64('short') }, as: :json
+           params: { public_key: Base64.strict_encode64('short'), derivation: 'v1-hkdf-sha256' }, as: :json
       expect(response).to have_http_status(:unprocessable_entity)
       new_token = register_verifier(token, signing_key)
       get '/api/v1/recovery/verifiers', headers: auth_headers(new_token), as: :json

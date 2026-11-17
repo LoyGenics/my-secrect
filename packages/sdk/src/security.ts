@@ -30,6 +30,7 @@
  */
 import { ApiError } from './index';
 import type { DevicePurpose, SignInDeviceProof } from './device-identity';
+import { RECOVERY_VERIFIER_DERIVATION } from './recovery-verifier';
 import type { ApiClientConfig } from './index';
 
 export { ApiError };
@@ -704,9 +705,12 @@ export class SecurityApiClient {
   }
 
   /** Register a recovery verifier: ONLY the Ed25519 public key is sent.
-   *  The private key is derived from the recovery key on-device and
-   *  never leaves the device. Authenticated + step-up server-side. */
+   *  The key pair MUST come from recoveryVerifierKeyPair() (v1,
+   *  domain-separated from the vault's recovery KEK — see
+   *  recovery-verifier.ts); the server records that derivation and
+   *  refuses any other. The private key never leaves the device.
+   *  Authenticated + step-up server-side. */
   registerRecoveryVerifier(publicKey: string): Promise<unknown> {
-    return this.post('/v1/recovery/verifiers', { public_key: publicKey });
+    return this.post('/v1/recovery/verifiers', { public_key: publicKey, derivation: RECOVERY_VERIFIER_DERIVATION });
   }
 }
