@@ -23,11 +23,12 @@ messages in English (Conventional Commits, as in `git log`).
 
 ## Git
 
-- Never `git commit` or `git push`, and never offer to. Leave work uncommitted
-  and say what changed.
-- Read-only git only: `status`, `diff`, `log`, `show`, `blame`, branch listing.
-  No `add`, `checkout`/`switch`, `stash`, `reset`, `restore`, `rebase`, `merge`,
-  `pull`, `fetch`, `clean`, branch create/delete. Need a branch → ask the user.
+- Never `git push`, and never offer to. The user pushes.
+- Local branches, worktrees, commits and merges are allowed for the
+  multi-agent workflow: each agent commits on its own local branch; the
+  orchestrator merges verified branches into local `main`.
+- Never rewrite or discard history or work: no `reset --hard`, `rebase`,
+  `clean`, `stash drop`, or force-deleting a branch.
 - No `gh` commands that write to GitHub (PRs, comments, reviews, issues).
 
 ## Local environment
