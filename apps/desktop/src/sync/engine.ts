@@ -16,7 +16,10 @@
  *    creates a copy and keeps the local item; failed decrypts, 4xx/5xx and
  *    unreadable stores all surface as status.error text.
  *  - This local vault is bound to one account + server vault; a different
- *    account is refused instead of pushing into the wrong vault.
+ *    account is refused instead of pushing into the wrong vault, and so is a
+ *    server vault this device's Vault Key cannot open (state 'vault_mismatch':
+ *    nothing is pushed — a device that created a new vault instead of
+ *    restoring must not upload items no other device can read).
  */
 import { createSyncClient, VaultApiClient } from '../../../../packages/sdk/src/index';
 import {
@@ -50,7 +53,7 @@ import {
   upsertItem,
 } from '../vault';
 
-export type SyncState = 'disabled' | 'idle' | 'syncing' | 'offline' | 'error';
+export type SyncState = 'disabled' | 'idle' | 'syncing' | 'offline' | 'error' | 'vault_mismatch';
 
 export interface SyncStatus {
   state: SyncState;
@@ -87,6 +90,20 @@ const LS_CONFLICTS_ENC = 'my-secrect.sync.conflicts.enc.v1';
 const LS_LAST_SYNC = 'my-secrect.sync.last-synced-at.v1';
 
 interface Binding { account: string; vault_id: string }
+/** GET /v1/vaults entry. encrypted_metadata is ciphertext under the creator's Vault Key. */
+interface ServerVault { id: string; created_at: string; encrypted_metadata?: string | null }
+
+/** This device's Vault Key does not open the account's server vault. */
+export class VaultMismatchError extends Error {
+  constructor() {
+    super(
+      "This device's vault does not match your account's vault on the server: it is encrypted with a different key "
+      + '(for example, a new vault was created here instead of restoring). Sync is off and nothing was uploaded. '
+      + "To use your account's vault on this device, restore it from a backup (or with its recovery key).",
+    );
+    this.name = 'VaultMismatchError';
+  }
+}
 
 function randomUuid(): string {
   if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
@@ -304,16 +321,23 @@ export class SyncEngine {
     if (binding && binding.account !== this.cfg.accountKey) {
       throw new Error(`This local vault is synced with another account (${binding.account}). Sign in with that account to sync it.`);
     }
-    const { vaults } = await this.api.listVaults();
+    const { vaults } = (await this.api.listVaults()) as { vaults: ServerVault[] };
     let id: string | null = null;
     if (binding) {
-      if (!vaults.some((v) => v.id === binding!.vault_id)) {
+      const bound = vaults.find((v) => v.id === binding!.vault_id);
+      if (!bound) {
         throw new Error('The server no longer has the vault this device was synced with; refusing to push into a different one.');
       }
-      id = binding.vault_id;
+      if (!(await this.opensVault(bound))) throw new VaultMismatchError();
+      id = bound.id;
     } else if (vaults.length > 0) {
-      // Deterministic: oldest vault of the account (a second device joins the existing one).
-      id = [...vaults].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))[0].id;
+      // Deterministic: the oldest vault of the account that this device's Vault Key
+      // opens (a second device joins the existing one). None opens => refuse.
+      const oldestFirst = [...vaults].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
+      for (const v of oldestFirst) {
+        if (await this.opensVault(v)) { id = v.id; break; }
+      }
+      if (!id) throw new VaultMismatchError();
     } else {
       const created = await this.api.createVault(await encryptWithVaultKey(`my-secrect vault ${new Date().toISOString()}`));
       id = created.vault.id;
@@ -321,6 +345,39 @@ export class SyncEngine {
     this.kv.set(LS_BINDING, JSON.stringify({ account: this.cfg.accountKey, vault_id: id } satisfies Binding));
     this.vaultId = id;
     return id;
+  }
+
+  /**
+   * Whether this device's Vault Key opens the server vault: its encrypted metadata
+   * (written with encryptWithVaultKey by the device that created it) passes AEAD,
+   * or — for a vault without metadata — its first stored item does. An empty vault
+   * without metadata holds nothing this device could disagree with.
+   */
+  private async opensVault(vault: ServerVault): Promise<boolean> {
+    if (!isUnlocked()) throw new Error('sync: vault is locked');
+    if (vault.encrypted_metadata) {
+      try {
+        await decryptWithVaultKey(vault.encrypted_metadata);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    const { events } = await this.api.syncPull(vault.id);
+    const sample = events.find((e) => e.operation === 'upsert' && e.encrypted_payload && e.encrypted_item_key);
+    if (!sample) return true;
+    try {
+      await decryptSyncEvent(sample);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Stop for good (until a new engine starts) and show why. Nothing more is sent. */
+  private halt(state: 'vault_mismatch', message: string): void {
+    this.stop();
+    this.setStatus({ state, error: message });
   }
 
   private buildClient(vaultId: string): SyncClient {
@@ -462,7 +519,10 @@ export class SyncEngine {
         this.setStatus({ state: 'idle', error: null, lastSyncedAt: now });
       }
     } catch (err) {
-      if (statusOf(err) === 401) {
+      const status = statusOf(err);
+      if (err instanceof VaultMismatchError) {
+        this.halt('vault_mismatch', err.message);
+      } else if (status === 401) {
         this.setStatus({ state: 'error', error: 'Sign-in expired (401). Sign in again to sync; local changes stay queued.' });
         this.cfg.onUnauthorized?.();
       } else if (isNetworkError(err)) {
