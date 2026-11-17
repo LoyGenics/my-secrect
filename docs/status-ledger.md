@@ -29,6 +29,9 @@ Re-run 2026-11-18 04:05 on main a7a777c (after desktop storage + sync integrity)
 - Full run on main: npm test 31/0 + 135/0, security mirrors 61/0, RSpec 270/0 (3 MinIO-only pending), sync e2e 21/0 (harness now does email code + device proof), web e2e 19/0, restore e2e 10/0, extension e2e 42/0, cargo 20/0, typecheck desktop/web/extension/mobile, web + extension builds.
 - Not re-run on main yet: sharing e2e and media e2e (their registration helpers predate the email step; owners are adapting them), deploy scripts (infra follow-up in progress).
 
+## Merged 06:30: feat/ios-credential-provider-v2
+AutoFill Credential Provider extension (Expo plugin adds target + entitlements; swift-sodium + SQLCipher.swift). Reads the app's vault.db + keychain items, biometric unlock per scheme, decrypts only the chosen row, checks the item URL against the page. Simulator run (iOS 26.5, agent): Safari QuickType fill and key-icon list fill both worked after Face ID; swift test 40/40 (re-run on main: 40/40). Not done: physical device / signing (needs paid Apple team for App Group + keychain group), Secure Enclave scheme end to end, passkeys, app-side refresh of QuickType identities.
+
 ## Merged 06:15: fix/mobile-post-merge
 Mobile K2 item-index check on the SQLCipher vault; cross-impl and acceptance harnesses run the real mobile vault on sql.js. On main: npm test 31/0 + 187/0, acceptance 48/48 (0 todo, no failing subtests), mobile typecheck clean. QA K2 closed on desktop/web, extension and mobile.
 
@@ -56,7 +59,7 @@ On main cb1bca6: npm run test:acceptance 45 pass / 3 todo; npm run test:acceptan
 Covered: A, B, D, E, I, K, M. Partial: C, F, H. Pending: G, J, L. Open defects: H1/H2 device revocation (re-check on main), H3 pull 401 not handled, H4 local-only choice not sticky, C1 different vault key pushes unreadable items (high), K3 rollback (high, needs v2 AD + signed events), K2 backup item omission undetected, E1 relations rewritten on save.
 
 ## In progress (agents, each on its own branch)
-- feat/ios-credential-provider-v2, feat/android-credential-provider-v2: providers against the merged mobile store.
+- feat/android-credential-provider-v2: provider against the merged mobile store.
 - Waiting on the user: logo choice.
 
 ## Open (not assigned yet)
