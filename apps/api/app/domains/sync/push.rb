@@ -29,6 +29,14 @@ module Sync
         raise ArgumentError, 'encrypted_item_key required' if encrypted_item_key.blank?
       end
       signature_bytes = decode_opaque_signature(signature)
+      # Wire format: standard base64. Stored: the DECODED ciphertext bytes
+      # (Pull and ItemPresenter re-encode exactly once). Before this fix the
+      # base64 TEXT was stored as the bytes and pull base64'd it again, so
+      # every client received double-encoded ciphertext it could not open.
+      if operation.to_s == 'upsert'
+        encrypted_payload = decode_ciphertext(encrypted_payload, 'encrypted_payload')
+        encrypted_item_key = decode_ciphertext(encrypted_item_key, 'encrypted_item_key')
+      end
       attempts = 0
       begin
         vault.with_lock do
@@ -49,6 +57,13 @@ module Sync
       end
     rescue EncryptedRecords::Upsert::RevisionConflict => e
       raise RevisionConflict, e.current_revision
+    end
+
+    def decode_ciphertext(value, name)
+      raise ArgumentError, "#{name} must be a base64 string" unless value.is_a?(String)
+      Base64.strict_decode64(value)
+    rescue ArgumentError
+      raise ArgumentError, "#{name} must be standard base64"
     end
 
     # nil / "" means the client omitted a signature. Anything else must

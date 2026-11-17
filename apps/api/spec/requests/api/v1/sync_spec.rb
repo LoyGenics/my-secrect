@@ -106,10 +106,30 @@ RSpec.describe 'Sync API', type: :request do
       event = JSON.parse(response.body)['events'].find { |e| e['item_id'] == item_id }
       expect(event['operation']).to eq('upsert')
       expect(event['tombstone']).to eq(false)
-      expect(event['encrypted_payload']).to eq(Base64.strict_encode64(ciphertext))
-      expect(event['encrypted_item_key']).to eq(Base64.strict_encode64(item_key))
+      # Single encoding: pull returns exactly the base64 the client pushed
+      # (regression: it used to return base64(base64(ciphertext))).
+      expect(event['encrypted_payload']).to eq(ciphertext)
+      expect(event['encrypted_item_key']).to eq(item_key)
       expect(event['encryption_version']).to eq(1)
       expect(event['signature']).to be_nil
+    end
+
+    it 'stores the decoded ciphertext bytes, not the base64 text' do
+      item_id = SecureRandom.uuid
+      post "/api/v1/vaults/#{vault.id}/sync/push", params: { item_id: item_id, base_revision: 0, operation: 'upsert', encrypted_payload: ciphertext, encrypted_item_key: item_key, encryption_version: 1 }, headers: headers, as: :json
+      expect(response).to have_http_status(:ok)
+      stored = ItemVersion.find_by!(item_id: item_id, revision: 1)
+      expect(stored.encrypted_payload.b).to eq('fake-ciphertext-bytes'.b)
+      expect(stored.encrypted_item_key.b).to eq('fake-wrapped-item-key'.b)
+    end
+
+    it 'rejects non-base64 ciphertext with 422 and appends nothing' do
+      item_id = SecureRandom.uuid
+      expect {
+        post "/api/v1/vaults/#{vault.id}/sync/push", params: { item_id: item_id, base_revision: 0, operation: 'upsert', encrypted_payload: '@@not base64@@', encrypted_item_key: item_key }, headers: headers, as: :json
+      }.not_to change { SyncEvent.where(vault_id: vault.id).count }
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(Item.where(id: item_id)).to be_empty
     end
 
     it 'returns a tombstone with null ciphertext after a delete push' do
