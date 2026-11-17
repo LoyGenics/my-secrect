@@ -3,9 +3,8 @@ import Foundation
 import SQLCipher
 
 /// DEBUG builds only — compiled out of Release. Writes a `vault.db` in the
-/// contract layout (specs/mobile-local-store.md §2) for the unit tests and
-/// for the simulator seed in Extension/DebugSimulatorSeed.swift. The app
-/// owns the real write path; the shipped provider never creates tables.
+/// contract layout (specs/mobile-local-store.md §2) for the unit tests. The
+/// app owns the real write path; the provider never creates tables.
 public enum DevVaultWriter {
     /// Contract §2 DDL, verbatim.
     public static let schemaSQL = """

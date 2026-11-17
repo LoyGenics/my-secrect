@@ -1,5 +1,5 @@
 /**
- * Writes the fixture the Swift tests (and the DEBUG simulator seed) decrypt.
+ * Writes the fixture the Swift tests decrypt.
  *
  * Every byte comes from the REAL TypeScript crypto
  * (packages/crypto-adapters → libsodium-wrappers-sumo), with the same calls
@@ -45,8 +45,7 @@ const ITEMS: VaultItem[] = [
   item('item_af_login_1', 'login', 'Example', {
     username: 'fixture-user@example.com', password: 'fixture-password-1', url: 'https://www.example.com/login',
   }),
-  // Public demo credentials of a test-automation practice site; used by the
-  // simulator end-to-end AutoFill check (README.md).
+  // Public demo credentials of a test-automation practice site.
   item('item_af_login_2', 'login', 'The Internet (practice site)', {
     username: 'tomsmith', password: 'SuperSecretPassword!', url: 'https://the-internet.herokuapp.com/login',
   }),

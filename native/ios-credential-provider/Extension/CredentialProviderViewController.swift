@@ -16,6 +16,24 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     private static let enableBiometricUnlock = "Open my-secrect and enable biometric unlock."
     /// The request is answered exactly once (a late unlock after Cancel is dropped).
     private var answered = false
+    /// LocalAuthentication refuses a prompt from an extension that is not on
+    /// screen yet (LAError.notInteractive, "Caller is not running
+    /// foreground"), which is the case inside
+    /// prepareInterfaceToProvideCredential. The prompt waits for viewDidAppear.
+    private var isOnScreen = false
+    private var runWhenOnScreen: (() -> Void)?
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        isOnScreen = true
+        let pending = runWhenOnScreen
+        runWhenOnScreen = nil
+        pending?()
+    }
+
+    private func whenOnScreen(_ work: @escaping () -> Void) {
+        if isOnScreen { work() } else { runWhenOnScreen = work }
+    }
 
     // MARK: - System entry points
 
@@ -123,18 +141,20 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         }
 
         show(MessageViewController(message: "Unlocking…", busy: true, onClose: { [weak self] in self?.cancel(.userCanceled) }))
-        DeviceUnlock.authenticate(reason: Self.unlockReason) { [weak self] authentication in
-            // LocalAuthentication queue: keychain and crypto stay off the main thread.
-            let outcome = Result<LoginSecret, Error> {
-                let context = try authentication.get()
-                defer { context.invalidate() }
-                let accountMasterKey = try DeviceUnlock.unwrapAccountMasterKey(unlock, accessGroup: accessGroup, context: context)
-                defer { accountMasterKey.wipe() }
-                return try CredentialFill.decryptLogin(
-                    row: row, storedKeysJSON: storedKeysJSON, accountMasterKey: accountMasterKey, pageHost: pageHost
-                )
+        whenOnScreen { [weak self] in
+            DeviceUnlock.authenticate(reason: Self.unlockReason) { authentication in
+                // LocalAuthentication queue: keychain and crypto stay off the main thread.
+                let outcome = Result<LoginSecret, Error> {
+                    let context = try authentication.get()
+                    defer { context.invalidate() }
+                    let accountMasterKey = try DeviceUnlock.unwrapAccountMasterKey(unlock, accessGroup: accessGroup, context: context)
+                    defer { accountMasterKey.wipe() }
+                    return try CredentialFill.decryptLogin(
+                        row: row, storedKeysJSON: storedKeysJSON, accountMasterKey: accountMasterKey, pageHost: pageHost
+                    )
+                }
+                DispatchQueue.main.async { self?.finish(outcome) }
             }
-            DispatchQueue.main.async { self?.finish(outcome) }
         }
     }
 

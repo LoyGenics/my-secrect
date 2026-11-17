@@ -26,9 +26,6 @@ final class ConfigurationViewController: UIViewController {
         stack.axis = .vertical
         stack.spacing = 20
         stack.alignment = .leading
-        #if DEBUG && targetEnvironment(simulator)
-        stack.addArrangedSubview(DebugSimulatorSeed.button(target: self, action: #selector(seedTapped)))
-        #endif
         stack.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(stack)
         NSLayoutConstraint.activate([
@@ -40,7 +37,7 @@ final class ConfigurationViewController: UIViewController {
         refresh()
     }
 
-    private func refresh(prefix: String? = nil) {
+    private func refresh() {
         let status: String
         do {
             let db = try ProviderVault.open()
@@ -57,20 +54,10 @@ final class ConfigurationViewController: UIViewController {
             CredentialIdentitySync.removeAll()
             status = "my-secrect has not shared its vault with AutoFill yet. Open my-secrect, unlock it, and enable biometric unlock. (\(error))"
         }
-        statusLabel.text = [prefix, status].compactMap { $0 }.joined(separator: "\n\n")
+        statusLabel.text = status
     }
 
     @objc private func doneTapped() {
         onDone()
     }
-
-    #if DEBUG && targetEnvironment(simulator)
-    @objc private func seedTapped() {
-        do {
-            refresh(prefix: try DebugSimulatorSeed.run())
-        } catch {
-            refresh(prefix: "Seed failed: \(error)")
-        }
-    }
-    #endif
 }
