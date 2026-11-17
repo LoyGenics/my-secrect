@@ -61,6 +61,7 @@ import {
   getValidTokenSync,
   webTokenStore,
 } from '../../../packages/sdk/src/security';
+import { VaultApiClient } from '../../../packages/sdk/src/index';
 import { I18nProvider } from '../../../packages/i18n/src/react';
 import { detectLocale } from '../../../packages/i18n/src/index';
 
@@ -205,6 +206,13 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
       getToken: () => getValidToken(store),
       tokenStore: store,
     });
+  }, [apiBaseUrl]);
+  // Encrypted media upload/download client (same base URL + expiry-aware token as above).
+  const mediaApi = useMemo(() => {
+    const base = apiBaseUrl.trim().replace(/\/+$/, '');
+    if (!base) return null;
+    const store = webTokenStore();
+    return new VaultApiClient({ baseUrl: base, getToken: () => getValidToken(store) });
   }, [apiBaseUrl]);
   // --- Account sign-in state (WorkOS scope) --------------------------
   // Signed-in = a valid (unexpired) session token is stored. The
@@ -1117,10 +1125,9 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
           <div className="min-h-0 flex-1 overflow-y-auto">
             <MediaView
               items={items}
-              manifests={{}}
-              thumbnailUrls={{}}
+              api={mediaApi}
+              onItemsChanged={() => setItems(listItems())}
               onSelect={(item) => { setView('all'); setSelectedId(item.id); setShowForm(false); setEditingItem(null); }}
-              onRequestDownload={() => setNotice('Download is not available yet: this prototype stores only the file manifest (name, type, size, SHA-256). File bytes are not stored, so there is nothing to download.')}
             />
           </div>
         ) : view === 'shares' ? (

@@ -69,7 +69,7 @@
 - Compose interpolates `${POSTGRES_PASSWORD}`, `${S3_ACCESS_KEY}`,
   `${S3_SECRET_KEY}`, `${RAILS_MASTER_KEY}` with no defaults: unset vars
   become empty strings. The API code falls back to weak defaults
-  (`S3_ACCESS_KEY` → `'minio'`, `S3_SECRET_KEY` → `'minio123'` in
+  (historical: `S3_ACCESS_KEY` → `'minio'`, `S3_SECRET_KEY` → `'minio123'` in
   `storage_provider.rb`) when env is empty, and Rails fails to boot
   without a master key. There is no fail-fast env validation. Add a
   boot-time check (or `? :-` required-var syntax in compose) before

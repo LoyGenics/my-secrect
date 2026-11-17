@@ -72,4 +72,29 @@ RSpec.describe 'Account deletion removes object-storage bytes', type: :request d
     expect(response).to have_http_status(:no_content)
     expect(User.exists?(user.id)).to be(false)
   end
+
+  describe 'with the in-memory storage adapter (real provider interface)' do
+    let(:store) { InMemoryStorage.new }
+    before { Blobs.storage_provider = store }
+    after { Blobs.storage_provider = nil }
+
+    it 'returns 204 and leaves no ciphertext; returns 503 and keeps the account when storage fails' do
+      user = create(:user)
+      keys = seed_blob(create(:vault, owner: user), status: 'complete', parts: 2)
+      keys.each { |k| store.put(k, 'cip') }
+      store.fail_deletes_for = [keys.last]
+      token = stepped_up_token(user)
+      headers = { 'Authorization' => "Bearer #{token}" }
+
+      delete '/api/v1/auth/account', headers: headers, as: :json
+      expect(response).to have_http_status(:service_unavailable)
+      expect(User.exists?(user.id)).to be(true)
+      expect(store.objects.keys).to eq([keys.last])
+
+      store.fail_deletes_for = []
+      delete '/api/v1/auth/account', headers: headers, as: :json
+      expect(response).to have_http_status(:no_content)
+      expect(store.objects).to be_empty
+    end
+  end
 end

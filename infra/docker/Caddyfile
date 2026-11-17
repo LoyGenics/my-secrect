@@ -13,3 +13,19 @@
     Referrer-Policy no-referrer
   }
 }
+
+# Public S3 API (MinIO) for presigned PUT/GET of ciphertext chunks. Host-based
+# routing, not a path prefix: a SigV4 presigned URL signs the Host header, and
+# Caddy forwards the client's Host unchanged, so the signature the API made
+# against S3_PUBLIC_ENDPOINT (https://s3.<SITE_ADDRESS>[:port]) verifies at MinIO.
+# Only ciphertext chunks pass through here. CORS preflight is answered by
+# MinIO itself (MINIO_API_CORS_ALLOW_ORIGIN = CORS_ORIGINS).
+# SITE_ADDRESS must be a bare host name (no scheme, no port).
+s3.{$SITE_ADDRESS} {
+  reverse_proxy minio:9000
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options nosniff
+    Referrer-Policy no-referrer
+  }
+}
