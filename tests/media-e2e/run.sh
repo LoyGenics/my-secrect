@@ -8,6 +8,9 @@
 #   (vite, port E2E_WEB_PORT=5204) and drive the real MediaView in Chromium
 #   (Playwright) against the stack: tests/media-e2e/browser.e2e.mjs.
 set -euo pipefail
+# Same default as tests/e2e-web/stack.ts and tests/sync-e2e/api-harness.ts:
+# register.rb runs under apps/api's bundle, which needs Ruby 3.3.
+export RBENV_VERSION=${RBENV_VERSION:-3.3.6}
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 COMPOSE_DIR="$ROOT/infra/docker"
