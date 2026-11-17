@@ -1,0 +1,22 @@
+# PostgreSQL only. Stores metadata + ciphertext, never plaintext vault content.
+default: &default
+  adapter: postgresql
+  encoding: unicode
+  pool: <%= ENV.fetch('RAILS_MAX_THREADS', 5) %>
+  username: <%= ENV.fetch('POSTGRES_USER', 'vault') %>
+  password: <%= ENV.fetch('POSTGRES_PASSWORD', '') %>
+  host: <%= ENV.fetch('POSTGRES_HOST', 'localhost') %>
+  port: <%= ENV.fetch('POSTGRES_PORT', 5432) %>
+
+development:
+  <<: *default
+  database: vault_development
+
+test:
+  <<: *default
+  database: vault_test
+
+production:
+  <<: *default
+  database: <%= ENV.fetch('POSTGRES_DB', 'vault_production') %>
+  url: <%= ENV['DATABASE_URL'] if ENV['DATABASE_URL'] %>

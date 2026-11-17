@@ -1,0 +1,28 @@
+{
+  "name": "@my-secrect/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "^2.1.0",
+    "buffer": "^6.0.3",
+    "expo": "~52.0.0",
+    "expo-clipboard": "~7.0.0",
+    "expo-local-authentication": "~16.0.0",
+    "expo-status-bar": "~2.0.0",
+    "libsodium-wrappers-sumo": "^0.7.15",
+    "react": "18.3.1",
+    "react-native": "0.76.5"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@types/react": "~18.3.12",
+    "typescript": "^5.5.0"
+  }
+}

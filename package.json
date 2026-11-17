@@ -1,0 +1,14 @@
+{
+  "name": "my-secrect",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Personal Digital Vault — local-first, E2EE",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "test": "node --test tests/crypto-vectors/ tests/sync-conflicts/ tests/compatibility/ tests/recovery/ tests/end-to-end/",
+    "test:rails": "cd apps/api && bundle exec rspec",
+    "test:crypto-core": "cd native/crypto-core && cargo test",
+    "dev:desktop": "npm --workspace apps/desktop run dev"
+  },
+  "engines": { "node": ">=20" }
+}

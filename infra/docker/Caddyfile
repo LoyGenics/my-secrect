@@ -1,0 +1,13 @@
+# TLS reverse proxy. Replace vault.example.com with your real domain.
+# Caddy obtains a Let's Encrypt certificate automatically when the domain
+# points at this host. For local-only use, comment the domain block out
+# and use http://localhost:3000 directly (no TLS on localhost).
+vault.example.com {
+  reverse_proxy api:3000
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options nosniff
+    X-Frame-Options DENY
+    Referrer-Policy no-referrer
+  }
+}

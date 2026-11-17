@@ -1,0 +1,102 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Dark theme shared with the desktop app (apps/desktop). */
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  background-color: #0b0f14;
+  color: #f4f4f5; /* zinc-100 */
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Scrollbar: dark, subtle. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: #0b0f14;
+}
+::-webkit-scrollbar-thumb {
+  background: #3f3f46; /* zinc-700 */
+  border-radius: 8px;
+  border: 2px solid #0b0f14;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #52525b; /* zinc-600 */
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #3f3f46 #0b0f14;
+}
+
+/* Focus rings: visible on the dark background. */
+:focus-visible {
+  outline: 2px solid #38bdf8; /* sky-400 */
+  outline-offset: 2px;
+}
+
+/* Responsive web shell: the shared desktop App is a wide flex-row layout
+ * (sidebar | item list | detail). Below 900px the shell stacks vertically
+ * so every screen stays reachable on a narrow browser window instead of
+ * overflowing sideways. Scoped under .web-shell so desktop is untouched. */
+@media (max-width: 900px) {
+  .web-shell .flex.h-full {
+    flex-direction: column;
+    height: auto;
+    min-height: 100%;
+  }
+  .web-shell .flex.h-full > aside,
+  .web-shell .flex.h-full > nav {
+    width: 100% !important;
+    max-height: 220px;
+    overflow-y: auto;
+    border-right: 0 !important;
+    border-bottom: 1px solid #27272a;
+  }
+  .web-shell .flex.min-h-0.flex-1 {
+    flex-direction: column;
+  }
+  .web-shell .flex.min-h-0.flex-1 > section {
+    width: 100% !important;
+    border-right: 0 !important;
+    border-bottom: 1px solid #27272a;
+  }
+  .web-shell header {
+    flex-wrap: wrap;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-zinc-800 bg-zinc-900/70 p-4 shadow-sm;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-100 transition-colors hover:bg-zinc-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-red-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .input {
+    @apply w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40;
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "my-secrect",
+    "slug": "my-secrect",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "my-secrect",
+    "userInterfaceStyle": "dark",
+    "splash": { "backgroundColor": "#0B0F14" },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.loygenics.my-secrect",
+      "infoPlist": { "NSFaceIDUsageDescription": "Unlock your my-secrect vault with Face ID. Your passphrase is still required the first time after install." }
+    },
+    "android": {
+      "package": "com.loygenics.mysecrect",
+      "versionCode": 1
+    },
+    "plugins": ["expo-local-authentication"]
+  }
+}

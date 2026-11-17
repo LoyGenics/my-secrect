@@ -1,0 +1,21 @@
+[package]
+name = "my-secrect-crypto-core"
+version = "0.1.0"
+edition = "2021"
+description = "Audited-boundary crypto for my-secrect: libsodium (Argon2id KDF, XChaCha20-Poly1305 AEAD, secretstream) + HKDF-SHA-256"
+license = "MIT OR Apache-2.0"
+
+[lib]
+name = "my_secrect_crypto_core"
+path = "src/lib.rs"
+
+[dependencies]
+# sodiumoxide = safe Rust bindings to libsodium. This is the ONLY place
+# that touches raw crypto primitives. Everything else uses this API.
+sodiumoxide = "0.2"
+hkdf = "0.12"
+sha2 = "0.10"
+thiserror = "1.0"
+
+[dev-dependencies]
+hex = "0.4"
