@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getValidToken, webTokenStore } from '../../../../packages/sdk/src/security';
+import { clearSessionToken, getValidToken, webTokenStore } from '../../../../packages/sdk/src/security';
 import type { SyncConflict } from '../../../../packages/sync/src/index';
 import { SyncEngine, type SyncStatus } from './engine';
 
@@ -45,6 +45,7 @@ export function useSync(opts: UseSyncOptions): UseSync {
       getToken: () => getValidToken(store),
       accountKey: opts.accountEmail,
       onItemsChanged: () => cb.current.onItemsChanged(),
+      clearToken: () => clearSessionToken(store),
       onUnauthorized: () => cb.current.onUnauthorized(),
       onStatus: (s) => {
         setStatus(s);

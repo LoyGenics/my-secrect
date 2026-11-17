@@ -16,7 +16,12 @@
  *    creates a copy and keeps the local item; failed decrypts, 4xx/5xx and
  *    unreadable stores all surface as status.error text.
  *  - This local vault is bound to one account + server vault; a different
- *    account is refused instead of pushing into the wrong vault.
+ *    account is refused instead of pushing into the wrong vault, and so is a
+ *    server vault this device's Vault Key cannot open (state 'vault_mismatch':
+ *    nothing is pushed — a device that created a new vault instead of
+ *    restoring must not upload items no other device can read).
+ *  - A 401 (session gone) or 403 (device not authorized) on ANY request stops
+ *    sync, clears the stored token and reports 'signed_out'.
  */
 import { createSyncClient, VaultApiClient } from '../../../../packages/sdk/src/index';
 import {
@@ -50,7 +55,7 @@ import {
   upsertItem,
 } from '../vault';
 
-export type SyncState = 'disabled' | 'idle' | 'syncing' | 'offline' | 'error';
+export type SyncState = 'disabled' | 'idle' | 'syncing' | 'offline' | 'error' | 'signed_out' | 'vault_mismatch';
 
 export interface SyncStatus {
   state: SyncState;
@@ -71,8 +76,11 @@ export interface SyncEngineConfig {
   /** Called after sync changed local items (re-render). */
   onItemsChanged?: () => void;
   onStatus?: (s: SyncStatus) => void;
-  /** Called when the server answers 401 (session gone). */
+  /** Called once when the server answers 401 (session gone) or 403 (device not
+   *  authorized): sync has stopped and the user must sign in again. */
   onUnauthorized?: () => void;
+  /** Drops the stored session token; called before onUnauthorized. */
+  clearToken?: () => void | Promise<void>;
   /** Override for tests / non-browser hosts. Default: localStorage. */
   storage?: SyncStorage;
   /** Delay before a local edit is pushed (ms). Default 400. */
@@ -87,6 +95,20 @@ const LS_CONFLICTS_ENC = 'my-secrect.sync.conflicts.enc.v1';
 const LS_LAST_SYNC = 'my-secrect.sync.last-synced-at.v1';
 
 interface Binding { account: string; vault_id: string }
+/** GET /v1/vaults entry. encrypted_metadata is ciphertext under the creator's Vault Key. */
+interface ServerVault { id: string; created_at: string; encrypted_metadata?: string | null }
+
+/** This device's Vault Key does not open the account's server vault. */
+export class VaultMismatchError extends Error {
+  constructor() {
+    super(
+      "This device's vault does not match your account's vault on the server: it is encrypted with a different key "
+      + '(for example, a new vault was created here instead of restoring). Sync is off and nothing was uploaded. '
+      + "To use your account's vault on this device, restore it from a backup (or with its recovery key).",
+    );
+    this.name = 'VaultMismatchError';
+  }
+}
 
 function randomUuid(): string {
   if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
@@ -239,12 +261,11 @@ export class SyncEngine {
     }
     if (!this.started) return; // stopped while hydrating (lock / sign-out)
     this.unsub = onVaultMutation((m) => {
-      if (m.kind === 'purge') return; // "Delete forever" is device-local; the delete before it is not
       this.dirtyIds.add(m.id);
-      // A purge can follow the delete before the debounced push runs, and it
-      // removes the row that push would be built from. Queue the tombstone now:
-      // it carries no ciphertext and needs no network.
-      if (m.kind === 'delete') this.queueTombstone(m.id);
+      // "Delete forever" is device-local; the delete it implies is not. vault.ts keeps
+      // a content-free tombstone row for a purged item the server still has live, and
+      // a delete or purge is queued at once (no ciphertext, no network needed).
+      if (m.kind === 'delete' || m.kind === 'purge') this.queueTombstone(m.id);
       this.schedulePush();
     });
     const g = globalThis as unknown as { addEventListener?: (t: string, h: () => void) => void };
@@ -304,16 +325,23 @@ export class SyncEngine {
     if (binding && binding.account !== this.cfg.accountKey) {
       throw new Error(`This local vault is synced with another account (${binding.account}). Sign in with that account to sync it.`);
     }
-    const { vaults } = await this.api.listVaults();
+    const { vaults } = (await this.api.listVaults()) as { vaults: ServerVault[] };
     let id: string | null = null;
     if (binding) {
-      if (!vaults.some((v) => v.id === binding!.vault_id)) {
+      const bound = vaults.find((v) => v.id === binding!.vault_id);
+      if (!bound) {
         throw new Error('The server no longer has the vault this device was synced with; refusing to push into a different one.');
       }
-      id = binding.vault_id;
+      if (!(await this.opensVault(bound))) throw new VaultMismatchError();
+      id = bound.id;
     } else if (vaults.length > 0) {
-      // Deterministic: oldest vault of the account (a second device joins the existing one).
-      id = [...vaults].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))[0].id;
+      // Deterministic: the oldest vault of the account that this device's Vault Key
+      // opens (a second device joins the existing one). None opens => refuse.
+      const oldestFirst = [...vaults].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
+      for (const v of oldestFirst) {
+        if (await this.opensVault(v)) { id = v.id; break; }
+      }
+      if (!id) throw new VaultMismatchError();
     } else {
       const created = await this.api.createVault(await encryptWithVaultKey(`my-secrect vault ${new Date().toISOString()}`));
       id = created.vault.id;
@@ -321,6 +349,53 @@ export class SyncEngine {
     this.kv.set(LS_BINDING, JSON.stringify({ account: this.cfg.accountKey, vault_id: id } satisfies Binding));
     this.vaultId = id;
     return id;
+  }
+
+  /**
+   * Whether this device's Vault Key opens the server vault: its encrypted metadata
+   * (written with encryptWithVaultKey by the device that created it) passes AEAD,
+   * or — for a vault without metadata — its first stored item does. An empty vault
+   * without metadata holds nothing this device could disagree with.
+   */
+  private async opensVault(vault: ServerVault): Promise<boolean> {
+    if (!isUnlocked()) throw new Error('sync: vault is locked');
+    if (vault.encrypted_metadata) {
+      try {
+        await decryptWithVaultKey(vault.encrypted_metadata);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    const { events } = await this.api.syncPull(vault.id);
+    const sample = events.find((e) => e.operation === 'upsert' && e.encrypted_payload && e.encrypted_item_key);
+    if (!sample) return true;
+    try {
+      await decryptSyncEvent(sample);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Stop for good (until a new engine starts) and show why. Nothing more is sent. */
+  private halt(state: 'signed_out' | 'vault_mismatch', message: string): void {
+    this.stop();
+    this.setStatus({ state, error: message });
+  }
+
+  /** 401 / 403 from the server: stop, drop the token, hand over to sign-in. */
+  private async signOut(status: number): Promise<void> {
+    let message = status === 403
+      ? 'This device is no longer authorized to sync (403). Sign in again; local changes stay queued on this device.'
+      : 'Sign-in expired (401). Sign in again to sync; local changes stay queued on this device.';
+    try {
+      await this.cfg.clearToken?.();
+    } catch (err) {
+      message += `\nThe stored session could not be cleared: ${errText(err)}`;
+    }
+    this.halt('signed_out', message);
+    this.cfg.onUnauthorized?.();
   }
 
   private buildClient(vaultId: string): SyncClient {
@@ -435,6 +510,11 @@ export class SyncEngine {
       if (!this.client) this.client = this.buildClient(vaultId);
       const res = await this.client.syncAll();
       await this.storage.flush();
+      if (res.pushed.length > 0) this.cfg.onItemsChanged?.();
+      if (res.signedOut) {
+        await this.signOut(res.signedOut.status);
+        return false;
+      }
 
       // A 409 is an expected stale-revision outcome: it is surfaced as a conflict
       // record (shown in the conflict list) once the pull returns the other
@@ -445,11 +525,9 @@ export class SyncEngine {
       for (const s of res.pulled?.skipped ?? []) {
         if (/no ciphertext/i.test(s.reason)) problems.push(`item ${s.item_id}: ${s.reason}`);
       }
-      if (problems.some((p) => /unauthorized \(401\)/.test(p))) this.cfg.onUnauthorized?.();
       if (res.pulled && (res.pulled.applied.length > 0 || res.pulled.tombstones.length > 0 || res.pulled.conflicts.length > 0)) {
         this.cfg.onItemsChanged?.();
       }
-      if (res.pushed.length > 0) this.cfg.onItemsChanged?.();
       if (res.offline) {
         this.setStatus({ state: 'offline', error: 'Offline — changes are saved locally and will sync when the connection is back.' });
         retry = true;
@@ -462,9 +540,11 @@ export class SyncEngine {
         this.setStatus({ state: 'idle', error: null, lastSyncedAt: now });
       }
     } catch (err) {
-      if (statusOf(err) === 401) {
-        this.setStatus({ state: 'error', error: 'Sign-in expired (401). Sign in again to sync; local changes stay queued.' });
-        this.cfg.onUnauthorized?.();
+      const status = statusOf(err);
+      if (err instanceof VaultMismatchError) {
+        this.halt('vault_mismatch', err.message);
+      } else if (status === 401 || status === 403) {
+        await this.signOut(status);
       } else if (isNetworkError(err)) {
         this.setStatus({ state: 'offline', error: 'Offline — changes are saved locally and will sync when the connection is back.' });
         retry = true;

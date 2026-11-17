@@ -87,6 +87,10 @@ interface StoredRow {
   /** Last server revision this device has synced for the item. Absent = never synced (0).
    *  `revision > base_revision` means a local change is pending push. */
   base_revision?: number;
+  /** Deleted forever on this device while the server did not have its delete yet:
+   *  a content-free tombstone (ciphertext fields are '') kept only until sync
+   *  pushes the delete, then removed. Never decrypted, listed or exported. */
+  purged?: boolean;
 }
 
 interface StoredKeys {
@@ -154,6 +158,7 @@ async function decryptRows(rows: StoredRow[]): Promise<VaultItem[]> {
   if (!vaultKey) throw new Error('vault locked');
   const items: VaultItem[] = [];
   for (const row of rows) {
+    if (row.purged) continue; // content-free tombstone waiting for sync
     let itemKey: Uint8Array | null = null;
     try {
       itemKey = await crypto.unwrapKey(
@@ -514,8 +519,33 @@ export function restoreItem(id: string): void {
   if (row) emitMutation({ kind: 'restore', id });
 }
 
+/**
+ * "Delete forever" on this device. Purging is device-local, but the delete
+ * before it is not: if the server has this item (base_revision > 0) and does
+ * not have its tombstone yet — never deleted, or the delete is still unpushed —
+ * the row becomes a content-free tombstone (ciphertext wiped) that the sync
+ * engine pushes whenever it next runs, even if it is not running now. It is
+ * removed once the server has the delete (markPushed / storeRemoteTombstone).
+ */
 export function permanentlyDeleteItem(id: string): void {
-  saveRows(loadRows().filter((r) => r.id !== id));
+  const rows = loadRows();
+  const row = rows.find((r) => r.id === id);
+  const base = row?.base_revision ?? 0;
+  const serverHasTombstone = !!row?.deleted_at && row.revision <= base;
+  if (row && base > 0 && !serverHasTombstone) {
+    if (!row.deleted_at) {
+      row.deleted_at = new Date().toISOString();
+      row.revision += 1;
+    }
+    row.purged = true;
+    row.nonce = '';
+    row.ciphertext = '';
+    row.wrapped_item_key = '';
+    row.wrapped_nonce = '';
+    saveRows(rows);
+  } else {
+    saveRows(rows.filter((r) => r.id !== id));
+  }
   unlockedItems = unlockedItems.filter((i) => i.id !== id);
   emitMutation({ kind: 'purge', id });
 }
@@ -909,7 +939,8 @@ export function markPushed(id: string, serverRevision: number, pushedLocalRevisi
     row.revision = Math.max(row.revision, serverRevision + 1);
     state = 'dirty';
   }
-  saveRows(rows);
+  // A purged row's tombstone is now on the server: nothing of it is kept.
+  saveRows(row.purged && state === 'clean' ? rows.filter((r) => r.id !== id) : rows);
   return state;
 }
 
@@ -968,6 +999,11 @@ export function storeRemoteTombstone(id: string, revision: number): void {
   const rows = loadRows();
   const row = rows.find((r) => r.id === id);
   if (!row) return;
+  if (row.purged) {
+    // Deleted forever here and now deleted on the server too: drop the tombstone row.
+    saveRows(rows.filter((r) => r.id !== id));
+    return;
+  }
   row.deleted_at = new Date().toISOString();
   row.base_revision = revision;
   row.revision = revision;

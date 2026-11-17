@@ -104,3 +104,52 @@ test('pull pages through >500 events', async () => {
   assert.equal(deleted[0][1], 1, 'tombstone revision is the delete event revision');
   assert.equal(loadCheckpoint(storage, VAULT_WITH_409)?.last_sequence, 620);
 });
+
+test('a 401 or 403 on PULL stops the run as signedOut, like a refused push; queue and checkpoint are kept', async () => {
+  for (const status of [401, 403] as const) {
+    const storage = memorySyncStorage();
+    enqueuePush(storage, push('i1', 'p'));
+    enqueuePush(storage, push('i2', 'p2'));
+    const calls: string[] = [];
+    const { c } = client({
+      syncPush: async () => { calls.push('push'); return { item_id: 'x', revision: 1, sequence: 1 }; },
+      syncPull: async () => { calls.push('pull'); throw apiErr(status, '/v1/vaults/v/sync'); },
+    }, storage);
+    const r = await c.syncAll();
+    assert.equal(r.signedOut?.status, status);
+    assert.equal(r.offline, false);
+    assert.equal(r.pulled, null);
+    assert.deepEqual(calls, ['push', 'push', 'pull']);
+    assert.equal(loadCheckpoint(storage, VAULT_WITH_409), null);
+  }
+});
+
+test('a 403 on PUSH stops the queue at once and keeps every entry (no pull after it)', async () => {
+  const storage = memorySyncStorage();
+  enqueuePush(storage, push('i1', 'p1'));
+  enqueuePush(storage, push('i2', 'p2'));
+  let pushes = 0;
+  let pulled = false;
+  const { c } = client({
+    syncPush: async () => { pushes += 1; throw apiErr(403, '/x'); },
+    syncPull: async () => { pulled = true; return { events: [], next_cursor: null }; },
+  }, storage);
+  const r = await c.syncAll();
+  assert.equal(r.signedOut?.status, 403);
+  assert.equal(pushes, 1);
+  assert.equal(pulled, false);
+  assert.equal(loadQueue(storage).length, 2);
+  assert.match(r.errors[0], /device not authorized \(403\)/);
+});
+
+test('signedOut stays null for other failures', async () => {
+  const storage = memorySyncStorage();
+  enqueuePush(storage, push('i1', 'p1'));
+  const { c } = client({
+    syncPush: async () => { throw apiErr(500, '/x'); },
+    syncPull: async () => { throw apiErr(422, '/y'); },
+  }, storage);
+  const r = await c.syncAll();
+  assert.equal(r.signedOut, null);
+  assert.equal(r.errors.length, 2);
+});
