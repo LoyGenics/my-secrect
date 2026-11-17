@@ -1,3 +1,4 @@
+// MIRROR: re-implements logic in-file; NOT production verification (see tests run via tsx --test for real-module coverage).
 // Sync pull contract + SDK queue-replay tests — self-contained, plain Node 20+.
 // Mirrors packages/sync/src/index.ts (applyRemoteEvents) and
 // packages/sync/src/sync-client.ts (pushQueue / pull) plus the server

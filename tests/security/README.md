@@ -21,10 +21,14 @@ construction and the specified rules reject tampering; it does NOT prove
 the apps call these checks. See `docs/security-review.md` (M5) and the
 header of each test file.
 
+Backup corruption coverage moved to the real-module test
+`packages/import-export/tests/backup-corruption.real.test.ts` (run by
+root `npm test` via `tsx --test`). The old mirror was deleted.
+
 ## Wiring
 
-`tests/security/` is NOT yet in the root `package.json` `test` script —
-add it there (coordinator) so `npm test` covers it. Until then run:
+`tests/security/` is NOT in the root `package.json` `test` script; CI runs
+it as a separate step. Run:
 
 ```sh
 node --test tests/security/
