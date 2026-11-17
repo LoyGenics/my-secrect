@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ExtRequest, ExtResponse, LoginMeta, ItemMeta, HealthSummary, PendingForm } from '../lib/messages';
 import type { VaultItem } from '../../../../packages/core/src/types';
-import { generateTotp } from '../../../../desktop/src/utils/totp';
+import { generateTotp } from '../lib/totp';
 
 /**
  * Popup UI. It holds NO keys and NO vault: every sensitive operation goes
