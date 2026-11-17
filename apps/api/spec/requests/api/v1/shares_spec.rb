@@ -281,10 +281,14 @@ RSpec.describe 'Shares API', type: :request do
       )
     end
 
-    it 'rejects a write with a missing base_revision or malformed ciphertext' do
+    it 'rejects a write with a missing or non-integer base_revision or malformed ciphertext' do
       share = active_share(permission: 'write')
       put "/api/v1/shares/#{share.id}/record", params: { encrypted_payload: b64(payload), encrypted_item_key: b64(wrapped_key) }, headers: recipient_headers, as: :json
       expect(response).to have_http_status(:unprocessable_entity)
+      [1.5, '1.5', 'one'].each do |base|
+        put "/api/v1/shares/#{share.id}/record", params: { base_revision: base, encrypted_payload: b64(payload), encrypted_item_key: b64(wrapped_key) }, headers: recipient_headers, as: :json
+        expect(response).to have_http_status(:unprocessable_entity), "base_revision #{base.inspect}"
+      end
       put "/api/v1/shares/#{share.id}/record", params: { base_revision: 1, encrypted_payload: b64(payload), encrypted_item_key: b64(SecureRandom.random_bytes(10)) }, headers: recipient_headers, as: :json
       expect(response).to have_http_status(:unprocessable_entity)
       expect(share.reload.revision).to eq(1)

@@ -73,6 +73,9 @@ either side needs no second wrap.
   **write-once** (same public key again = idempotent 200; a different
   public key = 409 `identity_key_exists`). Two devices racing to register:
   the loser gets 409, discards its fresh key pair and loads the winner's.
+  A malicious server can pretend no identity exists (404), so that a device
+  registers a fresh one; it cannot read anything with that, and every
+  contact who pinned the old key then gets `KeyChangedError` (§4).
 - The secret key is held in memory only while the Shares view is open and
   is zero-filled on lock/unmount. It is never written to local storage in
   plaintext. Limit: the JSON plaintext inside `encryptWithVaultKey` passes

@@ -9,7 +9,7 @@ module Sharing
 
     def call(share:, user:, base_revision:, encrypted_payload:, encrypted_item_key:)
       Access.check!(share: share, user: user, action: :write)
-      base = Integer(base_revision, exception: false)
+      base = Integer(base_revision.to_s, exception: false) # 1.5 / "1.5" / nil are rejected, not truncated
       raise Failure.invalid('base_revision must be an integer') unless base
 
       payload = Wire.payload!(encrypted_payload)
