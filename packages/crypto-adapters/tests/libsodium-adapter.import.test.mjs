@@ -27,6 +27,16 @@ import {
   sodiumReady,
 } from '../src/index.ts';
 
+// Root `npm run test:real` lists only this file from this package, and
+// the root package.json belongs to another workstream. These imports
+// register the cross-implementation (TS <-> Rust, real app vault code)
+// and reference-adapter guard tests in this same run. When the root
+// script lists the two files itself, delete these lines (otherwise the
+// tests just run twice). Both need tsx: they import app modules with
+// extensionless TS specifiers.
+import './cross-impl.test.ts';
+import './reference-adapter-guard.test.ts';
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const vectors = JSON.parse(readFileSync(
   path.join(repoRoot, 'tests/crypto-vectors/argon2id-vectors.json'),

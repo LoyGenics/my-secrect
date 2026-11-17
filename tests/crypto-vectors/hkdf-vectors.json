@@ -1,0 +1,25 @@
+{
+  "_comment": "HKDF-SHA-256 (RFC 5869), salt = 32 zero bytes, info = UTF-8. Computed by native/crypto-core::hkdf_sha256 (RustCrypto hkdf). Asserted against the TS adapter's hkdf AND node:crypto hkdfSync (OpenSSL) in packages/crypto-adapters/tests/cross-impl.test.ts, and against RFC 5869 test case 3 in native/crypto-core/tests/cross_impl.rs.",
+  "_generated": "cd native/crypto-core && cargo run --example gen_chain_vectors (deterministic). NEVER hand-edit.",
+  "ikm_hex": "0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a",
+  "vectors": [
+    {
+      "id": "hkdf-1",
+      "info": "my-secrect/item-key/v1",
+      "length": 32,
+      "okm_hex": "b0a7b2f67d0184a976cecf0c14ad4519a4dcc996b77d0712518f55a3acf1c15f"
+    },
+    {
+      "id": "hkdf-2-multiblock",
+      "info": "my-secrect/file-key/v1",
+      "length": 100,
+      "okm_hex": "1305202d424dfdf1f0e618cc806abc52149dd5314a1eb378dbe8eaa06bfc376dd447f6e30069f0908680090764d44c34fefe59a58774859d1a17ef7b1f723979b2f5b37690ed393b0d86520df8a9dd53ca91a52c1e20d7f49debfd08da431251efcbf97f"
+    },
+    {
+      "id": "hkdf-3-empty-info",
+      "info": "",
+      "length": 42,
+      "okm_hex": "c97551f4fb617604a37254c39472f2068355cea44e444f2bbb2d841319b92f1630e9e60ea460118fb9a4"
+    }
+  ]
+}

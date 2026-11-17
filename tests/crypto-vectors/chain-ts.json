@@ -1,0 +1,306 @@
+{
+  "_comment": "Cross-implementation fixture written by the REAL TypeScript vault code: apps/desktop/src/vault.ts, apps/extension/src/lib/vault-ext.ts and apps/mobile/src/vault.ts (createVault + upsertItem + exportEncrypted, storage shimmed in memory), over packages/crypto-adapters (libsodium-wrappers-sumo). Opened layer by layer by native/crypto-core/tests/cross_impl.rs and re-checked by packages/crypto-adapters/tests/cross-impl.test.ts. `v2` comes from the adapter v2 primitives.",
+  "_generated": "npx tsx packages/crypto-adapters/scripts/gen-chain-vectors.ts (repo root). Random keys and nonces: regenerating changes every value. NEVER hand-edit; if a reader disagrees, an implementation is wrong.",
+  "generator": "packages/crypto-adapters + apps/{desktop,extension,mobile} vault modules",
+  "apps": {
+    "desktop": {
+      "passphrase": "Mật khẩu desktop TS→Rust",
+      "recovery_key": "MBO1n55VDBQBsFqwd0ibTAMzIDkE6mvARhiEWtc6iiM",
+      "kek_hex": "587ea88c612bbd250ef0c867441769b36931ff5fbcd180d8b89e3d3c5b1b1d24",
+      "export": {
+        "format": "my-secrect-vault-export",
+        "format_version": 2,
+        "exported_at": "2026-11-17T16:51:27.630Z",
+        "vault_id": "local",
+        "kdf": {
+          "name": "argon2id",
+          "opslimit": 2,
+          "memlimit": 67108864,
+          "salt_bytes": 16,
+          "output_bytes": 32,
+          "recovery_kek": "sha256",
+          "cipher": "xchacha20poly1305-ietf",
+          "nonce_bytes": 24,
+          "encryption_version": 1
+        },
+        "keys": {
+          "salt": "QO2Di0QcByQp/by0oEEkjQ==",
+          "wrapped_master": "Qlcs6m3X6iO97Ikg2KaoOvIULP37Q19ahE47UODMLPgf7AS7tWS+yGH6S4HkhSQ3",
+          "wrapped_master_nonce": "Jo5RUPMqN5fRxqcAKT8ux9nL+7SQTMME",
+          "wrapped_vault": "gBxzGrj5fUShLzAMvLVT/WV7NAqmhlfRdRuzbu5ExdeRKyw2Qevsc0kDvO8ijEbZ",
+          "wrapped_vault_nonce": "A765+0OGK69wZhuwpAao8/ysVjMPLpIH",
+          "wrapped_recovery": "vUWnJuC4i1GG2EcRuP9If10gqFnmPG5l1fdZvqdLT0gHbsIr4RFIqy/vjNqvPcIt",
+          "wrapped_recovery_nonce": "qbIYcQK5Nv8yNvazY7Pc9/7omXCnIpWd"
+        },
+        "items": [
+          {
+            "item_id": "item_desktop_01",
+            "revision": 1,
+            "encrypted_payload": "efgpR4+AJW0WeSooUYKlSTY1RL3iGPzpoiZYhSZiRxET7vrQ+usHhDZ9oCgeNKvHn4O4GOU8cBM/rEWS4PgOUv5GoZJXHHZk2SOTrG5vfBSiyHPfUN+MSE8h6GquCraOpshQ9VsRkqRD8/7CR03s9Za1vd0IcvJDpYI0ktzUoQUgpjxfuQj6bwSjnMdI7zpOUWNK+ZH+RbFsHuXoNLOb+M3gS0md48n678bfFlS5JmjS2aEEtjMr9KZoh/MrVTEApc/Eynmq51QSq5p1pa7o1k4Aev4+nIvqP3+fo/sAEleiC45LdENJdiQtMDCeet9uVsKE4nbS6R91QZmGv+UoIWhuoxIT79vT59Oh4eSOCJm30UcgIhfdHBpizGXGpx6eWm0M59DKE+7iJ3bGxEm1izOCoFbBTKcWDVbt3tlBuAmlzzz94iLiDpIQHJONGoN3CVBsXpUtTPwnlqu5wYvJIK1Fw4VUEhaJJp3tAdNL0tk/OCdYi4gk9yWM",
+            "encrypted_item_key": "W6Cd4uIw5Deu1+sUHZOM0q+fKU3Ybfk4KYmUVgi13r8lNwZQMWjd2RCtL5TyP/icXIgOOfJCFowVKboafV+ag8fM4q+bPBhW",
+            "encryption_version": 1
+          },
+          {
+            "item_id": "item_desktop_02",
+            "revision": 1,
+            "encrypted_payload": "BoDmxLBmpVICBTZusZIBXpodsGmN8+E/5i3ldNbbPqDPHuEUd2dA7qTU3dmE/pXuzAqWgqnHspqFwv39WXoAgQl+qRaoO1uZmJZN7SFlxPPco/UF6ZJgVDHFwdfVD6FB8xicIxVLMrjEosuEQ62obElXQtc3fGJPh4rzRtM/bnjr4U4wx1sExyh5H/jZMEThagze8ULwiYLgtJxgEKuQYLmxCi1BoZfvhaZxyoQriu+MtbyIC2H6lhYPv4Sc05x3/6C6iipQN5gFQ/y8vL5E90x87yZLj8nPBT2lEblcUJ+5L4+fqgaqQerfFzuezd0xGAWnc90i2yuOed3TtbWiU4ljaBMGV7O31ktqXTKXuuPrz0U0TzeurNBvvdfvMXMohJkzWzBxVm5aW/IP8KYzVRnmrL41NZoRnKwDwHnslWEp0ukzCRP4ylXK6cf1Yj7DTrnEalsej6g0As0FUQysFs/kJJyXzalhb1jDwK+jSKj+o1YgMWGpBxOeX/uHsc7LECuaCMXwTG0Z+oZm9OnHvA==",
+            "encrypted_item_key": "3IX43MY5WWzEgNq9UHjoHHECT14tn0psYTyQab7mEq0Gpz+aAP5wXGyha/X+eDiavePckIjvRvMQSWmH2U5yKX2p1C2y2IN4",
+            "encryption_version": 1
+          }
+        ],
+        "relations_included": true
+      },
+      "expected_items": [
+        {
+          "id": "item_desktop_01",
+          "type": "login",
+          "schema_version": 1,
+          "title": "desktop login",
+          "fields": {
+            "username": "ada",
+            "password": "desktop-secret-1",
+            "url": "https://example.test"
+          },
+          "tags": [
+            "cross-impl"
+          ],
+          "relations": [],
+          "attachments": [],
+          "favorite": false,
+          "created_at": "2026-11-17T00:00:00.000Z",
+          "updated_at": "2026-11-17T16:51:27.628Z",
+          "deleted_at": null
+        },
+        {
+          "id": "item_desktop_02",
+          "type": "login",
+          "schema_version": 1,
+          "title": "desktop — mục thứ hai ✓",
+          "fields": {
+            "username": "ada",
+            "password": "desktop-secret-2 ✓",
+            "url": "https://example.test"
+          },
+          "tags": [
+            "cross-impl"
+          ],
+          "relations": [],
+          "attachments": [],
+          "favorite": false,
+          "created_at": "2026-11-17T00:00:00.000Z",
+          "updated_at": "2026-11-17T16:51:27.629Z",
+          "deleted_at": null
+        }
+      ]
+    },
+    "extension": {
+      "passphrase": "extension ascii passphrase 2026",
+      "recovery_key": "hCUkF6g_HTW37sM8ccijTmL7dE3jUZlQjk2TLsUrj2g",
+      "kek_hex": "09d44115062e8a5803039f4f13a41990f7b274dfced3a65924aaa4568c002427",
+      "export": {
+        "format": "my-secrect-vault-export",
+        "format_version": 2,
+        "exported_at": "2026-11-17T16:51:27.803Z",
+        "vault_id": "extension-local",
+        "kdf": {
+          "name": "argon2id",
+          "opslimit": 2,
+          "memlimit": 67108864,
+          "salt_bytes": 16,
+          "output_bytes": 32,
+          "recovery_kek": "sha256",
+          "cipher": "xchacha20poly1305-ietf",
+          "nonce_bytes": 24,
+          "encryption_version": 1
+        },
+        "keys": {
+          "salt": "12pKTZZPqIyKEHdojots0w==",
+          "wrapped_master": "QO1rUZdhSMjLLKr6NueykmfBZ0u/HhKcYA6exPJ+9p61tRPTgzvD/EgqQ9IWM8Af",
+          "wrapped_master_nonce": "cZV1e0XOG8L6Ivas9Hd9lY60nf/Vn8KB",
+          "wrapped_vault": "ydZd5xa0/fJB9lUsz1X2fJ2UV+NqKUlmWqFymqm1wtV9GtOYn5xMg236rI8Ho3pk",
+          "wrapped_vault_nonce": "eWfczfSvmOus7ifi4smMetEZuMzPsGJp",
+          "wrapped_recovery": "o2Ucaa/TUbsNfmO1cTqSYGWAoWaRoeHjn6M6E1pD/yulhmocvGG6/pbSUt+a8gkY",
+          "wrapped_recovery_nonce": "bX9ioJjBiFrB/s4LJz2KZKjLRLXF2Zgj"
+        },
+        "items": [
+          {
+            "item_id": "item_extension_01",
+            "revision": 1,
+            "encrypted_payload": "Ae/FOnV9pDfqkaU4XcfSURneqfnGybOIbsnSo555Rezzify6384eoJ3Ynu/gMWC8Zz19BvWoVH9C++AXL42NaJKhE8cPCXzLvFZUYfr0zfdDOBLOuCYeHfdoPDBGCiLwu6A6a/mD24gjStriTpOoh0/GXsbIOVZebv9hO27iOyIL3mv6baBNFsIsydwS3LeFF3mk2Zq0z8gBaoSpJZ+V+snT8xD/tNzMvVXlWg/n3DoQwQ3bHc3PzINYQcJOBSFFcD20WyG866KNZyqKS9GbEhIrKBDaNizbYZGDOYqjfoEpE1kzBvSovANKogDJ9H6YUCqfOJdH095c1NN463yP887ovvHJeJ6u9Pff9GcQceHSnUexs1SSzB6zkYEWpid9uCHgL4078LnLHlEnryJystHAeBbWHLvl6mThG7SFSBPHgCTePYe/B8T6NVzvxhWcfmPDqR1wAoXNomjahpfaqxBrlrCOHR6w2ePM6jch",
+            "encrypted_item_key": "idg4IY9huTtWCtQOuzcA7aJNOg6zQUfm70QrkL1nROEb3HTR5ciYh0GDOTC99U+Ox6i6Ip4Xf85pEIQBJ9YtI5HSB7uL3jGe",
+            "encryption_version": 1
+          },
+          {
+            "item_id": "item_extension_02",
+            "revision": 1,
+            "encrypted_payload": "gW3VKfba6mQQWWNoegzcbXCurvtzOIucqEhkjaliSie2nCWKCbkkGMaPsyF+vz898aM9XAJYoNPl+kFXzoMiD90+r6BLiSJ7SrDYo42kahQLcd8coHVMMIXK7ZAR63G0ajjbwdPv2TKDx/eP3MwU4LRzoCHzQtT6uXtplfL8BcCAQEUYFrxnlfq0B1YvSPztY/23BiKp+txJO+pgVjHoX8WRSHHRHtsuwlyqpuKceaaxbtK90JSChAnEOGOxtg+0G2qXdKI/63Nw25kybULuaA6I+V4eGVlGaW+nvi7Wq42a/5NmKEviS8MW7O4DQ2RXt11nJ+3JT+5jwPC6SLortOHZy0WtLuozq2Q7q5XxdqjcZTurPPJumlmWfPLD90q/FUPavUW8LTw8wkUYVQloNeikEWCEIeWF1rCYxWDelQ98+xVapQNHF28YXLKCybNYmkyu3t1tE8+JmlgfnkYxTTvaMEga4S7J52tr4RUTNXnFgDa8cUiqEIo2TLNks9gnCnbW/w==",
+            "encrypted_item_key": "E7SjypjhyKUXEoxQ41C4NA0pQ309ykyXR6Rr+IubSugy/34vmI+b0/I425zhy+vyfnp70rqe6Z4b8XwSp8n0O3DYvv3OaXa3",
+            "encryption_version": 1
+          }
+        ],
+        "relations_included": true
+      },
+      "expected_items": [
+        {
+          "id": "item_extension_01",
+          "type": "login",
+          "schema_version": 1,
+          "title": "extension login",
+          "fields": {
+            "username": "ada",
+            "password": "extension-secret-1",
+            "url": "https://example.test"
+          },
+          "tags": [
+            "cross-impl"
+          ],
+          "relations": [],
+          "attachments": [],
+          "favorite": false,
+          "created_at": "2026-11-17T00:00:00.000Z",
+          "updated_at": "2026-11-17T00:00:00.000Z"
+        },
+        {
+          "id": "item_extension_02",
+          "type": "login",
+          "schema_version": 1,
+          "title": "extension — mục thứ hai ✓",
+          "fields": {
+            "username": "ada",
+            "password": "extension-secret-2 ✓",
+            "url": "https://example.test"
+          },
+          "tags": [
+            "cross-impl"
+          ],
+          "relations": [],
+          "attachments": [],
+          "favorite": false,
+          "created_at": "2026-11-17T00:00:00.000Z",
+          "updated_at": "2026-11-17T00:00:00.000Z"
+        }
+      ]
+    },
+    "mobile": {
+      "passphrase": "Mobile 📱 mật khẩu NFC",
+      "recovery_key": "M39t3bJaHURDUrTlzs9OkEO2rs6aYqJXcZUvmuQH2CU",
+      "kek_hex": "c1d7a88be6723f3427b1c02a72b42c857ed4be9f567a4e27ce0ba847e1251eb6",
+      "export": {
+        "format": "my-secrect-vault-export",
+        "format_version": 2,
+        "exported_at": "2026-11-17T16:51:27.999Z",
+        "vault_id": "local",
+        "kdf": {
+          "name": "argon2id",
+          "opslimit": 2,
+          "memlimit": 67108864,
+          "salt_bytes": 16,
+          "output_bytes": 32,
+          "recovery_kek": "sha256",
+          "cipher": "xchacha20poly1305-ietf",
+          "nonce_bytes": 24,
+          "encryption_version": 1
+        },
+        "keys": {
+          "salt": "zRHsJCSD0OuxTW8HBO1KTg==",
+          "wrapped_master": "nN8Bgxtqz0oxCjU0JR4XWrN/BSfcsy6RpqupRthWopRqwPNuyzjPT28FVcBGfHxx",
+          "wrapped_master_nonce": "462OS+bXVxKrZleR6FlpLV7Bl7t8zeoS",
+          "wrapped_vault": "aGNCDV0j/2SS5mVYVTzrI4+spWhTtPGq2duRen1fKFEsKBw5CE5OBM/euLrlEp7y",
+          "wrapped_vault_nonce": "kqTk9nQKZPwzczASNGanY0pUSm5ofLgM",
+          "wrapped_recovery": "IInYaareZQrUMZPEVn7gQ3qquKi3FXlEyVkez1GnxWeXRYFDdrvjUQSNmmGER7ol",
+          "wrapped_recovery_nonce": "kc59zLHb8aKq7YV47KagqJW3NMDGKvhM"
+        },
+        "items": [
+          {
+            "item_id": "item_mobile_01",
+            "revision": 1,
+            "encrypted_payload": "DYZwjZTRB5DRhltrOwycXE+yUV+iDSpVIwCyIkUT/T3QCUJKG4f/xv96fHuSsx3zsRiIhd0SDarQ7DJv9ZQvNo4OZttK0z6BZXk/KvV8zFwQu2nER6jWdPKlozw/gW7jwNvDI7l4nAC2OWyR3IjJkB1S8na5PSPAqvZTHcbcz+sVV83+GiOD6b4ka8cBZA6lC0D8bO9oYLPwYIRx8Aw05/YJMx2lB2Nh5kUnYtQE0IRTL1ugXHcMHNAaRbUQ5SyiPGR1xNQ2pz1KkPfhCcjMCGis7MiPdGCtY4RvYAP0yz9PjsdTf5qYwEnNoHua1EWzyjmrqH6FceB4t9v4hn4iTXhoZeLdZ4MvXXNAzLsrLB2uqrE6e/pLKW3QDg1G8dAg2OirHeSzhvAZDC7kG9h6KBB6ZG+WzrKCH8i55cQWHedlcwtNkctxys3CKZCUwYTUeUtjl0mLcmoDZ9phaSKH9Dh0pxOje92IdqgihYFXJdZMCrEL00m8",
+            "encrypted_item_key": "lKficnwCEcPMO+bgsDDgWk9zVuRAD7J9vhnlS/gYQALtHPQHNnPjl1Zp6y9VNkI5o+MTptTb0FhbRx7DfiZOxGhdQE/LTLzW",
+            "encryption_version": 1
+          },
+          {
+            "item_id": "item_mobile_02",
+            "revision": 1,
+            "encrypted_payload": "pLUHfIgmX6GH4FlmXkY4mH1FpY7PmnT6Zl6g9pUxFPxI61Txk5VGBfGkaTe15RZVWEANL6/Wvb5QmHPzxQJHqNgdTNylGmrb7nfZjCkXtp7syUPoDmdoPEVH0/miu93Lc5cQ8xqQVx0q17EZq7Sy9LE7u14yiE4WJMHuJ8igfeWgCEPGe8oEXvRaoynTkGV8GKqycocGYKekDzYADUnLC4YCHU8pTgDawqwPZyxUSz3rMUPR0VR5fBKOGOm9W73Xqnnwkzkcqp4DMHrL+hsIDgxghYqMw7zs/bd5o5XRpg/F1eRJmsZN4REoxd647bJ+e6Je/PZX2QheWW76Hb6QzsuJ/gbUGLEvPrmmjcitiL7PiVNgLN7RNk7qcYBTbIezB5PWN7Do4bJbM5ZbbkjQaliVhm/4vS1EB+ATLrU/mAkqS32Tqje68c3m+UW8o9AK7xDO0stjpOFvO1xgZs5sgBBrSmLNn0SFmJIqtLAOnxvEUPyL3d4UEWnVHQlfy1AZfT3KTJoKf49UApv63Q==",
+            "encrypted_item_key": "/r2smgf9SkoxQXqzmmey1iZhdJh4yYQRf2YwkHBFVNOh6R//JZDMSDZ/MtC0A5A1qtsK3qAXo5tZ4MY9jTo0DAGjNxF7zN2W",
+            "encryption_version": 1
+          }
+        ],
+        "relations_included": true
+      },
+      "expected_items": [
+        {
+          "id": "item_mobile_01",
+          "type": "login",
+          "schema_version": 1,
+          "title": "mobile login",
+          "fields": {
+            "username": "ada",
+            "password": "mobile-secret-1",
+            "url": "https://example.test"
+          },
+          "tags": [
+            "cross-impl"
+          ],
+          "relations": [],
+          "attachments": [],
+          "favorite": false,
+          "created_at": "2026-11-17T00:00:00.000Z",
+          "updated_at": "2026-11-17T16:51:27.999Z",
+          "deleted_at": null
+        },
+        {
+          "id": "item_mobile_02",
+          "type": "login",
+          "schema_version": 1,
+          "title": "mobile — mục thứ hai ✓",
+          "fields": {
+            "username": "ada",
+            "password": "mobile-secret-2 ✓",
+            "url": "https://example.test"
+          },
+          "tags": [
+            "cross-impl"
+          ],
+          "relations": [],
+          "attachments": [],
+          "favorite": false,
+          "created_at": "2026-11-17T00:00:00.000Z",
+          "updated_at": "2026-11-17T16:51:27.999Z",
+          "deleted_at": null
+        }
+      ]
+    }
+  },
+  "v2": {
+    "binding": {
+      "vault_id": "vault_ts_v2",
+      "item_id": "item_ts_v2",
+      "revision": 3
+    },
+    "vault_key_hex": "9e65b2aa62c310e8783b09071f515dc334d3cb1a0d7546e36a72048e69033a6b",
+    "item_key_hex": "d4ec8583f784be1977737ca6dc442d3bf952c2e5237398edc7f08f944acdf335",
+    "encrypted_payload": "SLx0azvlE7bL5ctnrn4Hb5a3eTkj/W5WUCZdiYYk10iMm4XKMVoTs0Vzm0KTR/RzoqojDNTOj5mfe6fLW1PMVotObSPF5Ftrl+/fd5FG/uxL0WSy/IZ34mK4MtBhj4KTV9K0IXZI9rNrEBCAxnq+hzh8vuSy16PFrMHI7MohgWZwRZaLi+yf6BJyigM7gwKA8T+/o8joPu54KQhd5xTCFoy7KlDCMU3J6h5zr4LRKaoGMDd+QorN1f8PgLh6CQMJtPeEKaZVSsv5ow3T9OcjHlbI6HnIF7XM8tF5sxYeRm77m9V3307rYv8fgaorbnpvaaO4yNO6A2DGtCMozCi8dnPIG3UiHTcj+oPFZAAPaobtX9/A71+3QPPHrz+0NbAU5R60/Bqpbv2Gj2JXgYyIR1qnZZUhtsOkqYi0z8iEc4YzfMj3eMrc+RH7znBrwQhtYpaUei9DpNLlbnyfAEWTQ3Y4dCM=",
+    "encrypted_item_key": "05jCbGpWOUCYJ4z/NuhHO8TM6JbSeycfMB7aXwDBQIWDMdZbfrhw0IfFeT5ydQ1v7K1DIjJy0hvPAZos1xwkLNgIo8u3MNoM",
+    "encryption_version": 2,
+    "plaintext": {
+      "id": "item_ts_v2",
+      "type": "login",
+      "schema_version": 1,
+      "title": "TS-written v2 item",
+      "fields": {
+        "username": "ada",
+        "password": "ts-v2-secret",
+        "url": "https://example.test"
+      },
+      "tags": [
+        "cross-impl"
+      ],
+      "relations": [],
+      "attachments": [],
+      "favorite": false,
+      "created_at": "2026-11-17T00:00:00.000Z",
+      "updated_at": "2026-11-17T00:00:00.000Z"
+    }
+  }
+}

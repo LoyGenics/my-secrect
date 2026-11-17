@@ -1,0 +1,51 @@
+{
+  "_comment": "Item encryption v2 known-answer vectors (XChaCha20-Poly1305 IETF with additional data). AD = u32be(len(label))||label || u32be(len(vault_id))||vault_id || u32be(len(item_id))||item_id || u64be(revision); labels below. *_ciphertext_hex / wrapped_item_key_hex are ciphertext||16-byte tag WITHOUT the nonce; the stored v2 blob is nonce(24)||that, exactly like v1. Asserted by native/crypto-core/tests/cross_impl.rs and packages/crypto-adapters/tests/cross-impl.test.ts.",
+  "_generated": "cd native/crypto-core && cargo run --example gen_chain_vectors (deterministic: fixed keys and nonces; rerunning reproduces this file). NEVER hand-edit.",
+  "item_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "labels": {
+    "key_wrap": "my-secrect/item-key-wrap/v2",
+    "payload": "my-secrect/item-payload/v2"
+  },
+  "vault_key_hex": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+  "vectors": [
+    {
+      "id": "v2-1",
+      "item_id": "item_01",
+      "key_wrap_ad_hex": "0000001b6d792d736563726563742f6974656d2d6b65792d777261702f7632000000087661756c745f3031000000076974656d5f30310000000000000001",
+      "key_wrap_nonce_hex": "606162636465666768696a6b6c6d6e6f7071727374757677",
+      "payload_ad_hex": "0000001a6d792d736563726563742f6974656d2d7061796c6f61642f7632000000087661756c745f3031000000076974656d5f30310000000000000001",
+      "payload_ciphertext_hex": "af1b6c14f2da5b7ffb91eae19fad47beb0cec4b07f3c71a04847cf657f6140e4798b201370f26ba64d1b3c19338808f7d736d168",
+      "payload_nonce_hex": "404142434445464748494a4b4c4d4e4f5051525354555657",
+      "plaintext": "{\"id\":\"item_01\",\"title\":\"v2 vector\"}",
+      "revision": 1,
+      "vault_id": "vault_01",
+      "wrapped_item_key_hex": "e826422581749dc6a2089f041eac219667fdbe067df0cf71783b23e126889c989916ea443c9f05d644e2ee2cb448aa58"
+    },
+    {
+      "id": "v2-unicode-ids",
+      "item_id": "mục-✓-🔐",
+      "key_wrap_ad_hex": "0000001b6d792d736563726563742f6974656d2d6b65792d777261702f76320000000d6b686f2d62c3ad2d6de1baad740000000e6de1bba5632de29c932df09f9490000000000000002a",
+      "key_wrap_nonce_hex": "606162636465666768696a6b6c6d6e6f7071727374757677",
+      "payload_ad_hex": "0000001a6d792d736563726563742f6974656d2d7061796c6f61642f76320000000d6b686f2d62c3ad2d6de1baad740000000e6de1bba5632de29c932df09f9490000000000000002a",
+      "payload_ciphertext_hex": "af1b6c14f2da5b7b6e4f22dd827ef901bf4a3250837b7fb81e5889296c2619b263976b0d3af6e13096d6876e776eac147066f6d623e25b4ae0e0cbf8d5",
+      "payload_nonce_hex": "404142434445464748494a4b4c4d4e4f5051525354555657",
+      "plaintext": "{\"id\":\"mục-✓-🔐\",\"title\":\"unicode ids\"}",
+      "revision": 42,
+      "vault_id": "kho-bí-mật",
+      "wrapped_item_key_hex": "e826422581749dc6a2089f041eac219667fdbe067df0cf71783b23e126889c9848d4c72ad062c5fa1fa2351e10093df6"
+    },
+    {
+      "id": "v2-max-revision",
+      "item_id": "item_01",
+      "key_wrap_ad_hex": "0000001b6d792d736563726563742f6974656d2d6b65792d777261702f7632000000087661756c745f3031000000076974656d5f3031001fffffffffffff",
+      "key_wrap_nonce_hex": "606162636465666768696a6b6c6d6e6f7071727374757677",
+      "payload_ad_hex": "0000001a6d792d736563726563742f6974656d2d7061796c6f61642f7632000000087661756c745f3031000000076974656d5f3031001fffffffffffff",
+      "payload_ciphertext_hex": "a1c2621691a4c18bb8e28ca1aa14fa65",
+      "payload_nonce_hex": "404142434445464748494a4b4c4d4e4f5051525354555657",
+      "plaintext": "",
+      "revision": 9007199254740991,
+      "vault_id": "vault_01",
+      "wrapped_item_key_hex": "e826422581749dc6a2089f041eac219667fdbe067df0cf71783b23e126889c987d95c4aa965856fce825f3f44de6ba33"
+    }
+  ]
+}

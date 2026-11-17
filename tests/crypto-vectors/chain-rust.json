@@ -1,0 +1,138 @@
+{
+  "_comment": "Cross-implementation fixture written by native/crypto-core (Rust, sodiumoxide/libsodium) ONLY. Read by packages/crypto-adapters/tests/cross-impl.test.ts, which restores `export` through the real desktop, extension and mobile vault modules, and re-checked by native/crypto-core/tests/cross_impl.rs.",
+  "_generated": "cd native/crypto-core && cargo run --example gen_chain_vectors. Random keys and nonces: regenerating changes every value. NEVER hand-edit; if a reader disagrees, an implementation is wrong.",
+  "expected": {
+    "amk_hex": "5863481876e7d05450bf6f6ee478616c07e1497c03dcc985b02b05b1627af7f9",
+    "items": [
+      {
+        "item_id": "item_rust_01",
+        "item_key_hex": "76776cc26cf7db223ae74051e517b829fbdbe7ef6aca5c5264568fd25f9b4557",
+        "plaintext": {
+          "attachments": [],
+          "created_at": "2026-11-17T00:00:00.000Z",
+          "deleted_at": null,
+          "favorite": false,
+          "fields": {
+            "password": "rust-secret-1",
+            "url": "https://example.test",
+            "username": "ada"
+          },
+          "id": "item_rust_01",
+          "relations": [],
+          "schema_version": 1,
+          "tags": [
+            "cross-impl"
+          ],
+          "title": "Rust-written login",
+          "type": "login",
+          "updated_at": "2026-11-17T00:00:00.000Z"
+        }
+      },
+      {
+        "item_id": "item_rust_02",
+        "item_key_hex": "c6f84adc57941d051fbd38bdf35ddb064554931ecf602d626677864330b335e9",
+        "plaintext": {
+          "attachments": [],
+          "created_at": "2026-11-17T00:00:00.000Z",
+          "deleted_at": null,
+          "favorite": false,
+          "fields": {
+            "password": "rust-secret-2 ✓",
+            "url": "https://example.test",
+            "username": "ada"
+          },
+          "id": "item_rust_02",
+          "relations": [],
+          "schema_version": 1,
+          "tags": [
+            "cross-impl"
+          ],
+          "title": "Đăng nhập do Rust ghi ✓",
+          "type": "login",
+          "updated_at": "2026-11-17T00:00:00.000Z"
+        }
+      }
+    ],
+    "kek_hex": "c51c17d245336818ce53213f6655779877636bc78798d16b384c116d80b2f974",
+    "recovery_kek_hex": "22c9ecbbe5710eeb7ba50832c6554f3a84125a9c0dd649edf7dc0ef056e7cf02",
+    "vault_key_hex": "e253c9086bd918475c1da79f1a4ebfa6c8032498498f484e63550fbd07a58c19"
+  },
+  "export": {
+    "exported_at": "2026-11-17T00:00:00.000Z",
+    "format": "my-secrect-vault-export",
+    "format_version": 2,
+    "items": [
+      {
+        "encrypted_item_key": "J9Qy2RUjAgXl1AI59tqqSKnMQ0/aVAL8mWWHAHplWHlSKF2praO2s/gg9pwLplk4eqhCpK4gew6FIA5prRtUz6gqW813M+m7",
+        "encrypted_payload": "flWNqNPX3BfkZvFc2xEWJ3CczZnRjiuxOq0mLcAY+PUwwotvCFAYAFUyrbAzNGxGAjElVT12Qq0B3gqtF9bDZf8qSMmbBNHcssc+1+dpW4YqhAF/hAT5SorNhnmcANdrZZSVqcSKoJrbsQwnu4XvDuwLlCdGfHghS6GIq8HDrauIPEm5D2NdDVQd9NiZSeq+bqCd223/IYw6j8uujUae9RDwkZ/U/GiFz53QBG2panDKINPRb6B1bA6fPaE4WtlmT7OjCNHcH465EuzkvPmrr7S317nUGbaf2Di4SAJEbHMH9FE5A8ga6wte7DLbZR5F8eMGgLNPG4oW3eGBY4mG0g+ZS51kQy359KOUNngxprxJwIxomNNlRN3XMAHvDAx5TUdK14lXg/uqWbjFV8Af1LkoQKZkjF41k8MKoufwn3lXTEhXL0bbWcrS1XUYSx3u7xp+MmERVA6Nyi1YOYGLqZGkferfOk5ME+xTeVompCZdhVauy8RBaOg=",
+        "encryption_version": 1,
+        "item_id": "item_rust_01",
+        "revision": 1
+      },
+      {
+        "encrypted_item_key": "S09lMQBSZdnnbkbOspoBKs6HEmojsilVtUc8GBHzCX/r8Z96PMWDZVPXJoY7o/dzfcG2M5N/+ySO2njETzUQDv1lvy/8A3nn",
+        "encrypted_payload": "mFI39AqKCrLZG7SK8BQtwtKLNOZwvkgsReHVC8ddAqC8J08BwKx+ioD5SHCa+M7abEl8ouSG0AR8E6xPLih4+Rv4rLzIr4JuUsORlGQgv/EElTN8ZCVzZKrlVE1g9/Lh/zPrG8Vlqr5hyL7bDRWvKvXZfNw1Iw2ZyMiz77HYykT0bE/oQoIiZYEHfV+y7ulGgmlB+hXds/Wtufo66SEmWtiQYzTB5/6uow6lrqG72YT0kRuLgBCcN4a+DFAhLUURyyKCJSbaQntYMGNKLhqu94SGvTA0DIcGdfoWN1f1t3MFO49yGQHnmVBMzqv7KIOm74PeZNK6rdCeQTHrC7NusNh6hq9wzm+h268+vr5SRZrp+osywSMS/UFX5zNaJdVAIIvdIuerp1mb4vqBjTg5B9CBKrKtZAm1OLS8zK5Q0rlNGAYwNzCuW/WY01UGOCUXyMHpRV8+440Q1C2IVcVsAw/uiVQI14aOGQvztu2nAWaT5uVsI4HO7C4RzfLkNDFYal6C8r/moDI=",
+        "encryption_version": 1,
+        "item_id": "item_rust_02",
+        "revision": 2
+      }
+    ],
+    "kdf": {
+      "cipher": "xchacha20poly1305-ietf",
+      "encryption_version": 1,
+      "memlimit": 67108864,
+      "name": "argon2id",
+      "nonce_bytes": 24,
+      "opslimit": 2,
+      "output_bytes": 32,
+      "recovery_kek": "sha256",
+      "salt_bytes": 16
+    },
+    "keys": {
+      "salt": "T2Tn2hCd0GDT/tZWfLoXZQ==",
+      "wrapped_master": "pw4zX+MlVykfJCYKYuyj4YRdBHCxubCAsoiu+5VIXOdjXfvhPMuB24HkLeedPNKX",
+      "wrapped_master_nonce": "zwN6lurfJgsmgQIt0oIXAdIs/Zg2IqXr",
+      "wrapped_recovery": "tGw4Q+eUztkJG3Vh0QtnUf77Yi01XET4lHhVRZLB7J8KM+nKxduZhJpcRxbBgPLR",
+      "wrapped_recovery_nonce": "UkTZc0rToz1d33mim4qipOWHoIfEHEJ3",
+      "wrapped_vault": "v8pS67UV6dBEgTILDAAx0IZ75//QWoqr4Xe5BuW7L58kfHC4LLGPJq+MumDDT0iq",
+      "wrapped_vault_nonce": "jfHeg6w8QNx3RtwoKdWX6GgPXTCoVCqy"
+    },
+    "relations_included": true,
+    "vault_id": "rust-fixture-vault"
+  },
+  "generator": "native/crypto-core",
+  "passphrase": "Mật khẩu kiểm thử Rust→TS 🔐",
+  "recovery_key": "YCYyPslwenarxWWCiqRxd2vsSmNoBZ3qpt15N3-RbYU",
+  "v2": {
+    "binding": {
+      "item_id": "item_rust_v2",
+      "revision": 7,
+      "vault_id": "vault_rust_v2"
+    },
+    "encrypted_item_key": "v2rJWMoMP4D75PhVQXbPgB2Zn/3jrXJv/b7s01Pc8naBfELRKOZkNFaaP7OpMSG/d7otl39Q2MwtfXiX6WZCpo1F+nI/tP7d",
+    "encrypted_payload": "dNAkx7/O/2w37hGdHQZ0WEU99I/0RsVDSRDlEydAIvcuGe9LPAdCCe6vtlWUbBG+CECS8Kp1e1xW97kLyX+T2LJYw+jDUEz4WIwocWWTvbmf/rAf1a6LXnCRfMSsxCFSJipPDiv9/DNFQmqG0mFrxrTIapZsQARmMm4qjPEGg9Vv7M9CmKvXf22RrJRgppgc6vTObTAYMV9gP3lCxdm0kJJXhe6UA/SRsM3lno+Z6lm3W0+LopNsxE/E4zcCMVvhNhfix3N+lXeF3ZBuwrmpSpMUq6gr6BaKFiP7joFhHy6Y24hlfAveKwnPlBhsHlwAZxGNfqNXGRI4aYQpvzgMTjlLuG6ykrNdccta0OS51Wq5x4Rxzf17PETLAOV+a/1DrUOaXPtmaEJ5QqM9VG6WoqdPKhyrvMxYM6AWvydU+AhxqKwE7DHBrPCptUq8yzwhbrsLAncVhDXUxtiPl9g58XqLrdCvNn4+2v/WJqOmAGNqk6Pf+sDENulWoPA=",
+    "encryption_version": 2,
+    "item_key_hex": "b094b0b923e7d2a834aa134d8ee04b26ee219967987f5cab8912dae849512734",
+    "plaintext": {
+      "attachments": [],
+      "created_at": "2026-11-17T00:00:00.000Z",
+      "deleted_at": null,
+      "favorite": false,
+      "fields": {
+        "password": "rust-v2-secret",
+        "url": "https://example.test",
+        "username": "ada"
+      },
+      "id": "item_rust_v2",
+      "relations": [],
+      "schema_version": 1,
+      "tags": [
+        "cross-impl"
+      ],
+      "title": "Rust-written v2 item",
+      "type": "login",
+      "updated_at": "2026-11-17T00:00:00.000Z"
+    },
+    "vault_key_hex": "e253c9086bd918475c1da79f1a4ebfa6c8032498498f484e63550fbd07a58c19"
+  }
+}
