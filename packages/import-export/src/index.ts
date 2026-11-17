@@ -1,9 +1,11 @@
 /**
  * Import / export — portable formats, validation, and CSV import.
  *
- * This package is PURE (no I/O, no crypto, no storage): it validates
- * shapes, versions and base64, and parses other password managers'
- * CSV exports into drafts. Decryption / encryption of the rows lives
+ * This package does no I/O and no storage, and has no crypto dependency:
+ * it validates shapes, versions and base64, and parses other password
+ * managers' CSV exports into drafts. The one crypto step it owns — sealing
+ * and verifying the backup's item index — runs through the caller's
+ * adapter (`ItemIndexCrypto`). Decryption / encryption of the rows lives
  * in the vault implementations (apps/desktop/src/vault.ts,
  * apps/mobile/src/vault.ts, apps/extension/src/lib/vault-ext.ts).
  * Those vaults abort the whole import or restore when a row fails;
@@ -11,7 +13,14 @@
  *
  * Formats (all JSON, versioned):
  *  - Encrypted vault export: format 'my-secrect-vault-export',
- *    format_version 2. Items still use the frozen v1 item cipher:
+ *    format_version 3 (writer) or 2 (legacy, still restores). v3 adds
+ *    `item_index`: the item list (ids + revisions + count, bound to the
+ *    format, version and vault_id) sealed with XChaCha20-Poly1305 under
+ *    HKDF-SHA-256(Vault Key, ITEM_INDEX_HKDF_INFO). A removed, added or
+ *    re-versioned row no longer matches it and the restore/import fails
+ *    closed. v2 has no index: it restores, but the caller must tell the
+ *    user the item list could not be verified.
+ *    Items still use the frozen v1 item cipher:
  *    encryption_version 1, XChaCha20-Poly1305 IETF, 24-byte nonce,
  *    null additional data. `encrypted_payload` is base64(nonce24 ||
  *    ciphertext||tag) and `encrypted_item_key` is base64(wrap_nonce24
@@ -26,17 +35,22 @@
  *    Desktop-only, behind an explicit warning + confirm checkbox.
  *    The web client offers encrypted-only export.
  *
- * Version policy: encrypted format_version 2 is the only supported
- * encrypted version. format_version 1 has items and no key envelope,
+ * Version policy: encrypted format_version 3 is written; 3 and 2 are
+ * accepted. format_version 1 has items and no key envelope,
  * so a fresh device cannot restore it — it is rejected, not skipped.
  * A newer version is REJECTED ("created by a newer version — update
  * the app"), never silently imported. Tampered structure is rejected
  * here, before decrypt. A row that fails AEAD or whose decrypted id
- * does not match item_id aborts the vault import with no writes.
+ * does not match item_id aborts the vault import with no writes; so
+ * does a v3 item list that does not match its sealed index.
  */
 
-/** Encrypted backup format. Item ciphertext stays encryption_version 1. */
-export const ENCRYPTED_EXPORT_FORMAT_VERSION = 2;
+/** Encrypted backup format written today (authenticated item index). Item ciphertext stays encryption_version 1. */
+export const ENCRYPTED_EXPORT_FORMAT_VERSION = 3;
+/** Oldest encrypted format that still restores: no item index, so a dropped row cannot be detected. */
+export const LEGACY_ENCRYPTED_EXPORT_FORMAT_VERSION = 2;
+/** HKDF-SHA-256 `info` for the key that seals the item index (IKM = Vault Key, salt = 32 zero bytes). */
+export const ITEM_INDEX_HKDF_INFO = 'my-secrect/backup-item-index/v1';
 /** Plaintext export is a separate format and stays at version 1. */
 export const PLAINTEXT_EXPORT_FORMAT_VERSION = 1;
 /** @see ENCRYPTED_EXPORT_FORMAT_VERSION */
@@ -92,15 +106,25 @@ export interface EncryptedExportItem {
   encryption_version: number;
 }
 
+/** The item index sealed under the index key (see ITEM_INDEX_HKDF_INFO). */
+export interface SealedItemIndex {
+  /** base64, 24 bytes */
+  nonce: string;
+  /** base64(XChaCha20-Poly1305 ciphertext || tag) of `itemIndexBytes(...)` */
+  sealed: string;
+}
+
 export interface VaultExport {
   format: 'my-secrect-vault-export';
-  format_version: typeof ENCRYPTED_EXPORT_FORMAT_VERSION;
+  format_version: typeof ENCRYPTED_EXPORT_FORMAT_VERSION | typeof LEGACY_ENCRYPTED_EXPORT_FORMAT_VERSION;
   exported_at: string;
   vault_id: string;
   kdf: { [K in keyof typeof EXPORT_KDF_METADATA]: (typeof EXPORT_KDF_METADATA)[K] };
   keys: WrappedKeyEnvelope;
   items: EncryptedExportItem[];
   relations_included: true;
+  /** Present (and required) in format_version 3. */
+  item_index?: SealedItemIndex;
 }
 
 const ENVELOPE_FIELD_BYTES: Record<keyof WrappedKeyEnvelope, number> = {
@@ -113,17 +137,23 @@ const ENVELOPE_FIELD_BYTES: Record<keyof WrappedKeyEnvelope, number> = {
   wrapped_recovery_nonce: NONCE_BYTES,
 };
 
-/** Copy only the wrapped envelope. Callers must not pass plaintext keys. */
+/**
+ * Copy only the wrapped envelope. Callers must not pass plaintext keys.
+ * With `itemIndex` (from `sealItemIndex` over the SAME vaultId and items)
+ * this writes format_version 3; without it, the legacy format_version 2,
+ * whose item list cannot be verified on restore.
+ */
 export function buildEncryptedExport(input: {
   vaultId: string;
   exportedAt?: string;
   keys: WrappedKeyEnvelope;
   items: EncryptedExportItem[];
+  itemIndex?: SealedItemIndex;
 }): VaultExport {
   const source = input.keys;
   return {
     format: ENCRYPTED_EXPORT_FORMAT,
-    format_version: ENCRYPTED_EXPORT_FORMAT_VERSION,
+    format_version: input.itemIndex ? ENCRYPTED_EXPORT_FORMAT_VERSION : LEGACY_ENCRYPTED_EXPORT_FORMAT_VERSION,
     exported_at: input.exportedAt ?? new Date().toISOString(),
     vault_id: input.vaultId,
     kdf: { ...EXPORT_KDF_METADATA },
@@ -138,11 +168,153 @@ export function buildEncryptedExport(input: {
     },
     items: input.items,
     relations_included: true,
+    ...(input.itemIndex ? { item_index: { nonce: input.itemIndex.nonce, sealed: input.itemIndex.sealed } } : {}),
   };
 }
 
 export function buildExportSkeleton(vaultId: string, keys: WrappedKeyEnvelope): VaultExport {
   return buildEncryptedExport({ vaultId, keys, items: [] });
+}
+
+// ---------------------------------------------------------------------------
+// Authenticated item index (format_version 3)
+// ---------------------------------------------------------------------------
+
+/** The subset of the vault's crypto adapter the index needs (libsodiumAdapter fits). */
+export interface ItemIndexCrypto {
+  hkdf(ikm: Uint8Array, info: string, length?: number): Promise<Uint8Array>;
+  encrypt(key: Uint8Array, plaintext: Uint8Array): Promise<{ nonce: Uint8Array; ciphertext: Uint8Array }>;
+  decrypt(key: Uint8Array, nonce: Uint8Array, ciphertext: Uint8Array): Promise<Uint8Array>;
+}
+
+/** 'unverifiable-legacy' = a format_version 2 backup: restored, but a dropped item could not be detected. */
+export type ItemListCheck = 'verified' | 'unverifiable-legacy';
+
+/** Stable text of a failed index check (UIs match on it). */
+export const ITEM_INDEX_MISMATCH = 'item list does not match its authenticated index';
+
+const utf8 = new TextEncoder();
+
+function wellFormedUtf8(s: string, what: string): Uint8Array {
+  const bytes = utf8.encode(s);
+  // TextEncoder maps a lone surrogate to U+FFFD, which would make two
+  // different ids encode alike; refuse instead of guessing.
+  if (new TextDecoder().decode(bytes) !== s) throw new Error(`${what} is not well-formed Unicode`);
+  return bytes;
+}
+
+function compareBytes(a: Uint8Array, b: Uint8Array): number {
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) if (a[i] !== b[i]) return a[i] - b[i];
+  return a.length - b.length;
+}
+
+/**
+ * Canonical bytes of the item list (big-endian, every string
+ * length-prefixed, so the encoding is injective):
+ *
+ *   u32(len(format)) || format || u32(format_version)
+ *   || u32(len(vault_id)) || vault_id || u32(count)
+ *   || for each item, sorted by the UTF-8 bytes of item_id:
+ *        u32(len(item_id)) || item_id || u64(revision)
+ *
+ * Order of rows in the file does not matter; their set does.
+ */
+export function itemIndexBytes(doc: {
+  format_version: number;
+  vault_id: string;
+  items: ReadonlyArray<{ item_id: string; revision: number }>;
+}): Uint8Array {
+  const format = utf8.encode(ENCRYPTED_EXPORT_FORMAT);
+  const vaultId = wellFormedUtf8(doc.vault_id, 'vault_id');
+  const rows = doc.items
+    .map((it) => {
+      if (!Number.isSafeInteger(it.revision) || it.revision < 0) {
+        throw new Error(`item ${it.item_id}: revision must be an integer in 0..2^53-1`);
+      }
+      return { id: wellFormedUtf8(it.item_id, 'item_id'), revision: it.revision };
+    })
+    .sort((a, b) => compareBytes(a.id, b.id));
+  let size = 4 + format.length + 4 + 4 + vaultId.length + 4;
+  for (const r of rows) size += 4 + r.id.length + 8;
+  const out = new Uint8Array(size);
+  const view = new DataView(out.buffer);
+  let at = 0;
+  const putBytes = (b: Uint8Array) => {
+    view.setUint32(at, b.length);
+    out.set(b, at + 4);
+    at += 4 + b.length;
+  };
+  putBytes(format);
+  view.setUint32(at, doc.format_version);
+  at += 4;
+  putBytes(vaultId);
+  view.setUint32(at, rows.length);
+  at += 4;
+  for (const r of rows) {
+    putBytes(r.id);
+    // u64 big-endian without BigInt (revision <= 2^53-1).
+    view.setUint32(at, Math.floor(r.revision / 0x1_0000_0000));
+    view.setUint32(at + 4, r.revision >>> 0);
+    at += 8;
+  }
+  return out;
+}
+
+function toB64(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(s);
+}
+
+function fromB64(s: string): Uint8Array {
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/** Seal the index of the rows about to be exported (format_version 3). The derived key is zero-filled. */
+export async function sealItemIndex(
+  input: { vaultId: string; items: ReadonlyArray<{ item_id: string; revision: number }> },
+  vaultKey: Uint8Array,
+  crypto: ItemIndexCrypto,
+): Promise<SealedItemIndex> {
+  const plaintext = itemIndexBytes({ format_version: ENCRYPTED_EXPORT_FORMAT_VERSION, vault_id: input.vaultId, items: input.items });
+  const key = await crypto.hkdf(vaultKey, ITEM_INDEX_HKDF_INFO, 32);
+  try {
+    const { nonce, ciphertext } = await crypto.encrypt(key, plaintext);
+    return { nonce: toB64(nonce), sealed: toB64(ciphertext) };
+  } finally {
+    key.fill(0);
+  }
+}
+
+/**
+ * Check a VALIDATED export's item list against its sealed index, with the
+ * Vault Key the rows were opened with. format_version 2 has no index and
+ * returns 'unverifiable-legacy' (the caller must say so to the user). A v3
+ * index that does not open, or whose list differs from the file's rows in
+ * any id, revision or count, throws — nothing may be written then.
+ */
+export async function verifyItemIndex(doc: VaultExport, vaultKey: Uint8Array, crypto: ItemIndexCrypto): Promise<ItemListCheck> {
+  if (doc.format_version === LEGACY_ENCRYPTED_EXPORT_FORMAT_VERSION) return 'unverifiable-legacy';
+  const mismatch = `${ITEM_INDEX_MISMATCH} (an item was removed, added, or its revision changed)`;
+  if (doc.format_version !== ENCRYPTED_EXPORT_FORMAT_VERSION || !doc.item_index) throw new Error(mismatch);
+  const expected = itemIndexBytes(doc);
+  const key = await crypto.hkdf(vaultKey, ITEM_INDEX_HKDF_INFO, 32);
+  let opened: Uint8Array;
+  try {
+    opened = await crypto.decrypt(key, fromB64(doc.item_index.nonce), fromB64(doc.item_index.sealed));
+  } catch {
+    throw new Error(mismatch);
+  } finally {
+    key.fill(0);
+  }
+  if (compareBytes(opened, expected) !== 0) throw new Error(mismatch);
+  return 'verified';
 }
 
 // ---------------------------------------------------------------------------
@@ -193,9 +365,11 @@ function reject(errors: string[], warnings: string[], duplicateIds: string[], fo
 }
 
 /**
- * Validate a parsed JSON value as an encrypted vault export (v2).
- * Structural problems, including a missing envelope or KDF metadata
- * that does not match the frozen contract, fail here — before decrypt.
+ * Validate a parsed JSON value as an encrypted vault export (v3, or legacy v2).
+ * Structural problems, including a missing envelope, KDF metadata
+ * that does not match the frozen contract, or a v3 file without its
+ * item index, fail here — before decrypt. Whether the index MATCHES is
+ * checked by `verifyItemIndex` once the Vault Key is known.
  */
 export function validateEncryptedExport(data: unknown): ImportValidation {
   const errors: string[] = [];
@@ -218,8 +392,19 @@ export function validateEncryptedExport(data: unknown): ImportValidation {
   if (version === 1) {
     return reject(['format_version 1 backups contain items only and have no wrapped key envelope. A new device cannot restore them. Export a format_version 2 backup.'], warnings, duplicateIds, version);
   }
-  if (version !== ENCRYPTED_EXPORT_FORMAT_VERSION) {
-    return reject([`Unsupported export version (format_version ${version}). Only version ${ENCRYPTED_EXPORT_FORMAT_VERSION} can be imported.`], warnings, duplicateIds, version);
+  if (version !== ENCRYPTED_EXPORT_FORMAT_VERSION && version !== LEGACY_ENCRYPTED_EXPORT_FORMAT_VERSION) {
+    return reject([`Unsupported export version (format_version ${version}). Only versions ${LEGACY_ENCRYPTED_EXPORT_FORMAT_VERSION} and ${ENCRYPTED_EXPORT_FORMAT_VERSION} can be imported.`], warnings, duplicateIds, version);
+  }
+  if (version === ENCRYPTED_EXPORT_FORMAT_VERSION) {
+    const index = data.item_index;
+    if (!isRecord(index)) {
+      pushError(errors, 'Export is missing its authenticated item index ("item_index").');
+    } else if (
+      typeof index.nonce !== 'string' || !isBase64(index.nonce) || base64ByteLength(index.nonce) !== NONCE_BYTES
+      || typeof index.sealed !== 'string' || !isBase64(index.sealed) || base64ByteLength(index.sealed) <= 16
+    ) {
+      pushError(errors, 'Export "item_index" is malformed.');
+    }
   }
   if (typeof data.exported_at !== 'string' || data.exported_at === '') {
     pushError(errors, 'Export is missing "exported_at".');
@@ -270,6 +455,8 @@ export function validateEncryptedExport(data: unknown): ImportValidation {
     } else seen.add(raw.item_id);
     if (typeof raw.revision !== 'number' || !Number.isInteger(raw.revision) || raw.revision < 0) {
       pushError(errors, `${at} (${raw.item_id}): "revision" must be a non-negative integer.`);
+    } else if (version === ENCRYPTED_EXPORT_FORMAT_VERSION && !Number.isSafeInteger(raw.revision)) {
+      pushError(errors, `${at} (${raw.item_id}): "revision" is larger than 2^53-1.`);
     }
     if (typeof raw.encrypted_payload !== 'string' || !isBase64(raw.encrypted_payload) || base64ByteLength(raw.encrypted_payload) < MIN_PAYLOAD_BYTES) {
       pushError(errors, `${at} (${raw.item_id}): "encrypted_payload" is not valid base64 of an encrypted blob (nonce + ciphertext).`);

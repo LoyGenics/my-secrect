@@ -325,7 +325,7 @@ export const vi: Dictionary = {
     footnote: 'Bản thử nghiệm: Argon2id + XChaCha20-Poly1305 qua libsodium. Chưa được kiểm toán — đừng dùng như sản phẩm chính thức.',
   },
   restore: {
-    lede: 'Khôi phục bản sao lưu mã hóa (định dạng phiên bản 2) vào thiết bị này. Tệp không rời khỏi thiết bị và không có gì bị ghi đè.',
+    lede: 'Khôi phục bản sao lưu mã hóa (định dạng phiên bản 3, hoặc 2 từ phiên bản cũ) vào thiết bị này. Tệp không rời khỏi thiết bị và không có gì bị ghi đè.',
     file: 'Tệp sao lưu',
     credentialType: 'Loại thông tin xác thực',
     passphrase: 'Mật khẩu',
@@ -660,6 +660,7 @@ export const vi: Dictionary = {
     newItems: { one: 'đã thêm {0} mục mới', other: 'đã thêm {0} mục mới' },
     backupImported: 'Đã nhập bản sao lưu: {0}, {1}. Các dòng có phiên bản cũ hơn bản đang lưu đã được bỏ qua. (Tệp có bất kỳ dòng nào giải mã thất bại sẽ bị từ chối toàn bộ và không có gì được ghi.)',
     importNote: 'Lưu ý: {0}',
+    importItemListUnverified: 'Không thể xác minh tính toàn vẹn của danh sách mục vừa nhập — tệp được tạo bằng phiên bản cũ, nên không phát hiện được mục bị xóa.',
     csvImported: { one: 'Đã nhập {0} mục đăng nhập từ CSV. Mục được gắn thẻ “imported”.', other: 'Đã nhập {0} mục đăng nhập từ CSV. Các mục được gắn thẻ “imported”.' },
     archived: 'Đã lưu trữ mục — xem trong mục Lưu trữ.',
     unarchived: 'Đã bỏ lưu trữ — mục trở lại Tất cả mục.',
@@ -907,5 +908,11 @@ export const vi: Dictionary = {
     errorReadOnly: 'Bạn chỉ có quyền đọc chia sẻ này.',
     errorConflict: 'Chia sẻ đã thay đổi trong lúc đó. Hãy mở lại để xem phiên bản mới nhất.',
     errorGeneric: 'Đã xảy ra lỗi ({0}).',
+  },
+  backup: {
+    itemListUnverified:
+      'Không thể xác minh tính toàn vẹn của danh sách mục — bản sao lưu này được tạo bằng phiên bản cũ. Hãy kiểm tra xem có đủ mọi mục bạn mong đợi không.',
+    itemListMismatch:
+      'Danh sách mục của bản sao lưu này không khớp với chỉ mục đã xác thực: có mục bị xóa, thêm hoặc thay đổi. Không có gì được khôi phục. Đừng tin tệp này; hãy dùng bản sao khác.',
   },
 };

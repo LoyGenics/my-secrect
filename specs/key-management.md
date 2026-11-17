@@ -104,6 +104,9 @@ tên thiết bị, khóa riêng của thiết bị) với AD = null, nên mọi 
 Vault Key thay thế được cho nhau ở tầng AEAD. Item encryption v2 (nhãn AD riêng
 cho payload và wrapped Item Key) là bước đầu; các mục đích còn lại cần nhãn
 riêng sau đó. Chi tiết và kế hoạch: `specs/encryption-format.md`.
+Ngoại lệ đã tách: item index của backup v3 dùng khóa dẫn xuất
+HKDF(Vault Key, `"my-secrect/backup-item-index/v1"`), không phải Vault Key trực tiếp
+(`specs/encryption-format.md` § Backup item index).
 
 ## Vault riêng cho dữ liệu cực nhạy
 Một master password mở tất cả là single point of compromise. Dữ liệu đặc biệt nhạy cảm nên ở vault riêng với secret bổ sung độc lập, hoặc ít nhất yêu cầu xác thực lại + giới hạn thời gian unlock. Chỉ yêu cầu Face ID lại trong cùng một key hierarchy chưa tạo ra cô lập mật mã thật.

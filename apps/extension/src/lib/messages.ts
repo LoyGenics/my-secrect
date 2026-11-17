@@ -14,6 +14,7 @@
  * the page origin from the browser-provided sender, never from the message.
  */
 import type { VaultItem } from '../../../../packages/core/src/types';
+import type { ItemListCheck } from '../../../../packages/import-export/src/index';
 import type { ExtSettings } from './settings';
 
 export interface LoginMeta {
@@ -95,7 +96,7 @@ export type ExtResponse =
   | { ok: true; json: string }
   | { ok: true; changed: boolean; error?: string }
   | { ok: true; password: string }
-  | { ok: true; restoredCount: number }
+  | { ok: true; restoredCount: number; itemList: ItemListCheck }
   | { ok: true; pending: PendingForm | null }
   | { ok: true; armed: boolean; error?: string }
   | { ok: true; offer: SaveOffer | null }

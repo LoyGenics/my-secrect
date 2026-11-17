@@ -12,14 +12,22 @@
 // Run: npm test (tsx --test, Node 20)
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   ENCRYPTED_EXPORT_FORMAT,
   ENCRYPTED_EXPORT_FORMAT_VERSION,
   EXPORT_KDF_METADATA,
+  ITEM_INDEX_HKDF_INFO,
+  ITEM_INDEX_MISMATCH,
+  LEGACY_ENCRYPTED_EXPORT_FORMAT_VERSION,
   buildEncryptedExport,
+  itemIndexBytes,
   parseEncryptedExportText,
+  sealItemIndex,
   validateEncryptedExport,
+  verifyItemIndex,
   type EncryptedExportItem,
+  type VaultExport,
   type WrappedKeyEnvelope,
 } from '../src/index.ts';
 import { libsodiumAdapter, sodiumReady, toBase64, fromBase64 } from '../../crypto-adapters/src/index.ts';
@@ -28,7 +36,8 @@ const enc = new TextEncoder();
 const dec = new TextDecoder();
 const cat = (a: Uint8Array, b: Uint8Array) => { const o = new Uint8Array(a.length + b.length); o.set(a); o.set(b, a.length); return o; };
 
-async function makeBackup() {
+/** A real format_version 3 backup with `n` items (index sealed by the real adapter), plus its legacy v2 twin. */
+async function makeBackup(n = 1) {
   await sodiumReady;
   const a = libsodiumAdapter;
   const vaultKey = a.randomBytes(32);
@@ -44,24 +53,127 @@ async function makeBackup() {
     wrapped_vault: toBase64(wv.wrapped), wrapped_vault_nonce: toBase64(wv.nonce),
     wrapped_recovery: toBase64(wr.wrapped), wrapped_recovery_nonce: toBase64(wr.nonce),
   };
-  const item: EncryptedExportItem = {
-    item_id: 'item_01', revision: 1, encryption_version: 1,
+  const items: EncryptedExportItem[] = Array.from({ length: n }, (_, i) => ({
+    item_id: `item_${String(i + 1).padStart(2, '0')}`, revision: i + 1, encryption_version: 1,
     encrypted_payload: toBase64(cat(payload.nonce, payload.ciphertext)),
     encrypted_item_key: toBase64(cat(wrappedItemKey.nonce, wrappedItemKey.wrapped)),
-  };
-  const doc = buildEncryptedExport({ vaultId: 'vault_1', keys, items: [item] });
-  return { doc, vaultKey, itemKey };
+  }));
+  const itemIndex = await sealItemIndex({ vaultId: 'vault_1', items }, vaultKey, a);
+  const doc = buildEncryptedExport({ vaultId: 'vault_1', keys, items, itemIndex });
+  const legacy = buildEncryptedExport({ vaultId: 'vault_1', keys, items });
+  return { doc, legacy, vaultKey, itemKey };
 }
 
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));
 const errs = (v: { errors: string[] }) => v.errors.join(' | ');
+const parsed = (doc: unknown): VaultExport => {
+  const r = parseEncryptedExportText(JSON.stringify(doc));
+  assert.equal(r.validation.ok, true, errs(r.validation));
+  return r.data!;
+};
 
-test('valid v2 backup built by real code parses and validates', async () => {
+test('valid v3 backup built by real code parses and validates', async () => {
   const { doc } = await makeBackup();
   const r = parseEncryptedExportText(JSON.stringify(doc));
   assert.equal(r.validation.ok, true, errs(r.validation));
   assert.equal(r.validation.formatVersion, ENCRYPTED_EXPORT_FORMAT_VERSION);
+  assert.equal(ENCRYPTED_EXPORT_FORMAT_VERSION, 3);
   assert.equal(r.data?.items.length, 1);
+  assert.equal(typeof r.data?.item_index?.sealed, 'string');
+});
+
+// ---------------------------------------------------------------------------
+// Authenticated item index (DEFECT-K2-omission)
+// ---------------------------------------------------------------------------
+
+test('item index: an untouched v3 backup verifies, in any row order', async () => {
+  const { doc, vaultKey } = await makeBackup(5);
+  assert.equal(await verifyItemIndex(parsed(doc), vaultKey, libsodiumAdapter), 'verified');
+  const shuffled = clone(doc);
+  shuffled.items.reverse();
+  assert.equal(await verifyItemIndex(parsed(shuffled), vaultKey, libsodiumAdapter), 'verified');
+});
+
+test('item index: a dropped, added or re-versioned row, or a changed vault_id, fails closed', async () => {
+  const { doc, vaultKey } = await makeBackup(5);
+  const cases: Array<[string, (d: VaultExport) => void]> = [
+    ['one item removed', (d) => { d.items.splice(2, 1); }],
+    ['all items removed', (d) => { d.items = []; }],
+    ['one item added', (d) => { d.items.push({ ...d.items[0], item_id: 'item_99' }); }],
+    ['revision rolled back', (d) => { d.items[3].revision = 1; }],
+    ['revision bumped', (d) => { d.items[0].revision = 99; }],
+    ['item renamed', (d) => { d.items[1].item_id = 'item_02x'; }],
+    ['vault_id changed', (d) => { d.vault_id = 'vault_2'; }],
+  ];
+  for (const [name, mutate] of cases) {
+    const d = clone(doc);
+    mutate(d);
+    await assert.rejects(verifyItemIndex(parsed(d), vaultKey, libsodiumAdapter), new RegExp(ITEM_INDEX_MISMATCH), name);
+  }
+});
+
+test('item index: a tampered, foreign or swapped index fails closed', async () => {
+  const a = await makeBackup(3);
+  const b = await makeBackup(2);
+  const flipped = clone(a.doc);
+  const sealed = fromBase64(flipped.item_index!.sealed);
+  sealed[sealed.length - 1] ^= 1;
+  flipped.item_index!.sealed = toBase64(sealed);
+  await assert.rejects(verifyItemIndex(parsed(flipped), a.vaultKey, libsodiumAdapter), new RegExp(ITEM_INDEX_MISMATCH));
+  // Wrong Vault Key (another vault).
+  await assert.rejects(verifyItemIndex(parsed(a.doc), b.vaultKey, libsodiumAdapter), new RegExp(ITEM_INDEX_MISMATCH));
+  // Same vault, index from a different export of a different item list.
+  const smaller = await sealItemIndex({ vaultId: 'vault_1', items: a.doc.items.slice(0, 2) }, a.vaultKey, libsodiumAdapter);
+  const dropped = clone(a.doc);
+  dropped.items.splice(2, 1);
+  assert.equal(await verifyItemIndex(parsed({ ...dropped, item_index: smaller }), a.vaultKey, libsodiumAdapter), 'verified',
+    'control: the attacker cannot make this index without the Vault Key');
+  await assert.rejects(verifyItemIndex(parsed({ ...a.doc, item_index: smaller }), a.vaultKey, libsodiumAdapter), new RegExp(ITEM_INDEX_MISMATCH));
+  // A ciphertext made directly under the Vault Key (not the HKDF index key) does not open as an index.
+  const direct = await libsodiumAdapter.encrypt(a.vaultKey, itemIndexBytes(a.doc));
+  const forged = { ...clone(a.doc), item_index: { nonce: toBase64(direct.nonce), sealed: toBase64(direct.ciphertext) } };
+  await assert.rejects(verifyItemIndex(parsed(forged), a.vaultKey, libsodiumAdapter), new RegExp(ITEM_INDEX_MISMATCH));
+});
+
+test('item index: v3 without a well-formed index is rejected before decrypt; v2 is accepted as unverifiable', async () => {
+  const { doc, legacy, vaultKey } = await makeBackup(2);
+  const { item_index: _drop, ...noIndex } = clone(doc);
+  assert.match(errs(validateEncryptedExport(noIndex)), /missing its authenticated item index/);
+  assert.match(errs(validateEncryptedExport({ ...clone(doc), item_index: { nonce: 'AAAA', sealed: doc.item_index!.sealed } })), /"item_index" is malformed/);
+  assert.match(errs(validateEncryptedExport({ ...clone(doc), item_index: 'x' })), /missing its authenticated item index/);
+  const big = clone(doc); big.items[0].revision = 2 ** 53;
+  assert.match(errs(validateEncryptedExport(big)), /larger than 2\^53-1/);
+
+  assert.equal(legacy.format_version, LEGACY_ENCRYPTED_EXPORT_FORMAT_VERSION);
+  assert.equal('item_index' in legacy, false);
+  assert.equal(await verifyItemIndex(parsed(legacy), vaultKey, libsodiumAdapter), 'unverifiable-legacy');
+  // Downgrade = v2 semantics (restorable, flagged unverifiable) — the UI must say so.
+  const downgraded = { ...noIndex, format_version: 2 };
+  assert.equal(await verifyItemIndex(parsed(downgraded), vaultKey, libsodiumAdapter), 'unverifiable-legacy');
+});
+
+test('item index: canonical bytes match the spec layout (known answer) and the key uses its own HKDF label', async () => {
+  const hex = (b: Uint8Array) => Buffer.from(b).toString('hex');
+  const ascii = (s: string) => Buffer.from(s, 'ascii').toString('hex');
+  const got = itemIndexBytes({
+    format_version: 3,
+    vault_id: 'v',
+    items: [{ item_id: 'b', revision: 2 ** 32 + 5 }, { item_id: 'a', revision: 1 }],
+  });
+  const expected =
+    '00000017' + ascii('my-secrect-vault-export') + // u32 len + format
+    '00000003' + //                                    format_version
+    '00000001' + ascii('v') + //                       vault_id
+    '00000002' + //                                    count
+    '00000001' + ascii('a') + '0000000000000001' + //  sorted by id bytes
+    '00000001' + ascii('b') + '0000000100000005';
+  assert.equal(hex(got), expected);
+  assert.equal(ITEM_INDEX_HKDF_INFO, 'my-secrect/backup-item-index/v1');
+  // The label has a Rust-generated cross-implementation vector (tests/crypto-vectors).
+  const vectors = JSON.parse(readFileSync(new URL('../../../tests/crypto-vectors/hkdf-vectors.json', import.meta.url), 'utf8'));
+  assert.ok(vectors.vectors.some((v: { info: string; length: number }) => v.info === ITEM_INDEX_HKDF_INFO && v.length === 32));
+  assert.throws(() => itemIndexBytes({ format_version: 3, vault_id: 'v', items: [{ item_id: 'a\uD800', revision: 1 }] }), /well-formed/);
+  assert.throws(() => itemIndexBytes({ format_version: 3, vault_id: 'v', items: [{ item_id: 'a', revision: 2 ** 53 }] }), /revision/);
 });
 
 test('not JSON / truncated file is rejected with data null', async () => {

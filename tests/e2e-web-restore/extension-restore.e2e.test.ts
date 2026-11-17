@@ -90,6 +90,7 @@ test('profile A: create vault, add items, export encrypted', async () => {
   const ex = await bg(admin, { type: 'exportEncrypted' });
   backup = ex.json;
   assert.equal(JSON.parse(backup).items.length, 3);
+  assert.equal(JSON.parse(backup).format_version, 3);
   assert.ok(!backup.includes('Ext Alpha'));
 });
 
@@ -100,6 +101,7 @@ test('fresh profile: restore via options UI with passphrase, then normal unlock'
   await attempt(admin, backup, 'passphrase', PASS);
   await admin.getByTestId('restore-success').waitFor({ timeout: 60_000 });
   assert.match((await admin.getByTestId('restore-success').textContent()) ?? '', /3 items/);
+  assert.equal(await admin.getByTestId('restore-item-list-unverified').count(), 0, 'v3: item list verified, no warning');
   await admin.screenshot({ path: path.join(shotDir, '31-ext-restore-success.png') });
   const st = await bg(admin, { type: 'getStatus' });
   assert.deepEqual(st.status, { locked: true, vaultExists: true });
@@ -132,7 +134,18 @@ test('negative cases keep storage unchanged', async () => {
   await rejected(admin, JSON.stringify({ ...good, format_version: 9 }), 'passphrase', PASS, /Unsupported backup version[\s\S]*newer version/, '44-ext-version');
   const d = structuredClone(good); d.items.push(structuredClone(d.items[0]));
   await rejected(admin, JSON.stringify(d), 'passphrase', PASS, /same item id more than once/, '45-ext-dup');
+  const dropped = structuredClone(good); dropped.items.splice(1, 1);
+  await rejected(admin, JSON.stringify(dropped), 'passphrase', PASS, /item list does not match its authenticated index[\s\S]*Nothing was restored/, '46-ext-item-dropped');
   assert.equal((await bg(admin, { type: 'getStatus' })).status.vaultExists, false, 'still no vault');
+});
+
+test('fresh profile: legacy format_version 2 restores and the UI says the item list is not verifiable', async () => {
+  const { admin } = await launch();
+  const { item_index: _index, ...body } = JSON.parse(backup);
+  await attempt(admin, JSON.stringify({ ...body, format_version: 2 }), 'passphrase', PASS);
+  await admin.getByTestId('restore-success').waitFor({ timeout: 60_000 });
+  assert.match((await admin.getByTestId('restore-item-list-unverified').textContent()) ?? '', /item list not verifiable[\s\S]*older version/);
+  await admin.screenshot({ path: path.join(shotDir, '47-ext-legacy-v2-warning.png') });
 });
 
 test('existing vault: restore UI refuses and the background never overwrites', async () => {

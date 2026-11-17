@@ -78,24 +78,26 @@ function assertStorageEmpty(): void {
   assert.equal(localStorage.getItem(LS_KEY), null);
 }
 
-test('portable v2 restore uses the frozen item cipher', { timeout: 180_000 }, async () => {
+test('portable v3 restore uses the frozen item cipher', { timeout: 180_000 }, async () => {
   const vault = await import('./src/vault.ts');
   const first = item('item_restore_01', 'Portable restore sentinel');
   const second = item('item_restore_02', 'Portable restore second');
   const { recoveryKey } = await vault.createVault(PASSPHRASE);
   await vault.upsertItem(first);
   await vault.upsertItem(second);
-  const backup = vault.exportEncrypted();
+  const backup = await vault.exportEncrypted();
   const doc = JSON.parse(backup) as {
     format: string;
     format_version: number;
     kdf: typeof EXPORT_KDF_METADATA;
     keys: Record<string, string>;
     items: Array<{ item_id: string; revision: number; encrypted_payload: string; encrypted_item_key: string; encryption_version: number }>;
+    item_index?: { nonce: string; sealed: string };
   };
 
   assert.equal(doc.format, 'my-secrect-vault-export');
-  assert.equal(doc.format_version, 2);
+  assert.equal(doc.format_version, 3);
+  assert.equal(typeof doc.item_index?.sealed, 'string');
   assert.deepEqual(doc.kdf, EXPORT_KDF_METADATA);
   assert.equal(doc.kdf.name, 'argon2id');
   assert.equal(doc.kdf.opslimit, 2);
@@ -125,6 +127,17 @@ test('portable v2 restore uses the frozen item cipher', { timeout: 180_000 }, as
   assert.equal(localStorage.getItem(LS_KEYS), snapKeys);
   assert.equal(localStorage.getItem(LS_KEY), snapRows);
 
+  // Authentic rows, but the list was edited: re-versioned (rollback/bump) or one row dropped.
+  const bumped = structuredClone(doc);
+  bumped.items[0].revision = 99;
+  await assert.rejects(() => vault.importEncrypted(JSON.stringify(bumped)), /import: item list does not match its authenticated index/);
+  const droppedImport = structuredClone(doc);
+  droppedImport.items.splice(1, 1);
+  await assert.rejects(() => vault.importEncrypted(JSON.stringify(droppedImport)), /import: item list does not match its authenticated index/);
+  assert.equal(localStorage.getItem(LS_KEYS), snapKeys);
+  assert.equal(localStorage.getItem(LS_KEY), snapRows);
+  assert.equal(await vault.importEncrypted(backup), 'verified');
+
   vault.wipeVault();
   assertStorageEmpty();
   assert.equal(vault.isUnlocked(), false);
@@ -153,7 +166,23 @@ test('portable v2 restore uses the frozen item cipher', { timeout: 180_000 }, as
   );
   assertStorageEmpty();
 
-  await vault.restoreEncrypted(backup, { recoveryKey });
+  // One authentic row removed from the file: detected, nothing written.
+  const dropped = structuredClone(doc);
+  dropped.items.splice(0, 1);
+  await assert.rejects(
+    () => vault.restoreEncrypted(JSON.stringify(dropped), { recoveryKey }),
+    /restore: item list does not match its authenticated index/,
+  );
+  assertStorageEmpty();
+  assert.equal(vault.isUnlocked(), false);
+
+  // A legacy format_version 2 file (no index) still restores, flagged unverifiable.
+  const { item_index: _index, ...legacyBody } = doc;
+  assert.equal(await vault.restoreEncrypted(JSON.stringify({ ...legacyBody, format_version: 2 }), { recoveryKey }), 'unverifiable-legacy');
+  vault.wipeVault();
+  assertStorageEmpty();
+
+  assert.equal(await vault.restoreEncrypted(backup, { recoveryKey }), 'verified');
   const restored = vault.listItems(true);
   assert.deepEqual(restored.map(visible).sort((a, b) => a.id.localeCompare(b.id)), [visible(first), visible(second)]);
   assert.deepEqual(JSON.parse(localStorage.getItem(LS_KEYS) ?? 'null'), doc.keys);

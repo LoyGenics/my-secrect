@@ -139,7 +139,8 @@ test('create vault, add items, export encrypted backup via UI', async () => {
   assert.ok(downloadedPath, 'download saved');
   backupText = readFileSync(downloadedPath, 'utf8');
   const parsed = JSON.parse(backupText);
-  assert.equal(parsed.format_version, 2);
+  assert.equal(parsed.format_version, 3);
+  assert.equal(typeof parsed.item_index?.sealed, 'string', 'v3 carries the sealed item index');
   assert.equal(parsed.items.length, 2);
   assert.ok(!backupText.includes('Restore Test Alpha'), 'backup must not contain plaintext titles');
   assert.ok(!backupText.includes(recoveryKey), 'backup must not contain recovery key');
@@ -153,6 +154,7 @@ test('restore with passphrase on fresh profile, then normal unlock shows items',
   await attemptRestore(page, backupText, 'passphrase', PASS);
   await page.getByTestId('restore-success').waitFor({ timeout: 60_000 });
   assert.match((await page.getByTestId('restore-success').textContent()) ?? '', /2 items/);
+  assert.equal(await page.getByTestId('restore-item-list-unverified').count(), 0, 'a v3 backup is verified: no legacy warning');
   await page.screenshot({ path: path.join(shotDir, '02-restore-success.png') });
   await page.getByRole('button', { name: 'Continue to unlock' }).click();
   // Locked: normal unlock required, items not visible yet.
@@ -204,8 +206,8 @@ test('negative cases leave storage unchanged and show specific errors', async ()
 
   await expectRejected(page, backupText.slice(0, Math.floor(backupText.length / 2)), 'passphrase', PASS, /not a valid, complete backup[\s\S]*not valid JSON/, '16-truncated');
 
-  const v3 = { ...good, format_version: 3 };
-  await expectRejected(page, JSON.stringify(v3), 'passphrase', PASS, /Unsupported backup version[\s\S]*newer version/, '17-version-3');
+  const v4 = { ...good, format_version: 4 };
+  await expectRejected(page, JSON.stringify(v4), 'passphrase', PASS, /Unsupported backup version[\s\S]*newer version/, '17-version-4');
   const v1 = { ...good, format_version: 1 };
   await expectRejected(page, JSON.stringify(v1), 'passphrase', PASS, /format_version 1 has no key envelope; restore needs a v2 backup/, '18-version-1');
 
@@ -213,10 +215,28 @@ test('negative cases leave storage unchanged and show specific errors', async ()
   dup.items.push(structuredClone(dup.items[0]));
   await expectRejected(page, JSON.stringify(dup), 'passphrase', PASS, /same item id more than once/, '19-duplicate-ids');
 
+  // DEFECT-K2-omission: one authentic row silently removed.
+  const dropped = structuredClone(good);
+  dropped.items.splice(0, 1);
+  await expectRejected(page, JSON.stringify(dropped), 'passphrase', PASS, /item list does not match its authenticated index[\s\S]*Nothing was restored/, '19b-item-dropped');
+
   await expectRejected(page, '{"hello":"world"}', 'passphrase', PASS, /not a valid, complete backup|Unsupported backup version/, '20-not-a-backup');
 
   // Nothing was ever written.
   assert.deepEqual(await storageSnapshot(page), { keys: null, rows: null });
+  await ctx.close();
+});
+
+test('legacy format_version 2 backup restores but the UI says the item list is not verifiable', async () => {
+  const { ctx, page } = await freshPage();
+  await openRestore(page);
+  const { item_index: _index, ...body } = JSON.parse(backupText);
+  await attemptRestore(page, JSON.stringify({ ...body, format_version: 2 }), 'passphrase', PASS);
+  await page.getByTestId('restore-success').waitFor({ timeout: 60_000 });
+  assert.match((await page.getByTestId('restore-success').textContent()) ?? '', /2 items/);
+  const warning = page.getByTestId('restore-item-list-unverified');
+  assert.match((await warning.textContent()) ?? '', /item list not verifiable[\s\S]*older version/);
+  await page.screenshot({ path: path.join(shotDir, '04-legacy-v2-warning.png') });
   await ctx.close();
 });
 

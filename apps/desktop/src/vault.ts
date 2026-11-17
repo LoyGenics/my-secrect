@@ -41,8 +41,10 @@ import type { LocalItemState, PushRequest, SyncEvent } from '../../../packages/s
 import {
   buildEncryptedExport,
   parseEncryptedExportText,
+  sealItemIndex,
+  verifyItemIndex,
 } from '../../../packages/import-export/src/index';
-import type { EncryptedExportItem, WrappedKeyEnvelope } from '../../../packages/import-export/src/index';
+import type { EncryptedExportItem, ItemListCheck, WrappedKeyEnvelope } from '../../../packages/import-export/src/index';
 import { selectStorageBackend } from './storage/index';
 
 const LS_KEY = 'my-secrect.local-vault.v1';
@@ -669,12 +671,15 @@ function persistRestoredVault(keys: StoredKeys, rows: StoredRow[]): void {
 }
 
 /**
- * Export format_version 2. Item ciphertext stays the frozen v1 cipher
+ * Export format_version 3. Item ciphertext stays the frozen v1 cipher
  * (encryption_version 1). The file adds the wrapped key envelope already
- * in local storage and the non-secret Argon2id metadata. Plaintext master,
- * vault, item, and file keys are never written. Trash rows are excluded.
+ * in local storage, the non-secret Argon2id metadata, and the item index
+ * sealed under a key derived from the Vault Key (so the vault must be
+ * unlocked). Plaintext master, vault, item, and file keys are never
+ * written. Trash rows are excluded.
  */
-export function exportEncrypted(): string {
+export async function exportEncrypted(): Promise<string> {
+  if (!vaultKey) throw new Error('export: vault locked');
   const keys = loadKeys();
   if (!keys) throw new Error('export: vault has no wrapped key envelope');
   const items = loadRows()
@@ -686,17 +691,29 @@ export function exportEncrypted(): string {
       encrypted_item_key: toBase64(concat(fromBase64(r.wrapped_nonce), fromBase64(r.wrapped_item_key))),
       encryption_version: 1 as const,
     }));
-  return JSON.stringify(buildEncryptedExport({ vaultId: 'local', keys, items }));
+  const itemIndex = await sealItemIndex({ vaultId: 'local', items }, vaultKey, crypto);
+  return JSON.stringify(buildEncryptedExport({ vaultId: 'local', keys, items, itemIndex }));
+}
+
+/** Throws `<purpose>: …` if a v3 item list does not match its sealed index. */
+async function checkItemList(data: Parameters<typeof verifyItemIndex>[0], key: Uint8Array, purpose: 'import' | 'restore'): Promise<ItemListCheck> {
+  try {
+    return await verifyItemIndex(data, key, crypto);
+  } catch (err) {
+    throw new Error(`${purpose}: ${err instanceof Error ? err.message : 'item list could not be verified'}`);
+  }
 }
 
 /**
- * Merge a format_version 2 backup into an already-unlocked vault.
- * Every incoming item is decrypted with this vault's Vault Key before
- * any write. A decrypt failure or an id mismatch throws and leaves
- * storage and the in-memory items unchanged. An equal or newer local
- * revision is left as-is only after that decrypt succeeds.
+ * Merge a format_version 3 (or legacy 2) backup into an already-unlocked
+ * vault. Every incoming item is decrypted with this vault's Vault Key and
+ * the item list is checked against its sealed index before any write. A
+ * decrypt failure, an id mismatch or an item-list mismatch throws and
+ * leaves storage and the in-memory items unchanged. An equal or newer
+ * local revision is left as-is only after those checks succeed.
+ * Returns 'unverifiable-legacy' for a v2 file: the UI must say so.
  */
-export async function importEncrypted(json: string): Promise<void> {
+export async function importEncrypted(json: string): Promise<ItemListCheck> {
   if (!vaultKey) throw new Error('vault locked');
   const { validation, data } = parseEncryptedExportText(json);
   if (!validation.ok || !data) {
@@ -708,6 +725,7 @@ export async function importEncrypted(json: string): Promise<void> {
     decrypted.deleted_at = null;
     opened.push({ item: decrypted, row: rowFromExportItem(item) });
   }
+  const itemList = await checkItemList(data, vaultKey, 'import');
   const nextRows = loadRows().map((row) => ({ ...row }));
   let nextItems = [...unlockedItems];
   const written: string[] = [];
@@ -724,6 +742,7 @@ export async function importEncrypted(json: string): Promise<void> {
   saveRows(nextRows);
   unlockedItems = nextItems;
   for (const id of written) emitMutation({ kind: 'upsert', id });
+  return itemList;
 }
 
 export type VaultRestoreSecret =
@@ -735,11 +754,14 @@ export type VaultRestoreSecret =
  * wrapped envelope; the caller supplies the passphrase (Argon2id KEK,
  * same parameters as unlock) OR the recovery key (SHA-256 of the 32-byte
  * key, not Argon2). Master and vault keys are unwrapped only in memory.
- * Every item is decrypted and its id checked before anything is written.
- * format_version 1, a missing envelope, a decrypt failure, or an id
- * mismatch throws and leaves storage unchanged.
+ * Every item is decrypted and its id checked, and the item list is
+ * checked against its sealed index, before anything is written.
+ * format_version 1, a missing envelope, a decrypt failure, an id
+ * mismatch, or an item-list mismatch (a row removed, added or
+ * re-versioned) throws and leaves storage unchanged. Returns
+ * 'unverifiable-legacy' for a v2 file: the UI must say so.
  */
-export async function restoreEncrypted(json: string, secret: VaultRestoreSecret): Promise<void> {
+export async function restoreEncrypted(json: string, secret: VaultRestoreSecret): Promise<ItemListCheck> {
   if (isUnlocked()) throw new Error('restore: lock and wipe the vault before restoring');
   if (vaultStorageOccupied()) throw new Error('restore: vault storage is not empty');
   const { validation, data } = parseEncryptedExportText(json);
@@ -816,11 +838,13 @@ export async function restoreEncrypted(json: string, secret: VaultRestoreSecret)
       opened.push(decrypted);
       rows.push(rowFromExportItem(item));
     }
+    const itemList = await checkItemList(data, vk, 'restore');
     persistRestoredVault(envelopeToStoredKeys(data.keys), rows);
     masterKey = master;
     vaultKey = vk;
     unlockedItems = opened;
     published = true;
+    return itemList;
   } catch (err) {
     if (!published) {
       master?.fill(0);

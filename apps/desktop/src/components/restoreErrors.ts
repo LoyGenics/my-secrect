@@ -6,11 +6,15 @@
  * wording; it never swallows an error and never turns one into success.
  * Messages never include key material or file contents.
  */
+import { en } from '../../../../packages/i18n/src/index';
+import { ITEM_INDEX_MISMATCH } from '../../../../packages/import-export/src/index';
+
 export type RestoreErrorKind =
   | 'wrong-passphrase'
   | 'wrong-recovery-key'
   | 'bad-recovery-key'
   | 'tampered'
+  | 'item-list-mismatch'
   | 'unsupported-version'
   | 'not-a-backup'
   | 'duplicate-ids'
@@ -66,6 +70,9 @@ export function describeRestoreError(err: unknown): RestoreErrorInfo {
         'This backup is corrupted or has been tampered with: at least one item failed decryption or verification. ' +
         'Nothing was restored. Do not trust this file; use another copy.',
     };
+  }
+  if (has(ITEM_INDEX_MISMATCH)) {
+    return { kind: 'item-list-mismatch', message: en.backup.itemListMismatch };
   }
   if (/format_version 1\b.*no wrapped key envelope/.test(raw)) {
     return {
