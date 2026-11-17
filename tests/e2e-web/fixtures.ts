@@ -7,6 +7,8 @@
  * verifies genuine attestations/assertions. Nothing here bypasses auth.
  */
 import { createHmac, randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { test as base, expect, type CDPSession, type Page } from '@playwright/test';
 
 export { expect };
@@ -127,11 +129,45 @@ export function uniqueEmail(prefix = 'e2e'): string {
   return `${prefix}-${Date.now().toString(36)}-${randomBytes(4).toString('hex')}@example.test`;
 }
 
-/** Account registration with a passkey on the sign-in gate (stops at the vault onboarding screen). */
+// ---------------------------------------------------------------- mail (inbox)
+
+/** Everything the API mailed to `email` (Action Mailer :file delivery, see stack.ts). */
+export function mailText(email: string): string {
+  const dir = process.env.E2E_MAIL_DIR;
+  if (!dir) throw new Error('E2E_MAIL_DIR missing: run via playwright.config.ts (global-setup boots the stack)');
+  try {
+    return readFileSync(path.join(dir, email), 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+/** Every sign-up code mailed to `email`, oldest first. */
+export function mailCodes(email: string): string[] {
+  return [...mailText(email).matchAll(/verification code is (\d{6})/g)].map((m) => m[1]);
+}
+
+/** Wait until more than `seen` codes were mailed to `email`; return the newest. */
+export async function waitForMailCode(email: string, seen = 0, timeoutMs = 10_000): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const codes = mailCodes(email);
+    if (codes.length > seen) return codes[codes.length - 1];
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error(`no new verification code was mailed to ${email}`);
+}
+
+/** Account registration on the sign-in gate: email -> code from the
+ *  mailed message -> passkey (stops at the vault onboarding screen). */
 export async function registerAccountViaUi(page: Page, email: string): Promise<void> {
   await page.goto('/');
   await page.getByRole('tab', { name: 'Create account' }).click();
   await page.getByLabel('Account email').fill(email);
+  const seen = mailCodes(email).length;
+  await page.getByRole('button', { name: 'Email me a code' }).click();
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
+  await page.getByLabel('Verification code').fill(await waitForMailCode(email, seen));
   await page.getByRole('button', { name: 'Create account with passkey' }).click();
   await expect(page.getByRole('heading', { name: 'my-secrect' })).toBeVisible();
 }

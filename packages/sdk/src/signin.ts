@@ -6,7 +6,9 @@
  *
  *   email --(valid email)--> passkey --(assertion verified)--> signed-in
  *   email --(valid email)--> passkey --(mfa_required)--> mfa --(code ok)--> signed-in
- *   create-account uses the same steps with kind 'registration'.
+ *   create-account first proves the email address, then registers:
+ *   email --(code requested)--> email-code --(code ok: ticket)--> passkey
+ *     --(attestation verified)--> signed-in
  *
  * Server facts these rules encode (see apps/api, do not change here
  * without changing the server too):
@@ -24,6 +26,15 @@
  *   * A TOTP code and a recovery code are interchangeable at the MFA
  *     step (the server tries TOTP first, then the recovery-code
  *     digest); the machine does not distinguish them.
+ *   * Create-account needs a verified email first: POST
+ *     /v1/auth/email/request mails a 6-digit code (same 202 whether or
+ *     not the address already has an account — an existing owner gets
+ *     a notice instead of a code), POST /v1/auth/email/verify trades
+ *     the code for a single-use registration ticket (10 minutes), and
+ *     register options require that ticket. A code allows 5 tries and
+ *     is single-use; a failed passkey ceremony keeps the ticket, so the
+ *     screen retries the ceremony without a new code. An expired or
+ *     spent ticket ('signup-expired') restarts from the email step.
  *   * A session token never unlocks the vault. 'signed-in' here
  *     means ACCOUNT signed in only; the master passphrase is still
  *     required afterwards, as a separate step.
@@ -35,7 +46,7 @@
  * and say so in the test header.
  */
 
-export type SignInStep = 'email' | 'passkey' | 'mfa' | 'signed-in';
+export type SignInStep = 'email' | 'email-code' | 'passkey' | 'mfa' | 'signed-in';
 export type SignInMode = 'login' | 'create';
 
 export type SignInErrorKind =
@@ -45,6 +56,9 @@ export type SignInErrorKind =
   | 'verification-failed'
   | 'challenge-expired'
   | 'mfa-expired'
+  | 'email-code-failed'
+  | 'email-unavailable'
+  | 'signup-expired'
   | 'offline'
   | 'unknown';
 
@@ -76,14 +90,36 @@ export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-/** email step -> passkey step. Rejects a bad email without leaving
- *  the email step. */
+/** email step -> passkey step (login) or email-code step (create:
+ *  the code is being requested, busy). Rejects a bad email without
+ *  leaving the email step. */
 export function startSignIn(state: SignInState, email: string, mode: SignInMode): SignInState {
   const normalized = normalizeEmail(email);
   if (!isValidEmail(normalized)) {
     return { ...state, step: 'email', mode, email: normalized, mfaToken: null, error: 'invalid-email', busy: false };
   }
-  return { ...state, step: 'passkey', mode, email: normalized, mfaToken: null, error: null, busy: true };
+  const step: SignInStep = mode === 'create' ? 'email-code' : 'passkey';
+  return { ...state, step, mode, email: normalized, mfaToken: null, error: null, busy: true };
+}
+
+/** POST /v1/auth/email/request answered 202: wait for the user to type
+ *  the code. Only valid from the email-code step. */
+export function emailCodeSent(state: SignInState): SignInState {
+  if (state.step !== 'email-code') return state;
+  return { ...state, busy: false, error: null };
+}
+
+/** POST /v1/auth/email/request failed (malformed address, mail
+ *  unavailable, offline): no code exists, so back to the email step. */
+export function emailCodeRequestFailed(state: SignInState, kind: SignInErrorKind): SignInState {
+  return { ...state, step: 'email', mfaToken: null, error: kind, busy: false };
+}
+
+/** POST /v1/auth/email/verify returned a registration ticket: the
+ *  passkey ceremony may start. Only valid from the email-code step. */
+export function emailCodeVerified(state: SignInState): SignInState {
+  if (state.step !== 'email-code') return state;
+  return { ...state, step: 'passkey', busy: true, error: null };
 }
 
 /** Server options arrived: the WebAuthn ceremony may start.
@@ -122,6 +158,8 @@ export function mfaVerified(state: SignInState, result: { token?: string }): Sig
 }
 
 /** A failure at the current step. The step is kept, EXCEPT:
+ *  - 'signup-expired' / 'email-unavailable': the registration ticket
+ *    is gone (or no code could be sent): back to the email step.
  *  - 'mfa-expired': the server consumed the single-use mfa_token,
  *    so the login must restart from the email step (fresh passkey
  *    options). The mfaToken is cleared and must never be reused.
@@ -132,7 +170,7 @@ export function mfaVerified(state: SignInState, result: { token?: string }): Sig
  *    options request is still needed — the screen re-requests).
  *  'busy' is always cleared. */
 export function signInFailed(state: SignInState, kind: SignInErrorKind): SignInState {
-  if (kind === 'mfa-expired' || kind === 'challenge-expired') {
+  if (kind === 'mfa-expired' || kind === 'challenge-expired' || kind === 'signup-expired' || kind === 'email-unavailable') {
     return { ...state, step: 'email', mfaToken: null, error: kind, busy: false };
   }
   return { ...state, error: kind, busy: false };
@@ -151,6 +189,8 @@ export function resetSignIn(mode: SignInMode = 'login'): SignInState {
  *    prompt, or no authenticator) -> 'passkey-cancelled'.
  *  - ApiError-like { status: 401 } at the mfa step -> 'mfa-expired'
  *    (the single-use token is spent either way).
+ *  - at the email-code step: 401 -> 'email-code-failed', 503 ->
+ *    'email-unavailable', 422 -> 'invalid-email'.
  *  - ApiError-like { status: 401 } elsewhere -> 'verification-failed'.
  *  - message mentioning 'challenge expired' -> 'challenge-expired'.
  *  - anything else -> 'unknown'. */
@@ -163,6 +203,11 @@ export function classifySignInError(
     const rec = err as Record<string, unknown>;
     if (rec.name === 'NotAllowedError') return 'passkey-cancelled';
     if (typeof rec.message === 'string' && /challenge expired/i.test(rec.message)) return 'challenge-expired';
+    if (step === 'email-code') {
+      if (rec.status === 401) return 'email-code-failed';
+      if (rec.status === 503) return 'email-unavailable';
+      if (rec.status === 422) return 'invalid-email';
+    }
     if (rec.status === 401 || rec.name === 'ApiError') {
       if (rec.status === 401) return step === 'mfa' ? 'mfa-expired' : 'verification-failed';
     }

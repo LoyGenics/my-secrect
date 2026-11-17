@@ -11,6 +11,9 @@ import {
 } from '../../../../packages/sdk/src/security';
 import {
   classifySignInError,
+  emailCodeRequestFailed,
+  emailCodeSent,
+  emailCodeVerified,
   initialSignInState,
   mfaVerified,
   optionsReceived,
@@ -39,7 +42,13 @@ import {
  *   email -> passkey ceremony -> signed-in
  *   email -> passkey ceremony -> MFA step (TOTP code or recovery
  *     code) -> signed-in
- *   create-account uses the same steps with kind 'registration'.
+ *   create-account: email -> 6-digit code from the email -> passkey
+ *     ceremony (kind 'registration') -> signed-in. The code is traded
+ *     for a single-use registration ticket kept in memory only; a
+ *     failed ceremony retries with the same ticket, an expired ticket
+ *     restarts from the email step. The screen shows the same "check
+ *     your email" step whether or not the address already has an
+ *     account (the server mails that owner a notice, not a code).
  *
  * Account sign-in is SEPARATE from vault unlock: a successful
  * sign-in stores only the opaque Bearer session token (via the
@@ -90,6 +99,9 @@ function errorText(kind: SignInErrorKind, s: Record<string, string>): string {
     case 'verification-failed': return s.verificationFailed;
     case 'challenge-expired': return s.challengeExpired;
     case 'mfa-expired': return s.mfaExpired;
+    case 'email-code-failed': return s.emailCodeFailed;
+    case 'email-unavailable': return s.emailUnavailable;
+    case 'signup-expired': return s.signupExpired;
     case 'offline': return s.offline;
     default: return s.unknownError;
   }
@@ -102,6 +114,11 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
   const [emailInput, setEmailInput] = useState('');
   const [code, setCode] = useState('');
   const [useRecoveryCode, setUseRecoveryCode] = useState(false);
+  const [emailCode, setEmailCode] = useState('');
+  // Single-use registration ticket from POST /v1/auth/email/verify.
+  // Memory only (never stored, never logged); dropped on success, on
+  // restart, and when the server answers that it is spent or expired.
+  const [ticket, setTicket] = useState<string | null>(null);
   const webauthn = webAuthnAvailable();
 
   const store = webTokenStore();
@@ -113,6 +130,18 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
     onSignedIn(email);
   };
 
+  /** Create-account step 1: ask the server to email a code. */
+  const requestCode = async (st: SignInState) => {
+    setTicket(null);
+    setEmailCode('');
+    try {
+      await security.requestEmailCode(st.email);
+      setMachine(emailCodeSent(st));
+    } catch (err) {
+      setMachine(emailCodeRequestFailed(st, classifySignInError(err, 'email-code')));
+    }
+  };
+
   const submitEmail = async (e: FormEvent) => {
     e.preventDefault();
     if (!webauthn) {
@@ -120,41 +149,89 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
       return;
     }
     const mode: SignInMode = machine.mode;
-    let st = startSignIn(machine, emailInput, mode);
+    const st = startSignIn(machine, emailInput, mode);
     setMachine(st);
     if (st.error) return;
+    if (mode === 'create') {
+      await requestCode(st);
+      return;
+    }
+    await runLogin(st);
+  };
+
+  /** Create-account steps 2 + 3: trade the emailed code for a ticket
+   *  (skipped when a ticket from a failed ceremony is still held), then
+   *  run the registration ceremony with it. */
+  const submitEmailCode = async (e: FormEvent) => {
+    e.preventDefault();
+    let st: SignInState = { ...machine, busy: true, error: null };
+    setMachine(st);
+    let currentTicket = ticket;
+    if (!currentTicket) {
+      try {
+        currentTicket = (await security.verifyEmailCode(st.email, emailCode.trim())).registration_ticket;
+        setTicket(currentTicket);
+      } catch (err) {
+        setMachine(signInFailed(st, classifySignInError(err, 'email-code')));
+        return;
+      } finally {
+        setEmailCode('');
+      }
+      st = emailCodeVerified(st);
+      setMachine(st);
+    }
+    try {
+      let registerOptions;
+      try {
+        registerOptions = await security.passkeyRegisterOptions(st.email, currentTicket);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) {
+          // Ticket expired or spent: a new code is needed.
+          setTicket(null);
+          setMachine(signInFailed(st, 'signup-expired'));
+          return;
+        }
+        throw err;
+      }
+      st = optionsReceived(st);
+      setMachine(st);
+      const cred = await navigator.credentials.create({
+        publicKey: toCreationOptions(registerOptions.creation_options),
+      });
+      if (!cred) throw new Error('no credential returned');
+      const res = await security.passkeyRegisterVerify(st.email, serializeCreateCredential(cred as PublicKeyCredential));
+      st = passkeyVerified(st, res);
+      setMachine(st);
+      if (st.step === 'signed-in') {
+        setTicket(null);
+        await finishSignIn(st.email, res.token, res.expires_in);
+      }
+    } catch (err) {
+      // A 401 from verify is generic by design. The ticket is kept: the
+      // user can retry the ceremony without a new code.
+      const kind = classifySignInError(err, st.step);
+      setMachine((prev) => signInFailed(prev, err instanceof ApiError && err.status === 401 ? 'verification-failed' : kind));
+    }
+  };
+
+  /** Sign-in: fresh options -> navigator.credentials.get -> verify. */
+  const runLogin = async (start: SignInState) => {
+    let st = start;
     const email = st.email;
     try {
       // Step 1: fresh single-use options (5 min). Never reused.
-      // The two modes return different response shapes, so each branch
-      // fetches its own options and only touches its own field.
-      const registerOptions =
-        mode === 'create' ? await security.passkeyRegisterOptions(email) : null;
-      const authenticateOptions =
-        mode === 'create' ? null : await security.passkeyAuthenticateOptions(email);
+      const authenticateOptions = await security.passkeyAuthenticateOptions(email);
       st = optionsReceived(st);
       setMachine(st);
       // Step 2: the browser ceremony (user presence + verification
       // are required server-side; the authenticator enforces them).
-      let credential: unknown;
-      if (registerOptions) {
-        const cred = await navigator.credentials.create({
-          publicKey: toCreationOptions(registerOptions.creation_options),
-        });
-        if (!cred) throw new Error('no credential returned');
-        credential = serializeCreateCredential(cred as PublicKeyCredential);
-      } else if (authenticateOptions) {
-        const cred = await navigator.credentials.get({
-          publicKey: toRequestOptions(authenticateOptions.request_options),
-        });
-        if (!cred) throw new Error('no credential returned');
-        credential = serializeGetCredential(cred as PublicKeyCredential);
-      }
+      const cred = await navigator.credentials.get({
+        publicKey: toRequestOptions(authenticateOptions.request_options),
+      });
+      if (!cred) throw new Error('no credential returned');
+      const credential = serializeGetCredential(cred as PublicKeyCredential);
       // Step 3: verify. Either a session, or an MFA park.
-      const res: SignInResult =
-        mode === 'create'
-          ? await security.passkeyRegisterVerify(email, credential)
-          : await security.passkeyLoginVerify(email, credential);
+      const res: SignInResult = await security.passkeyLoginVerify(email, credential);
       st = passkeyVerified(st, res);
       setMachine(st);
       if (st.step === 'signed-in' && !isMfaRequiredResult(res)) {
@@ -205,7 +282,17 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
     setMachine(initialSignInState(mode));
     setCode('');
     setUseRecoveryCode(false);
+    setEmailCode('');
+    setTicket(null);
   };
+
+  const resendCode = () => {
+    const st = startSignIn(machine, machine.email, 'create');
+    setMachine(st);
+    if (!st.error) void requestCode(st);
+  };
+
+  const onCodeStep = machine.mode === 'create' && (machine.step === 'email-code' || machine.step === 'passkey');
 
   const error = machine.error ? errorText(machine.error, s as unknown as Record<string, string>) : '';
 
@@ -225,7 +312,57 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
           </p>
         )}
 
-        {machine.step !== 'mfa' && (
+        {onCodeStep && (
+          <form className="mt-4 space-y-3" onSubmit={(e) => void submitEmailCode(e)}>
+            <h2 className="text-base font-semibold">{s.emailCodeTitle}</h2>
+            <p className="text-sm text-zinc-400">{s.emailCodeBody}</p>
+            <p className="truncate text-sm font-semibold text-zinc-200">{machine.email}</p>
+            {!ticket && (
+              <div>
+                <label className="label" htmlFor="signin-email-code">{s.emailCodeLabel}</label>
+                <input
+                  id="signin-email-code"
+                  name="signin-email-code"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  className="input font-mono"
+                  value={emailCode}
+                  onChange={(e) => setEmailCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+                  placeholder="123456"
+                  aria-label={s.emailCodeLabel}
+                  autoFocus
+                />
+                <p className="mt-1 text-xs text-zinc-500">{s.emailCodeHint}</p>
+              </div>
+            )}
+            {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
+            <button
+              type="submit"
+              className="btn-primary w-full"
+              disabled={machine.busy || (!ticket && emailCode.length !== 6)}
+            >
+              {s.createAccountButton}
+            </button>
+            <button
+              type="button"
+              className="w-full text-center text-sm text-indigo-300 hover:text-indigo-200"
+              disabled={machine.busy}
+              onClick={resendCode}
+            >
+              {s.resendCode}
+            </button>
+            <button
+              type="button"
+              className="w-full text-center text-sm text-zinc-400 hover:text-zinc-200"
+              onClick={() => switchMode('create')}
+            >
+              {s.back}
+            </button>
+          </form>
+        )}
+
+        {machine.step !== 'mfa' && !onCodeStep && (
           <>
             <div className="mt-4 flex gap-2" role="tablist" aria-label="Sign-in mode">
               <button
@@ -265,7 +402,7 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
               </div>
               {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
               <button type="submit" className="btn-primary w-full" disabled={machine.busy || !webauthn || !emailInput.trim()}>
-                {machine.mode === 'create' ? s.createAccountButton : s.signInButton}
+                {machine.mode === 'create' ? s.sendCodeButton : s.signInButton}
               </button>
             </form>
           </>

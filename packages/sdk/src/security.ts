@@ -279,8 +279,24 @@ export function isMfaRequiredResult(res: SignInResult): res is MfaRequiredResult
 }
 
 export interface PasskeyRegisterOptionsResponse {
+  /** `id` is the id the account WILL get; no user row exists until the
+   *  registration verify succeeds. */
   user: { id: string; email: string };
   creation_options: unknown;
+}
+
+/** POST /v1/auth/email/request — identical for every valid address
+ *  (no account enumeration). The code itself only travels by email. */
+export interface EmailCodeRequestResponse {
+  status: 'sent';
+  expires_in: number;
+}
+
+/** POST /v1/auth/email/verify — single-use registration ticket
+ *  (10 minutes). Keep it in memory only; never persist or log it. */
+export interface EmailCodeVerifyResponse {
+  registration_ticket: string;
+  expires_in: number;
 }
 
 export interface PasskeyAuthenticateOptionsResponse {
@@ -449,16 +465,36 @@ export class SecurityApiClient {
   // token; it does NOT unlock the vault (master passphrase is a
   // separate, later step, handled by the apps, never by this client).
   //
-  // Create account (first passkey): register options ->
-  // navigator.credentials.create -> registerVerify(kind 'registration').
+  // Create account (first passkey): requestEmailCode -> the user types
+  // the emailed code -> verifyEmailCode (registration ticket) ->
+  // register options WITH the ticket -> navigator.credentials.create ->
+  // registerVerify(kind 'registration'). The account is created only
+  // by that last call; the ticket survives a failed ceremony.
   // Sign in: authenticate options -> navigator.credentials.get ->
   // loginVerify(kind 'authentication') -> SessionResult, or
   // MfaRequiredResult when the account has MFA enabled.
   // Challenges are single-use, 5 minutes; a failed or expired
   // attempt burns the challenge and the caller must request fresh
   // options — never retry the same credential payload.
-  passkeyRegisterOptions(email: string): Promise<PasskeyRegisterOptionsResponse> {
-    return this.post<PasskeyRegisterOptionsResponse>('/v1/auth/passkeys/register', { email });
+  /** Sign-up step 1: mail a 6-digit code to `email`. 422 for a
+   *  malformed address, 503 when the server cannot send mail. */
+  requestEmailCode(email: string): Promise<EmailCodeRequestResponse> {
+    return this.post<EmailCodeRequestResponse>('/v1/auth/email/request', { email });
+  }
+
+  /** Sign-up step 2: trade the emailed code for a registration ticket.
+   *  One generic 401 for every failure; 5 tries per code. */
+  verifyEmailCode(email: string, code: string): Promise<EmailCodeVerifyResponse> {
+    return this.post<EmailCodeVerifyResponse>('/v1/auth/email/verify', { email, code });
+  }
+
+  /** Sign-up step 3: creation options. Requires the ticket from
+   *  verifyEmailCode (401 when it is missing, expired or spent). */
+  passkeyRegisterOptions(email: string, registrationTicket: string): Promise<PasskeyRegisterOptionsResponse> {
+    return this.post<PasskeyRegisterOptionsResponse>('/v1/auth/passkeys/register', {
+      email,
+      registration_ticket: registrationTicket,
+    });
   }
 
   passkeyRegisterVerify(email: string, credential: unknown): Promise<SessionResult> {
