@@ -29,6 +29,9 @@ Re-run 2026-11-18 04:05 on main a7a777c (after desktop storage + sync integrity)
 - Full run on main: npm test 31/0 + 135/0, security mirrors 61/0, RSpec 270/0 (3 MinIO-only pending), sync e2e 21/0 (harness now does email code + device proof), web e2e 19/0, restore e2e 10/0, extension e2e 42/0, cargo 20/0, typecheck desktop/web/extension/mobile, web + extension builds.
 - Not re-run on main yet: sharing e2e and media e2e (their registration helpers predate the email step; owners are adapting them), deploy scripts (infra follow-up in progress).
 
+## Merged 05:30: fix/backup-integrity-v2 (QA K2)
+Backup format_version 3 with an HKDF-keyed authenticated item index; desktop/web and extension refuse a backup with items removed, added or re-versioned; v2 backups restore with an "item list not verifiable" warning. Mobile part (e2c1567) held until the mobile storage merge. On main 54dcc29: npm test 31/0 + 160/0, acceptance 47/0 (+1 todo: mobile K2), restore e2e 12/0, acceptance e2e 30/0 (+1 todo: K3).
+
 ## Merged 04:45–05:00 and verified on main
 - feat/design-system-adoption: Precision Instrument redesign (tokens, Lucide, clay item-type colours, 29 illustrations + 4 motion clips, responsive rail/drawer/tab bar/thumb rail, key-turn unlock, en/vi + appearance settings), 9 walkthrough bugs, QA E1 + H4. axe: 0 violations (44 scans).
 - fix/sync-qa: C1 vault key check (`vault_mismatch`, nothing pushed), H3 sign-out on pull 401/403, tombstones for deletes/purges made while sync is off, K3 closure plan in specs/sync-protocol.md.
@@ -47,7 +50,6 @@ On main cb1bca6: npm run test:acceptance 45 pass / 3 todo; npm run test:acceptan
 Covered: A, B, D, E, I, K, M. Partial: C, F, H. Pending: G, J, L. Open defects: H1/H2 device revocation (re-check on main), H3 pull 401 not handled, H4 local-only choice not sticky, C1 different vault key pushes unreadable items (high), K3 rollback (high, needs v2 AD + signed events), K2 backup item omission undetected, E1 relations rewritten on save.
 
 ## In progress (agents, each on its own branch)
-- fix/backup-integrity: authenticated backup item index (QA K2).
 - feat/mobile-secure-storage: SQLCipher store, AsyncStorage migration, DeviceKey module and biometric flows built and checked on iOS simulator + Android emulator (storage/keys only). BLOCKER being fixed on the same branch: libsodium-wrappers has no working fallback on Hermes (no WebAssembly) — random bytes repeat and AEAD fails, so the mobile vault cannot work until a native libsodium binding (JSI) lands; main's self-test makes it fail closed meanwhile.
 - Paused until mobile storage lands: iOS and Android credential providers.
 - Waiting on the user: logo choice.
