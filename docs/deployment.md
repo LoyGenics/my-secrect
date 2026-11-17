@@ -1,6 +1,6 @@
 # Deployment — MY SECRET Personal Digital Vault
 
-> **VALIDATION STATUS (17 Nov 2026, branch `feat/deploy-hardening`)**
+> **VALIDATION STATUS (17-18 Nov 2026; latest runs: branch `fix/infra-auth-media`, §A.5)**
 >
 > Everything marked **[RUN]** was executed by a script on ONE developer Mac
 > (macOS 26.6.1 arm64, Docker Desktop 28.5.1, Compose 2.40.0) against a
@@ -147,12 +147,32 @@ not break presigned uploads, MinIO CORS, WebAuthn or account deletion.
 - Caddy's own headers were added next to Rails' (two `X-Frame-Options`, two
   HSTS values); they are now deferred so Caddy's value replaces the app's.
 
+### A.5 Re-run after email sign-up, device binding, tombstones and media resume [RUN]
+
+17 Nov 2026 21:36 UTC (18 Nov local), branch `fix/infra-auth-media`, commit
+`dd2573d` (main `c553f87` + SMTP/test-override changes). The stacks now use
+the test-only override `infra/docker/docker-compose.test.yml`: Mailpit
+v1.34.0 as the SMTP server with STARTTLS from a CA created per run; api and
+worker trust only that CA, so the production mail settings (STARTTLS
+required, peer verification) are what ran. Clients read the 6-digit code
+from Mailpit's HTTP API (loopback only) and send an Ed25519 device proof with
+every passkey ceremony.
+
+| Suite | Result |
+|---|---|
+| `infra/docker/verify-restore.sh` (scenario L) | PASS, 1m33s. Adds: boot refused for empty `SMTP_ADDRESS` and `SMTP_PASSWORD=CHANGE_ME`; published ports = caddy + loopback-only test mailpit; non-internal networks only `caddy:edge`, `api:mail`; worker has no egress; sign-up via mailed code + device enrolment; each fresh device enrols its own key at sign-in; 26 tables / 52 rows / 3 objects identical after destroy + restore; tombstone export (0) -> restore -> import + reapply (0) before serving; after deletion 22 account tables at 0 rows, 0 objects, 1 tombstone row + 1 `[account_tombstone]` log line, 18 unlinked audit events; restoring the pre-deletion backup brings the account back (users=1, 3 objects, 0 tombstones) and import + reapply deletes it again ("imported 1 new tombstones (1 read)", "re-deleted 1 accounts"; 0 rows, 0 objects); log scan of 442 lines from 8 containers, 142 needles + 8 rules: clean |
+| `infra/docker/verify-web-csp.sh` | PASS, 23s: sign-up through the UI with the mailed code, then the full flow under the CSP with 0 violations; negative control blocked + reported; log scan clean |
+| `infra/docker/smoke.sh` (project `a16-smoke`) | PASS: sign-up (email code + device proof), presigned round trip with signed part size, CORS, forged signature 403, step-up + DELETE 204, object 404, bucket empty, 0 user rows |
+| `tests/media-e2e/run.sh` (project `a16-media`) | PASS 17/17 (media + devices suites: two devices, kill + resume, storage restart retries, cut download, tamper cases, 96 MiB streaming, hourly orphan sweep scheduled by the worker) |
+| `E2E_BROWSER=1 tests/media-e2e/run.sh` (project `a16-mediab`) | PASS: Chromium upload (3 file parts + encrypted thumbnail blob), viewer, download, wire tamper and cut connection rejected, upload resume sends only the missing part; 0 console errors |
+
 ## B. Hardening in place
 
 | Area | What | Where | Evidence |
 |---|---|---|---|
 | Secrets | Compose `${VAR:?}` for every secret; API/worker refuse to boot on missing/`CHANGE_ME`/short secrets, `*` CORS, invalid S3 config; no code defaults in production | `docker-compose.yml`, `apps/api/config/environments/production.rb`, `config/initializers/storage_config.rb` | A.0 steps 1, 3 |
-| Exposure | Only Caddy publishes ports (80/443) and has egress; `proxy` (caddy, api, minio) and `backend` (api, worker, db, redis, minio) are `internal: true`; MinIO console disabled | `docker-compose.yml` | A.0 step 3 |
+| Exposure | Only Caddy publishes ports (80/443). Egress: Caddy (`edge`, ACME) and the api (`mail`, SMTP for sign-up codes) only; `proxy` (caddy, api, minio) and `backend` (api, worker, db, redis, minio) are `internal: true`; MinIO console disabled. Restrict the api's egress to `SMTP_ADDRESS:SMTP_PORT` with a host firewall (PENDING) | `docker-compose.yml` | A.0 step 3, A.5 |
+| Mail | `SMTP_*` + `MAIL_FROM` required at boot; STARTTLS required with peer verification (or implicit TLS); codes never logged | `docker-compose.yml`, `apps/api/config/initializers/action_mailer.rb` | A.5 |
 | Containers | `no-new-privileges` on all long-running services; bounded json-file logs | `docker-compose.yml` | config |
 | TLS | TLS 1.2/1.3 only, automatic HTTPS redirect, HSTS 1 year + subdomains (no preload) | `Caddyfile` | A.0 step 3 |
 | Headers | nosniff, XFO DENY, no-referrer, COOP, Permissions-Policy, no `Server`; API: `no-store` + `default-src 'none'` CSP; S3: sandbox CSP; API responses not compressed | `Caddyfile` | A.0, A.1 |
@@ -195,6 +215,8 @@ cd infra/docker
 cp .env.example .env            # replace every CHANGE_ME (openssl rand -hex 32 / -hex 64)
 # SITE_ADDRESS=<your domain>, S3_PUBLIC_ENDPOINT=https://s3.<your domain>,
 # WEBAUTHN_RP_ID=<your domain>, WEBAUTHN_ORIGIN=https://<your domain>, CORS_ORIGINS=https://<your domain>
+# SMTP_ADDRESS / SMTP_PORT / SMTP_USERNAME / SMTP_PASSWORD / MAIL_FROM from your mail provider
+# (STARTTLS with a valid certificate, or SMTP_TLS_MODE=tls); sign-up cannot work without them.
 git status --porcelain -- .env  # must print nothing (.env is gitignored)
 (cd ../.. && npm ci && npm --workspace apps/web run build)   # web client for Caddy
 docker compose up --build -d
@@ -215,7 +237,8 @@ If a secret is missing or still `CHANGE_ME`, `api`/`worker` exit at boot and
 - **Secrets rotation:** edit `.env`, `docker compose up -d --force-recreate api worker`
   (and `minio` for S3 keys), revoke the old value. No automated rotation.
 - **Verify a change:** `infra/docker/verify-restore.sh` and
-  `infra/docker/verify-web-csp.sh` (both self-contained, throwaway stacks).
+  `infra/docker/verify-web-csp.sh` (both self-contained, throwaway stacks
+  with the test-only Mailpit override `docker-compose.test.yml`).
 
 ## 4. Cloud deployment (not run)
 
@@ -246,16 +269,36 @@ until it is removed. Rotation period and off-host storage — PENDING (human).
 
 ## 7. Restore [RUN, A.0]
 
+A backup taken before an account deletion brings that account back. The API
+keeps a deletion **tombstone** per deleted account (SHA-256 of the account id
++ time, no email; `apps/api/app/domains/accounts/tombstones.rb`) in the
+`account_tombstones` table and in one `[account_tombstone]` log line, so the
+deletions can be re-applied. Runbook (each step is exercised by
+`verify-restore.sh`, A.0 steps 7, 8 and 12):
+
 ```bash
 cd infra/docker
+# 1. BEFORE restoring: export the tombstones of the database you are about to replace.
+#    (If that database is already lost, use the "[account_tombstone] user_id_digest=… deleted_at=…"
+#    lines from the api logs written since the backup instead; import accepts both formats.)
+docker compose exec -T api bundle exec rake accounts:tombstones:export 2>/dev/null \
+  | grep '^{"user_id_digest"' > tombstones.jsonl
+# 2. Stop what serves traffic, then restore database + object storage.
 docker compose stop api worker
 ENV_FILE=./.env PROJECT=docker ./restore.sh --yes ./backups/<dir>   # verifies manifest, pg_restore --clean, mc mirror
+# 3. BEFORE serving again: import the tombstones and re-delete those accounts
+#    (rows AND storage objects, through Accounts::Delete) in a one-off container.
+docker compose run --rm --no-deps -T -v "$PWD/tombstones.jsonl:/tmp/tombstones.jsonl:ro" api \
+  bundle exec rake "accounts:tombstones:import[/tmp/tombstones.jsonl]" accounts:tombstones:reapply
+#    -> "imported N new tombstones (M read)" and "re-deleted K accounts"
+# 4. Serve again.
 docker compose up -d && docker compose exec api bundle exec rake db:migrate:status
 ```
 
-DESTRUCTIVE for the target database. After restoring an older backup,
-re-delete every account deleted since that backup was taken (there is no
-automatic deletion journal — `docs/privacy.md` §5).
+DESTRUCTIVE for the target database. Keep `tombstones.jsonl` with the backup
+set until every older backup is gone. The comments in `tombstones.rb` and
+`account_tombstones.rake` say `bin/rails …`; this API has no `bin/`, so use
+`bundle exec rake …` as above.
 
 ## 8. Upgrade / rollback (not run)
 
@@ -271,6 +314,11 @@ there is no release tagging. Rollback = previous commit + restore.
 
 | Date (UTC) | What | Commit | Command | Result |
 |---|---|---|---|---|
+| 17 Nov 2026 21:36 | Scenario L with email sign-up, device proof, tombstone runbook (A.5) | `dd2573d` | `infra/docker/verify-restore.sh` | PASS, exit 0, 1m33s |
+| 17 Nov 2026 21:37 | Web build under CSP, UI sign-up with mailed code (A.5) | `dd2573d` | `infra/docker/verify-web-csp.sh` | PASS, exit 0, 0 CSP violations |
+| 17 Nov 2026 21:38 | Compose smoke (A.5) | `dd2573d` | `SMOKE_PROJECT=a16-smoke SMOKE_HTTPS_PORT=19547 SMOKE_HTTP_PORT=19584 SMOKE_MAILPIT_PORT=19592 ./smoke.sh` | PASS, exit 0 |
+| 17 Nov 2026 21:39 | Media e2e (A.5) | `dd2573d` | `E2E_PROJECT=a16-media E2E_HTTPS_PORT=19546 E2E_HTTP_PORT=19583 E2E_MAILPIT_PORT=19593 tests/media-e2e/run.sh` | PASS, 17/17 |
+| 17 Nov 2026 21:40 | Media e2e, Chromium (A.5) | `dd2573d` | `E2E_BROWSER=1 E2E_PROJECT=a16-mediab E2E_HTTPS_PORT=19548 E2E_HTTP_PORT=19585 E2E_MAILPIT_PORT=19594 E2E_WEB_PORT=19595 tests/media-e2e/run.sh` | PASS |
 | 17 Nov 2026 16:57 | Scenario L (A.0) | `38ae0e4` | `infra/docker/verify-restore.sh` | PASS, exit 0, 2m14s |
 | 17 Nov 2026 16:50 | Scenario L (A.0) | `0ae3151` | `infra/docker/verify-restore.sh` | PASS, exit 0, 1m43s |
 | 17 Nov 2026 16:50 | Web build under CSP (A.1) | `0ae3151` | `infra/docker/verify-web-csp.sh` | PASS, exit 0, 0 CSP violations |
@@ -299,7 +347,7 @@ there is no release tagging. Rollback = previous commit + restore.
 | Register the domain; DNS A/AAAA for `<domain>` and `s3.<domain>` | human | PENDING |
 | Public TLS (Caddy + Let's Encrypt on the real domain; decide on HSTS preload) | human | PENDING |
 | Production secrets generated and stored offline (`.env`, `SECRET_KEY_BASE`, S3 keys) | human | PENDING |
-| SMTP / transactional email (none is integrated in the code today) | human | PENDING |
+| SMTP provider account for sign-up codes (sender domain with SPF/DKIM/DMARC, credentials in `.env`); host firewall egress rule for the api | human | PENDING |
 | Backup schedule, rotation period, encryption key (age/gpg) custody, off-host copy, restore drill on another host | human | PENDING |
 | Retention periods (backups, sessions, audit events) + job scheduling decision | human | PENDING |
 | Monitoring / alerting / on-call | human | PENDING |
