@@ -13,7 +13,7 @@ import {
   type SecurityApiClient,
   type SessionInfo,
 } from '../../../../packages/sdk/src/security';
-import { fromBase64Url, sha256, toBase64 } from '../../../../packages/crypto-adapters/src/index';
+import { fromBase64Url, sha256, sodiumReady, toBase64 } from '../../../../packages/crypto-adapters/src/index';
 import { deviceMessage as deviceSignedMessage, enrollPayload, toBase64UrlNoPad } from '../../../../packages/sdk/src/device-identity';
 import { recoveryVerifierKeyPair } from '../../../../packages/sdk/src/recovery-verifier';
 import { serializeCreateCredential, toCreationOptions } from '../utils/webauthn';
@@ -181,6 +181,9 @@ export default function SecurityCenter({
   const [sessionError, setSessionError] = useState('');
   const [sessionMessage, setSessionMessage] = useState('');
   const [confirmRevokeSessionId, setConfirmRevokeSessionId] = useState<string | null>(null);
+  // Device revoke confirmation (durable revocation, specs/device-identity.md §6.3).
+  const [confirmRevokeDeviceId, setConfirmRevokeDeviceId] = useState<string | null>(null);
+  const [revokeDevicePasskey, setRevokeDevicePasskey] = useState(false);
   const [confirmRevokeOthers, setConfirmRevokeOthers] = useState(false);
   const [enrollName, setEnrollName] = useState('');
   const [enrollBusy, setEnrollBusy] = useState(false);
@@ -344,6 +347,20 @@ export default function SecurityCenter({
     setPasskeyBusy(false);
   };
 
+  /** Re-approve a passkey restricted by a device revocation, so it can set
+   *  up new devices again. Server step-up; only from a session on a
+   *  still-active device (or a recovery session). */
+  const handleApprovePasskey = async (id: string) => {
+    if (!security) return;
+    setPasskeyError('');
+    setPasskeyMessage('');
+    await guarded(
+      async () => { await security.approvePasskey(id); },
+      setPasskeyError,
+      () => { setPasskeyMessage(x.passkeyApproved); void loadAll(); },
+    );
+  };
+
   const handleRemovePasskey = async (id: string) => {
     if (!security) return;
     setConfirmRemovePasskeyId(null);
@@ -457,18 +474,27 @@ export default function SecurityCenter({
     );
   };
 
-  /** DELETE /v1/devices/:id — the server marks the device revoked and
-   *  ends its server sessions. It does NOT erase data already on that
-   *  device. If the current session belongs to that device, the next
-   *  load answers 401 and App returns to sign-in. */
+  /** DELETE /v1/devices/:id — the server marks the device revoked, ends
+   *  its server sessions, and restricts the passkey that enrolled it (it
+   *  must be re-approved before it can set up a new device) — or revokes
+   *  that passkey when the user ticks the box (server step-up). It does
+   *  NOT erase data already on that device. If the current session
+   *  belongs to that device, the next load answers 401 and App returns
+   *  to sign-in. */
   const handleRevokeDevice = async (device: DeviceInfo) => {
     if (!security) return;
     setDeviceError('');
     setDeviceMessage('');
+    const revokePasskey = revokeDevicePasskey && !!device.authenticator_id;
     await guarded(
-      async () => { await security.revokeDevice(device.id); },
+      async () => { await security.revokeDevice(device.id, { revokePasskey }); },
       setDeviceError,
-      () => { setDeviceMessage(x.deviceRevoked); void loadAll(); },
+      () => {
+        setConfirmRevokeDeviceId(null);
+        setRevokeDevicePasskey(false);
+        setDeviceMessage(x.deviceRevoked);
+        void loadAll();
+      },
     );
   };
 
@@ -488,7 +514,7 @@ export default function SecurityCenter({
     let privateKey: Uint8Array | null = null;
     await guarded(
       async () => {
-        await sodium.ready;
+        await sodiumReady;
         const seed = sodium.randombytes_buf(32);
         const kp = sodium.crypto_sign_seed_keypair(seed);
         seed.fill(0);
@@ -555,7 +581,7 @@ export default function SecurityCenter({
     let seed: Uint8Array | null = null;
     let privateKey: Uint8Array | null = null;
     try {
-      await sodium.ready;
+      await sodiumReady;
       try {
         seed = fromBase64Url(recoveryKeyInput.trim());
       } catch {
@@ -681,7 +707,15 @@ export default function SecurityCenter({
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-mono text-sm text-zinc-100">{pk.credential_id_prefix}…</p>
                       <p className="text-xs text-zinc-400">{fmtDate(pk.created_at)}</p>
+                      {pk.reapproval_required_at && (
+                        <p className="text-xs text-amber-200">{x.passkeyNeedsApproval}</p>
+                      )}
                     </div>
+                    {pk.reapproval_required_at && (
+                      <button type="button" className="btn-ghost !py-1 text-xs" onClick={() => void handleApprovePasskey(pk.id)}>
+                        {x.approvePasskey}
+                      </button>
+                    )}
                     {confirmRemovePasskeyId === pk.id ? (
                       <span className="flex flex-wrap items-center gap-2">
                         {passkeys.length === 1 && (
@@ -882,11 +916,47 @@ export default function SecurityCenter({
                         <button type="button" className="btn-ghost !py-1 text-xs" onClick={() => void handleToggleTrust(d)}>
                           {d.trusted ? s.untrust : s.trust}
                         </button>
-                        <button type="button" className="btn-ghost !py-1 text-xs" onClick={() => void handleRevokeDevice(d)}>
+                        <button
+                          type="button"
+                          className="btn-ghost !py-1 text-xs"
+                          onClick={() => { setConfirmRevokeDeviceId(d.id); setRevokeDevicePasskey(false); }}
+                        >
                           {s.revoke}
                         </button>
                       </span>
                     </div>
+                    {confirmRevokeDeviceId === d.id && (
+                      <div role="group" aria-label={x.revokeDeviceTitle} className="mt-3 space-y-2 rounded-lg border border-amber-900/60 bg-amber-950/30 p-3">
+                        <p className="text-sm font-semibold text-amber-100">{x.revokeDeviceTitle}</p>
+                        {d.current && <p className="text-xs text-amber-200">{x.revokeDeviceCurrent}</p>}
+                        <p className="text-xs text-zinc-300">{x.revokeDeviceLimits}</p>
+                        {d.authenticator_id && (
+                          <label className="flex items-center gap-2 text-xs text-zinc-200">
+                            <input
+                              type="checkbox"
+                              checked={revokeDevicePasskey}
+                              onChange={(e) => setRevokeDevicePasskey(e.target.checked)}
+                            />
+                            {x.revokeDeviceAlsoPasskey}
+                          </label>
+                        )}
+                        {revokeDevicePasskey && (d.passkey_active_devices ?? 0) > 1 ? (
+                          <p className="text-xs text-amber-200">
+                            {x.revokeDeviceSharedPasskey.replace('{n}', String((d.passkey_active_devices ?? 1) - 1))}
+                          </p>
+                        ) : !revokeDevicePasskey ? (
+                          <p className="text-xs text-zinc-400">{x.revokeDevicePasskeyNote}</p>
+                        ) : null}
+                        <span className="flex gap-2">
+                          <button type="button" className="btn-ghost !py-1 text-xs" onClick={() => setConfirmRevokeDeviceId(null)}>
+                            {s.cancel}
+                          </button>
+                          <button type="button" className="btn-danger !py-1 text-xs" onClick={() => void handleRevokeDevice(d)}>
+                            {x.revokeDeviceConfirm}
+                          </button>
+                        </span>
+                      </div>
+                    )}
                     {renameDeviceId === d.id && (
                       <form
                         className="mt-3 flex gap-2"

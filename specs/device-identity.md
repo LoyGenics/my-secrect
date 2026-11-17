@@ -136,7 +136,9 @@ Only a verified passkey makes the server look at `device`; a device proof
 that then fails answers `401 { error: "device_verification_failed" }` and
 issues **no** session (the ceremony must be redone with fresh options). A
 client receiving that error SHOULD drop its local device record and enrol a
-new key on the next attempt (the device may have been revoked).
+new key on the next attempt (the device may have been revoked). If the
+passkey enrolled that revoked device, the enrolment is refused with
+`403 device_approval_required` until the passkey is re-approved (§6.3).
 
 With MFA enabled the proof is checked at the passkey step, but enrolment /
 binding only happens after the second factor succeeds: the pending
@@ -164,11 +166,52 @@ signs that very ceremony's challenge.
   `409 already_bound` if the session is already bound; every other failure
   is a generic `401 device_verification_failed`.
 
-### 6.3 Revocation
+### 6.3 Revocation (durable)
 
-`DELETE /api/v1/devices/:id` marks the device revoked and ends its sessions
-(unchanged). A revoked device can never enrol, bind or sign again; the
-install must enrol a fresh key. Session rotation keeps the binding.
+`DELETE /api/v1/devices/:id` marks the device revoked, ends its sessions and
+rotates its key envelopes. A revoked device key can never bind, sign or be
+enrolled again — not even as a "new" device (one device row per key, ever).
+Session rotation keeps the binding.
+
+That alone is not durable: the revoked browser still holds a passkey, could
+sign in again and enrol a fresh key (QA DEFECT-H2). So every device records
+the passkey (authenticator) whose sign-in enrolled it (`devices.
+authenticator_id`; sessions record theirs too, so a device enrolled later
+from a session is attributed as well), and revocation restricts that
+passkey:
+
+- **Default — re-approval required.** The enrolling passkey gets
+  `reapproval_required_at`. Until re-approved it can still sign in on a
+  device that is still ACTIVE (a valid `session-bind` proof — which needs
+  that device's key, so a synced passkey keeps working on the user's other
+  devices), but a sign-in with it that carries no proof or an `enroll`
+  proof is refused with `403 device_approval_required` (after the passkey
+  verified, before any MFA token or session), and a session it authenticated
+  cannot enrol through `POST /devices/enroll` either.
+- **`?revoke_passkey=true`** — the enrolling passkey is revoked instead
+  (step-up required; refused with 422 `last_authenticator` when it is the
+  last passkey and MFA is off). It can no longer sign in anywhere. The
+  device list reports `passkey_active_devices` (how many active devices that
+  passkey enrolled); when it is above 1 the passkey is probably synced, and
+  the UI warns that revoking it signs those devices out of passkey sign-in.
+- **Enrolling passkey unknown** (devices enrolled before this rule, or from a
+  recovery session): every active passkey of the account is marked for
+  re-approval — the secure default.
+
+**Re-approval rule** (the simplest secure one): `POST
+/api/v1/auth/passkeys/:id/approve`, step-up required, from a session bound
+to an active device of the account (another still-trusted device) — or, when
+no trusted device is left, from a recovery session (recovery-key proof). The
+revoked browser can obtain neither: its device is revoked, its passkey can
+only bind active devices, and it does not hold the recovery key unless the
+user does. Email possession is deliberately NOT enough: a stolen device
+usually has the mailbox signed in too.
+
+What revocation cannot do, and the UI says so: it does not erase data or
+keys already on the device (no remote wipe), and the vault key that device
+holds still decrypts anything encrypted under it if it ever obtains that
+ciphertext again. Only rotating the vault key protects items created after
+the revocation — vault key rotation is not implemented yet.
 
 ## 7. Server verification rules (normative)
 

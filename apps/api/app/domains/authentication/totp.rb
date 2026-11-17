@@ -132,8 +132,12 @@ module Authentication
       user = pending&.user
       factor = user && verify_second_factor(user: user, code: code)
       raise VerificationError, 'verification failed' unless factor
-      device = DeviceProof.device_for!(user: user, proof: pending_device_proof(pending))
-      token = SessionTokens.issue(user: user, device: device, user_agent: user_agent, ip_address: ip_address)
+      proof = pending_device_proof(pending)
+      # Re-checked here: the passkey may have been blocked between the steps.
+      raise VerificationError, 'verification failed' if pending.authenticator&.reapproval_required? && !proof&.dig(:device)
+      device = DeviceProof.device_for!(user: user, proof: proof, authenticator: pending.authenticator)
+      token = SessionTokens.issue(user: user, device: device, authenticator: pending.authenticator,
+                                  user_agent: user_agent, ip_address: ip_address)
       Audit::Log.call(user: user, device: device, event_type: 'mfa_verified', metadata: { method: factor.to_s })
       Audit::Log.call(user: user, device: device, event_type: 'sign_in_succeeded', metadata: { method: "passkey+#{factor}" })
       { token: token, user_id: user.id, device_id: device&.id, expires_in: SessionTokens::TTL_SECONDS }

@@ -188,6 +188,14 @@ export function isDeviceVerificationFailed(error: unknown): boolean {
   return error instanceof ApiError && error.status === 401 && error.message.includes('device_verification_failed');
 }
 
+/** True when the passkey verified but it enrolled a since-revoked device
+ *  and must be re-approved from a still-trusted device before it can set
+ *  up a new one (403 device_approval_required, specs/device-identity.md
+ *  §6.3). Retrying with a fresh device key does not help. */
+export function isDeviceApprovalRequired(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 403 && error.message.includes('device_approval_required');
+}
+
 export function isVerificationFailed(error: unknown): boolean {
   return (
     isUnauthorized(error) &&
@@ -225,6 +233,10 @@ export interface PasskeyAuthenticator {
   created_at: string;
   /** Always null for entries returned by listPasskeys() (revoked ones are filtered out). */
   revoked_at?: string | null;
+  /** Set when a device this passkey enrolled was revoked: until
+   *  approvePasskey() from a still-trusted device, it can only sign in on
+   *  devices that are still active (specs/device-identity.md §6.3). */
+  reapproval_required_at?: string | null;
 }
 
 /** ACTIVE passkeys only. The wire response is `{ passkeys: [...] }` and
@@ -343,7 +355,13 @@ export interface DeviceInfo {
   revoked_at?: string | null;
   last_seen_at?: string | null;
   created_at?: string | null;
+  /** True for the device of the session making the request. */
   current?: boolean;
+  /** The passkey whose sign-in enrolled this device (null when unknown). */
+  authenticator_id?: string | null;
+  /** Active devices enrolled by that passkey; above 1 it is probably a
+   *  synced passkey shared by several devices. */
+  passkey_active_devices?: number;
 }
 
 export interface DeviceListResponse {
@@ -660,8 +678,20 @@ export class SecurityApiClient {
   /** Revoke a device: the server marks it revoked and ends its server
    *  sessions (and rotates key envelopes). This does NOT erase data
    *  already downloaded or stored offline on that device. */
-  revokeDevice(id: string): Promise<void> {
-    return this.del<void>(`/v1/devices/${encodeURIComponent(id)}`);
+  revokeDevice(id: string, opts: { revokePasskey?: boolean } = {}): Promise<{ passkey?: string; rotated_token?: string } | void> {
+    // revokePasskey: also revoke the passkey that enrolled the device
+    // (step-up required server-side; the session token is rotated and
+    // adopted by req()). Without it the server only restricts that passkey
+    // to re-approval (specs/device-identity.md §6.3).
+    const query = opts.revokePasskey ? '?revoke_passkey=true' : '';
+    return this.del(`/v1/devices/${encodeURIComponent(id)}${query}`);
+  }
+
+  /** Re-approve a passkey restricted by a device revocation. Step-up is
+   *  required, from a session bound to an active device (or a recovery
+   *  session). */
+  approvePasskey(id: string): Promise<{ passkey: PasskeyAuthenticator }> {
+    return this.post<{ passkey: PasskeyAuthenticator }>(`/v1/auth/passkeys/${encodeURIComponent(id)}/approve`);
   }
 
   // --- Step-up ---------------------------------------------------------------

@@ -23,6 +23,7 @@
  * Nothing here logs keys, signatures or challenges.
  */
 import sodium from 'libsodium-wrappers-sumo';
+import { sodiumReady } from '../../crypto-adapters/src/index';
 import {
   deviceMessage,
   enrollPayload,
@@ -114,7 +115,7 @@ async function createRecord(scope: string): Promise<StoredDeviceKey> {
   if (web) {
     return { scope, alg: 'ed25519', storage: 'webcrypto', publicKey: web.publicKey, privateKey: web.privateKey, deviceId: null, createdAt };
   }
-  await sodium.ready;
+  await sodiumReady;
   const seed = sodium.randombytes_buf(32);
   const kp = sodium.crypto_sign_seed_keypair(seed);
   seed.fill(0);
@@ -126,7 +127,7 @@ async function sign(rec: StoredDeviceKey, message: Uint8Array): Promise<Uint8Arr
     return new Uint8Array(await crypto.subtle.sign({ name: 'Ed25519' }, rec.privateKey, new Uint8Array(message)));
   }
   if (rec.storage === 'libsodium' && rec.secretKey) {
-    await sodium.ready;
+    await sodiumReady;
     return sodium.crypto_sign_detached(message, rec.secretKey);
   }
   throw new Error('device key record is incomplete');

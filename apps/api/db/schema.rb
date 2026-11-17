@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.2].define(version: 2026_11_17_100010) do
+ActiveRecord::Schema[7.2].define(version: 2026_11_18_020205) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -41,6 +41,7 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_17_100010) do
     t.datetime "revoked_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.datetime "reapproval_required_at"
     t.index ["credential_id"], name: "index_authenticators_on_credential_id", unique: true
     t.index ["user_id"], name: "index_authenticators_on_user_id"
   end
@@ -105,6 +106,8 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_17_100010) do
     t.string "platform"
     t.datetime "trusted_at"
     t.string "public_key_alg"
+    t.uuid "authenticator_id"
+    t.index ["authenticator_id"], name: "index_devices_on_authenticator_id"
     t.index ["public_key"], name: "index_devices_on_ed25519_public_key", unique: true, where: "((public_key_alg)::text = 'ed25519'::text)"
     t.index ["user_id"], name: "index_devices_on_user_id"
   end
@@ -196,6 +199,8 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_17_100010) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.jsonb "pending_device"
+    t.uuid "authenticator_id"
+    t.index ["authenticator_id"], name: "index_mfa_challenges_on_authenticator_id"
     t.index ["device_id"], name: "index_mfa_challenges_on_device_id"
     t.index ["token_digest"], name: "index_mfa_challenges_on_token_digest", unique: true
     t.index ["user_id"], name: "index_mfa_challenges_on_user_id"
@@ -260,6 +265,8 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_17_100010) do
     t.boolean "recovery_session", default: false, null: false
     t.string "user_agent"
     t.string "ip_address"
+    t.uuid "authenticator_id"
+    t.index ["authenticator_id"], name: "index_sessions_on_authenticator_id"
     t.index ["device_id"], name: "index_sessions_on_device_id"
     t.index ["token_digest"], name: "index_sessions_on_token_digest", unique: true
     t.index ["user_id"], name: "index_sessions_on_user_id"
@@ -326,6 +333,7 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_17_100010) do
   add_foreign_key "device_challenges", "users", on_delete: :cascade
   add_foreign_key "device_checkpoints", "devices"
   add_foreign_key "device_checkpoints", "vaults"
+  add_foreign_key "devices", "authenticators", on_delete: :nullify
   add_foreign_key "devices", "users"
   add_foreign_key "identity_keys", "users"
   add_foreign_key "item_shares", "users", column: "owner_id"
@@ -333,12 +341,14 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_17_100010) do
   add_foreign_key "item_versions", "items"
   add_foreign_key "items", "vaults"
   add_foreign_key "key_envelopes", "vaults"
+  add_foreign_key "mfa_challenges", "authenticators", on_delete: :nullify
   add_foreign_key "mfa_challenges", "devices"
   add_foreign_key "mfa_challenges", "users"
   add_foreign_key "passkey_challenges", "email_verifications", on_delete: :cascade
   add_foreign_key "recovery_challenges", "users"
   add_foreign_key "recovery_codes", "users"
   add_foreign_key "recovery_verifiers", "users"
+  add_foreign_key "sessions", "authenticators", on_delete: :nullify
   add_foreign_key "sessions", "devices"
   add_foreign_key "sessions", "users"
   add_foreign_key "shares", "users", column: "owner_id"

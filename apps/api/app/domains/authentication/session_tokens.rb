@@ -19,12 +19,15 @@ module Authentication
 
     module_function
 
-    def issue(user:, device: nil, user_agent: nil, ip_address: nil,
+    # authenticator: the passkey that authenticated this session (nil for
+    # recovery sessions); a device enrolled later from it is attributed to
+    # that passkey (specs/device-identity.md §6.3).
+    def issue(user:, device: nil, authenticator: nil, user_agent: nil, ip_address: nil,
               expires_in: TTL_SECONDS, recovery_session: false,
               step_up_verified_at: nil, step_up_method: nil)
       raw = PREFIX + SecureRandom.hex(32)
       Session.create!(
-        user: user, device: device,
+        user: user, device: device, authenticator: authenticator,
         token_digest: Digest::SHA256.hexdigest(raw),
         expires_at: Time.current + expires_in,
         user_agent: user_agent, ip_address: ip_address,
@@ -60,7 +63,7 @@ module Authentication
       old_session.update!(revoked_at: Time.current)
       expires_in = old_session.recovery_session ? RECOVERY_TTL_SECONDS : TTL_SECONDS
       issue(
-        user: old_session.user, device: old_session.device,
+        user: old_session.user, device: old_session.device, authenticator: old_session.authenticator,
         user_agent: old_session.user_agent, ip_address: old_session.ip_address,
         expires_in: expires_in, recovery_session: old_session.recovery_session,
         step_up_verified_at: old_session.step_up_verified_at,

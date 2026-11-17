@@ -171,7 +171,14 @@ test.describe('Security Center: trusted devices', () => {
     await expect(devices.getByText('Renamed box')).toBeVisible();
 
     // Revoke the enrolled device: it disappears and the server marks it revoked.
-    await devices.locator('li').filter({ hasText: 'Renamed box' }).getByRole('button', { name: 'Revoke', exact: true }).click();
+    const renamed = devices.locator('li').filter({ hasText: 'Renamed box' });
+    await renamed.getByRole('button', { name: 'Revoke', exact: true }).click();
+    // Confirmation states what revocation cannot do, and offers the passkey.
+    const confirm = renamed.getByRole('group', { name: 'Revoke this device?' });
+    await expect(confirm.getByText(/cannot erase what is already on the device/)).toBeVisible();
+    await expect(confirm.getByText(/Rotating the vault key would protect items you create from now on — that is not available yet/)).toBeVisible();
+    await expect(confirm.getByLabel('Also revoke the passkey that signed in this device')).not.toBeChecked();
+    await confirm.getByRole('button', { name: 'Revoke device' }).click();
     await expect(devices.getByText('Device revoked: its server sessions were ended.')).toBeVisible();
     await expect(devices.getByRole('button', { name: 'Revoke', exact: true })).toHaveCount(1);
     const after = await apiFetch(apiUrl, token, 'GET', '/api/v1/devices');
@@ -183,6 +190,8 @@ test.describe('Security Center: trusted devices', () => {
     const devices = section(page, 'Trusted devices');
     const token = (await storedToken(page))!;
     await devices.getByRole('button', { name: 'Revoke', exact: true }).click();
+    await expect(devices.getByText('This is the device you are using now: you will be signed out.')).toBeVisible();
+    await devices.getByRole('button', { name: 'Revoke device' }).click();
     await expect(page.getByRole('heading', { name: 'Sign in to your account' })).toBeVisible();
     expect((await apiFetch(apiUrl, token, 'GET', SESSIONS_API)).status).toBe(401);
   });

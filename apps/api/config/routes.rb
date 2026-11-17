@@ -65,6 +65,8 @@ Rails.application.routes.draw do
       # Device proof-of-possession (specs/device-identity.md §6.2).
       post 'devices/challenges', to: 'devices#create_challenge'
       post 'devices/:id/bind', to: 'devices#bind'
+      # Durable device revocation: re-approve a restricted passkey (§6.3).
+      post 'auth/passkeys/:id/approve', to: 'passkeys#approve'
       # --- END auth: email ownership + device proof (Agent 02) -----------
     end
   end

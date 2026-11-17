@@ -79,6 +79,11 @@ module Authentication
     # The passkey verified but the accompanying device proof did not
     # (specs/device-identity.md §6.1). No session is issued.
     class DeviceVerificationError < VerificationError; end
+    # The passkey verified, but it enrolled a device that was since revoked
+    # and has not been re-approved: it may only bind an ACTIVE device, not
+    # start a session without one or enrol a new one
+    # (specs/device-identity.md §6.3). No session is issued.
+    class DeviceApprovalRequired < VerificationError; end
 
     CHALLENGE_TTL = 5.minutes
     OPTIONS_TIMEOUT_MS = 300_000 # matches CHALLENGE_TTL; the browser must answer in time
@@ -205,25 +210,28 @@ module Authentication
       raise VerificationError, 'challenge expired or already used' unless challenge_rec.consume!
 
       if kind == 'registration'
-        user, session_device = register_account(email: normalized_email, params: params,
-                                                 challenge_rec: challenge_rec, device_proof: device)
+        user, session_device, authenticator = register_account(email: normalized_email, params: params,
+                                                                challenge_rec: challenge_rec, device_proof: device)
       else
         user = User.find_by(email: normalized_email)
         raise VerificationError, 'verification failed' unless user
-        verify_authentication(user: user, params: params, challenge: challenge_rec.challenge)
+        authenticator = verify_authentication(user: user, params: params, challenge: challenge_rec.challenge)[:authenticator]
         proof = DeviceProof.sign_in_proof!(user: user, challenge: challenge_rec.challenge, proof: device)
+        require_device_approval!(user: user, authenticator: authenticator, proof: proof)
         if user.mfa_enabled?
           # Second factor still due: hold the proven device / enrolment on
           # the single-use MFA challenge; nothing is bound or created yet.
           Audit::Log.call(user: user, event_type: "passkey_#{kind}_verified")
-          mfa_token = MfaTokens.issue(user: user, device: proof&.dig(:device), pending_device: proof&.dig(:enroll))
+          mfa_token = MfaTokens.issue(user: user, device: proof&.dig(:device), pending_device: proof&.dig(:enroll),
+                                      authenticator: authenticator)
           return { mfa_required: true, mfa_token: mfa_token, user_id: user.id }
         end
-        session_device = DeviceProof.device_for!(user: user, proof: proof)
+        session_device = DeviceProof.device_for!(user: user, proof: proof, authenticator: authenticator)
       end
 
       Audit::Log.call(user: user, device: session_device, event_type: "passkey_#{kind}_verified")
-      token = SessionTokens.issue(user: user, device: session_device, user_agent: user_agent, ip_address: ip_address)
+      token = SessionTokens.issue(user: user, device: session_device, authenticator: authenticator,
+                                  user_agent: user_agent, ip_address: ip_address)
       Audit::Log.call(user: user, device: session_device, event_type: 'sign_in_succeeded',
                       metadata: { method: kind == 'registration' ? 'passkey_registration' : 'passkey' })
       { token: token, user_id: user.id, device_id: session_device&.id, expires_in: SessionTokens::TTL_SECONDS }
@@ -241,6 +249,17 @@ module Authentication
       # and do not leak which check failed.
       audit_sign_in_failure(email)
       raise VerificationError, 'verification failed'
+    end
+
+    # Durable revocation (specs/device-identity.md §6.3): a passkey that
+    # enrolled a since-revoked device may only bind an ACTIVE device (whose
+    # key the sign-in just proved). Without such a proof — no device, or an
+    # enrolment of a new one — it needs re-approval from a trusted device.
+    def require_device_approval!(user:, authenticator:, proof:)
+      return unless authenticator.reapproval_required?
+      return if proof&.dig(:device)
+      Audit::Log.call(user: user, event_type: 'device_approval_required')
+      raise DeviceApprovalRequired, 'device approval required'
     end
 
     # Attributed to the account when the address has one (its owner sees
@@ -268,14 +287,14 @@ module Authentication
     # is live and unused, and never for a claimed account. Ticket
     # consumption, the user row and the authenticator commit together: a
     # failed attestation — or a failed device proof — rolls everything back
-    # (the ticket stays usable until it expires). Returns [user, device]
-    # (device nil when no proof was sent).
+    # (the ticket stays usable until it expires). Returns
+    # [user, device, authenticator] (device nil when no proof was sent).
     def register_account(email:, params:, challenge_rec:, device_proof: nil)
       verification = challenge_rec.email_verification
       raise VerificationError, 'verification failed' unless verification && verification.email == email
 
       created = false
-      user, device = ActiveRecord::Base.transaction do
+      user, device, authenticator = ActiveRecord::Base.transaction do
         EmailOwnership.consume_ticket!(verification)
         user = User.lock.find_by(email: email)
         if user
@@ -286,13 +305,13 @@ module Authentication
           user = User.create!(id: verification.pending_user_id, email: email)
           created = true
         end
-        verify_registration(user: user, params: params, challenge: challenge_rec.challenge)
+        authenticator = verify_registration(user: user, params: params, challenge: challenge_rec.challenge)[:authenticator]
         proof = DeviceProof.sign_in_proof!(user: user, challenge: challenge_rec.challenge, proof: device_proof)
-        [user, DeviceProof.device_for!(user: user, proof: proof)]
+        [user, DeviceProof.device_for!(user: user, proof: proof, authenticator: authenticator), authenticator]
       end
       Audit::Log.call(user: user, event_type: 'account_created',
                       metadata: { email_verification_id: verification.id }) if created
-      [user, device]
+      [user, device, authenticator]
     rescue EmailOwnership::VerificationError, ActiveRecord::RecordInvalid, ActiveRecord::RecordNotUnique
       raise VerificationError, 'verification failed'
     end
@@ -356,7 +375,7 @@ module Authentication
     end
 
     # Verify an assertion against the STORED public key / sign count of
-    # the claimed credential. Returns { public_key: } (the stored
+    # the claimed credential. Returns { public_key:, authenticator: } (the stored
     # base64url key) for device binding.
     def verify_authentication(user:, params:, challenge:)
       # Parsing alone verifies nothing — it only decodes the envelope so
@@ -388,7 +407,7 @@ module Authentication
         new_count = provisional.sign_count || 0
         authenticator.update!(sign_count: new_count) if new_count > authenticator.sign_count
       end
-      { public_key: authenticator.public_key }
+      { public_key: authenticator.public_key, authenticator: authenticator }
     rescue OpenSSL::PKey::PKeyError
       raise VerificationError, 'verification failed'
     end
