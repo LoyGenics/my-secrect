@@ -70,6 +70,10 @@ module Api
           ip_address: request.remote_ip
         )
         render json: result, status: :ok
+      rescue Authentication::Passkeys::DeviceApprovalRequired
+        # The passkey enrolled a since-revoked device: it may only bind an
+        # active device until re-approved (specs/device-identity.md §6.3).
+        render json: { error: 'device_approval_required' }, status: :forbidden
       rescue Authentication::Passkeys::DeviceVerificationError
         render json: { error: 'device_verification_failed' }, status: :unauthorized
       rescue Authentication::Passkeys::VerificationError => e

@@ -168,7 +168,7 @@ RSpec.describe 'Security event logging', type: :request do
     metadata = AuditEvent.pluck(:metadata)
     metadata_json = metadata.to_json
     expect(secrets.select { |secret| leaked?(metadata_json, secret) }).to be_empty
-    expect(metadata.flat_map(&:keys).uniq - %w[method via purpose email_verification_id revoked_count]).to be_empty
+    expect(metadata.flat_map(&:keys).uniq - %w[method via purpose email_verification_id revoked_count passkey]).to be_empty
     expect(metadata_json).not_to include(email)
   end
 

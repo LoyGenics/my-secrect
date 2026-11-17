@@ -12,6 +12,22 @@ module Api
         render json: { passkeys: authenticators.map { |a| passkey_json(a) } }, status: :ok
       end
 
+      # POST /v1/auth/passkeys/:id/approve — re-approve a passkey that
+      # enrolled a since-revoked device (specs/device-identity.md §6.3), so
+      # it may enrol devices again. Step-up required, from a session bound
+      # to an ACTIVE device (another still-trusted device) or a recovery
+      # session (recovery-key proof, for when no trusted device is left).
+      def approve
+        require_step_up!
+        unless current_session.recovery_session || (current_device && !current_device.revoked?)
+          render json: { error: 'trusted_device_required' }, status: :forbidden and return
+        end
+        authenticator = current_user.authenticators.active.find(params[:id])
+        authenticator.update!(reapproval_required_at: nil)
+        Audit::Log.call(user: current_user, device: current_device, event_type: 'passkey_reapproved')
+        render json: { passkey: passkey_json(authenticator) }, status: :ok
+      end
+
       # POST /v1/auth/passkeys/add/options — creation options for an
       # additional passkey. Step-up required. No user is created here;
       # the challenge is stored under the session user's own email.
@@ -58,7 +74,8 @@ module Api
           credential_id_prefix: authenticator.credential_id.to_s[0, 12],
           created_at: authenticator.created_at,
           sign_count: authenticator.sign_count,
-          revoked_at: authenticator.revoked_at
+          revoked_at: authenticator.revoked_at,
+          reapproval_required_at: authenticator.reapproval_required_at
         }
       end
     end

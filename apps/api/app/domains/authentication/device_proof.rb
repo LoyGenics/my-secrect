@@ -33,6 +33,9 @@ module Authentication
   module DeviceProof
     class VerificationError < StandardError; end
     class AlreadyBound < StandardError; end
+    # The session's passkey must be re-approved before it can enrol a
+    # device (spec §6.3, durable revocation).
+    class ApprovalRequired < StandardError; end
 
     DOMAIN = 'my-secrect/device/v1/'
     # v1 purpose registry (spec §4). 'sync-event' is reserved for the sync
@@ -118,7 +121,9 @@ module Authentication
     # Turn a verified sign_in_proof! result into the session's device:
     # creates the device for an enrolment, re-checks an existing device is
     # still active. nil stays nil (unbound session).
-    def device_for!(user:, proof:)
+    # `authenticator`: the passkey of this sign-in, recorded on a newly
+    # enrolled device so revoking that device can restrict the passkey.
+    def device_for!(user:, proof:, authenticator: nil)
       return nil if proof.nil?
       if proof[:device]
         device = bindable_device(user: user, device_id: proof[:device].id)
@@ -127,7 +132,9 @@ module Authentication
         return device
       end
       enrol = proof[:enroll]
-      device = Devices::Enroll.call(user: user, public_key: decode(enrol[:public_key]), public_key_alg: ALG,
+      key = decode(enrol[:public_key])
+      fail!(user: user, purpose: 'enroll') if key_ever_enrolled?(key)
+      device = Devices::Enroll.call(user: user, public_key: key, public_key_alg: ALG, authenticator: authenticator,
                                     platform: enrol[:platform], name_encrypted: enrol[:name_encrypted])
       Audit::Log.call(user: user, device: device, event_type: 'device_bound', metadata: { via: 'sign_in' })
       device
@@ -152,12 +159,14 @@ module Authentication
     # session is still unbound. Returns the Device.
     def enroll!(session:, public_key:, challenge:, signature:, platform: nil, name_encrypted: nil)
       user = session.user
+      raise ApprovalRequired, 'passkey needs re-approval' if session.authenticator&.reapproval_required?
       raw = consume_challenge(session: session, purpose: 'enroll', challenge: challenge)
       key = decode_public_key(public_key)
       ok = raw && key && signature_valid?(public_key_bytes: key, purpose: 'enroll',
                                           payload: { challenge: raw, public_key: encode(key) }, signature: signature)
       fail!(user: user, purpose: 'enroll') unless ok
-      device = Devices::Enroll.call(user: user, public_key: key, public_key_alg: ALG,
+      fail!(user: user, purpose: 'enroll') if key_ever_enrolled?(key)
+      device = Devices::Enroll.call(user: user, public_key: key, public_key_alg: ALG, authenticator: session.authenticator,
                                     platform: platform, name_encrypted: name_encrypted)
       bind_session(session: session, device: device, via: 'enroll')
       device
@@ -181,6 +190,13 @@ module Authentication
     end
 
     # -- internals ---------------------------------------------------------
+
+    # A device key is enrolled at most once, ever: a revoked device's key
+    # can never come back as a "new" device (spec §6.3). The partial unique
+    # index on devices.public_key enforces the same in the database.
+    def key_ever_enrolled?(key_bytes)
+      ::Device.exists?(public_key: key_bytes, public_key_alg: ALG)
+    end
 
     # Atomic single-winner consume of a challenge issued to THIS session for
     # THIS purpose. Returns the raw challenge, or nil (missing, expired,
