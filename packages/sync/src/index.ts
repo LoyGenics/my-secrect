@@ -313,11 +313,23 @@ function samePlaintext(a: VaultItem, b: VaultItem): boolean {
  * decrypt callback. Order: events are applied in sequence order.
  * Returns what happened per item so the UI can show it honestly.
  */
+export interface ApplyOptions {
+  /**
+   * Whether a decrypted item belongs to the event it came with. Default:
+   * `item.id === event.item_id`. Apps whose local item ids are not the wire
+   * (UUID) ids pass a stricter check built on `wireItemId` — it must still
+   * bind the AEAD-verified item id to the event's item id.
+   */
+  itemMatchesEvent?: (item: VaultItem, event: SyncEvent) => boolean;
+}
+
 export async function applyRemoteEvents(
   events: SyncEvent[],
   localById: Map<string, LocalItemState>,
   decrypt: RemoteDecrypt,
+  options: ApplyOptions = {},
 ): Promise<ApplyResult> {
+  const itemMatchesEvent = options.itemMatchesEvent ?? ((item: VaultItem, event: SyncEvent) => item.id === event.item_id);
   const result: ApplyResult = { applied: [], skipped: [], rejected: [], conflicts: [], tombstones: [], nextCursor: nextCursor(events) };
   const ordered = [...events].sort((a, b) => a.sequence - b.sequence);
 
@@ -400,7 +412,7 @@ export async function applyRemoteEvents(
       result.rejected.push({ item_id: event.item_id, sequence: event.sequence, reason: `AEAD verification failed — ciphertext rejected, nothing applied${detail}` });
       continue;
     }
-    if (remoteItem.id !== event.item_id) {
+    if (!itemMatchesEvent(remoteItem, event)) {
       result.rejected.push({ item_id: event.item_id, sequence: event.sequence, reason: 'decrypted item id does not match event item id' });
       continue;
     }
@@ -441,4 +453,35 @@ export async function applyRemoteEvents(
 
 export function nextCursor(events: SyncEvent[]): string | null {
   return events.length ? String(events[events.length - 1].sequence) : null;
+}
+
+// ---------------------------------------------------------------------------
+// Wire item ids — the server's item ids are UUIDs; local ids may not be
+// ---------------------------------------------------------------------------
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+export function isUuid(value: string): boolean {
+  return UUID_RE.test(value);
+}
+
+/**
+ * Map a local item id to the id sent to the server (`items.id` is a UUID).
+ * UUID ids pass through unchanged. Any other id (e.g. the legacy
+ * `item_<24 hex>` form, or example ids) maps to a deterministic UUID:
+ * the first 16 bytes of SHA-256("my-secrect.item-id.v1:" + id) with the
+ * version (5) and variant bits set. FROZEN: changing this would orphan
+ * every already-synced item. The server sees only this hash, never more.
+ */
+export async function wireItemId(
+  itemId: string,
+  sha256: (bytes: Uint8Array) => Promise<Uint8Array>,
+): Promise<string> {
+  const lower = itemId.toLowerCase();
+  if (UUID_RE.test(lower)) return lower;
+  const digest = await sha256(new TextEncoder().encode(`my-secrect.item-id.v1:${itemId}`));
+  const b = Uint8Array.from(digest.subarray(0, 16));
+  b[6] = (b[6] & 0x0f) | 0x50;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const hex = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }

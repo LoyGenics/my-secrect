@@ -132,6 +132,10 @@ export {
   loadConflicts,
   saveConflicts,
   resolveConflictKeepBoth,
+  appendConflicts,
+  removeQueuedPushEntry,
+  wireItemId,
+  isUuid,
   detectConflict,
   detectDeleteConflict,
   localStorageSyncStorage,
@@ -168,6 +172,9 @@ export interface CreateSyncClientOptions {
   saveLocalItem: (item: import('../../core/src/types').VaultItem, revision: number) => void;
   /** Persist a remote tombstone locally. */
   deleteLocalItem: (itemId: string, revision: number) => void;
+  onPushed?: import('../../sync/src/sync-client').SyncClientOptions['onPushed'];
+  itemMatchesEvent?: import('../../sync/src/sync-client').SyncClientOptions['itemMatchesEvent'];
+  maxPullPages?: number;
 }
 
 /**
@@ -185,6 +192,9 @@ export function createSyncClient(opts: CreateSyncClientOptions): SyncClient {
     getLocalState: opts.getLocalState,
     saveLocalItem: opts.saveLocalItem,
     deleteLocalItem: opts.deleteLocalItem,
+    onPushed: opts.onPushed,
+    itemMatchesEvent: opts.itemMatchesEvent,
+    maxPullPages: opts.maxPullPages,
   });
 }
 

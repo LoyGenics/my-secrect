@@ -123,6 +123,14 @@ RSpec.describe 'Sync API', type: :request do
       expect(stored.encrypted_item_key.b).to eq('fake-wrapped-item-key'.b)
     end
 
+    it 'rejects a non-uuid item_id with 422 instead of minting a different id' do
+      expect {
+        post "/api/v1/vaults/#{vault.id}/sync/push", params: { item_id: 'item_0123456789abcdef01234567', base_revision: 0, operation: 'upsert', encrypted_payload: ciphertext, encrypted_item_key: item_key }, headers: headers, as: :json
+      }.not_to change { [Item.count, SyncEvent.count] }
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(JSON.parse(response.body)['error']).to eq('invalid_request')
+    end
+
     it 'rejects non-base64 ciphertext with 422 and appends nothing' do
       item_id = SecureRandom.uuid
       expect {

@@ -25,6 +25,7 @@ import {
   markQueueAttempt,
   removeQueuedPushEntry,
   saveCheckpoint,
+  type ApplyOptions,
   type ApplyResult,
   type QueuedPush,
   type LocalItemState,
@@ -52,6 +53,8 @@ export interface SyncClientOptions {
   /** Called after the server accepted a queued push (2xx). The app uses it to
    *  advance the item's synced base revision. May be async. */
   onPushed?: (entry: QueuedPush, result: { revision: number; sequence: number }) => void | Promise<void>;
+  /** See ApplyOptions.itemMatchesEvent. */
+  itemMatchesEvent?: ApplyOptions['itemMatchesEvent'];
   /** Pull page size guard: stop paging after this many pages (default 200). */
   maxPullPages?: number;
 }
@@ -155,7 +158,7 @@ export class SyncClient {
       const events = Array.isArray(res.events) ? res.events : [];
       if (events.length === 0) break;
       const local = this.opts.getLocalState();
-      const applied = await applyRemoteEvents(events, local, this.opts.decrypt);
+      const applied = await applyRemoteEvents(events, local, this.opts.decrypt, { itemMatchesEvent: this.opts.itemMatchesEvent });
       for (const id of applied.applied) {
         const state = local.get(id);
         if (state) this.opts.saveLocalItem(state.item, state.revision);
