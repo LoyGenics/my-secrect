@@ -4,8 +4,10 @@ FROM ruby:3.3-slim
 RUN apt-get update -qq && apt-get install -y build-essential libpq-dev curl libsodium23 && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY Gemfile Gemfile.lock* ./
-RUN bundle install --without development test
+ENV BUNDLE_WITHOUT=development:test
+RUN bundle install
 COPY . ./
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD curl -fsS http://localhost:3000/health || exit 1
-CMD ["bundle", "exec", "rails", "server", "-b", "0.0.0.0", "-p", "3000"]
+# No bin/rails in this API-only app (`rails server` would run the app generator).
+CMD ["bundle", "exec", "puma", "-C", "config/puma.rb", "-b", "tcp://0.0.0.0:3000"]

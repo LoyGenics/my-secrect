@@ -7,6 +7,7 @@ gem 'rails', '~> 7.1'
 gem 'pg', '~> 1.5'          # PostgreSQL — metadata + ciphertext only, never plaintext
 gem 'puma', '~> 6.4'
 gem 'sidekiq', '~> 7.2'     # background jobs: orphan cleanup, quota, retention. NEVER decrypts vault content.
+gem 'connection_pool', '~> 2.4' # sidekiq 7.3 is incompatible with connection_pool 3.x (scheduler thread crashes)
 gem 'redis', '~> 5.0'
 gem 'webauthn', '~> 3.0'    # account auth via passkeys — separate from vault unlock
 gem 'rotp', '~> 6.3'       # TOTP MFA (RFC 6238) — account second factor, never vault unlock

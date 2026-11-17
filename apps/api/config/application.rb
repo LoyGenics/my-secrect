@@ -1,5 +1,13 @@
 require_relative 'boot'
-require 'rails/all'
+# Explicit frameworks instead of rails/all: this API has no Active Storage
+# (object storage goes through Blobs::StorageProvider), mailer, cable, text
+# or mailbox. rails/all made production eager-load fail on the missing
+# config/storage.yml.
+require 'rails'
+require 'active_model/railtie'
+require 'active_job/railtie'
+require 'active_record/railtie'
+require 'action_controller/railtie'
 Bundler.require(*Rails.groups)
 
 module MySecrectApi

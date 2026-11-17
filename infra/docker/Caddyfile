@@ -1,8 +1,10 @@
-# TLS reverse proxy. Replace vault.example.com with your real domain.
+# TLS reverse proxy. The site address comes from SITE_ADDRESS (compose env;
+# your real domain in production, `localhost` for a local run with Caddy's
+# internal CA).
 # Caddy obtains a Let's Encrypt certificate automatically when the domain
 # points at this host. Port 3000 is not published; use this proxy on
 # 80/443 instead of http://localhost:3000.
-vault.example.com {
+{$SITE_ADDRESS} {
   reverse_proxy api:3000
   header {
     Strict-Transport-Security "max-age=31536000; includeSubDomains"
