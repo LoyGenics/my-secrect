@@ -337,3 +337,109 @@ localhost-only.
 - No Unified Security Center UI exists yet — the API surface above is the backend for it; the client still needs one interface for auth methods, trusted devices, sessions, recovery settings, and activity.
 - `GET /v1/auth/activity` has no pagination beyond a capped `limit` (max 50).
 - The unauthenticated registration flow still creates the user row at options time (deliberate, documented in `passkeys.rb`); only the authenticated add flow avoids it.
+
+## 9. Account sign-in UI (17 Nov 2026 — WorkOS next step)
+
+> Code-read only. Nothing has been built, tested, or run on the Mac.
+> The clients below were read, not executed; the Node mirror tests in
+> `tests/security/signin-client.test.mjs` were not run either.
+
+### What changed (code)
+
+- **Sign-in screens (passkey-first, no password anywhere).** The API
+  has no password login endpoint, so none is offered or invented:
+  desktop/web `apps/desktop/src/components/SignInScreen.tsx`
+  (create-account + sign-in, MFA TOTP/recovery-code step) and mobile
+  `apps/mobile/src/screens/SignInScreen.tsx` (recovery-key challenge
+  only — see below). Both store the session token through the SDK
+  only (`saveSessionToken`, key `my-secrect:api-token`); there is no
+  second token store. Sign-in never unlocks the vault: the master
+  passphrase is still required afterwards, as a separate step, and
+  is never stored with the token or sent to the server. No token,
+  code, or recovery key is logged.
+- **Shared state machine** (`packages/sdk/src/signin.ts`, pure, no
+  fetch/DOM): email → passkey → signed-in, or → mfa → signed-in.
+  It encodes the server's single-use rules — a WebAuthn challenge
+  and an `mfa_token` are each consumed whether the attempt succeeds
+  or fails, so a failed MFA attempt restarts the login from the
+  email step and the spent token is never retried. Signed-in is
+  reachable only with a session token in the verify response.
+- **Expiry-aware token storage** (`packages/sdk/src/security.ts`):
+  `saveSessionToken` / `getValidToken` / `clearSessionToken` /
+  `adoptRotatedToken` / `isUnauthorized`, with a `TokenStore`
+  interface shared by localStorage (desktop/web) and AsyncStorage
+  (mobile). An expired token reads as null, so clients never send
+  a stale token. `rotated_token` responses are now adopted
+  automatically when the client is built with a `tokenStore`.
+- **Sign-out revokes the server session.** New
+  `SecurityApiClient.revokeCurrentSession()`: lists sessions,
+  DELETEs the one flagged `current` (there is no dedicated logout
+  endpoint; revoking the current session IS the logout), then the
+  app clears the token and locks the vault. Local sign-out proceeds
+  even when the server cannot confirm (offline / already expired).
+  Revocation invalidates the server session only — it does NOT
+  erase secrets already downloaded or cached offline; both UIs say so.
+- **401 handling.** Desktop `SecurityCenter` and mobile
+  `SecurityScreen` call `onUnauthorized` when every load answers
+  401; the Apps clear the token and show SignIn with a
+  session-expired note. No silent retry with a stale token.
+- **Gating (local-first preserved).** The sign-in gate appears
+  only when an API base URL is configured and no valid session is
+  stored, and only before the vault. "Continue without signing in"
+  keeps the local vault usable offline; account features stay
+  signed out. With no server configured there is no gate at all.
+- **Mobile sign-in is recovery-key only, honestly labelled.** Expo
+  Go has no WebAuthn API and `expo-local-authentication` is not
+  WebAuthn, so no passkey ceremony is faked. The screen implements
+  the one API-supported path: `POST /v1/recovery/challenges` →
+  Ed25519 sign with the keypair derived from the 32 recovery-key
+  bytes (`crypto_sign_seed_keypair`, same derivation as the mobile
+  recovery-verifier registration) → `POST /v1/recovery/verify`.
+  The result is a 15-minute recovery session, labelled as such in
+  the UI — not a daily sign-in. It requires a recovery verifier
+  already registered for the account; without one every attempt
+  fails with the server's generic 401. TOTP/MFA completion alone
+  cannot sign a mobile user in: there is no `mfa_token` without a
+  passkey assertion first.
+- **SDK endpoint bugs fixed (found while building sign-in).**
+  `mfaDisable()` called `DELETE /v1/auth/mfa`, which has no route
+  — now `POST /v1/auth/mfa/disable`. `mfaRecoveryCodes()` posted
+  `/v1/auth/mfa/recovery-codes` — now `POST
+  /v1/auth/mfa/recovery_codes`. The recovery-codes wire key is
+  `recovery_codes`, not `codes`: the old SDK type and both Security
+  Centers read `res.codes`, which is always `undefined`, so
+  regenerated codes never displayed. Fixed in the SDK type and
+  both call sites.
+- **i18n.** New `signin` section in `packages/i18n/src/en.ts` +
+  `vi.ts` (identical keys; asserted by
+  `tests/security/signin-client.test.mjs`). The `security` 65-key
+  contract is untouched.
+
+### Threats considered
+
+| Threat | Mitigation (as built) |
+|---|---|
+| Stale-token replay / retry loop | Expired tokens read as null client-side; 401 always routes back to SignIn, never retries the same token. |
+| MFA-token reuse after failure | The server consumes `mfa_token` on first use; the client machine clears it and restarts from email. |
+| Token theft via rotation miss | `rotated_token` is adopted automatically (tokenStore) or the next call 401s and re-prompts sign-in. |
+| Sign-out that only clears local state | `revokeCurrentSession` DELETEs the current session server-side first; local clear happens regardless, so the user is never stuck signed in. |
+| Recovery-key sign-in abuse (mobile) | Same server guarantees as recovery verify: single-use 5-min challenge, max 5 attempts, generic 401, registered-verifier only, 15-min recovery session, step-up verified at issue. The seed/private key are zero-filled after use and the input cleared. |
+| Vault confused with account auth | Sign-in stores only the Bearer token; vault unlock still needs the passphrase/recovery key afterwards. No code path stores them together. |
+
+### Remaining (not done)
+
+- **Nothing has run.** First `tsc` / `rspec` / builds on the Mac are
+  still pending for every file above; the mirror tests were not run.
+- **No token refresh endpoint exists.** Sessions live 1 h (recovery
+  15 min); after expiry the user signs in again. Rotation happens
+  only on privilege changes.
+- **Mobile has no full sign-in** (no WebAuthn in Expo Go; no
+  password login in the API). The recovery-key path is emergency /
+  recovery use, not daily sign-in.
+- **Web sign-in needs a secure context** and a matching
+  `WEBAUTHN_ORIGIN` / `WEBAUTHN_RP_ID` on the server, or the
+  ceremony fails client-side; per-deployment values are not
+  validated by any test here.
+- Session tokens are still not bound to IP/device fingerprint (L2
+  partial, as before); a stolen token works from anywhere until
+  expiry/revocation.

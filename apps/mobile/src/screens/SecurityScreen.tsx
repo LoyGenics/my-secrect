@@ -10,9 +10,9 @@ import { useTranslation } from '../../../../packages/i18n/src/react';
 // levels up — '../../../../packages/...' — the same depth TrashScreen uses
 // for packages/core. A three-level import would resolve inside apps/.
 // The SDK client (packages/sdk/src/security.ts) is owned by the desktop agent;
-// agent and did not exist when this screen was written; this import only
-// resolves once it lands. Do not “fix” it by inlining a client here.
-import { LS_API_TOKEN, SecurityApiClient } from '../../../../packages/sdk/src/security';
+// this screen only calls its public methods, never re-implements them.
+// Method names follow the SDK as landed (mfaEnroll, mfaConfirm, mfaDisable, mfaRecoveryCodes). Do not “fix” it by inlining a client here.
+import { SecurityApiClient, clearSessionToken, getValidToken, isUnauthorized } from '../../../../packages/sdk/src/security';
 import { fromBase64Url, sha256, toBase64 } from '../../../../packages/crypto-adapters/src/index';
 import { decryptWithVaultKey, encryptWithVaultKey } from '../vault';
 import { apiStatus, isNetworkError, isStepUpFresh, isStepUpRequired } from '../utils/stepUp';
@@ -42,22 +42,34 @@ import { apiStatus, isNetworkError, isStepUpFresh, isStepUpRequired } from '../u
  * - Revoking a session/device invalidates the SERVER session only. It
  *   does NOT erase secrets already downloaded / offline on that device.
  *
- * Auth gap (known, not hidden): mobile has no account sign-in and no
- * stored account token, so getApiToken() returns null and server calls
- * will 401 until a mobile login flow stores a token under LS_API_TOKEN.
- * That 401 is shown honestly.
+ * Sign-in (17 Nov 2026): mobile has a SignInScreen (recovery-key
+ * challenge — passkeys cannot run here, see that screen). Its token
+ * lands in LS_API_TOKEN via saveSessionToken(), so this screen loads
+ * for real after sign-in. A 401 from every load means the session
+ * died server-side: App sends the user back to SignIn (via the
+ * onUnauthorized prop) instead of showing a dead-end error.
  */
 
 export const API_BASE_URL_KEY = 'my-secrect:api-base-url';
 
+/** AsyncStorage-backed token store (same LS_API_TOKEN key as
+ *  desktop/web — one token store, not one per platform). */
+export const asyncTokenStore = {
+  getItem: (k: string) => AsyncStorage.getItem(k),
+  setItem: (k: string, v: string) => AsyncStorage.setItem(k, v),
+  removeItem: (k: string) => AsyncStorage.removeItem(k),
+};
+
 /**
  * Account token lookup, shared with desktop (packages/sdk/src/security.ts
- * LS_API_TOKEN). Nothing populates it yet — mobile has no account sign-in
- * UI — so this returns null and server calls go out without an
- * Authorization header until a sign-in flow stores a token here.
+ * LS_API_TOKEN). Populated by the mobile SignInScreen (recovery-key
+ * sign-in) via saveSessionToken(). Expiry-aware: an expired token
+ * reads as null, so server calls never go out with a stale token —
+ * the server would answer 401, which the App surfaces as a
+ * re-sign-in prompt, never as fake data.
  */
 export async function getApiToken(): Promise<string | null> {
-  try { return await AsyncStorage.getItem(LS_API_TOKEN); } catch { return null; }
+  return getValidToken(asyncTokenStore);
 }
 
 interface PasskeyRow { id: string; credential_id_prefix: string; sign_count: number; created_at: string; }
@@ -89,7 +101,15 @@ function fmtDate(raw?: string): string {
   return Number.isNaN(d.getTime()) ? raw : d.toLocaleString();
 }
 
-export default function SecurityScreen({ onClose }: { onClose: () => void }) {
+export default function SecurityScreen({ onClose, onSignedOut, onUnauthorized }: {
+  onClose: () => void;
+  /** Sign-out completed (server session revoked, token cleared,
+   *  vault locked): App shows the sign-in gate again. */
+  onSignedOut?: () => void;
+  /** Every server call answered 401: the session is gone
+   *  server-side. App clears the token and shows SignIn. */
+  onUnauthorized?: () => void;
+}) {
   const { t } = useTranslation();
   const [baseUrl, setBaseUrl] = useState<string | null>(null); // null = not loaded yet
   const [loading, setLoading] = useState(false);
@@ -119,7 +139,7 @@ export default function SecurityScreen({ onClose }: { onClose: () => void }) {
   const pendingStepUpAction = useRef<(() => Promise<void>) | null>(null);
 
   const client = useMemo(
-    () => (baseUrl ? new SecurityApiClient({ baseUrl, getToken: getApiToken }) : null),
+    () => (baseUrl ? new SecurityApiClient({ baseUrl, getToken: getApiToken, tokenStore: asyncTokenStore }) : null),
     [baseUrl],
   );
 
@@ -139,9 +159,14 @@ export default function SecurityScreen({ onClose }: { onClose: () => void }) {
     if (act.status === 'fulfilled') setActivity(rows<ActivityRow>(act.value, 'events'));
     const anyOk = results.some((r) => r.status === 'fulfilled');
     const anyNetwork = results.some((r) => r.status === 'rejected' && isNetworkError(r.reason));
+    const allUnauthorized = results.every((r) => r.status === 'rejected' && isUnauthorized(r.reason));
     if (!anyOk && anyNetwork) setOffline(true);
     else if (!anyOk) setError(t('security.error'));
     setLoaded(true); setLoading(false);
+    // Every call answered 401: the session is gone server-side
+    // (revoked or expired). Hand back to SignIn via App; never
+    // silently retry with the same stale token.
+    if (!anyOk && allUnauthorized) onUnauthorized?.();
   }
 
   useEffect(() => {
@@ -150,7 +175,7 @@ export default function SecurityScreen({ onClose }: { onClose: () => void }) {
       const url = (raw ?? '').trim();
       setBaseUrl(url);
       if (url) {
-        const c = new SecurityApiClient({ baseUrl: url, getToken: getApiToken });
+        const c = new SecurityApiClient({ baseUrl: url, getToken: getApiToken, tokenStore: asyncTokenStore });
         await loadAll(c);
       } else {
         setLoaded(true);
@@ -296,7 +321,9 @@ export default function SecurityScreen({ onClose }: { onClose: () => void }) {
     try {
       await runWithStepUp(async () => {
         const res = await client.mfaRecoveryCodes();
-        setRecoveryCodes(res.codes);
+        // Wire key is `recovery_codes` (was read as `res.codes`,
+        // which is always undefined — fixed 17 Nov 2026).
+        setRecoveryCodes(res.recovery_codes);
       });
     } catch (e) { setError(describeError(e)); }
     finally { setBusy(false); }
@@ -320,12 +347,15 @@ export default function SecurityScreen({ onClose }: { onClose: () => void }) {
     if (!name) return;
     setError(''); setBusy(true);
     try {
-      // The wire field is name_encrypted; this client passes the display
-      // name and relies on the SDK to encode it for the wire. The rename
-      // is only believed once a fresh list shows the new name — a 2xx
-      // alone proves nothing if the server ignored the field.
-      await client.updateDevice(d.id, { name });
-      const fresh = rows<DeviceRow>(await client.listDevices(), 'devices');
+      // The wire field is name_encrypted: the display name encrypted with
+      // the in-memory Vault Key (nonce-prefixed base64, same envelope as
+      // exportEncrypted). The server stores it opaquely and can never
+      // read it. Encryption needs the unlocked vault — when locked,
+      // encryptWithVaultKey throws and the rename is refused honestly.
+      const nameEncrypted = await encryptWithVaultKey(name);
+      await client.updateDevice(d.id, { name_encrypted: nameEncrypted });
+      // Believe the rename only once a fresh list shows the new name.
+      const fresh = await resolveDeviceLabels(rows<DeviceRow>(await client.listDevices(), 'devices'));
       setDevices(fresh);
       const updated = fresh.find((x) => x.id === d.id);
       if (!updated || deviceLabel(updated) !== name) {
@@ -360,6 +390,28 @@ export default function SecurityScreen({ onClose }: { onClose: () => void }) {
     } catch (e) { setError(describeError(e)); }
     finally { setBusy(false); }
   }
+  /** Sign out of this device: revoke the current server session,
+   *  clear the stored token, lock the vault (via App). When the
+   *  server cannot confirm — offline, or the session already
+   *  expired — local sign-out still proceeds. Revocation
+   *  invalidates the server session only; it does NOT erase
+   *  secrets already downloaded or cached offline here. */
+  function handleSignOut() {
+    Alert.alert(t('signin.signOut'), undefined, [
+      { text: t('security.cancel'), style: 'cancel' },
+      {
+        text: t('signin.signOut'), style: 'destructive',
+        onPress: () => void (async () => {
+          if (client) {
+            try { await client.revokeCurrentSession(); } catch { /* unconfirmed; local sign-out proceeds */ }
+          }
+          try { await clearSessionToken(asyncTokenStore); } catch { /* non-critical */ }
+          onSignedOut?.();
+        })(),
+      },
+    ]);
+  }
+
   function handleRevokeSession(s: SessionRow) {
     Alert.alert(t('security.revokeSession'), s.device_id ?? s.id, [
       { text: t('security.cancel'), style: 'cancel' },
@@ -455,12 +507,6 @@ export default function SecurityScreen({ onClose }: { onClose: () => void }) {
       <Pressable testID="security-back" accessibilityLabel="Back to settings" onPress={onClose} hitSlop={10} style={{ alignSelf: 'flex-start', paddingVertical: 8 }}><Text style={{ color: '#A5B4FC', fontSize: 15 }}>‹ Back</Text></Pressable>
       <Text style={styles.title}>{t('security.title')}</Text>
       <Text style={styles.subtitle}>{t('security.subtitle')}</Text>
-      {/* TODO(i18n): no security.* key was specified for the account/vault
-          separation note, so it is written here in English. If the i18n
-          owner adds a key for it, replace this line with t('security.…'). */}
-      <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 8 }}>
-        Account security here is separate from vault unlock: passkeys, MFA and sessions protect your account, while your passphrase and recovery key alone unlock the vault.
-      </Text>
       {notice ? <Text testID="security-notice" style={{ color: '#A5B4FC', fontSize: 14, lineHeight: 20, marginTop: 10 }}>{notice}</Text> : null}
       {error ? <Text testID="security-error" style={[styles.error, { marginTop: 10 }]}>{error}</Text> : null}
       {offline ? (
@@ -607,6 +653,9 @@ export default function SecurityScreen({ onClose }: { onClose: () => void }) {
       <Pressable testID="revoke-others-button" accessibilityLabel={t('security.revokeOthers')} disabled={busy} style={[styles.dangerButton, { marginTop: 4 }]} onPress={handleRevokeOthers}>
         <Text style={styles.primaryButtonText}>{t('security.revokeOthers')}</Text>
       </Pressable>
+      <Pressable testID="sign-out-button" accessibilityLabel={t('signin.signOut')} disabled={busy} style={[styles.ghostButton, { marginTop: 12 }]} onPress={handleSignOut}>
+        <Text style={[styles.ghostButtonText, { color: colors.danger }]}>{t('signin.signOut')}</Text>
+      </Pressable>
 
       {section(t('security.recovery'))}
       <Text style={[styles.label, { marginTop: 4 }]}>{t('security.recoverySettings')}</Text>
@@ -622,11 +671,7 @@ export default function SecurityScreen({ onClose }: { onClose: () => void }) {
       <Pressable testID="register-verifier-button" accessibilityLabel={t('security.registerRecoveryVerifier')} disabled={busy} style={styles.primaryButton} onPress={() => void handleRegisterVerifier()}>
         <Text style={styles.primaryButtonText}>{t('security.registerRecoveryVerifier')}</Text>
       </Pressable>
-      {/* TODO(i18n): no security.* key was specified for this note, so it
-          is written here in English. */}
-      <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 8 }}>
-        Only the Ed25519 public key derived from your recovery key is sent to the server. The recovery key itself never leaves this device.
-      </Text>
+
 
       {section(t('security.activity'))}
       {activity.length === 0 ? (
