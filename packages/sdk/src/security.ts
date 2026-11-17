@@ -174,6 +174,13 @@ export function isUnauthorized(error: unknown): boolean {
   return error instanceof ApiError && error.status === 401;
 }
 
+/** True when a 401 is the server's `verification_failed` answer to a wrong
+ *  TOTP/recovery code (e.g. POST /v1/auth/mfa/confirm) rather than a dead
+ *  session. The session is still valid; only the code was wrong. */
+export function isVerificationFailed(error: unknown): boolean {
+  return isUnauthorized(error) && error instanceof ApiError && error.message.includes('verification_failed');
+}
+
 /** A step-up verification stays valid for 10 minutes. */
 export const STEP_UP_WINDOW_MS = 10 * 60 * 1000;
 

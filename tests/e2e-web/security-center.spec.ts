@@ -129,3 +129,84 @@ test.describe('Security Center: sessions', () => {
     await other.context.close();
   });
 });
+
+test.describe('Security Center: trusted devices', () => {
+  test('list, enroll (step-up), trust, rename, revoke; revoke copy is honest', async ({ page, authenticator, apiUrl }) => {
+    await signedInWithVault(page);
+    const devices = section(page, 'Trusted devices');
+    await expect(devices.getByText(/Revoking a device ends its server sessions\. It does NOT erase secrets already downloaded or stored offline/)).toBeVisible();
+    // Registration enrolled the first device automatically.
+    await expect(devices.getByRole('button', { name: 'Revoke', exact: true })).toHaveCount(1);
+
+    // Enroll this browser (server step-up: passkey).
+    await devices.getByLabel('Device name').fill('E2E laptop');
+    await devices.getByRole('button', { name: 'Enroll this browser as a device' }).click();
+    await stepUpWithPasskey(page);
+    await expect(devices.getByText('Device enrolled.')).toBeVisible();
+    await expect(devices.getByText('E2E laptop')).toBeVisible();
+    await expect(devices.getByRole('button', { name: 'Revoke', exact: true })).toHaveCount(2);
+    // Server stores only ciphertext of the name + the public key; no plaintext name on the wire.
+    const token = (await storedToken(page))!;
+    const raw = await apiFetch(apiUrl, token, 'GET', '/api/v1/devices');
+    const enrolled = raw.json.devices.find((d: any) => d.platform);
+    expect(enrolled).toBeTruthy();
+    expect(JSON.stringify(raw.json)).not.toContain('E2E laptop');
+
+    // Trust, then untrust.
+    const row = devices.locator('li').filter({ hasText: 'E2E laptop' });
+    await expect(row.getByText('Not trusted')).toBeVisible();
+    await row.getByRole('button', { name: 'Trust', exact: true }).click();
+    await expect(row.getByText(/^Trusted/)).toBeVisible();
+    await row.getByRole('button', { name: 'Remove trust' }).click();
+    await expect(row.getByText(/^Not trusted/)).toBeVisible();
+
+    // Rename (encrypted under the vault key).
+    await row.getByRole('button', { name: 'Rename' }).click();
+    await row.getByRole('textbox', { name: 'Rename' }).fill('Renamed box');
+    await row.getByRole('button', { name: 'Save' }).click();
+    await expect(devices.getByText('Renamed box')).toBeVisible();
+
+    // Revoke the enrolled device: it disappears and the server marks it revoked.
+    await devices.locator('li').filter({ hasText: 'Renamed box' }).getByRole('button', { name: 'Revoke', exact: true }).click();
+    await expect(devices.getByText('Device revoked: its server sessions were ended.')).toBeVisible();
+    await expect(devices.getByRole('button', { name: 'Revoke', exact: true })).toHaveCount(1);
+    const after = await apiFetch(apiUrl, token, 'GET', '/api/v1/devices');
+    expect(after.json.devices.find((d: any) => d.id === enrolled.id).revoked_at).toBeTruthy();
+  });
+
+  test('revoking the device that owns the current session ends it; the app returns to sign-in', async ({ page, authenticator, apiUrl }) => {
+    await signedInWithVault(page);
+    const devices = section(page, 'Trusted devices');
+    const token = (await storedToken(page))!;
+    await devices.getByRole('button', { name: 'Revoke', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Sign in to your account' })).toBeVisible();
+    expect((await apiFetch(apiUrl, token, 'GET', SESSIONS_API)).status).toBe(401);
+  });
+});
+
+test.describe('Security Center: account deletion', () => {
+  test('requires step-up, deletes the server account, clears the session, and is honest about the local vault', async ({ page, authenticator, apiUrl }) => {
+    await signedInWithVault(page);
+    const token = (await storedToken(page))!;
+    const del = section(page, 'Delete account');
+    await expect(del.getByText(/The vault stored on this device is not erased/)).toBeVisible();
+
+    // Server refuses without step-up, independent of the UI.
+    expect((await apiFetch(apiUrl, token, 'DELETE', '/api/v1/auth/account')).status).toBe(403);
+
+    // Cancelling the step-up must not delete anything.
+    await del.getByRole('button', { name: 'Delete account', exact: true }).click();
+    await del.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await stepUpDialog(page).getByRole('button', { name: 'Cancel' }).click();
+    expect((await apiFetch(apiUrl, token, 'GET', SESSIONS_API)).status).toBe(200);
+
+    // Real deletion.
+    await del.getByRole('button', { name: 'Delete account', exact: true }).click();
+    await del.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await stepUpWithPasskey(page);
+    await expect(page.getByRole('heading', { name: 'Sign in to your account' })).toBeVisible();
+    expect(await storedToken(page)).toBeNull();
+    expect((await apiFetch(apiUrl, token, 'GET', SESSIONS_API)).status).toBe(401);
+
+  });
+});

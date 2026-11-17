@@ -6,6 +6,7 @@ import {
   ApiError,
   isStepUpRequired,
   isUnauthorized,
+  isVerificationFailed,
   type ActivityEvent,
   type DeviceInfo,
   type PasskeyAuthenticator,
@@ -233,7 +234,7 @@ export default function SecurityCenter({
       }
       // A 401 here means the session died mid-action: hand back to
       // SignIn via App instead of showing a dead-end error.
-      if (isUnauthorized(err)) onUnauthorized?.();
+      if (isUnauthorized(err) && !isVerificationFailed(err)) onUnauthorized?.();
       setError(describeError(err, dict));
       return false;
     }
