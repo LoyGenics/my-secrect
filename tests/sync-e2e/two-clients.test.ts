@@ -12,15 +12,14 @@
  */
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { bootApi, pgDump, psql, PORT, RP_ID, WEB_ORIGIN, type RunningApi } from './api-harness.ts';
 import { SoftwareAuthenticator, type ExportedCredential } from './software-authenticator.ts';
+import { Client } from './helpers.ts';
 import { wireItemId } from '../../packages/sync/src/index.ts';
 import { SecurityApiClient } from '../../packages/sdk/src/security.ts';
 
@@ -44,44 +43,6 @@ const id = (n: string) => `item_${n.padEnd(24, '0').slice(0, 24)}`;
 const ID = { one: id('a1'), two: id('b2'), three: id('c3'), del: id('d4'), dvu: id('e5'), lvr: id('f6'), tamper: id('a7'), offline: id('b8') };
 const nodeSha = async (b: Uint8Array) => new Uint8Array(createHash('sha256').update(b).digest());
 const wire = (local: string) => wireItemId(local, nodeSha); // independent SHA-256 (node:crypto)
-
-class Client {
-  private child!: ChildProcess;
-  private seq = 0;
-  private pending = new Map<number, (m: any) => void>();
-  private ready!: Promise<void>;
-  constructor(readonly name: string, readonly stateFile: string) {}
-  start(env: Record<string, string> = {}) {
-    this.child = spawn(process.execPath, ['--import', 'tsx', path.join(here, 'client-worker.ts')], {
-      env: { ...process.env, CLIENT_STATE_FILE: this.stateFile, WEBAUTHN_ORIGIN: WEB_ORIGIN, WEBAUTHN_RP_ID: RP_ID, API_BASE: `http://127.0.0.1:${PORT}/api`, ...env },
-      stdio: ['pipe', 'pipe', 'inherit'],
-    });
-    let resolveReady!: () => void;
-    this.ready = new Promise((r) => (resolveReady = r));
-    createInterface({ input: this.child.stdout! }).on('line', (line) => {
-      const m = JSON.parse(line);
-      if (m.ready) return resolveReady();
-      this.pending.get(m.seq)?.(m);
-      this.pending.delete(m.seq);
-    });
-    return this;
-  }
-  async call<T = any>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
-    await this.ready;
-    const seq = ++this.seq;
-    const reply = new Promise<any>((r) => this.pending.set(seq, r));
-    this.child.stdin!.write(JSON.stringify({ seq, cmd, args }) + '\n');
-    const m = await reply;
-    if (!m.ok) throw Object.assign(new Error(`${this.name}.${cmd}: ${m.error}`), { status: m.status });
-    return m.result as T;
-  }
-  async kill() {
-    if (this.child.exitCode !== null) return;
-    await new Promise<void>((r) => { this.child.once('exit', () => r()); this.child.kill('SIGKILL'); });
-  }
-  titles = async () => (await this.call<any[]>('list')).filter((i) => !i.deleted_at).map((i) => i.title).sort();
-  find = async (title: string) => (await this.call<any[]>('list')).find((i) => i.title === title);
-}
 
 let api: RunningApi;
 let A: Client;

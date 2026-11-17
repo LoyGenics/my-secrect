@@ -4,7 +4,7 @@
  * Ports/DB: API 3102, database vault_e2e_sync (override with SYNC_E2E_PORT).
  */
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
-import { createWriteStream, mkdirSync, rmSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -44,11 +44,15 @@ export interface RunningApi { baseUrl: string; apiBase: string; logPath: string;
 
 export async function bootApi(): Promise<RunningApi> {
   const env = railsEnv();
-  // Rack::Attack counters live in Rails.cache (FileStore in dev): reset so reruns inside the 60s window are not throttled.
-  rmSync(path.join(apiDir, 'tmp/cache'), { recursive: true, force: true });
   execFileSync('bundle', ['exec', 'rake', 'db:drop', 'db:create', 'db:schema:load'], { cwd: apiDir, env: { ...env, DISABLE_DATABASE_ENVIRONMENT_CHECK: '1' }, stdio: 'pipe' });
-  // Rack::Attack counters live in the (file) Rails cache; start every run with clean throttles.
-  rmSync(path.join(apiDir, 'tmp', 'cache'), { recursive: true, force: true });
+  // Rack::Attack counters live in Rails.cache (FileStore in dev): reset them so reruns inside
+  // the 60s window are not throttled. Keep tmp/cache/bootsnap (the boot cache, not state).
+  const cacheDir = path.join(apiDir, 'tmp', 'cache');
+  if (existsSync(cacheDir)) {
+    for (const entry of readdirSync(cacheDir)) {
+      if (entry !== 'bootsnap') rmSync(path.join(cacheDir, entry), { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    }
+  }
   mkdirSync(path.join(here, '.out'), { recursive: true });
   const logPath = path.join(here, '.out', `api-${PORT}.log`);
   const log = createWriteStream(logPath);

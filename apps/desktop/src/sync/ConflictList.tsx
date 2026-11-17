@@ -23,7 +23,7 @@ function VersionCard({ label, item, deleted, testId }: { label: string; item: Va
             {entries.map(([k, v]) => (
               <div key={k} className="flex gap-2">
                 <dt className="shrink-0 text-zinc-500">{k}</dt>
-                <dd className="min-w-0 break-all font-mono text-zinc-200">{reveal ? String(v) : '••••••'}</dd>
+                <dd className="min-w-0 break-all font-mono text-zinc-200">{reveal ? (typeof v === 'object' ? JSON.stringify(v) : String(v)) : '••••••'}</dd>
               </div>
             ))}
           </dl>
