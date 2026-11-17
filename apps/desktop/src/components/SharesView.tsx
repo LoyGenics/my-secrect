@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { VaultItem } from '../../../../packages/core/src/types';
 import { fingerprintOf, type SharePermission } from '../../../../packages/core/src/sharing';
 import {
@@ -9,10 +9,14 @@ import {
   sharePeer,
   type ContactView,
   type OpenedShare,
+  type PeerView,
   type ShareErrorKind,
+  type SharingSessionOptions,
   type ShareSummary,
 } from '../../../../packages/sdk/src/sharing';
+import { SecurityApiClient } from '../../../../packages/sdk/src/security';
 import { useTranslation } from '../../../../packages/i18n/src/react';
+import StepUpDialog from './StepUpDialog';
 
 /**
  * SharesView — end-to-end encrypted item sharing (desktop + web).
@@ -22,13 +26,17 @@ import { useTranslation } from '../../../../packages/i18n/src/react';
  *  - "Your sharing key" shows the fingerprint derived from the locally
  *    decrypted identity — never one the server reports.
  *  - Sharing needs the recipient's key to be verified (fingerprint compared
- *    out of band, then pinned on this device). A changed key blocks the
- *    action with a warning; the only way on is to forget and re-verify.
- *  - An incoming share is accepted only after the owner's key is verified and
- *    the wrapped key opens with it (the key exchange). The server keeps the
- *    content back until then.
+ *    out of band, then pinned on this device with the email it was verified
+ *    under). Names shown for a verified contact are the PINNED emails; an
+ *    unverified email is labelled as what the server says. A changed key, or
+ *    a pinned key the server now labels with another email, blocks the
+ *    action with a warning; the only way on is forget + re-verify.
+ *  - Accept runs the key-exchange check (owner key pinned, wrap opens and is
+ *    bound to this share) and only then calls the server.
  *  - Recipient edits never enter the owner's vault by themselves: the owner
- *    chooses "Save this version to my vault".
+ *    saves exactly the revision they reviewed.
+ *  - Creating or resetting the sharing key needs a server step-up (passkey
+ *    or TOTP via StepUpDialog). Resetting ends every share.
  *  - Revoke states its limit next to the button: already-seen data cannot be
  *    erased from the recipient's device.
  * Without a configured server or a session, the view says so and does nothing.
@@ -57,6 +65,7 @@ function expiresAtFor(expiry: Expiry): string | null {
 const ERROR_KEYS: Partial<Record<ShareErrorKind, string>> = {
   not_verified: 'shares.errorNotVerified',
   key_changed: 'shares.errorKeyChanged',
+  relabeled: 'shares.errorRelabeled',
   crypto: 'shares.errorCrypto',
   revoked: 'shares.errorRevoked',
   expired: 'shares.errorExpired',
@@ -75,7 +84,10 @@ export default function SharesView(props: SharesViewProps) {
   latest.current = props;
 
   const [session, setSession] = useState<SharingSession | null>(null);
-  const [startError, setStartError] = useState('');
+  const [startAttempt, setStartAttempt] = useState(0);
+  const [startError, setStartError] = useState<{ kind: ShareErrorKind; detail: string } | null>(null);
+  const [stepUpFor, setStepUpFor] = useState<null | (() => void)>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
   const [myFingerprint, setMyFingerprint] = useState('');
   const [shares, setShares] = useState<ShareSummary[]>([]);
   const [peerFingerprints, setPeerFingerprints] = useState<Record<string, string>>({});
@@ -99,6 +111,24 @@ export default function SharesView(props: SharesViewProps) {
   const baseUrl = props.apiBaseUrl.trim();
   const canStart = baseUrl !== '' && props.signedIn;
 
+  const security = useMemo(
+    () => (baseUrl ? new SecurityApiClient({ baseUrl, getToken: () => latest.current.getToken() }) : null),
+    [baseUrl],
+  );
+
+  const sessionOptions = useCallback((): SharingSessionOptions => ({
+    api: new SharingApiClient({ baseUrl, getToken: () => latest.current.getToken() }),
+    vault: {
+      encrypt: (p) => latest.current.encryptWithVaultKey(p),
+      decrypt: (c) => latest.current.decryptWithVaultKey(c),
+    },
+    pinStorage: localStorage,
+    items: {
+      find: (id) => latest.current.items.find((i) => i.id === id),
+      save: (item) => latest.current.onSaveItem(item),
+    },
+  }), [baseUrl]);
+
   const report = useCallback((e: unknown) => {
     const c = classifyShareError(e);
     if (c.kind === 'unauthorized') {
@@ -109,28 +139,20 @@ export default function SharesView(props: SharesViewProps) {
     setNotice('');
     if (key) setError(t(key));
     else if (c.kind === 'identity') setError(t('shares.unavailable', c.detail));
+    else if (c.kind === 'invalid_content') setError(t('shares.errorInvalidContent', c.detail));
     else setError(t('shares.errorGeneric', c.detail));
   }, [t]);
 
+  // Start (or restart after a step-up) the session. Registering a first
+  // identity answers 403 step_up_required until the user verifies.
   useEffect(() => {
     if (!canStart) return undefined;
     let cancelled = false;
     let started: SharingSession | null = null;
-    setStartError('');
+    setStartError(null);
     void (async () => {
       try {
-        const s = await SharingSession.start({
-          api: new SharingApiClient({ baseUrl, getToken: () => latest.current.getToken() }),
-          vault: {
-            encrypt: (p) => latest.current.encryptWithVaultKey(p),
-            decrypt: (c) => latest.current.decryptWithVaultKey(c),
-          },
-          pinStorage: localStorage,
-          items: {
-            find: (id) => latest.current.items.find((i) => i.id === id),
-            save: (item) => latest.current.onSaveItem(item),
-          },
-        });
+        const s = await SharingSession.start(sessionOptions());
         if (cancelled) {
           s.close();
           return;
@@ -142,7 +164,7 @@ export default function SharesView(props: SharesViewProps) {
         if (cancelled) return;
         const c = classifyShareError(e);
         if (c.kind === 'unauthorized') latest.current.onUnauthorized?.();
-        else setStartError(c.detail);
+        else setStartError(c);
       }
     })();
     return () => {
@@ -150,7 +172,7 @@ export default function SharesView(props: SharesViewProps) {
       started?.close();
       setSession(null);
     };
-  }, [canStart, baseUrl]);
+  }, [canStart, sessionOptions, startAttempt]);
 
   const refresh = useCallback(async (s: SharingSession) => {
     const list = await s.listShares();
@@ -170,6 +192,27 @@ export default function SharesView(props: SharesViewProps) {
     setError('');
     setNotice('');
     fn(session).catch(report).finally(() => setBusy(false));
+  };
+
+  /** Reset the identity (needs step-up). Replaces the running session. */
+  const resetIdentity = () => {
+    setBusy(true);
+    setError('');
+    setNotice('');
+    SharingSession.resetIdentity(sessionOptions())
+      .then(async (s) => {
+        session?.close();
+        setConfirmReset(false);
+        setStartError(null);
+        setMyFingerprint(await s.myFingerprint());
+        setSession(s);
+        setNotice(t('shares.resetDone'));
+      })
+      .catch((e) => {
+        if (classifyShareError(e).kind === 'step_up') setStepUpFor(() => resetIdentity);
+        else report(e);
+      })
+      .finally(() => setBusy(false));
   };
 
   // --- owner: share an item ---------------------------------------------------
@@ -192,8 +235,8 @@ export default function SharesView(props: SharesViewProps) {
   const doShare = () => run(async (s) => {
     const item = props.items.find((i) => i.id === itemId);
     if (!item || !contact) return;
-    const created = await s.shareItem({ item, contact, permission, expiresAt: expiresAtFor(expiry) });
-    setNotice(t('shares.shared', created.recipient.email));
+    await s.shareItem({ item, contact, permission, expiresAt: expiresAtFor(expiry) });
+    setNotice(t('shares.shared', contact.email));
     setContact(null);
     setEmail('');
     await refresh(s);
@@ -207,7 +250,7 @@ export default function SharesView(props: SharesViewProps) {
   });
   const accept = (share: ShareSummary) => run(async (s) => {
     await s.acceptShare(share);
-    setNotice(t('shares.accepted', share.owner.email));
+    setNotice(t('shares.accepted', s.peerView(share).email));
     await refresh(s);
   });
   const open = (share: ShareSummary) => run(async (s) => {
@@ -228,9 +271,10 @@ export default function SharesView(props: SharesViewProps) {
     if (opened?.share.id === share.id) setOpened({ share, data: await s.openShare(share) });
     await refresh(s);
   });
+  // Saves exactly the revision on screen (opened.data), never a newer one.
   const saveToVault = () => run(async (s) => {
     if (!opened) return;
-    await s.saveToVault(opened.share);
+    await s.saveToVault(opened.share, opened.data);
     setNotice(t('shares.savedToVault'));
   });
   const saveDraft = () => run(async (s) => {
@@ -256,14 +300,17 @@ export default function SharesView(props: SharesViewProps) {
     share.expires_at ? t('shares.expiresOn', new Date(share.expires_at).toLocaleString()) : t('shares.noExpiry'),
     t('shares.revision', share.revision),
   ].join(' · ');
+  /** Verified peers by their PINNED email; anyone else as "the server says". */
+  const peerLabel = (peer: PeerView) => (peer.state === 'verified' ? peer.email : t('shares.serverSays', peer.serverEmail));
+  const blocked = (peer: PeerView) => peer.state === 'changed' || peer.state === 'relabeled';
 
-  const pinnedFingerprint = (userId: string) => session?.verifiedContacts().find((p) => p.user_id === userId)?.fingerprint ?? '—';
-
-  const keyWarning = (share: ShareSummary) => (
-    <div className="mt-2 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-200">
-      <p>{t('shares.keyChanged', pinnedFingerprint(sharePeer(share).user.id), sharePeer(share).user.email)}</p>
+  const peerWarning = (share: ShareSummary, peer: PeerView) => (
+    <div className="mt-2 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-200" role="alert">
+      {peer.state === 'relabeled'
+        ? <p>{t('shares.relabeled', peer.serverEmail, peer.pinnedEmail ?? '—')}</p>
+        : <p>{t('shares.keyChanged', peer.pinnedFingerprint ?? '—', peer.pinnedEmail ?? peer.serverEmail)}</p>}
       <p className="mt-1 font-mono">{peerFingerprints[share.id]}</p>
-      <button className="btn-ghost mt-2 !py-1 text-xs" disabled={busy} onClick={() => forgetContact(sharePeer(share).user.id)}>{t('shares.forgetAndReverify')}</button>
+      <button className="btn-ghost mt-2 !py-1 text-xs" disabled={busy} onClick={() => forgetContact(peer.userId)}>{t('shares.forgetAndReverify')}</button>
     </div>
   );
 
@@ -278,6 +325,34 @@ export default function SharesView(props: SharesViewProps) {
     )
   );
 
+  const resetControls = (
+    confirmReset ? (
+      <div className="mt-3 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-200">
+        <p>{t('shares.resetKeyWarning')}</p>
+        <div className="mt-2 flex gap-2">
+          <button className="btn-primary !py-1 text-xs" disabled={busy} onClick={resetIdentity}>{t('shares.confirmReset')}</button>
+          <button className="btn-ghost !py-1 text-xs" onClick={() => setConfirmReset(false)}>{t('shares.cancel')}</button>
+        </div>
+      </div>
+    ) : (
+      <button className="btn-ghost mt-3 !py-1 text-xs" onClick={() => setConfirmReset(true)}>{t('shares.resetKey')}</button>
+    )
+  );
+
+  const stepUpDialog = (
+    <StepUpDialog
+      open={stepUpFor !== null}
+      security={security}
+      serverOnly
+      onVerified={() => {
+        const next = stepUpFor;
+        setStepUpFor(null);
+        next?.();
+      }}
+      onCancel={() => setStepUpFor(null)}
+    />
+  );
+
   if (!baseUrl || !props.signedIn) {
     return (
       <div className="p-5">
@@ -290,9 +365,21 @@ export default function SharesView(props: SharesViewProps) {
     return (
       <div className="p-5">
         <h2 className="text-base font-semibold">{t('shares.title')}</h2>
-        {startError
-          ? <p className="mt-2 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-200">{t('shares.unavailable', startError)}</p>
-          : <p className="mt-2 text-sm text-zinc-400">{t('shares.starting')}</p>}
+        {error && <p className="mt-2 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-200" role="alert">{error}</p>}
+        {!startError && <p className="mt-2 text-sm text-zinc-400">{t('shares.starting')}</p>}
+        {startError?.kind === 'step_up' && (
+          <div className="card mt-3 p-4">
+            <p className="text-sm text-zinc-300">{t('shares.stepUpNeeded')}</p>
+            <button className="btn-primary mt-3" onClick={() => setStepUpFor(() => () => setStartAttempt((n) => n + 1))}>{t('shares.verifyItsYou')}</button>
+          </div>
+        )}
+        {startError && startError.kind !== 'step_up' && (
+          <div className="mt-2 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-200">
+            <p>{t('shares.unavailable', startError.detail)}</p>
+            {startError.kind === 'identity' && resetControls}
+          </div>
+        )}
+        {stepUpDialog}
       </div>
     );
   }
@@ -312,6 +399,7 @@ export default function SharesView(props: SharesViewProps) {
         <h3 className="text-sm font-semibold">{t('shares.myKey')}</h3>
         <p className="mt-2 font-mono text-lg tracking-wider text-zinc-100" data-testid="my-fingerprint">{myFingerprint}</p>
         <p className="mt-1 text-xs text-zinc-400">{t('shares.myKeyHelp')}</p>
+        {resetControls}
       </section>
 
       <section className="card mt-4 p-4" aria-label={t('shares.shareItem')}>
@@ -348,9 +436,11 @@ export default function SharesView(props: SharesViewProps) {
                   </div>
                 </div>
               )}
-              {contact.pinState === 'changed' && (
-                <div className="mt-2 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-200">
-                  <p>{t('shares.keyChanged', contact.pinnedFingerprint ?? '—', contact.email)}</p>
+              {(contact.pinState === 'changed' || contact.pinState === 'relabeled') && (
+                <div className="mt-2 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-200" role="alert">
+                  {contact.pinState === 'relabeled'
+                    ? <p>{t('shares.relabeled', contact.email, contact.pinnedEmail ?? '—')}</p>
+                    : <p>{t('shares.keyChanged', contact.pinnedFingerprint ?? '—', contact.email)}</p>}
                   <button className="btn-ghost mt-2 !py-1 text-xs" disabled={busy} onClick={() => forgetContact(contact.user_id)}>{t('shares.forgetAndReverify')}</button>
                 </div>
               )}
@@ -385,30 +475,30 @@ export default function SharesView(props: SharesViewProps) {
           <ul className="mt-2 space-y-2">
             {incoming.map((share) => {
               const actions = shareActions(share);
-              const pin = session.peerPinState(share);
+              const peer = session.peerView(share);
               return (
                 <li key={share.id} className="card p-3">
-                  <p className="text-sm font-semibold text-zinc-100">{t('shares.from', share.owner.email)}</p>
+                  <p className="text-sm font-semibold text-zinc-100">{t('shares.from', peerLabel(peer))}</p>
                   <p className="text-xs text-zinc-400">{meta(share)}</p>
-                  {actions.canRevoke && pin === 'changed' && keyWarning(share)}
-                  {actions.canAccept && pin === 'unverified' && (
+                  {actions.canRevoke && blocked(peer) && peerWarning(share, peer)}
+                  {actions.canAccept && peer.state === 'unverified' && (
                     verifyingId === share.id ? (
                       <div className="mt-2 rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
-                        <p className="text-xs">{t('shares.serverFingerprint', share.owner.email)}</p>
+                        <p className="text-xs">{t('shares.serverFingerprint', peer.serverEmail)}</p>
                         <p className="mt-1 font-mono tracking-wider">{peerFingerprints[share.id]}</p>
-                        <p className="mt-1">{t('shares.verifyInstructions', share.owner.email)}</p>
+                        <p className="mt-1">{t('shares.verifyInstructions', peer.serverEmail)}</p>
                         <div className="mt-2 flex gap-2">
                           <button className="btn-primary !py-1 text-xs" disabled={busy} onClick={() => verifyOwner(share)}>{t('shares.digitsMatch')}</button>
                           <button className="btn-ghost !py-1 text-xs" onClick={() => setVerifyingId(null)}>{t('shares.cancel')}</button>
                         </div>
                       </div>
                     ) : (
-                      <button className="btn-ghost mt-2 !py-1 text-xs" onClick={() => setVerifyingId(share.id)}>{t('shares.verifyOwner', share.owner.email)}</button>
+                      <button className="btn-ghost mt-2 !py-1 text-xs" onClick={() => setVerifyingId(share.id)}>{t('shares.verifyOwner', peer.serverEmail)}</button>
                     )
                   )}
                   <div className="mt-2 flex flex-wrap gap-2">
-                    {actions.canAccept && pin === 'verified' && <button className="btn-primary !py-1 text-xs" disabled={busy} onClick={() => accept(share)}>{t('shares.accept')}</button>}
-                    {actions.canOpen && pin === 'verified' && <button className="btn-ghost !py-1 text-xs" disabled={busy} onClick={() => open(share)}>{t('shares.open')}</button>}
+                    {actions.canAccept && peer.state === 'verified' && <button className="btn-primary !py-1 text-xs" disabled={busy} onClick={() => accept(share)}>{t('shares.accept')}</button>}
+                    {actions.canOpen && peer.state === 'verified' && <button className="btn-ghost !py-1 text-xs" disabled={busy} onClick={() => open(share)}>{t('shares.open')}</button>}
                     {actions.canRevoke && revokeControls(share, share.status === 'pending' ? t('shares.decline') : t('shares.leave'))}
                   </div>
                 </li>
@@ -424,15 +514,15 @@ export default function SharesView(props: SharesViewProps) {
           <ul className="mt-2 space-y-2">
             {outgoing.map((share) => {
               const actions = shareActions(share);
-              const pin = session.peerPinState(share);
+              const peer = session.peerView(share);
               return (
                 <li key={share.id} className="card p-3">
-                  <p className="text-sm font-semibold text-zinc-100">{t('shares.to', share.recipient.email)}</p>
+                  <p className="text-sm font-semibold text-zinc-100">{t('shares.to', peerLabel(peer))}</p>
                   <p className="text-xs text-zinc-400">{meta(share)}</p>
-                  {actions.canRevoke && pin === 'changed' && keyWarning(share)}
+                  {actions.canRevoke && blocked(peer) && peerWarning(share, peer)}
                   <div className="mt-2 flex flex-wrap gap-2">
-                    {actions.canOpen && pin === 'verified' && <button className="btn-ghost !py-1 text-xs" disabled={busy} onClick={() => open(share)}>{t('shares.open')}</button>}
-                    {actions.canEdit && pin === 'verified' && <button className="btn-ghost !py-1 text-xs" disabled={busy} onClick={() => sendLatest(share)}>{t('shares.sendLatest')}</button>}
+                    {actions.canOpen && peer.state === 'verified' && <button className="btn-ghost !py-1 text-xs" disabled={busy} onClick={() => open(share)}>{t('shares.open')}</button>}
+                    {actions.canEdit && peer.state === 'verified' && <button className="btn-ghost !py-1 text-xs" disabled={busy} onClick={() => sendLatest(share)}>{t('shares.sendLatest')}</button>}
                     {actions.canRevoke && revokeControls(share, t('shares.revoke'))}
                   </div>
                 </li>
@@ -495,6 +585,7 @@ export default function SharesView(props: SharesViewProps) {
           )}
         </section>
       )}
+      {stepUpDialog}
     </div>
   );
 }

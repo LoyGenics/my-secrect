@@ -18,6 +18,7 @@ import {
   KeyChangedError,
   KeyNotVerifiedError,
   PinStore,
+  ShareContentError,
   ShareCryptoError,
   decryptIdentity,
   decryptOwnerMetadata,
@@ -151,12 +152,23 @@ export class SharingApiClient {
     return res?.identity_key ?? null;
   }
 
+  /** Write-once registration. Needs a fresh step-up (403 step_up_required). */
   async registerIdentityKey(publicKey: string, encryptedSecretKey: string): Promise<IdentityKeyRecord> {
     const res = await this.req<{ identity_key: IdentityKeyRecord }>('/v1/identity-key', {
       method: 'PUT',
       body: JSON.stringify({ public_key: publicKey, encrypted_secret_key: encryptedSecretKey }),
     });
     return res.identity_key;
+  }
+
+  /** Replace the identity (lost vault key, suspected compromise). Needs a
+   *  fresh step-up. The server revokes every share the account is part of;
+   *  contacts who pinned the old key see a key change. */
+  async rotateIdentityKey(publicKey: string, encryptedSecretKey: string): Promise<{ identity_key: IdentityKeyRecord; revoked_shares: number }> {
+    return this.req('/v1/identity-key/rotate', {
+      method: 'POST',
+      body: JSON.stringify({ public_key: publicKey, encrypted_secret_key: encryptedSecretKey }),
+    });
   }
 
   /** Public key of the active account with this email, or null. The email
@@ -211,7 +223,7 @@ export function shareActions(share: ShareSummary): { canAccept: boolean; canOpen
 }
 
 export type ShareErrorKind =
-  | 'not_verified' | 'key_changed' | 'crypto' | 'identity'
+  | 'not_verified' | 'key_changed' | 'relabeled' | 'crypto' | 'identity' | 'invalid_content' | 'step_up'
   | 'revoked' | 'expired' | 'not_active' | 'read_only' | 'conflict' | 'unauthorized' | 'other';
 
 const API_ERROR_KINDS: Record<string, ShareErrorKind> = {
@@ -220,13 +232,15 @@ const API_ERROR_KINDS: Record<string, ShareErrorKind> = {
   share_not_active: 'not_active',
   write_not_permitted: 'read_only',
   revision_conflict: 'conflict',
+  step_up_required: 'step_up',
 };
 
 /** Map any sharing failure to a kind the UIs translate. `detail` is safe to
  *  show (error codes / messages, never key material). */
 export function classifyShareError(e: unknown): { kind: ShareErrorKind; detail: string } {
   if (e instanceof KeyNotVerifiedError) return { kind: 'not_verified', detail: e.message };
-  if (e instanceof KeyChangedError) return { kind: 'key_changed', detail: e.message };
+  if (e instanceof KeyChangedError) return { kind: e.reason === 'email' ? 'relabeled' : 'key_changed', detail: e.message };
+  if (e instanceof ShareContentError) return { kind: 'invalid_content', detail: e.problems.join('; ') };
   if (e instanceof ShareCryptoError) return { kind: 'crypto', detail: e.message };
   if (e instanceof IdentityError) return { kind: 'identity', detail: e.message };
   if (e instanceof ApiError) {
@@ -267,11 +281,26 @@ export interface SharingSessionOptions {
 export interface ContactView extends ContactKey {
   fingerprint: string;
   pinState: PinState;
-  /** Set when pinState is 'changed': the fingerprint that was verified before. */
+  /** Set when pinState is 'changed' / 'relabeled': what was verified before. */
+  pinnedFingerprint?: string;
+  pinnedEmail?: string;
+}
+
+/** The other party of a share as the UI may show it. `email` is the PINNED
+ *  email when the peer is verified; otherwise it is only what the server
+ *  says (`state` tells which). Never show `serverEmail` as verified. */
+export interface PeerView {
+  userId: string;
+  email: string;
+  serverEmail: string;
+  state: PinState;
+  pinnedEmail?: string;
   pinnedFingerprint?: string;
 }
 
 export interface OpenedShare {
+  /** The share this revision was decrypted from (saveToVault checks it). */
+  shareId: string;
   item: VaultItem;
   revision: number;
   lastWriter: 'owner' | 'recipient' | null;
@@ -309,9 +338,33 @@ export class SharingSession {
     private readonly items: VaultItemsAccess | undefined,
   ) {}
 
-  /** Requires an unlocked vault and a signed-in account. */
+  /** Requires an unlocked vault and a signed-in account. Registering a
+   *  first identity needs a fresh step-up (ApiError 403 step_up_required:
+   *  verify, then call start again). */
   static async start(opts: SharingSessionOptions): Promise<SharingSession> {
     const { identity, userId } = await loadOrCreateIdentity(opts.api, opts.vault);
+    return SharingSession.open(opts, identity, userId);
+  }
+
+  /**
+   * Replace this account's identity with a fresh key pair (e.g. this
+   * device's vault cannot open the old one, or it may be compromised).
+   * Needs a fresh step-up. The server revokes every share the account is
+   * part of, and every contact who pinned the old key sees a key change.
+   */
+  static async resetIdentity(opts: SharingSessionOptions): Promise<SharingSession> {
+    const fresh = await generateIdentityKeyPair();
+    try {
+      const res = await opts.api.rotateIdentityKey(toBase64(fresh.publicKey), await encryptIdentity(fresh, opts.vault));
+      if (res.identity_key.public_key !== toBase64(fresh.publicKey)) throw new IdentityError('the server registered a different identity key');
+      return SharingSession.open(opts, fresh, res.identity_key.user_id);
+    } catch (e) {
+      wipeIdentity(fresh);
+      throw e;
+    }
+  }
+
+  private static async open(opts: SharingSessionOptions, identity: IdentityKeyPair, userId: string): Promise<SharingSession> {
     try {
       const pins = await PinStore.open(opts.pinStorage, userId, opts.vault);
       return new SharingSession(opts.api, opts.vault, identity, userId, pins, opts.items);
@@ -342,12 +395,14 @@ export class SharingSession {
   async lookupContact(email: string): Promise<ContactView | null> {
     const contact = await this.api.lookup(email.trim());
     if (!contact) return null;
-    const pinState = this.pins.state(contact.user_id, contact.public_key);
+    const pinState = this.pins.state(contact.user_id, contact.public_key, contact.email);
+    const pinned = pinState === 'changed' || pinState === 'relabeled' ? this.pins.get(contact.user_id) : undefined;
     return {
       ...contact,
       fingerprint: await fingerprintOf(contact.public_key),
       pinState,
-      pinnedFingerprint: pinState === 'changed' ? this.pins.get(contact.user_id)?.fingerprint : undefined,
+      pinnedFingerprint: pinned?.fingerprint,
+      pinnedEmail: pinned?.email,
     };
   }
 
@@ -362,9 +417,19 @@ export class SharingSession {
     return this.pins.forget(userId);
   }
 
-  peerPinState(share: ShareSummary): PinState {
+  /** Who the other party is, as far as THIS device verified it. */
+  peerView(share: ShareSummary): PeerView {
     const peer = sharePeer(share);
-    return this.pins.state(peer.user.id, peer.publicKey);
+    const state = this.pins.state(peer.user.id, peer.publicKey, peer.user.email);
+    const pinned = this.pins.get(peer.user.id);
+    return {
+      userId: peer.user.id,
+      email: state === 'verified' && pinned ? pinned.email : peer.user.email,
+      serverEmail: peer.user.email,
+      state,
+      pinnedEmail: pinned?.email,
+      pinnedFingerprint: pinned?.fingerprint,
+    };
   }
 
   listShares(): Promise<ShareSummary[]> {
@@ -374,7 +439,7 @@ export class SharingSession {
   /** Create a pending share of `item` for a VERIFIED contact. */
   async shareItem(args: { item: VaultItem; contact: ContactKey; permission: SharePermission; expiresAt: string | null }): Promise<ShareSummary> {
     if (args.contact.user_id === this.userId) throw new IdentityError('you cannot share with yourself');
-    const peerPublicKey = await this.pins.requireVerified(args.contact.user_id, args.contact.public_key);
+    const peerPublicKey = await this.pins.requireVerified(args.contact.user_id, args.contact.public_key, args.contact.email);
     const id = await newShareId();
     const record = await encryptShareRecord(args.item, { shareId: id, revision: 1, self: this.identity, peerPublicKey });
     return this.api.createShare({
@@ -388,14 +453,15 @@ export class SharingSession {
     });
   }
 
-  /** Key-exchange check for a pending incoming share: owner key pinned and
-   *  equal to the share's, and the wrapped Share Key opens with it. */
+  /** Key-exchange check for a pending incoming share: owner key and email
+   *  pinned and equal to the share's, and the wrapped Share Key opens with
+   *  that key and is bound to this share id + revision. */
   async verifyIncoming(share: ShareSummary): Promise<void> {
     if (share.role !== 'recipient') throw new IdentityError('only the recipient verifies an incoming share');
     const peer = await this.peerKey(share);
     const record = await this.api.getRecord(share.id);
     if (!record.encrypted_item_key) throw new ShareCryptoError('the share has no wrapped key');
-    await verifyShareKey(record.encrypted_item_key, this.identity, peer);
+    await verifyShareKey(record.encrypted_item_key, { shareId: share.id, revision: record.revision, self: this.identity, peerPublicKey: peer });
   }
 
   /** Accept only after the key exchange verified. Never activates otherwise. */
@@ -415,7 +481,7 @@ export class SharingSession {
     let lastWriter: OpenedShare['lastWriter'] = null;
     if (record.last_writer_id === share.owner.id) lastWriter = 'owner';
     else if (record.last_writer_id === share.recipient.id) lastWriter = 'recipient';
-    return { item, revision: record.revision, lastWriter };
+    return { shareId: share.id, item, revision: record.revision, lastWriter };
   }
 
   /** Write revision baseRevision + 1 with a fresh Share Key. 409 (ApiError)
@@ -436,13 +502,19 @@ export class SharingSession {
     return (await decryptOwnerMetadata(share.encrypted_owner_metadata, share.id, this.vault)).source_item_id;
   }
 
-  /** Owner: copy the shared copy's title/fields/tags into the vault item. */
-  async saveToVault(share: ShareSummary): Promise<VaultItem> {
+  /**
+   * Owner: copy the title/fields/tags of the revision the owner REVIEWED
+   * (the OpenedShare they were shown) into the vault item. Nothing is
+   * re-fetched, so a revision written after the review is never saved
+   * unseen. The merged item must pass schema validation (ShareContentError).
+   */
+  async saveToVault(share: ShareSummary, reviewed: OpenedShare): Promise<VaultItem> {
+    if (share.role !== 'owner') throw new ShareCryptoError('only the owner saves a share into their vault');
+    if (reviewed.shareId !== share.id) throw new ShareCryptoError('the reviewed revision belongs to another share');
     const items = this.requireItems();
     const source = items.find(await this.sourceItemId(share));
     if (!source || source.deleted_at) throw new Error('the shared item is no longer in your vault');
-    const opened = await this.openShare(share);
-    const merged = mergeSharedEdit(source, opened.item);
+    const merged = mergeSharedEdit(source, reviewed.item);
     await items.save(merged);
     return merged;
   }
@@ -462,11 +534,11 @@ export class SharingSession {
   }
 
   /** The peer's PINNED key, after checking this share was made under our
-   *  own current identity and the server's peer key equals the pin. */
+   *  own current identity and the server's peer key AND email equal the pin. */
   private async peerKey(share: ShareSummary): Promise<Uint8Array> {
     const ownKey = share.role === 'owner' ? share.owner_public_key : share.recipient_public_key;
     if (ownKey !== this.publicKey) throw new IdentityError('this share was made for a different identity key');
     const peer = sharePeer(share);
-    return this.pins.requireVerified(peer.user.id, peer.publicKey);
+    return this.pins.requireVerified(peer.user.id, peer.publicKey, peer.user.email);
   }
 }

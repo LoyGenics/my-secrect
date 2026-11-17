@@ -11,7 +11,7 @@
  * recreated; the name must end in _agent10 so no other database is touched).
  */
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, openSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,6 +24,10 @@ export const DB = process.env.SHARING_E2E_DB ?? 'vault_sharing_e2e_agent10';
 export const WEB_ORIGIN = process.env.SHARING_E2E_WEB_ORIGIN ?? 'http://localhost:5321';
 export const RP_ID = 'localhost';
 export const API_BASE = `http://127.0.0.1:${PORT}/api`;
+
+/** Action Mailer :file delivery writes every message to MAIL_DIR/<recipient>
+ *  (test env only). Workers read sign-up codes from there like an inbox. */
+export const MAIL_DIR = path.join(here, '.out', `mail-${PORT}`);
 
 const pgUser = process.env.POSTGRES_USER ?? userInfo().username;
 const pgHost = process.env.POSTGRES_HOST ?? 'localhost';
@@ -40,6 +44,7 @@ function railsEnv(): NodeJS.ProcessEnv {
     WEBAUTHN_ORIGIN: WEB_ORIGIN,
     WEBAUTHN_RP_ID: RP_ID,
     CORS_ORIGINS: WEB_ORIGIN,
+    MAIL_FILE_DIR: MAIL_DIR,
     // Placeholder storage (required by StorageProvider, never called here).
     S3_ENDPOINT: 'http://127.0.0.1:9',
     S3_REGION: 'us-east-1',
@@ -79,6 +84,8 @@ export async function bootApi(): Promise<RunningApi> {
   const env = railsEnv();
   execFileSync('bundle', ['exec', 'rake', 'db:drop', 'db:create', 'db:schema:load'], { cwd: apiDir, env, stdio: 'pipe' });
   mkdirSync(path.join(here, '.out'), { recursive: true });
+  rmSync(MAIL_DIR, { recursive: true, force: true });
+  mkdirSync(MAIL_DIR, { recursive: true });
   const logOffset = existsSync(railsLog) ? statSync(railsLog).size : 0;
   const out = openSync(path.join(here, '.out', `api-${PORT}.log`), 'w');
   const child: ChildProcess = spawn('bundle', ['exec', 'puma', '-C', 'config/puma.rb'], { cwd: apiDir, env, detached: true, stdio: ['ignore', out, out] });

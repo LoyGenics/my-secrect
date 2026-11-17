@@ -4,8 +4,9 @@ module Sharing
   # server never interprets the bytes.
   module Wire
     PUBLIC_KEY_BYTES = 32
-    # nonce (24) + crypto_box_easy(32-byte Share Key) (32 + 16 MAC)
-    WRAPPED_SHARE_KEY_BYTES = 72
+    # Format v2: nonce (24) + crypto_box_easy(Share Key (32) || SHA-256 of
+    # the record associated data (32)) (+ 16 MAC)
+    WRAPPED_SHARE_KEY_BYTES = 104
     # nonce (24) + XChaCha20-Poly1305 tag (16) + at least one plaintext byte
     MIN_CIPHERTEXT_BYTES = 41
     MAX_PAYLOAD_BYTES = 1_048_576

@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
-import { API_BASE, RP_ID, WEB_ORIGIN } from './api-harness.ts';
+import { API_BASE, MAIL_DIR, RP_ID, WEB_ORIGIN } from './api-harness.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -24,7 +24,7 @@ export class UserDevice {
 
   start(): this {
     this.child = spawn(process.execPath, ['--import', 'tsx', path.join(here, 'user-worker.ts')], {
-      env: { ...process.env, WEBAUTHN_ORIGIN: WEB_ORIGIN, WEBAUTHN_RP_ID: RP_ID, API_BASE },
+      env: { ...process.env, WEBAUTHN_ORIGIN: WEB_ORIGIN, WEBAUTHN_RP_ID: RP_ID, API_BASE, MAIL_DIR },
       stdio: ['pipe', 'pipe', 'inherit'],
     });
     let resolveReady!: () => void;

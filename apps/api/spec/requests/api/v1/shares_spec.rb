@@ -19,7 +19,7 @@ RSpec.describe 'Shares API', type: :request do
   let!(:recipient_key) { IdentityKey.create!(user: recipient, public_key: SecureRandom.random_bytes(32), encrypted_secret_key: SecureRandom.random_bytes(120)) }
   let!(:stranger_key) { IdentityKey.create!(user: stranger, public_key: SecureRandom.random_bytes(32), encrypted_secret_key: SecureRandom.random_bytes(120)) }
   let(:payload) { SecureRandom.random_bytes(200) }
-  let(:wrapped_key) { SecureRandom.random_bytes(72) }
+  let(:wrapped_key) { SecureRandom.random_bytes(104) } # format v2 wrap size
 
   def b64(bytes) = Base64.strict_encode64(bytes)
   def json = JSON.parse(response.body)
@@ -46,7 +46,7 @@ RSpec.describe 'Shares API', type: :request do
 
   def write_record(share, as_headers:, base_revision:, bytes: SecureRandom.random_bytes(150))
     put "/api/v1/shares/#{share.id}/record",
-        params: { base_revision: base_revision, encrypted_payload: b64(bytes), encrypted_item_key: b64(SecureRandom.random_bytes(72)) },
+        params: { base_revision: base_revision, encrypted_payload: b64(bytes), encrypted_item_key: b64(SecureRandom.random_bytes(104)) },
         headers: as_headers, as: :json
   end
 
@@ -86,7 +86,7 @@ RSpec.describe 'Shares API', type: :request do
         { recipient_public_key: b64(SecureRandom.random_bytes(16)) } => :unprocessable_entity,
         { expires_at: 1.minute.ago.iso8601 } => :unprocessable_entity,
         { expires_at: 'tomorrow' } => :unprocessable_entity,
-        { encrypted_item_key: b64(SecureRandom.random_bytes(71)) } => :unprocessable_entity,
+        { encrypted_item_key: b64(SecureRandom.random_bytes(72)) } => :unprocessable_entity, # v1 size: refused
         { encrypted_payload: 'not base64!!' } => :unprocessable_entity,
         { encrypted_payload: '' } => :unprocessable_entity,
         { encrypted_owner_metadata: nil } => :unprocessable_entity

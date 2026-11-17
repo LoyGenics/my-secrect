@@ -14,6 +14,7 @@ import {
   KeyChangedError,
   KeyNotVerifiedError,
   PinStore,
+  ShareContentError,
   ShareCryptoError,
   WRAPPED_SHARE_KEY_BYTES,
   decryptIdentity,
@@ -129,7 +130,7 @@ test('record: recipient decrypts the owner revision; the owner can read it too; 
 
   const byOwner = await decryptShareRecord(rec, { shareId, revision: 1, self: owner, peerPublicKey: recipient.publicKey });
   assert.deepEqual(byOwner, byRecipient);
-  await verifyShareKey(rec.encrypted_item_key, recipient, owner.publicKey);
+  await verifyShareKey(rec.encrypted_item_key, { shareId, revision: 1, self: recipient, peerPublicKey: owner.publicKey });
 });
 
 test('record: a recipient write (box from recipient) opens for the owner; every revision has a fresh key', async () => {
@@ -151,9 +152,9 @@ test('record: tampered wrapped key, tampered payload, wrong recipient and moved 
 
   for (const index of [0, 23, 24, 50, WRAPPED_SHARE_KEY_BYTES - 1]) {
     await assert.rejects(decryptShareRecord({ ...rec, encrypted_item_key: flip(rec.encrypted_item_key, index) }, ctx), ShareCryptoError, `wrapped key byte ${index}`);
-    await assert.rejects(verifyShareKey(flip(rec.encrypted_item_key, index), recipient, owner.publicKey), ShareCryptoError);
+    await assert.rejects(verifyShareKey(flip(rec.encrypted_item_key, index), ctx), ShareCryptoError);
   }
-  await assert.rejects(decryptShareRecord({ ...rec, encrypted_item_key: toBase64(fromBase64(rec.encrypted_item_key).subarray(0, 71)) }, ctx), ShareCryptoError);
+  await assert.rejects(decryptShareRecord({ ...rec, encrypted_item_key: toBase64(fromBase64(rec.encrypted_item_key).subarray(0, WRAPPED_SHARE_KEY_BYTES - 1)) }, ctx), ShareCryptoError);
   await assert.rejects(decryptShareRecord({ ...rec, encrypted_payload: flip(rec.encrypted_payload, 40) }, ctx), ShareCryptoError);
   await assert.rejects(decryptShareRecord({ ...rec, encrypted_payload: flip(rec.encrypted_payload, 5) }, ctx), ShareCryptoError);
 
@@ -173,7 +174,7 @@ test('record: a server-forged share (box made with an attacker key) does not ope
   const attacker = await generateIdentityKeyPair();
   const shareId = await newShareId();
   const forged = await encryptShareRecord({ ...item, title: 'Forged' }, { shareId, revision: 1, self: attacker, peerPublicKey: recipient.publicKey });
-  await assert.rejects(verifyShareKey(forged.encrypted_item_key, recipient, owner.publicKey), ShareCryptoError);
+  await assert.rejects(verifyShareKey(forged.encrypted_item_key, { shareId, revision: 1, self: recipient, peerPublicKey: owner.publicKey }), ShareCryptoError);
   await assert.rejects(decryptShareRecord(forged, { shareId, revision: 1, self: recipient, peerPublicKey: owner.publicKey }), ShareCryptoError);
 });
 
@@ -184,24 +185,24 @@ test('pins: unverified and changed keys are refused; pins persist encrypted per 
   const real = toBase64(recipient.publicKey);
   const substituted = toBase64(stranger.publicKey);
 
-  await assert.rejects(pins.requireVerified('user-B', real), KeyNotVerifiedError);
-  assert.equal(pins.state('user-B', real), 'unverified');
+  await assert.rejects(pins.requireVerified('user-B', real, 'b@example.test'), KeyNotVerifiedError);
+  assert.equal(pins.state('user-B', real, 'b@example.test'), 'unverified');
   const pinned = await pins.pin({ user_id: 'user-B', email: 'b@example.test', public_key: real });
   assert.equal(pinned.fingerprint, await fingerprint(recipient.publicKey));
-  assert.deepEqual(await pins.requireVerified('user-B', real), recipient.publicKey);
-  assert.equal(pins.state('user-B', real), 'verified');
+  assert.deepEqual(await pins.requireVerified('user-B', real, 'b@example.test'), recipient.publicKey);
+  assert.equal(pins.state('user-B', real, 'b@example.test'), 'verified');
 
-  const changed = await pins.requireVerified('user-B', substituted).catch((e) => e);
+  const changed = await pins.requireVerified('user-B', substituted, 'b@example.test').catch((e) => e);
   assert.ok(changed instanceof KeyChangedError);
   assert.equal(changed.pinnedFingerprint, await fingerprint(recipient.publicKey));
   assert.equal(changed.presentedFingerprint, await fingerprint(stranger.publicKey));
-  assert.equal(pins.state('user-B', substituted), 'changed');
+  assert.equal(pins.state('user-B', substituted, 'b@example.test'), 'changed');
   await assert.rejects(pins.pin({ user_id: 'user-B', email: 'b@example.test', public_key: substituted }), KeyChangedError);
 
   const raw = store.m.get(pinStorageKey('user-A'));
   assert.ok(raw && !raw.includes('b@example.test') && !raw.includes(real), 'pins are stored encrypted');
   const reopened = await PinStore.open(store, 'user-A', vault);
-  assert.deepEqual(await reopened.requireVerified('user-B', real), recipient.publicKey);
+  assert.deepEqual(await reopened.requireVerified('user-B', real, 'b@example.test'), recipient.publicKey);
 
   await assert.rejects(PinStore.open(store, 'user-A', vaultCipher()), IdentityError);
   store.m.set(pinStorageKey('user-A'), flip(raw, 30));
@@ -212,9 +213,9 @@ test('pins: unverified and changed keys are refused; pins persist encrypted per 
   assert.equal((await PinStore.open(store, 'user-A', vault)).list().length, 0);
 
   await reopened.forget('user-B');
-  await assert.rejects(reopened.requireVerified('user-B', real), KeyNotVerifiedError);
+  await assert.rejects(reopened.requireVerified('user-B', real, 'b@example.test'), KeyNotVerifiedError);
   await reopened.pin({ user_id: 'user-B', email: 'b@example.test', public_key: substituted });
-  assert.equal(reopened.state('user-B', substituted), 'verified');
+  assert.equal(reopened.state('user-B', substituted, 'b@example.test'), 'verified');
 });
 
 test('owner metadata opens only under the owner Vault Key and for the share it names', async () => {
@@ -230,7 +231,7 @@ test('newShareId is a UUID v4; mergeSharedEdit keeps the vault item identity and
   const id = await newShareId();
   assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   assert.notEqual(await newShareId(), id);
-  const shared = { ...toSharedItem(item), id: 'item_other', type: 'secure_note', title: 'New title', fields: { password: 'new' }, tags: ['x'] };
+  const shared = { ...toSharedItem(item), id: 'item_other', type: 'secure_note', title: 'New title', fields: { username: 'bob', password: 'new' }, tags: ['x'] };
   const merged = mergeSharedEdit(item, shared, '2026-11-18T00:00:00.000Z');
   assert.equal(merged.id, item.id);
   assert.equal(merged.type, 'login');
@@ -238,7 +239,52 @@ test('newShareId is a UUID v4; mergeSharedEdit keeps the vault item identity and
   assert.deepEqual(merged.attachments, item.attachments);
   assert.equal(merged.favorite, true);
   assert.equal(merged.title, 'New title');
-  assert.deepEqual(merged.fields, { password: 'new' });
+  assert.deepEqual(merged.fields, { username: 'bob', password: 'new' });
   assert.deepEqual(merged.tags, ['x']);
   assert.equal(merged.updated_at, '2026-11-18T00:00:00.000Z');
+});
+
+test('L4: a wrapped key only verifies for the share and revision it was made for', async () => {
+  const s1 = await newShareId();
+  const s2 = await newShareId();
+  const rec1 = await encryptShareRecord(item, { shareId: s1, revision: 1, self: owner, peerPublicKey: recipient.publicKey });
+  const ctx2 = { shareId: s2, revision: 1, self: recipient, peerPublicKey: owner.publicKey };
+  // Same pair, same owner: the box opens, but it is bound to s1 rev 1.
+  await assert.rejects(verifyShareKey(rec1.encrypted_item_key, ctx2), /another share or revision/);
+  await assert.rejects(verifyShareKey(rec1.encrypted_item_key, { ...ctx2, shareId: s1, revision: 2 }), /another share or revision/);
+  await verifyShareKey(rec1.encrypted_item_key, { ...ctx2, shareId: s1 });
+  // A v1-format wrap (box of the bare 32-byte key, 72 bytes) is rejected.
+  const nonce = sodium.randombytes_buf(24);
+  const v1 = toBase64(new Uint8Array([...nonce, ...sodium.crypto_box_easy(sodium.randombytes_buf(32), nonce, recipient.publicKey, owner.secretKey)]));
+  await assert.rejects(verifyShareKey(v1, { ...ctx2, shareId: s1 }), ShareCryptoError);
+});
+
+test('L3: forbidden or malformed content is never encrypted into a share or merged into a vault', async () => {
+  const shareId = await newShareId();
+  const ctx = { shareId, revision: 1, self: owner, peerPublicKey: recipient.publicKey };
+  const withCvv = { ...item, type: 'card', fields: { cardholder: 'A', last4: '1234', cvv: '123' } };
+  await assert.rejects(encryptShareRecord(withCvv, ctx), (e) => e instanceof ShareContentError && /forbidden field 'cvv'/.test(e.message));
+  await assert.rejects(encryptShareRecord({ ...item, fields: { password: 'x' } }, ctx), (e) => e instanceof ShareContentError && /username/.test(e.message));
+  await assert.rejects(encryptShareRecord({ ...item, type: 'not-a-type' }, ctx), ShareContentError);
+  await assert.rejects(encryptShareRecord({ ...item, schema_version: 2 }, ctx), ShareContentError);
+  // A recipient-written edit carrying a PIN (case-insensitive) or dropping a
+  // required field cannot be merged into the owner's vault item.
+  assert.throws(() => mergeSharedEdit(item, { ...toSharedItem(item), fields: { username: 'a', PIN: '0000' } }), ShareContentError);
+  assert.throws(() => mergeSharedEdit(item, { ...toSharedItem(item), fields: { password: 'only' } }), ShareContentError);
+});
+
+test('M1: a verified key shown under a different email is refused like a key change', async () => {
+  const pins = await PinStore.open(memoryStore(), 'user-A', vaultCipher());
+  const key = toBase64(recipient.publicKey);
+  await pins.pin({ user_id: 'user-B', email: ' Bob@Example.TEST ', public_key: key });
+  assert.equal(pins.get('user-B').email, 'bob@example.test', 'pinned email is normalised');
+  assert.equal(pins.state('user-B', key, 'BOB@example.test'), 'verified');
+  assert.equal(pins.state('user-B', key, 'alice@corp.test'), 'relabeled');
+  const err = await pins.requireVerified('user-B', key, 'alice@corp.test').catch((e) => e);
+  assert.ok(err instanceof KeyChangedError);
+  assert.equal(err.reason, 'email');
+  assert.equal(err.pinnedEmail, 'bob@example.test');
+  assert.equal(err.presentedEmail, 'alice@corp.test');
+  await assert.rejects(pins.pin({ user_id: 'user-B', email: 'alice@corp.test', public_key: key }), KeyChangedError);
+  assert.deepEqual(await pins.requireVerified('user-B', key, 'bob@example.test'), recipient.publicKey);
 });

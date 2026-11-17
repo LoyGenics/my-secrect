@@ -13,13 +13,21 @@
  *  - Records: each revision has a fresh 32-byte Share Key. The item is
  *    XChaCha20-Poly1305 encrypted with associated data binding the share id
  *    and revision; the Share Key is wrapped with `crypto_box_easy` for the
- *    pair (authenticated: a box only opens under the pinned peer key).
+ *    pair (authenticated: a box only opens under the pinned peer key),
+ *    together with SHA-256 of that associated data, so a wrap only verifies
+ *    for the share and revision it was made for (format v2).
+ *  - Content: every item that is encrypted into a share or merged back into
+ *    a vault must pass packages/schemas validateItemSchema (known type,
+ *    supported version, required fields, never a FORBIDDEN_FIELDS entry).
  *
  * Everything fails closed with a typed error. libsodium is called directly
  * (only reviewed constructions); crypto-adapters is not modified.
  */
 import sodium from 'libsodium-wrappers-sumo';
 import { fromBase64, sodiumReady, toBase64 } from '../../crypto-adapters/src/index';
+// item-types directly: packages/schemas has no package.json, so Node loads it as
+// CommonJS and cannot see names re-exported through its index (export *).
+import { validateItemSchema } from '../../schemas/src/item-types';
 import { isSupportedSchemaVersion, type VaultItem } from './types';
 
 export type SharePermission = 'read' | 'write';
@@ -34,6 +42,7 @@ interface SharingSodium {
   crypto_box_open_easy(ciphertext: Uint8Array, nonce: Uint8Array, publicKey: Uint8Array, privateKey: Uint8Array): Uint8Array;
   crypto_scalarmult_base(privateKey: Uint8Array): Uint8Array;
   crypto_generichash(hashLength: number, message: Uint8Array, key: Uint8Array | null): Uint8Array;
+  crypto_hash_sha256(message: Uint8Array): Uint8Array;
   crypto_aead_xchacha20poly1305_ietf_encrypt(message: Uint8Array, ad: Uint8Array | null, secretNonce: null, nonce: Uint8Array, key: Uint8Array): Uint8Array;
   crypto_aead_xchacha20poly1305_ietf_decrypt(secretNonce: null, ciphertext: Uint8Array, ad: Uint8Array | null, nonce: Uint8Array, key: Uint8Array): Uint8Array;
   randombytes_buf(length: number): Uint8Array;
@@ -47,14 +56,15 @@ const na = sodium as unknown as SharingSodium;
 export const KEY_BYTES = 32;
 const NONCE_BYTES = 24; // crypto_box_NONCEBYTES == XChaCha20-Poly1305 NPUBBYTES == 24
 const MAC_BYTES = 16;
-/** nonce (24) || crypto_box_easy(32-byte Share Key) (32 + 16). */
-export const WRAPPED_SHARE_KEY_BYTES = NONCE_BYTES + KEY_BYTES + MAC_BYTES;
+const BINDING_BYTES = 32; // SHA-256 of the record associated data
+/** nonce (24) || crypto_box_easy(Share Key (32) || SHA-256(record AD) (32)) (+16 MAC) = 104. */
+export const WRAPPED_SHARE_KEY_BYTES = NONCE_BYTES + KEY_BYTES + BINDING_BYTES + MAC_BYTES;
 
 const IDENTITY_KIND = 'my-secrect.sharing.identity.v1';
 const PINS_KIND = 'my-secrect.sharing.pins.v1';
 const OWNER_METADATA_KIND = 'my-secrect.sharing.owner-metadata.v1';
 const FINGERPRINT_DOMAIN = 'my-secrect:sharing:fingerprint:v1';
-const RECORD_AD_PREFIX = 'my-secrect:share-record:v1:';
+const RECORD_AD_PREFIX = 'my-secrect:share-record:v2:';
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 // ---------------------------------------------------------------------------
@@ -85,12 +95,42 @@ export class KeyNotVerifiedError extends Error {
   }
 }
 
-/** The server presented a key that differs from the pinned one. */
+/** The server presented a key — or, for the same key, an email — that
+ *  differs from what was pinned. Both mean: do not trust, block, warn. */
 export class KeyChangedError extends Error {
-  constructor(readonly userId: string, readonly pinnedFingerprint: string, readonly presentedFingerprint: string) {
-    super('this contact’s key changed since you verified it — possible server attack');
+  constructor(
+    readonly userId: string,
+    readonly pinnedFingerprint: string,
+    readonly presentedFingerprint: string,
+    readonly reason: 'key' | 'email' = 'key',
+    readonly pinnedEmail?: string,
+    readonly presentedEmail?: string,
+  ) {
+    super(reason === 'key'
+      ? 'this contact’s key changed since you verified it — possible server attack'
+      : 'the server now labels this verified contact with a different email — possible server attack');
     this.name = 'KeyChangedError';
   }
+}
+
+/** Item content that must not be shared or stored (unknown type, missing
+ *  required field, forbidden field such as a CVV or PIN). */
+export class ShareContentError extends Error {
+  constructor(readonly problems: string[]) {
+    super(`item cannot be shared or saved: ${problems.join('; ')}`);
+    this.name = 'ShareContentError';
+  }
+}
+
+/** packages/schemas validation of an item about to be encrypted into a
+ *  share or written into a vault. Throws ShareContentError. */
+export function assertValidItemContent(item: VaultItem): void {
+  const problems = validateItemSchema(item.type, item.schema_version, item.fields ?? {});
+  if (problems.length > 0) throw new ShareContentError(problems);
+}
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
 }
 
 // ---------------------------------------------------------------------------
@@ -260,7 +300,9 @@ export interface KeyValueStore {
   removeItem(key: string): Promise<void> | void;
 }
 
-export type PinState = 'verified' | 'unverified' | 'changed';
+/** 'changed' = different key than pinned; 'relabeled' = pinned key, but the
+ *  server now shows a different email for it. Both block every action. */
+export type PinState = 'verified' | 'unverified' | 'changed' | 'relabeled';
 
 /** Storage key of one account's pins on this device. */
 export function pinStorageKey(ownUserId: string): string {
@@ -291,7 +333,7 @@ export class PinStore {
         throw new IdentityError('verified contacts on this device cannot be read (tampered, or saved by another vault)');
       }
       for (const p of parsed.pins) {
-        if (isRecord(p) && typeof p.user_id === 'string' && typeof p.public_key === 'string' && typeof p.fingerprint === 'string') {
+        if (isRecord(p) && typeof p.user_id === 'string' && typeof p.email === 'string' && typeof p.public_key === 'string' && typeof p.fingerprint === 'string') {
           pins.set(p.user_id, p as unknown as PinnedKey);
         }
       }
@@ -311,15 +353,20 @@ export class PinStore {
     return [...this.pins.values()];
   }
 
-  /** Pin a key the user confirmed out of band. Refuses to overwrite a
-   *  different pinned key: `forget` it first (explicit re-verification). */
+  /** Pin a key — with the email it was verified under — that the user
+   *  confirmed out of band. Refuses to overwrite a different pinned key or
+   *  email: `forget` it first (explicit re-verification). */
   async pin(entry: { user_id: string; email: string; public_key: string }): Promise<PinnedKey> {
     const fp = await fingerprintOf(entry.public_key);
+    const email = normalizeEmail(entry.email);
     const existing = this.pins.get(entry.user_id);
     if (existing && existing.public_key !== entry.public_key) {
-      throw new KeyChangedError(entry.user_id, existing.fingerprint, fp);
+      throw new KeyChangedError(entry.user_id, existing.fingerprint, fp, 'key', existing.email, email);
     }
-    const pinned: PinnedKey = { user_id: entry.user_id, email: entry.email, public_key: entry.public_key, fingerprint: fp, verified_at: new Date().toISOString() };
+    if (existing && existing.email !== email) {
+      throw new KeyChangedError(entry.user_id, existing.fingerprint, fp, 'email', existing.email, email);
+    }
+    const pinned: PinnedKey = { user_id: entry.user_id, email, public_key: entry.public_key, fingerprint: fp, verified_at: new Date().toISOString() };
     this.pins.set(entry.user_id, pinned);
     await this.persist();
     return pinned;
@@ -330,19 +377,27 @@ export class PinStore {
     await this.persist();
   }
 
-  state(userId: string, presentedPublicKey: string): PinState {
+  /** Compare what the server presents (key AND email label) with the pin. */
+  state(userId: string, presentedPublicKey: string, presentedEmail: string): PinState {
     const pinned = this.pins.get(userId);
     if (!pinned) return 'unverified';
-    return pinned.public_key === presentedPublicKey ? 'verified' : 'changed';
+    if (pinned.public_key !== presentedPublicKey) return 'changed';
+    return pinned.email === normalizeEmail(presentedEmail) ? 'verified' : 'relabeled';
   }
 
-  /** The PINNED key bytes, if the server-presented key equals the pin.
-   *  Throws KeyNotVerifiedError / KeyChangedError otherwise. */
-  async requireVerified(userId: string, presentedPublicKey: string): Promise<Uint8Array> {
+  /** The PINNED key bytes, if the server-presented key and email equal the
+   *  pin. Throws KeyNotVerifiedError / KeyChangedError (reason 'key' or
+   *  'email') otherwise. */
+  async requireVerified(userId: string, presentedPublicKey: string, presentedEmail: string): Promise<Uint8Array> {
     const presentedFp = await fingerprintOf(presentedPublicKey);
     const pinned = this.pins.get(userId);
     if (!pinned) throw new KeyNotVerifiedError(userId, presentedFp);
-    if (pinned.public_key !== presentedPublicKey) throw new KeyChangedError(userId, pinned.fingerprint, presentedFp);
+    if (pinned.public_key !== presentedPublicKey) {
+      throw new KeyChangedError(userId, pinned.fingerprint, presentedFp, 'key', pinned.email, normalizeEmail(presentedEmail));
+    }
+    if (pinned.email !== normalizeEmail(presentedEmail)) {
+      throw new KeyChangedError(userId, pinned.fingerprint, presentedFp, 'email', pinned.email, normalizeEmail(presentedEmail));
+    }
     return decodeExact(pinned.public_key, KEY_BYTES, () => new ShareCryptoError('malformed pinned key'));
   }
 
@@ -403,51 +458,63 @@ function isSharedItem(v: unknown): v is VaultItem {
     && typeof v.created_at === 'string' && typeof v.updated_at === 'string';
 }
 
-/** Encrypt revision `ctx.revision` of a share with a fresh Share Key. */
+/** Encrypt revision `ctx.revision` of a share with a fresh Share Key. The
+ *  item must pass schema validation (ShareContentError otherwise). */
 export async function encryptShareRecord(item: VaultItem, ctx: RecordContext): Promise<EncryptedShareRecord> {
   await sodiumReady;
   if (ctx.peerPublicKey.length !== KEY_BYTES) throw new ShareCryptoError('peer public key must be 32 bytes');
+  const shared = toSharedItem(item);
+  assertValidItemContent(shared);
   const ad = recordAd(ctx.shareId, ctx.revision);
   const shareKey = na.randombytes_buf(KEY_BYTES);
+  const boxedMessage = concat(shareKey, na.crypto_hash_sha256(ad));
   try {
     const nonce = na.randombytes_buf(NONCE_BYTES);
-    const ciphertext = na.crypto_aead_xchacha20poly1305_ietf_encrypt(na.from_string(JSON.stringify(toSharedItem(item))), ad, null, nonce, shareKey);
+    const ciphertext = na.crypto_aead_xchacha20poly1305_ietf_encrypt(na.from_string(JSON.stringify(shared)), ad, null, nonce, shareKey);
     const boxNonce = na.randombytes_buf(NONCE_BYTES);
-    const boxed = na.crypto_box_easy(shareKey, boxNonce, ctx.peerPublicKey, ctx.self.secretKey);
+    const boxed = na.crypto_box_easy(boxedMessage, boxNonce, ctx.peerPublicKey, ctx.self.secretKey);
     return { encrypted_payload: toBase64(concat(nonce, ciphertext)), encrypted_item_key: toBase64(concat(boxNonce, boxed)) };
   } finally {
     na.memzero(shareKey);
+    na.memzero(boxedMessage);
   }
 }
 
-/** Open a wrapped Share Key with the pinned peer key. The caller wipes it. */
-async function openShareKey(encryptedItemKey: string, self: IdentityKeyPair, peerPublicKey: Uint8Array): Promise<Uint8Array> {
+/** Open a wrapped Share Key with the pinned peer key and check that it is
+ *  bound to this share + revision. The caller wipes the returned key. */
+async function openShareKey(encryptedItemKey: string, ctx: RecordContext): Promise<Uint8Array> {
   await sodiumReady;
+  const ad = recordAd(ctx.shareId, ctx.revision);
   const bytes = decodeExact(encryptedItemKey, WRAPPED_SHARE_KEY_BYTES, () => new ShareCryptoError('wrapped share key is malformed'));
-  let key: Uint8Array;
+  let opened: Uint8Array;
   try {
-    key = na.crypto_box_open_easy(bytes.subarray(NONCE_BYTES), bytes.subarray(0, NONCE_BYTES), peerPublicKey, self.secretKey);
+    opened = na.crypto_box_open_easy(bytes.subarray(NONCE_BYTES), bytes.subarray(0, NONCE_BYTES), ctx.peerPublicKey, ctx.self.secretKey);
   } catch {
     throw new ShareCryptoError('wrapped share key failed authentication (tampered, or not made for this key pair)');
   }
-  if (key.length !== KEY_BYTES) {
-    na.memzero(key);
-    throw new ShareCryptoError('wrapped share key has the wrong length');
+  try {
+    if (opened.length !== KEY_BYTES + BINDING_BYTES) throw new ShareCryptoError('wrapped share key has the wrong length');
+    if (!na.memcmp(opened.subarray(KEY_BYTES), na.crypto_hash_sha256(ad))) {
+      throw new ShareCryptoError('wrapped share key was made for another share or revision');
+    }
+    return opened.slice(0, KEY_BYTES);
+  } finally {
+    na.memzero(opened);
   }
-  return key;
 }
 
 /** Key-exchange check before accepting a pending share: the wrap must open
- *  with the PINNED owner key. Nothing is kept. Throws ShareCryptoError. */
-export async function verifyShareKey(encryptedItemKey: string, self: IdentityKeyPair, peerPublicKey: Uint8Array): Promise<void> {
-  na.memzero(await openShareKey(encryptedItemKey, self, peerPublicKey));
+ *  with the PINNED owner key and be bound to this share id + revision.
+ *  Nothing is kept. Throws ShareCryptoError. */
+export async function verifyShareKey(encryptedItemKey: string, ctx: RecordContext): Promise<void> {
+  na.memzero(await openShareKey(encryptedItemKey, ctx));
 }
 
 /** Decrypt one revision. Throws ShareCryptoError on any tampering, a wrong
  *  key pair, or a record moved from another share or revision. */
 export async function decryptShareRecord(record: EncryptedShareRecord, ctx: RecordContext): Promise<VaultItem> {
   const ad = recordAd(ctx.shareId, ctx.revision);
-  const key = await openShareKey(record.encrypted_item_key, ctx.self, ctx.peerPublicKey);
+  const key = await openShareKey(record.encrypted_item_key, ctx);
   try {
     let payload: Uint8Array;
     try {
@@ -472,9 +539,14 @@ export async function decryptShareRecord(record: EncryptedShareRecord, ctx: Reco
 }
 
 /** The owner's "Save to my vault": title, fields and tags come from the
- *  share; id, type, relations, attachments and favorite stay the vault's. */
+ *  share; id, type, relations, attachments and favorite stay the vault's.
+ *  The merged item must pass schema validation for the VAULT item's type
+ *  (ShareContentError otherwise) — recipient-written content never brings
+ *  a forbidden field (CVV, PIN, live OTP) or a malformed item into a vault. */
 export function mergeSharedEdit(vaultItem: VaultItem, shared: VaultItem, now: string = new Date().toISOString()): VaultItem {
-  return { ...vaultItem, title: shared.title, fields: shared.fields, tags: shared.tags, updated_at: now };
+  const merged = { ...vaultItem, title: shared.title, fields: shared.fields, tags: shared.tags, updated_at: now };
+  assertValidItemContent(merged);
+  return merged;
 }
 
 // ---------------------------------------------------------------------------
