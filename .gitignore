@@ -17,3 +17,4 @@ apps/api/log/
 apps/desktop/src-tauri/target/
 coverage/
 infra/docker/backups/
+tests/sync-e2e/.out/

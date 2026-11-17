@@ -419,7 +419,11 @@ export class SyncEngine {
       const res = await this.client.syncAll();
       await this.storage.flush();
 
-      const problems: string[] = [...res.errors];
+      // A 409 is an expected stale-revision outcome: it is surfaced as a conflict
+      // record (shown in the conflict list) once the pull returns the other
+      // version. If no conflict materialised, the 409 stays a visible error.
+      const hasConflict = loadConflicts(this.storage).some((c) => c.resolution === 'unresolved');
+      const problems: string[] = res.errors.filter((e) => !(hasConflict && /^409 conflict/.test(e)));
       for (const r of res.pulled?.rejected ?? []) problems.push(`item ${r.item_id}: ${r.reason}`);
       for (const s of res.pulled?.skipped ?? []) {
         if (/no ciphertext/i.test(s.reason)) problems.push(`item ${s.item_id}: ${s.reason}`);

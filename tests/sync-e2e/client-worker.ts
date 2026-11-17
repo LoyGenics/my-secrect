@@ -39,7 +39,7 @@ async function main() {
 
   let token: string | null = store['sync-e2e.token'] ?? null; // models the persisted session token (webTokenStore)
   let engine: InstanceType<typeof SyncEngine> | null = null;
-  let email = '';
+  let email = store['sync-e2e.email'] ?? ''; // models the persisted LS_ACCOUNT_EMAIL
   let itemsChanged = 0;
 
   function summary(item: any) {
@@ -58,6 +58,7 @@ async function main() {
     // --- account auth (real WebAuthn ceremony, verified by the Rails API) ---
     async register({ email: e, authenticator }) {
       email = e;
+      localStorage.setItem('sync-e2e.email', e);
       const auth = SoftwareAuthenticator.importCredential(authenticator, origin, rpId);
       const sec = new SecurityApiClient({ baseUrl: apiBase, getToken: async () => null });
       const opts = await sec.passkeyRegisterOptions(email);
@@ -69,6 +70,7 @@ async function main() {
     },
     async signIn({ email: e, authenticator }) {
       email = e;
+      localStorage.setItem('sync-e2e.email', e);
       const auth = SoftwareAuthenticator.importCredential(authenticator, origin, rpId);
       const sec = new SecurityApiClient({ baseUrl: apiBase, getToken: async () => null });
       const opts: any = await sec.passkeyAuthenticateOptions(email);
