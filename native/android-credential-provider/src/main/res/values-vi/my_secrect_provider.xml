@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="my_secrect_provider_prompt_title">Mở khóa my-secrect</string>
+    <string name="my_secrect_provider_prompt_subtitle">Đăng nhập bằng %1$s trên %2$s</string>
+    <string name="my_secrect_provider_prompt_cancel">Hủy</string>
+    <string name="my_secrect_provider_error_not_enrolled">Mở my-secrect và bật mở khóa bằng sinh trắc học.</string>
+    <string name="my_secrect_provider_error_key_invalidated">Sinh trắc học trên máy đã thay đổi nên mở khóa bằng sinh trắc học đã bị tắt. Mở my-secrect và mở khóa bằng cụm mật khẩu.</string>
+    <string name="my_secrect_provider_error_lockout">Thử sai quá nhiều lần. Hãy thử lại sau.</string>
+    <string name="my_secrect_provider_error_not_found">my-secrect không có đăng nhập phù hợp cho ứng dụng hoặc trang này.</string>
+    <string name="my_secrect_provider_error_failed">my-secrect không mở khóa được đăng nhập này.</string>
+</resources>
