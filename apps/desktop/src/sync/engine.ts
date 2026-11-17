@@ -261,12 +261,11 @@ export class SyncEngine {
     }
     if (!this.started) return; // stopped while hydrating (lock / sign-out)
     this.unsub = onVaultMutation((m) => {
-      if (m.kind === 'purge') return; // "Delete forever" is device-local; the delete before it is not
       this.dirtyIds.add(m.id);
-      // A purge can follow the delete before the debounced push runs, and it
-      // removes the row that push would be built from. Queue the tombstone now:
-      // it carries no ciphertext and needs no network.
-      if (m.kind === 'delete') this.queueTombstone(m.id);
+      // "Delete forever" is device-local; the delete it implies is not. vault.ts keeps
+      // a content-free tombstone row for a purged item the server still has live, and
+      // a delete or purge is queued at once (no ciphertext, no network needed).
+      if (m.kind === 'delete' || m.kind === 'purge') this.queueTombstone(m.id);
       this.schedulePush();
     });
     const g = globalThis as unknown as { addEventListener?: (t: string, h: () => void) => void };

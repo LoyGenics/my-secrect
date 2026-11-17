@@ -4,7 +4,9 @@
  *  - a device whose Vault Key differs from the account's vault (it created a new
  *    vault instead of restoring) never uploads anything (QA DEFECT-C1);
  *  - a 401 or 403 on pull stops sync, clears the token and signs the device out,
- *    exactly like on push (QA DEFECT-H3).
+ *    exactly like on push (QA DEFECT-H3);
+ *  - a delete or "Delete forever" made while sync is not running still reaches
+ *    the server once it runs again.
  * Separate from two-clients.test.ts so its sign-ins get their own passkey throttle
  * window (10/min per IP) on a freshly booted API.
  *
@@ -134,6 +136,58 @@ test('DEFECT-H3: a 401 on PULL stops sync, clears the token and signs the device
   await signIn(A);
   await A.call('startSync');
   await settled(A);
+});
+
+test('a delete and a "Delete forever" made while sync is NOT running reach the server when it runs again', async () => {
+  await A.call('createItem', { id: ID.gone, title: M.gone, fields: { notes: 'v1' } });
+  await A.call('createItem', { id: ID.live, title: M.live, fields: { notes: 'v1' } });
+  await A.call('syncNow');
+  await settled(A);
+  const [wGone, wLive] = [await wire(ID.gone), await wire(ID.live)];
+  assert.equal(serverItem(wGone), '1|f');
+  assert.equal(serverItem(wLive), '1|f');
+  await D.call('syncNow');
+  assert.ok(await D.find(M.gone));
+
+  await A.call('stopSync');
+  await A.call('deleteForever', { id: ID.gone }); // trash, then Delete forever
+  await A.call('purgeItem', { id: ID.live }); // Delete forever on a live item ("Clear example data")
+  const titles = (await A.call<any[]>('list')).map((i) => i.title);
+  assert.ok(!titles.includes(M.gone) && !titles.includes(M.live), 'gone from A, trash included');
+  for (const localId of [ID.gone, ID.live]) {
+    const row = await localRow(A, localId);
+    assert.equal(row?.purged, true, 'a content-free tombstone row waits for sync');
+    assert.equal(row.ciphertext, '', 'no ciphertext of a purged item is kept');
+    assert.equal(row.wrapped_item_key, '');
+  }
+  assert.equal(serverItem(wGone), '1|f', 'nothing was sent while sync was off');
+
+  await A.call('startSync');
+  await settled(A);
+  assert.equal(serverItem(wGone), '2|t');
+  assert.equal(serverItem(wLive), '2|t');
+  assert.equal(await localRow(A, ID.gone), undefined, 'tombstone row removed once the server has it');
+  assert.equal(await localRow(A, ID.live), undefined);
+  await D.call('syncNow');
+  assert.ok((await D.find(M.gone))?.deleted_at, 'D moved it to trash (restorable there)');
+  assert.ok((await D.find(M.live))?.deleted_at);
+});
+
+test('"Delete forever" on a live synced item while sync runs tombstones it on the server', async () => {
+  await A.call('createItem', { id: ID.purgeRunning, title: M.purgeRunning, fields: { notes: 'v1' } });
+  await A.call('syncNow');
+  await settled(A);
+  const w = await wire(ID.purgeRunning);
+  assert.equal(serverItem(w), '1|f');
+  await D.call('syncNow');
+  assert.equal((await D.find(M.purgeRunning))?.deleted_at, null, 'D has it live');
+  await A.call('purgeItem', { id: ID.purgeRunning });
+  await A.call('syncNow');
+  await settled(A);
+  assert.equal(serverItem(w), '2|t');
+  assert.equal(await localRow(A, ID.purgeRunning), undefined);
+  await D.call('syncNow');
+  assert.ok((await D.find(M.purgeRunning))?.deleted_at);
 });
 
 test('DEFECT-H3: a 403 device_not_authorized on PULL is treated the same way', async () => {
