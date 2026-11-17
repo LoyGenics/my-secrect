@@ -1,4 +1,4 @@
-# Status ledger — checkpoint 2026-11-18 04:30 (local main 176779b, not pushed)
+# Status ledger — checkpoint 2026-11-18 05:00 (local main, not pushed)
 
 Authoritative over README / implementation-status / release-readiness, which are stale.
 
@@ -29,6 +29,13 @@ Re-run 2026-11-18 04:05 on main a7a777c (after desktop storage + sync integrity)
 - Full run on main: npm test 31/0 + 135/0, security mirrors 61/0, RSpec 270/0 (3 MinIO-only pending), sync e2e 21/0 (harness now does email code + device proof), web e2e 19/0, restore e2e 10/0, extension e2e 42/0, cargo 20/0, typecheck desktop/web/extension/mobile, web + extension builds.
 - Not re-run on main yet: sharing e2e and media e2e (their registration helpers predate the email step; owners are adapting them), deploy scripts (infra follow-up in progress).
 
+## Merged 04:45–05:00 and verified on main
+- feat/design-system-adoption: Precision Instrument redesign (tokens, Lucide, clay item-type colours, 29 illustrations + 4 motion clips, responsive rail/drawer/tab bar/thumb rail, key-turn unlock, en/vi + appearance settings), 9 walkthrough bugs, QA E1 + H4. axe: 0 violations (44 scans).
+- fix/sync-qa: C1 vault key check (`vault_mismatch`, nothing pushed), H3 sign-out on pull 401/403, tombstones for deletes/purges made while sync is off, K3 closure plan in specs/sync-protocol.md.
+- fix/infra-auth-media: SMTP required, test-only Mailpit with STARTTLS, email step + device proof in smoke/verify-restore/media e2e, tombstone export/import/reapply in the restore runbook. Agent runs: scenario L PASS, smoke PASS, CSP PASS, media e2e 17/17 + Chromium PASS.
+- fix/auth-revocation: H2 durable revocation (passkey re-approval, revoke_passkey, revoked keys never re-enrol) + L5 self-test callers.
+- Main run after these merges: npm test 31/0 + 155/0, RSpec 286/0 (3 MinIO-only pending), sync e2e 28/0, web e2e 19/0, acceptance 45/0 (+3 todo) and acceptance e2e 30/0 (+1 todo: K3), typecheck all four apps.
+
 ## Merged 04:45: fix/sharing-review
 All six review findings fixed (pinned email shown, reviewed revision saved, identity reset with step-up, recipient content validated, wrapped key bound to its share = record v2, spec aligned). On main 423170e: npm test 31/0 + 138/0, RSpec 273/0, sharing e2e 14/0 + UI 1/0, typecheck all apps.
 
@@ -40,14 +47,18 @@ On main cb1bca6: npm run test:acceptance 45 pass / 3 todo; npm run test:acceptan
 Covered: A, B, D, E, I, K, M. Partial: C, F, H. Pending: G, J, L. Open defects: H1/H2 device revocation (re-check on main), H3 pull 401 not handled, H4 local-only choice not sticky, C1 different vault key pushes unreadable items (high), K3 rollback (high, needs v2 AD + signed events), K2 backup item omission undetected, E1 relations rewritten on save.
 
 ## In progress (agents, each on its own branch)
-- fix/sync-qa: QA C1, H3, offline tombstones; K3 closure plan.
-- fix/infra-auth-media: SMTP + mail catcher for test stacks, email step + device proof in smoke/verify-restore/media e2e, tombstone runbook.
-- feat/design-system-adoption: Precision Instrument redesign, responsive, 9 walkthrough bugs, illustrations + motion, QA E1/H4.
+- fix/backup-integrity: authenticated backup item index (QA K2).
 - feat/mobile-secure-storage: SQLCipher store, biometric unlock.
-- fix/auth-revocation: durable device revocation (H2) + self-test callers (L5).
-- fix/backup-integrity: authenticated backup item index (K2).
-- Paused: feat/ios-credential-provider, feat/android-credential-provider (resume after mobile storage lands).
+- Paused until mobile storage lands: iOS and Android credential providers.
 - Waiting on the user: logo choice.
+
+## Open (not assigned yet)
+- K3 rollback (high): v2 AD with revision + device-signed sync events (plan in specs/sync-protocol.md).
+- Review L1: Vault-Key string cipher has no per-purpose AD.
+- RetentionJob and expiry of tombstones / sessions / unfinished email verifications not scheduled.
+- Mobile: no device binding or sync yet; several screens still English; light/dark off until all screens use the mobile theme.
+- Screens owned elsewhere (Security Center, sign-in, media, shares, sync bar) still use legacy classes and English strings.
+- Extension: Firefox unsupported; strings not in i18n.
 
 ## Open defects / decisions
 - Passphrase Unicode normalisation (NFC) needs a KDF version bump.
