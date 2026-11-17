@@ -18,6 +18,10 @@
 use hkdf::Hkdf;
 use sha2::Sha256;
 use sodiumoxide::crypto::aead::xchacha20poly1305_ietf as aead;
+use sodiumoxide::crypto::hash::sha256;
+// `sodiumoxide::crypto::pwhash` on its own re-exports scryptsalsa208sha256
+// (sodiumoxide 0.2.7, src/crypto/pwhash/mod.rs:
+// `pub use self::scryptsalsa208sha256::*;`). Always name argon2id13.
 use sodiumoxide::crypto::pwhash::argon2id13 as pwhash;
 use sodiumoxide::crypto::secretstream::xchacha20poly1305 as stream;
 use sodiumoxide::randombytes;
@@ -38,6 +42,18 @@ pub const CRYPTO_FORMAT_VERSION: u32 = 1;
 /// writing new test vectors in tests/crypto-vectors/argon2id-vectors.json.
 pub const KDF_OPSLIMIT: pwhash::OpsLimit = pwhash::OPSLIMIT_INTERACTIVE;
 pub const KDF_MEMLIMIT: pwhash::MemLimit = pwhash::MEMLIMIT_INTERACTIVE;
+/// Argon2id salt length: 16 bytes, the TS adapter's `ARGON2ID_PARAMS.saltBytes`.
+pub const KDF_SALT_BYTES: usize = pwhash::SALTBYTES;
+
+// Compile-time pins. If `pwhash` is ever re-pointed at another module (the
+// scrypt mix-up fixed in 4adb39d had 32-byte salts and opslimit 524288) or
+// a libsodium upgrade moves the INTERACTIVE constants, the crate stops
+// compiling instead of silently deriving KEKs the TS side cannot match.
+const _: () = assert!(pwhash::VARIANT == 2, "crypto_pwhash_ALG_ARGON2ID13");
+const _: () = assert!(KDF_OPSLIMIT.0 == 2, "OPSLIMIT_INTERACTIVE");
+const _: () = assert!(KDF_MEMLIMIT.0 == 67_108_864, "MEMLIMIT_INTERACTIVE");
+const _: () = assert!(KDF_SALT_BYTES == 16, "Argon2id salt bytes");
+const _: () = assert!(aead::KEYBYTES == 32 && aead::NONCEBYTES == 24 && aead::TAGBYTES == 16);
 
 #[derive(Debug, Error)]
 pub enum CryptoError {
@@ -62,7 +78,11 @@ pub fn random_bytes(n: usize) -> Vec<u8> {
 
 /// Derive a 32-byte Key Encryption Key from a master passphrase.
 /// Salt MUST be 16 random bytes, stored alongside the wrapped key.
-pub fn derive_kek(passphrase: &[u8], salt: &[u8; pwhash::SALTBYTES]) -> Result<[u8; 32]> {
+/// `passphrase` must be the exact UTF-8 bytes the TS side gets from
+/// `TextEncoder`. Neither side applies Unicode normalisation, so the same
+/// passphrase typed in another normalisation form (NFC vs NFD) is a
+/// different passphrase — see specs/key-management.md.
+pub fn derive_kek(passphrase: &[u8], salt: &[u8; KDF_SALT_BYTES]) -> Result<[u8; 32]> {
     let mut key = [0u8; 32];
     pwhash::derive_key(
         &mut key,
@@ -125,6 +145,16 @@ pub fn unwrap_key(wrapping_key: &[u8; 32], sealed: &[u8]) -> Result<[u8; 32]> {
     let pt = decrypt_item(wrapping_key, sealed)?;
     pt.try_into()
         .map_err(|_| CryptoError::InvalidInput("unwrapped key is not 32 bytes"))
+}
+
+/// Recovery KEK = SHA-256(recovery key bytes) via libsodium
+/// `crypto_hash_sha256`, the same call the TS vaults make through
+/// `sha256()` in packages/crypto-adapters. The recovery key is 32 random
+/// bytes (shown once as unpadded base64url), so a fast hash is enough:
+/// there is no low-entropy secret to stretch. It wraps the Account
+/// Master Key with `wrap_key`.
+pub fn recovery_kek(recovery_key: &[u8; 32]) -> [u8; 32] {
+    sha256::hash(recovery_key).0
 }
 
 /// File streaming encryption (libsodium secretstream).
