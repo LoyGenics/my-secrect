@@ -15,7 +15,7 @@
 import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
 import zlib from 'node:zlib';
-import { appendFileSync, mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -173,4 +173,5 @@ try {
   process.exitCode = 1;
 } finally {
   await browser.close();
+  rmSync(dir, { recursive: true, force: true });
 }
