@@ -59,15 +59,16 @@ async function openSite(url: string): Promise<number> {
 
 const values = async () => ({ user: await web.inputValue('#user'), pass: await web.inputValue('#pass') });
 
-/** Send each request from the content-script world of the tab (top frame, or every frame). */
-async function fromContentWorld(tabId: number, requests: Msg[], allFrames = false) {
+/** Send each request from the content-script world of the tab's top frame, every frame, or sub-frames only. */
+async function fromContentWorld(tabId: number, requests: Msg[], frames: 'top' | 'all' | 'sub' = 'top') {
   return worker().evaluate(
-    async ({ tabId, requests, allFrames }) => {
+    async ({ tabId, requests, frames }) => {
       const results = await chrome.scripting.executeScript({
-        target: allFrames ? { tabId, allFrames: true } : { tabId },
-        args: [requests],
-        func: async (reqs: Record<string, unknown>[]) => {
+        target: frames === 'top' ? { tabId } : { tabId, allFrames: true },
+        args: [requests, frames === 'sub'],
+        func: async (reqs: Record<string, unknown>[], subOnly: boolean) => {
           const replies: unknown[] = [];
+          if (subOnly && window.top === window) return { top: true, origin: location.origin, replies };
           for (const r of reqs) {
             try {
               replies.push(await chrome.runtime.sendMessage(r));
@@ -80,7 +81,7 @@ async function fromContentWorld(tabId: number, requests: Msg[], allFrames = fals
       });
       return results.map((r) => ({ frameId: r.frameId, ...(r.result as { top: boolean; origin: string; replies: Reply[] }) }));
     },
-    { tabId, requests, allFrames },
+    { tabId, requests, frames },
   );
 }
 
@@ -166,6 +167,9 @@ function privilegedRequests(): Msg[] {
     { type: 'restoreBackup', json: '{}', passphrase: 'x' },
     { type: 'generatePassword' },
     { type: 'getPendingForm' },
+    { type: 'armActiveTab' },
+    { type: 'getSaveOffer' },
+    { type: 'resolveSaveOffer', accept: true },
     { type: 'lock' },
     { type: 'wipeVault' },
   ];
@@ -258,7 +262,7 @@ test.describe.serial('extension hardening in real Chromium', () => {
       f.onload = () => resolve();
       document.body.appendChild(f);
     }), https('evil.test'));
-    const frames = await fromContentWorld(tabId, [{ type: 'ext-form-detected', hasUsername: true, hasPassword: true }, { type: 'getItem', id: ids.A }], true);
+    const frames = await fromContentWorld(tabId, [{ type: 'ext-form-detected', hasUsername: true, hasPassword: true }, { type: 'getItem', id: ids.A }], 'all');
     const sub = frames.filter((f) => !f.top);
     expect(sub.length).toBe(1);
     expect(sub[0].origin).toBe(origin('evil.test'));
@@ -382,5 +386,151 @@ test.describe.serial('extension hardening in real Chromium', () => {
     }, tabId);
     expect(loaded.filter((f) => f.top)).toEqual([{ top: true, loaded: true }]);
     expect(loaded.filter((f) => !f.top)).toEqual([{ top: false, loaded: false }, { top: false, loaded: false }]);
+  });
+
+  // ---- Save / update after a real login submission ----
+
+  const PW_NEW = 'pw-new-site-fixture-5Jx2';
+  const PW_A2 = 'pw-A-rotated-fixture-8Np4';
+  const PW_DECLINED = 'pw-declined-fixture-2Kc9';
+  const itemCount = async () => ((await bg({ type: 'listAll' })).items as unknown[]).length;
+  const currentOffer = async () => (await bg({ type: 'getSaveOffer' })).offer ?? null;
+  const badge = () => worker().evaluate(() => chrome.action.getBadgeText({}));
+  const storageText = async () => JSON.stringify(await admin.evaluate(() => chrome.storage.local.get(null)));
+  /** Negative checks need the async capture path to have run; it is one storage read. */
+  const settle = () => web.waitForTimeout(1_000);
+
+  async function waitForOffer(): Promise<Reply> {
+    await expect.poll(currentOffer, { timeout: 10_000 }).not.toBeNull();
+    return (await currentOffer()) as Reply;
+  }
+
+  /** What the popup does on open (armActiveTab), then a real typed sign-in that navigates. */
+  async function signIn(host: string, username: string, password: string): Promise<void> {
+    await openSite(https(host, '/signin'));
+    expect(await bg({ type: 'armActiveTab' })).toEqual({ ok: true, armed: true });
+    await web.fill('#user', username);
+    await web.fill('#pass', password);
+    await Promise.all([web.waitForURL('**/welcome'), web.click('#go')]);
+  }
+
+  async function openPopup(): Promise<Page> {
+    const popup = await ctx.newPage();
+    await popup.goto(`chrome-extension://${extId}/popup/index.html`);
+    return popup;
+  }
+
+  test('save new: a real https sign-in is offered in the popup and stored encrypted only on "Save"', async () => {
+    const before = await itemCount();
+    await signIn('newsite.test', 'zoe', PW_NEW);
+    expect(await waitForOffer()).toEqual({ mode: 'new', origin: origin('newsite.test'), username: 'zoe' });
+    expect(await badge()).toBe('1');
+    expect(await itemCount()).toBe(before); // never auto-saved
+
+    const popup = await openPopup();
+    const card = popup.getByRole('region', { name: 'Save login offer' });
+    await expect(card).toContainText('zoe');
+    await expect(card).toContainText(origin('newsite.test'));
+    expect(await popup.content()).not.toContain(PW_NEW); // the popup never receives the password
+    await card.getByRole('button', { name: 'Save this login' }).click();
+    await expect(popup.getByRole('status')).toHaveText('Login saved.');
+    await popup.close();
+
+    expect(await itemCount()).toBe(before + 1);
+    const saved = ((await bg({ type: 'listAll' })).items as { id: string; title: string }[]).find((i) => i.title === 'newsite.test')!;
+    ids.NEW = saved.id;
+    const item = (await bg({ type: 'getItem', id: saved.id })).item as { type: string; fields: Record<string, unknown> };
+    expect(item.type).toBe('login');
+    expect(item.fields).toEqual({ username: 'zoe', password: PW_NEW, url: origin('newsite.test') });
+    expect(await storageText()).not.toContain(PW_NEW); // ciphertext only
+    expect(await currentOffer()).toBeNull();
+    expect(await badge()).toBe('');
+
+    await openSite(https('newsite.test'));
+    expect(await bg({ type: 'fill', id: saved.id })).toEqual({ ok: true, filled: true });
+    expect(await values()).toEqual({ user: 'zoe', pass: PW_NEW });
+  });
+
+  test('update existing: a new password for a saved username updates that item, no duplicate', async () => {
+    const before = await itemCount();
+    await signIn('example.test', 'alice', PW_A2);
+    expect(await waitForOffer()).toEqual({ mode: 'update', origin: origin('example.test'), username: 'alice', itemId: ids.A, title: 'Example' });
+
+    const popup = await openPopup();
+    const card = popup.getByRole('region', { name: 'Save login offer' });
+    await expect(card).toContainText('Example');
+    expect(await popup.content()).not.toContain(PW_A2);
+    await card.getByRole('button', { name: 'Update password' }).click();
+    await expect(popup.getByRole('status')).toHaveText('Password updated.');
+    await popup.close();
+
+    expect(await itemCount()).toBe(before);
+    const a = (await bg({ type: 'getItem', id: ids.A })).item as { fields: Record<string, unknown> };
+    expect(a.fields).toEqual({ username: 'alice', password: PW_A2, url: origin('example.test') + '/' });
+    expect(await storageText()).not.toContain(PW_A2);
+
+    // Signing in again with the password now saved offers nothing.
+    await signIn('example.test', 'alice', PW_A2);
+    await settle();
+    expect(await currentOffer()).toBeNull();
+    expect(await badge()).toBe('');
+  });
+
+  test('decline: "Not now" saves nothing and drops the captured password', async () => {
+    const before = await itemCount();
+    await signIn('declined.test', 'yan', PW_DECLINED);
+    expect(await waitForOffer()).toEqual({ mode: 'new', origin: origin('declined.test'), username: 'yan' });
+
+    const popup = await openPopup();
+    const card = popup.getByRole('region', { name: 'Save login offer' });
+    await card.getByRole('button', { name: 'Not now' }).click();
+    await expect(card).toHaveCount(0);
+    await popup.close();
+
+    expect(await itemCount()).toBe(before);
+    expect(await currentOffer()).toBeNull();
+    expect(await bg({ type: 'resolveSaveOffer', accept: true })).toEqual({ ok: false, error: 'There is no login waiting to be saved.' });
+    expect(await itemCount()).toBe(before);
+    expect(await badge()).toBe('');
+    expect(await storageText()).not.toContain(PW_DECLINED);
+  });
+
+  test('no offer from plain http, sub-frames or page-dispatched submits; a forged origin is ignored; lock drops the offer', async () => {
+    // Plain http (not localhost): not armed, and even a submission from its content-script world is dropped.
+    const httpUrl = `http://example.test:${servers.httpPort}/signin`;
+    const httpTab = await openSite(httpUrl);
+    expect(await bg({ type: 'armActiveTab' })).toEqual({ ok: true, armed: false });
+    const [httpTop] = await fromContentWorld(httpTab, [{ type: 'ext-login-submitted', username: 'alice', password: 'pw-http-fixture' }]);
+    expect(httpTop.replies).toEqual([{ ok: true }]); // bare acknowledgement: the page learns nothing
+    await settle();
+    expect(await currentOffer()).toBeNull();
+
+    // A cross-origin and a same-origin iframe submit: refused (top frame only).
+    const frameTab = await openSite(https('example.test', '/iframe-and-form'));
+    const subs = (await fromContentWorld(frameTab, [{ type: 'ext-login-submitted', username: 'alice', password: 'pw-frame-fixture' }], 'sub')).filter((f) => !f.top);
+    expect(subs.map((f) => f.replies)).toEqual([[{ ok: false, error: FORBIDDEN }], [{ ok: false, error: FORBIDDEN }]]);
+    await settle();
+    expect(await currentOffer()).toBeNull();
+
+    // Page script dispatching a synthetic submit event: not a user submission.
+    await openSite(https('example.test', '/signin'));
+    expect(await bg({ type: 'armActiveTab' })).toEqual({ ok: true, armed: true });
+    await web.fill('#user', 'alice');
+    await web.fill('#pass', 'pw-synthetic-fixture');
+    await web.evaluate(() => document.getElementById('f')!.dispatchEvent(new Event('submit', { cancelable: true })));
+    await settle();
+    expect(await currentOffer()).toBeNull();
+    expect(await badge()).toBe('');
+
+    // A content message naming another origin is attributed to the real sender origin.
+    const evilTab = await openSite(https('evil.test', '/signin'));
+    await fromContentWorld(evilTab, [{ type: 'ext-login-submitted', origin: origin('example.test'), username: 'alice', password: 'pw-phished-fixture' }]);
+    expect(await waitForOffer()).toEqual({ mode: 'new', origin: origin('evil.test'), username: 'alice' });
+
+    // Locking forgets the pending capture.
+    await bg({ type: 'lock' });
+    expect(await badge()).toBe('');
+    expect(await bg({ type: 'unlock', passphrase: PASSPHRASE })).toMatchObject({ ok: true, unlocked: true });
+    expect(await currentOffer()).toBeNull();
   });
 });

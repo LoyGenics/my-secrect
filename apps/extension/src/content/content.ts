@@ -10,10 +10,13 @@
  *    the SAME form, placed before it — never hidden/honeypot fields, never a
  *    sign-up (new-password) field, never another form on the page.
  * It never receives the vault, any key, or any other item. It never stores
- * anything. It never sends field VALUES anywhere — form detection reports
- * only that a login form exists (origin + which fields exist).
+ * anything. Form detection reports only that a login form exists. Field
+ * values leave the page in exactly one case: a REAL (isTrusted) submit of a
+ * top-frame form with a visible password field sends that username and
+ * password to the background — nowhere else — so the popup can offer to
+ * save or update the login. The background decides; nothing comes back.
  */
-import type { FillMessage } from '../lib/messages';
+import type { FillMessage, LoginSubmittedMessage } from '../lib/messages';
 
 declare global {
   interface Window {
@@ -126,4 +129,28 @@ if (!window.__mySecrectContentLoaded) {
   } else {
     detectLoginForm();
   }
+
+  // Save / update offer: capture phase, so the page cannot stop it first.
+  // Synthetic submit events dispatched by page script are ignored.
+  document.addEventListener(
+    'submit',
+    (event) => {
+      if (!event.isTrusted || window.top !== window.self) return;
+      const form = event.target;
+      if (!(form instanceof HTMLFormElement)) return;
+      const passwords = Array.from(form.elements).filter(
+        (el): el is HTMLInputElement => el instanceof HTMLInputElement && el.type === 'password' && el.value !== '' && isUsable(el),
+      );
+      if (passwords.length === 0) return;
+      // On a change-password form keep the NEW password.
+      const password = passwords.find((el) => hasAutocomplete(el, 'new-password')) ?? passwords[0];
+      const message: LoginSubmittedMessage = {
+        type: 'ext-login-submitted',
+        username: findUsernameField(passwords[0])?.value ?? '',
+        password: password.value,
+      };
+      chrome.runtime.sendMessage(message).catch(() => undefined);
+    },
+    true,
+  );
 }

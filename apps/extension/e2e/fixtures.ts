@@ -54,13 +54,21 @@ export const LOGIN_HTML = `<!doctype html><title>login</title>
 </form>`;
 
 /**
- * Hostile markup, served by path on every host. The real login fields are
+ * Test pages, served by path on every host. The real login fields are
  * always #user / #pass; everything with id trap-* (or in another form/frame)
- * must stay empty after a fill.
+ * must stay empty after a fill. /signin really submits (POST, navigates).
  */
-function hostilePages(httpsPort: number): Record<string, string> {
+function testPages(httpsPort: number): Record<string, string> {
   const crossFrame = `<iframe id="cross" src="https://evil.test:${httpsPort}/login" width="400" height="120"></iframe>`;
   return {
+    '/signin': `<!doctype html><title>sign in</title>
+<form id="f" method="post" action="/welcome">
+  <input id="user" name="username" type="text" autocomplete="username">
+  <input id="pass" name="password" type="password" autocomplete="current-password">
+  <button id="go" type="submit">Sign in</button>
+</form>
+<form id="other" method="post" action="/welcome"><input id="trap-q" name="q" type="text"><button id="go-other" type="submit">Search</button></form>`,
+    '/welcome': '<!doctype html><title>welcome</title><p id="welcome">Signed in.</p>',
     '/honeypot': `<!doctype html><title>honeypot</title>
 <form id="f" onsubmit="return false">
   <input id="trap-user" name="username" type="text" autocomplete="username" style="display:none">
@@ -121,7 +129,7 @@ export async function startServers(): Promise<Servers> {
     new Promise<void>((r) => s1.listen(0, '127.0.0.1', r)),
     new Promise<void>((r) => s2.listen(0, '127.0.0.1', r)),
   ]);
-  pages = hostilePages((s1.address() as AddressInfo).port);
+  pages = testPages((s1.address() as AddressInfo).port);
   return {
     httpsPort: (s1.address() as AddressInfo).port,
     httpPort: (s2.address() as AddressInfo).port,

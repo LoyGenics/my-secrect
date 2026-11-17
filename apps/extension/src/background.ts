@@ -15,14 +15,114 @@
  * idle restart) that a password vault should not buy.
  */
 import * as vault from './lib/vault-ext';
-import { checkFillAllowed, originOf, hostOf, domainsMatch } from './lib/domain';
+import { checkFillAllowed, checkPageAllowed, originOf, hostOf, domainsMatch } from './lib/domain';
 import { loadSettings, saveSettings, isOriginBlocked, DEFAULT_SETTINGS } from './lib/settings';
-import type { ExtRequest, ExtResponse, LoginMeta, ItemMeta, PendingForm, ContentMessage } from './lib/messages';
+import type { ExtRequest, ExtResponse, LoginMeta, ItemMeta, PendingForm, ContentMessage, LoginSubmittedMessage, SaveOffer } from './lib/messages';
 import type { VaultItem } from '../../../packages/core/src/types';
 
 const AUTOLOCK_ALARM = 'my-secrect-autolock';
 const FORBIDDEN = 'Forbidden: only the my-secrect popup and options page may make this request.';
+const SAVE_OFFER_TTL_MS = 5 * 60_000;
 let pendingForm: PendingForm | null = null;
+
+/**
+ * The last login the user submitted in a top frame. Worker memory ONLY:
+ * never written to chrome.storage, never sent to a page or to the popup (the
+ * popup sees a SaveOffer without the password). Dropped on accept, decline,
+ * lock, wipe, after 5 minutes, or when the worker dies.
+ */
+interface SaveCapture {
+  origin: string;
+  username: string;
+  password: string;
+  capturedAt: number;
+}
+let saveCapture: SaveCapture | null = null;
+let saveCaptureTimer: ReturnType<typeof setTimeout> | undefined;
+
+// A badge left by a previous worker lifetime points at a capture that died with it.
+void chrome.action.setBadgeText({ text: '' });
+
+function clearSaveCapture(): void {
+  saveCapture = null;
+  clearTimeout(saveCaptureTimer);
+  void chrome.action.setBadgeText({ text: '' });
+}
+
+function freshSaveCapture(): SaveCapture | null {
+  if (saveCapture && Date.now() - saveCapture.capturedAt >= SAVE_OFFER_TTL_MS) clearSaveCapture();
+  return saveCapture;
+}
+
+function stringField(item: VaultItem, key: string): string {
+  const value = (item.fields as Record<string, unknown>)[key];
+  return typeof value === 'string' ? value : '';
+}
+
+/**
+ * What to offer for a capture: update the saved login with the same username
+ * for this site (domain match, as for fill), save a new one, or nothing when
+ * the vault already has exactly this password. Needs the vault unlocked.
+ */
+function computeSaveOffer(capture: SaveCapture): SaveOffer | null {
+  const pageHost = hostOf(capture.origin);
+  if (!pageHost) return null;
+  const forSite = vault.listUnlockedItems().filter((i) => {
+    const itemHost = hostOf(stringField(i, 'url'));
+    return !i.deleted_at && i.type === 'login' && itemHost !== null && domainsMatch(pageHost, itemHost);
+  });
+  // No username on the form (e.g. a change-password page): only an
+  // unambiguous single login for the site can be updated.
+  const sameUser = capture.username
+    ? forSite.filter((i) => stringField(i, 'username') === capture.username)
+    : forSite.length === 1 ? forSite : [];
+  if (sameUser.some((i) => stringField(i, 'password') === capture.password)) return null;
+  const target = sameUser[0];
+  if (target) {
+    return { mode: 'update', origin: capture.origin, username: stringField(target, 'username'), itemId: target.id, title: target.title };
+  }
+  return capture.username ? { mode: 'new', origin: capture.origin, username: capture.username } : null;
+}
+
+async function captureSubmission(message: LoginSubmittedMessage, page: { origin: string }): Promise<void> {
+  const { username, password } = message;
+  if (typeof username !== 'string' || typeof password !== 'string') return;
+  if (!password || password.length > 4096 || username.length > 1024) return;
+  // Same page gate as fill: https (or localhost dev), never a raw IP, not blocked.
+  if (!checkPageAllowed(page.origin).allowed) return;
+  if (isOriginBlocked(page.origin, await loadSettings())) return;
+  const capture: SaveCapture = { origin: page.origin, username: username.trim(), password, capturedAt: Date.now() };
+  if (vault.isUnlocked() && !computeSaveOffer(capture)) return; // already saved exactly like this
+  clearSaveCapture();
+  saveCapture = capture;
+  saveCaptureTimer = setTimeout(clearSaveCapture, SAVE_OFFER_TTL_MS);
+  void chrome.action.setBadgeText({ text: '1' });
+}
+
+async function resolveSaveOffer(accept: boolean): Promise<ExtResponse> {
+  if (!vault.isUnlocked()) return { ok: false, error: 'Vault is locked.' };
+  const capture = freshSaveCapture();
+  const offer = capture ? computeSaveOffer(capture) : null;
+  clearSaveCapture();
+  if (!capture || !offer) return { ok: false, error: 'There is no login waiting to be saved.' };
+  if (!accept) return { ok: true, saved: false };
+  const now = new Date().toISOString();
+  let item: VaultItem;
+  if (offer.mode === 'update') {
+    const existing = await vault.getDecryptedItem(offer.itemId);
+    if (!existing) return { ok: false, error: 'Item not found.' };
+    item = { ...existing, fields: { ...existing.fields, password: capture.password }, updated_at: now };
+  } else {
+    item = {
+      id: crypto.randomUUID(), type: 'login', schema_version: 1, title: hostOf(capture.origin) ?? capture.origin,
+      fields: { username: capture.username, password: capture.password, url: capture.origin },
+      tags: [], relations: [], attachments: [], created_at: now, updated_at: now,
+    };
+  }
+  await vault.upsertItem(item); // encrypted with a fresh item key, like every save
+  await resetAutoLock();
+  return { ok: true, saved: true, id: item.id };
+}
 
 // chrome.storage.local is readable AND writable from content scripts by
 // default (verified in Chromium: an injected script read the settings key and
@@ -97,7 +197,9 @@ async function resetAutoLock(): Promise<void> {
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === AUTOLOCK_ALARM) vault.lockVault();
+  if (alarm.name !== AUTOLOCK_ALARM) return;
+  vault.lockVault();
+  clearSaveCapture();
 });
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -254,6 +356,7 @@ async function handle(req: ExtRequest): Promise<ExtResponse> {
     }
     case 'lock': {
       vault.lockVault();
+      clearSaveCapture();
       await chrome.alarms.clear(AUTOLOCK_ALARM);
       return { ok: true, unlocked: false };
     }
@@ -318,6 +421,7 @@ async function handle(req: ExtRequest): Promise<ExtResponse> {
     }
     case 'wipeVault': {
       await vault.wipeVault();
+      clearSaveCapture();
       await chrome.alarms.clear(AUTOLOCK_ALARM);
       return { ok: true, unlocked: false };
     }
@@ -328,6 +432,27 @@ async function handle(req: ExtRequest): Promise<ExtResponse> {
       const fresh = pendingForm && Date.now() - pendingForm.detectedAt < 5 * 60_000 ? pendingForm : null;
       if (!fresh) pendingForm = null;
       return { ok: true, pending: fresh };
+    }
+    case 'armActiveTab': {
+      // Popup opened on this tab (activeTab granted by that click): inject
+      // the content script so a login submitted here can be offered for
+      // saving. Same page gate as fill; no page data is read now.
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const origin = tab?.url ? originOf(tab.url) : null;
+      if (tab?.id === undefined || !tab.url || !origin) return { ok: true, armed: false };
+      if (!checkPageAllowed(tab.url).allowed || isOriginBlocked(origin, await loadSettings())) return { ok: true, armed: false };
+      const injected = await injectContentScript(tab.id, origin);
+      return injected.ok ? { ok: true, armed: true } : { ok: true, armed: false, error: injected.error };
+    }
+    case 'getSaveOffer': {
+      if (!vault.isUnlocked()) return { ok: false, error: 'Vault is locked.' };
+      const capture = freshSaveCapture();
+      const offer = capture ? computeSaveOffer(capture) : null;
+      if (capture && !offer) clearSaveCapture();
+      return { ok: true, offer };
+    }
+    case 'resolveSaveOffer': {
+      return resolveSaveOffer(req.accept === true);
     }
     default:
       return { ok: false, error: 'Unknown request.' };
@@ -345,6 +470,11 @@ function handleContentMessage(message: ContentMessage, page: { tabId: number; or
       hasPassword: message.hasPassword === true,
       detectedAt: Date.now(),
     };
+    return { ok: true };
+  }
+  if (message.type === 'ext-login-submitted') {
+    // Same bare acknowledgement whether or not the submission is kept.
+    void captureSubmission(message, page);
     return { ok: true };
   }
   return { ok: false, error: FORBIDDEN };

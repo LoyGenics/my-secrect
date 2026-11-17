@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { ExtRequest, ExtResponse, LoginMeta, ItemMeta, HealthSummary, PendingForm } from '../lib/messages';
+import type { ExtRequest, ExtResponse, LoginMeta, ItemMeta, HealthSummary, PendingForm, SaveOffer } from '../lib/messages';
 import type { VaultItem } from '../../../../packages/core/src/types';
 import { generateTotp } from '../lib/totp';
 
@@ -51,6 +51,8 @@ export default function Popup() {
   const [items, setItems] = useState<ItemMeta[]>([]);
   const [health, setHealth] = useState<HealthSummary | null>(null);
   const [pendingForm, setPendingForm] = useState<PendingForm | null>(null);
+  const [saveOffer, setSaveOffer] = useState<SaveOffer | null>(null);
+  const [armed, setArmed] = useState(false);
   const [query, setQuery] = useState('');
   const [detail, setDetail] = useState<VaultItem | null>(null);
   const [showPassword, setShowPassword] = useState(false);
@@ -87,22 +89,29 @@ export default function Popup() {
     let origin = '';
     try { origin = new URL(url).origin; } catch { origin = ''; }
     setTabOrigin(origin);
-    const [loginsRes, allRes, healthRes, pendingRes] = await Promise.all([
+    const [loginsRes, allRes, healthRes, pendingRes, offerRes] = await Promise.all([
       send({ type: 'listLogins', origin }),
       send({ type: 'listAll' }),
       send({ type: 'getHealth' }),
       send({ type: 'getPendingForm' }),
+      send({ type: 'getSaveOffer' }),
     ]);
     if (loginsRes.ok && 'logins' in loginsRes) setLogins(loginsRes.logins);
     if (allRes.ok && 'items' in allRes) setItems(allRes.items);
     if (healthRes.ok && 'health' in healthRes) setHealth(healthRes.health);
     if (pendingRes.ok && 'pending' in pendingRes) setPendingForm(pendingRes.pending);
+    if (offerRes.ok && 'offer' in offerRes) setSaveOffer(offerRes.offer);
   }, []);
 
   useEffect(() => {
     send({ type: 'getStatus' })
       .then((res) => {
         if (!res.ok || !('status' in res)) { setScreen('locked'); return; }
+        // Opening the popup grants activeTab for this tab: let the background
+        // watch for a login submission here so it can offer to save it.
+        if (res.status.vaultExists) {
+          void send({ type: 'armActiveTab' }).then((r) => setArmed(r.ok && 'armed' in r && r.armed)).catch(() => undefined);
+        }
         if (!res.status.vaultExists) setScreen('onboarding');
         else if (res.status.locked) setScreen('locked');
         else { setScreen('unlocked'); void refreshUnlocked(); }
@@ -183,6 +192,18 @@ export default function Popup() {
     if (res.ok) {
       setShowAddLogin(false); setAddTitle(''); setAddUsername(''); setAddPassword(''); setAddUrl('');
       setNotice('Login saved.'); void refreshUnlocked();
+    } else {
+      setError(!res.ok ? res.error : 'Could not save.');
+    }
+  };
+
+  const handleSaveOffer = async (accept: boolean) => {
+    setError(''); setNotice('');
+    const mode = saveOffer?.mode;
+    const res = await send({ type: 'resolveSaveOffer', accept });
+    setSaveOffer(null);
+    if (res.ok && 'saved' in res) {
+      if (res.saved) { setNotice(mode === 'update' ? 'Password updated.' : 'Login saved.'); void refreshUnlocked(); }
     } else {
       setError(!res.ok ? res.error : 'Could not save.');
     }
@@ -319,6 +340,20 @@ export default function Popup() {
           </div>
         </div>
       )}
+      {saveOffer && (
+        <section aria-label="Save login offer" className="mb-2 rounded-lg border border-indigo-900/60 bg-indigo-950/40 px-3 py-2 text-sm text-indigo-100">
+          {saveOffer.mode === 'update' ? (
+            <p>Update the saved password for <strong>{saveOffer.title}</strong> ({saveOffer.username}) with the one you just used on <span className="font-mono text-xs">{saveOffer.origin}</span>?</p>
+          ) : (
+            <p>Save the login you just used on <span className="font-mono text-xs">{saveOffer.origin}</span> ({saveOffer.username})?</p>
+          )}
+          <p className="mt-1 text-xs text-indigo-300">Encrypted in this extension only. Nothing is saved unless you choose.</p>
+          <div className="mt-2 flex gap-2">
+            <button className="btn !py-1 text-xs" onClick={() => void handleSaveOffer(true)}>{saveOffer.mode === 'update' ? 'Update password' : 'Save this login'}</button>
+            <button className="btn-secondary !py-1 text-xs" onClick={() => void handleSaveOffer(false)}>Not now</button>
+          </div>
+        </section>
+      )}
       {pendingForm && !showAddLogin && (
         <div className="mb-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-200">
           Login form detected on <span className="font-mono text-xs">{pendingForm.origin}</span>.
@@ -329,7 +364,7 @@ export default function Popup() {
         <section aria-label="Logins for this site" className="mb-2">
           <h2 className="px-1 pb-1 text-xs font-semibold uppercase tracking-wide text-zinc-400">For this site · {tabOrigin}</h2>
           {logins.length === 0 ? (
-            <p className="px-1 text-sm text-zinc-500">No logins saved for this site yet.</p>
+            <p className="px-1 text-sm text-zinc-500">No logins saved for this site yet.{armed ? ' Sign in on this page and my-secrect will offer to save it.' : ''}</p>
           ) : (
             <ul className="space-y-1">
               {logins.map((l) => (

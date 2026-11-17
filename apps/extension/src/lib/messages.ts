@@ -48,6 +48,14 @@ export interface PendingForm {
   detectedAt: number;
 }
 
+/**
+ * A login the user just submitted, offered for saving. Never carries the
+ * captured password: that stays in the background until the user accepts.
+ */
+export type SaveOffer =
+  | { mode: 'new'; origin: string; username: string }
+  | { mode: 'update'; origin: string; username: string; itemId: string; title: string };
+
 export type ExtRequest =
   | { type: 'getStatus' }
   | { type: 'unlock'; passphrase: string }
@@ -68,7 +76,10 @@ export type ExtRequest =
   | { type: 'wipeVault' }
   | { type: 'restoreBackup'; json: string; passphrase?: string; recoveryKey?: string }
   | { type: 'generatePassword'; length?: number; symbols?: boolean; numbers?: boolean }
-  | { type: 'getPendingForm' };
+  | { type: 'getPendingForm' }
+  | { type: 'armActiveTab' }
+  | { type: 'getSaveOffer' }
+  | { type: 'resolveSaveOffer'; accept: boolean };
 
 export type ExtResponse =
   | { ok: true; status: { locked: boolean; vaultExists: boolean } }
@@ -86,6 +97,9 @@ export type ExtResponse =
   | { ok: true; password: string }
   | { ok: true; restoredCount: number }
   | { ok: true; pending: PendingForm | null }
+  | { ok: true; armed: boolean; error?: string }
+  | { ok: true; offer: SaveOffer | null }
+  | { ok: true; saved: boolean; id?: string }
   | { ok: false; error: string; needsConfirmation?: string };
 
 /** Message the background sends to an injected content script. */
@@ -103,4 +117,15 @@ export interface FormDetectedMessage {
   hasPassword: boolean;
 }
 
-export type ContentMessage = FormDetectedMessage;
+/**
+ * A content script reports a real (isTrusted) login form submission in the
+ * top frame. Sent to the background only; the background replies with a bare
+ * acknowledgement whatever it decides, so the page learns nothing back.
+ */
+export interface LoginSubmittedMessage {
+  type: 'ext-login-submitted';
+  username: string;
+  password: string;
+}
+
+export type ContentMessage = FormDetectedMessage | LoginSubmittedMessage;

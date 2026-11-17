@@ -14,9 +14,9 @@ Local-first, end-to-end encrypted autofill. TypeScript + React, built with Vite.
 
 - Every vault request (`ExtRequest`) is answered only when the browser-provided
   `sender` is this extension's `popup/index.html` or `options/index.html`.
-- A content script counts as the web page: it may send only `ext-form-detected`,
-  only from the top frame, and the page origin is taken from `sender`, never
-  from the message. Anything else gets `Forbidden`.
+- A content script counts as the web page: it may send only `ext-form-detected`
+  and `ext-login-submitted`, only from the top frame, and the page origin is
+  taken from `sender`, never from the message. Anything else gets `Forbidden`.
 - Other extensions: there is no `onMessageExternal` / `onConnectExternal` listener.
 - `chrome.storage.local` is restricted to extension pages + the worker with
   `setAccessLevel('TRUSTED_CONTEXTS')`; by default Chrome lets content scripts
@@ -47,8 +47,19 @@ entry in the manifest). The content script is injected on demand with
    the page are never touched.
 7. The content script verifies the fill message's `origin` equals `window.location.origin`.
 8. Blocked origins (options page) always win; an allow-list, when set, restricts filling to those origins.
-9. Login-form detection reports **only that a form exists** (origin + which fields exist). Field **values are never sent** by the content script — the user types credentials into the popup's Add-login form.
+9. Login-form detection reports **only that a form exists** (which fields exist; the origin comes from the browser).
 10. No autofill happens without a user click. There is no automatic fill on page load.
+11. **Save / update offer.** Field values leave a page in exactly one case: a
+    real (`isTrusted`) submit of a top-frame form with a visible password
+    field, on a page that passes rules 1, 2 and 8. The content script sends
+    that username + password to the background only and gets a bare `{ok:true}`
+    back. The background keeps it in worker memory (never `chrome.storage`,
+    never the popup, never a page) for at most 5 minutes and sets the toolbar
+    badge. The popup shows "Save this login" (new) or "Update password" (same
+    username, different password, for a domain-matching login) and "Not now".
+    Nothing is saved until the user clicks; lock, wipe, decline and expiry
+    drop the capture. Because there are no host permissions, the script is
+    present only on a tab where the user opened the popup or filled.
 
 ## Crypto
 
@@ -84,6 +95,7 @@ merely slow, that is the asm fallback.
   Settings link.
 - Fill confirmation dialog whenever a fill needs confirmation (bank/card,
   punycode).
+- Save / update offer for a login just submitted (rule 11).
 
 ## What the options page does
 
