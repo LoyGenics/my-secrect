@@ -6,9 +6,8 @@
 # Do NOT claim CI passes until a green run is observed here.
 #
 # Known pre-existing failures to expect on the first run:
-#   - lockfiles job: no package-lock.json and no apps/api/Gemfile.lock exist
-#     yet (Phase A finding). Run `npm install` and `bundle lock` locally
-#     first, commit the lockfiles, then re-run.
+#   - lockfiles job fails if package-lock.json or apps/api/Gemfile.lock
+#     is missing. Both are generated and committed; do not delete them.
 #   - Node tests in tests/ mirror logic in-file instead of importing real
 #     code, so a green node-tests job proves the RULES, not the modules.
 #   - No ESLint/Prettier config exists in the repo, so there is no lint job
@@ -67,7 +66,8 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: package-lock.json
-      - run: npm install --no-audit --no-fund
+      - name: Install npm dependencies
+        run: npm ci --no-audit --no-fund
       # Root script covers crypto-vectors, sync-conflicts, compatibility,
       # recovery, end-to-end. Security tests are NOT in that script yet
       # (root package.json is owned by another phase), so run them explicitly.
@@ -87,7 +87,8 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: package-lock.json
-      - run: npm install --no-audit --no-fund
+      - name: Install npm dependencies
+        run: npm ci --no-audit --no-fund
       - name: Typecheck desktop / web / extension
         run: |
           for app in desktop web extension; do
@@ -114,7 +115,8 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: package-lock.json
-      - run: npm install --no-audit --no-fund
+      - name: Install npm dependencies
+        run: npm ci --no-audit --no-fund
       - name: Build desktop
         run: npm --workspace apps/desktop run build
       - name: Build web
@@ -182,12 +184,17 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ruby/setup-ruby@v1
         with:
-          ruby-version: '3.3.0'
+          ruby-version: '3.3'
           bundler-cache: true
           working-directory: apps/api
+      # apps/api has no bin/rails. `bundle exec rails` then falls through to
+      # the railties generator, prints `rails new` help, and exits 0 without
+      # creating the test database. Rake loads Rakefile and actually prepares
+      # it (schema load on an empty DB), so rspec's maintain_test_schema!
+      # does not abort with PendingMigrationError.
       - name: Prepare test database
         working-directory: apps/api
-        run: bundle exec rails db:prepare
+        run: bundle exec rake db:prepare
       - name: RSpec
         working-directory: apps/api
         run: bundle exec rspec
@@ -215,13 +222,14 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: package-lock.json
-      - run: npm install --no-audit --no-fund
+      - name: Install npm dependencies
+        run: npm ci --no-audit --no-fund
       - name: npm audit (critical+)
         continue-on-error: true
         run: npm audit --audit-level=critical
       - uses: ruby/setup-ruby@v1
         with:
-          ruby-version: '3.3.0'
+          ruby-version: '3.3'
           working-directory: apps/api
       - name: bundler-audit
         continue-on-error: true

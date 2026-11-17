@@ -10,5 +10,6 @@
     "test:crypto-core": "cd native/crypto-core && cargo test",
     "dev:desktop": "npm --workspace apps/desktop run dev"
   },
+  "devDependencies": { "libsodium-wrappers-sumo": "0.7.15" },
   "engines": { "node": ">=20" }
 }
