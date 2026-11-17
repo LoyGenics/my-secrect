@@ -96,6 +96,21 @@ function assertKeyLength(key: Uint8Array): void {
   }
 }
 
+/** Every wrapped key in the hierarchy (AMK, Vault Key, Item Key, File Key) is 32 bytes. */
+const WRAPPED_KEY_BYTES = 32;
+
+/**
+ * Unwrapped bytes that are not a 32-byte key are rejected, matching
+ * native/crypto-core `unwrap_key` (which returns InvalidInput). Without
+ * this the TS side would hand back a short or long "key" and only fail
+ * later, at first use.
+ */
+function assertWrappedKeyLength(key: Uint8Array, what: string): void {
+  if (key.length !== WRAPPED_KEY_BYTES) {
+    throw new Error(`${what} must be ${WRAPPED_KEY_BYTES} bytes`);
+  }
+}
+
 /**
  * HKDF-SHA-256 (RFC 5869), implemented with libsodium's HMAC-SHA-256
  * (`crypto_auth_hmacsha256`).
@@ -163,6 +178,8 @@ async function hkdfSha256(ikm: Uint8Array, info: string, length = 32): Promise<U
  *   tampering (authentication failure) — callers must treat a throw as
  *   "reject this ciphertext".
  * - wrapKey/unwrapKey: the same AEAD encrypt/decrypt applied to key bytes.
+ *   Both sides insist on 32-byte keys (same rule as native/crypto-core
+ *   `wrap_key(&[u8; 32])` / `unwrap_key -> [u8; 32]`).
  */
 export const libsodiumAdapter: CryptoAdapter = {
   randomBytes(n: number): Uint8Array {
@@ -209,10 +226,14 @@ export const libsodiumAdapter: CryptoAdapter = {
     );
   },
   async wrapKey(wrappingKey, keyToWrap) {
+    assertWrappedKeyLength(keyToWrap, 'key to wrap');
     const { nonce, ciphertext } = await this.encrypt(wrappingKey, keyToWrap);
     return { nonce, wrapped: ciphertext };
   },
   async unwrapKey(wrappingKey, nonce, wrapped) {
-    return this.decrypt(wrappingKey, nonce, wrapped);
+    const key = await this.decrypt(wrappingKey, nonce, wrapped);
+    if (key.length !== WRAPPED_KEY_BYTES) key.fill(0);
+    assertWrappedKeyLength(key, 'unwrapped key');
+    return key;
   },
 };
