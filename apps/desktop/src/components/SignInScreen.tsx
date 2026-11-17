@@ -3,6 +3,7 @@ import { useTranslation } from '../../../../packages/i18n/src/react';
 import {
   ApiError,
   LS_ACCOUNT_EMAIL,
+  isDeviceApprovalRequired,
   isDeviceVerificationFailed,
   isMfaRequiredResult,
   saveSessionToken,
@@ -79,8 +80,11 @@ import {
  * an enrol proof the first time for this (server, account), a bind proof
  * afterwards. If the server rejects the device (e.g. it was revoked),
  * the local key is dropped and the sign-in is retried ONCE with a new
- * enrolment (one more passkey prompt). If the key store is unavailable
- * the sign-in still works, with an unbound session.
+ * enrolment (one more passkey prompt). If that passkey enrolled the
+ * revoked device, the server refuses the new enrolment too (403
+ * device_approval_required) and the screen says how to re-approve it.
+ * If the key store is unavailable the sign-in still works, with an
+ * unbound session.
  *
  * Nothing here is logged: no token, no email in logs, no TOTP /
  * recovery code retained after its request settles.
@@ -119,6 +123,7 @@ function errorText(kind: SignInErrorKind, s: Record<string, string>): string {
     case 'email-unavailable': return s.emailUnavailable;
     case 'signup-expired': return s.signupExpired;
     case 'device-rejected': return s.deviceRejected;
+    case 'device-approval-required': return s.deviceApprovalRequired;
     case 'offline': return s.offline;
     default: return s.unknownError;
   }
@@ -301,6 +306,13 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
     } catch (err) {
       if (isDeviceVerificationFailed(err)) {
         setMachine((prev) => signInFailed(prev, 'device-rejected'));
+        return;
+      }
+      // The passkey enrolled a device that was revoked: it cannot set up
+      // this browser until it is re-approved from a still-trusted device
+      // (specs/device-identity.md §6.3). No retry helps.
+      if (isDeviceApprovalRequired(err)) {
+        setMachine((prev) => signInFailed(prev, 'device-approval-required'));
         return;
       }
       const kind = classifySignInError(err, st.step);

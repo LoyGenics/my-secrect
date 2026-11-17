@@ -6,7 +6,8 @@
 import type { Page } from '@playwright/test';
 import {
   test, expect, registerAccountViaUi, createVaultViaUi, uniqueEmail, signOutViaUi, signInWithPasskeyViaUi,
-  storedToken, apiFetch, openSecurityCenter, unlockVaultViaUi, SESSIONS_API,
+  storedToken, apiFetch, openSecurityCenter, unlockVaultViaUi, secondBrowser, syncCredentials, stepUpWithPasskey,
+  SESSIONS_API,
 } from './fixtures';
 
 interface DeviceKeyRecord {
@@ -72,7 +73,7 @@ test.describe('device binding', () => {
     });
   });
 
-  test('sign-in binds the new session to the same device; a revoked device is replaced by a fresh enrolment', async ({ page, authenticator, apiUrl }) => {
+  test('sign-in re-binds the same device; after revocation the passkey needs approval from another signed-in device (DEFECT-H2)', async ({ page, authenticator, apiUrl, browser }) => {
     const email = uniqueEmail('rebind');
     await registerAccountViaUi(page, email);
     await createVaultViaUi(page);
@@ -84,17 +85,53 @@ test.describe('device binding', () => {
     expect(await currentSessionDeviceId(apiUrl, await storedToken(page))).toBe(firstDevice);
     expect((await deviceKeyRecords(page))[0].deviceId).toBe(firstDevice);
 
-    // Revoke this browser's device from the Security Center: the session it owns ends.
+    // A second browser with the same (synced) passkey enrols its own device and stays trusted.
+    const other = await secondBrowser(browser, apiUrl, authenticator);
+    await other.page.goto('/');
+    await signInWithPasskeyViaUi(other.page, email);
+    await expect(other.page.getByText('Create your local vault')).toBeVisible();
+    await syncCredentials(other.authenticator, authenticator);
+
+    // Revoke THIS browser's device (passkey kept): the session it owns ends.
     const tokenBeforeRevoke = await storedToken(page);
     await unlockVaultViaUi(page);
     await openSecurityCenter(page);
     const devicesSection = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Trusted devices', exact: true }) });
-    await devicesSection.getByRole('button', { name: 'Revoke', exact: true }).click();
+    const deviceRows = devicesSection.locator('li').filter({ has: page.getByRole('button', { name: 'Revoke', exact: true }) });
+    await expect(deviceRows).toHaveCount(2);
+    const listed = (await apiFetch(apiUrl, tokenBeforeRevoke, 'GET', '/api/v1/devices')).json.devices;
+    expect(listed.find((d: any) => d.id === firstDevice)).toMatchObject({ current: true, passkey_active_devices: 2 });
+    // Open the confirmation for the current device (it is the one that warns about signing out).
+    for (const row of await deviceRows.all()) {
+      await row.getByRole('button', { name: 'Revoke', exact: true }).click();
+      if (await row.getByText('This is the device you are using now: you will be signed out.').isVisible()) {
+        await row.getByRole('button', { name: 'Revoke device' }).click();
+        break;
+      }
+      await row.getByRole('button', { name: 'Cancel' }).click();
+    }
     await expect(page.getByRole('heading', { name: 'Sign in to your account' })).toBeVisible();
     expect((await apiFetch(apiUrl, tokenBeforeRevoke, 'GET', SESSIONS_API)).status).toBe(401);
 
-    // Next sign-in: the server rejects the revoked device; the client drops
-    // the key, retries once and enrols a new device.
+    // The revoked browser signs in with the same passkey: its revoked key is
+    // refused, and the fresh enrolment the client retries is refused too.
+    await signInWithPasskeyViaUi(page, email);
+    await expect(page.getByText(/This passkey signed in a device that was revoked/)).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Sign in to your account' })).toBeVisible();
+    expect(await storedToken(page)).toBeNull();
+
+    // Re-approval from the still-trusted second browser (server step-up).
+    await syncCredentials(authenticator, other.authenticator);
+    await createVaultViaUi(other.page);
+    await openSecurityCenter(other.page);
+    const auth = other.page.locator('section').filter({ has: other.page.getByRole('heading', { name: 'Authentication methods', exact: true }) });
+    await expect(auth.getByText(/Needs approval: it signed in a device that was revoked/)).toBeVisible();
+    await auth.getByRole('button', { name: 'Approve' }).click();
+    await stepUpWithPasskey(other.page);
+    await expect(auth.getByText('Passkey approved: it can set up new devices again.')).toBeVisible();
+    await syncCredentials(other.authenticator, authenticator);
+
+    // Now the first browser can set itself up again — as a NEW device.
     await signInWithPasskeyViaUi(page, email);
     await expect(page.getByRole('heading', { name: 'Sign in to your account' })).toHaveCount(0);
     const token = await storedToken(page);
@@ -103,10 +140,10 @@ test.describe('device binding', () => {
     expect(secondDevice).not.toBe(firstDevice);
     const devices = (await apiFetch(apiUrl, token, 'GET', '/api/v1/devices')).json.devices;
     expect(devices.find((d: any) => d.id === firstDevice).revoked_at).toBeTruthy();
-    expect(devices.find((d: any) => d.id === secondDevice).revoked_at).toBeNull();
     const records = await deviceKeyRecords(page);
     expect(records).toHaveLength(1);
     expect(records[0].deviceId).toBe(secondDevice);
+    await other.context.close();
   });
 
   test('without WebCrypto Ed25519 the libsodium fallback enrols and binds (and says so in the record)', async ({ page, authenticator, apiUrl }) => {

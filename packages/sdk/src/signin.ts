@@ -60,6 +60,7 @@ export type SignInErrorKind =
   | 'email-unavailable'
   | 'signup-expired'
   | 'device-rejected'
+  | 'device-approval-required'
   | 'offline'
   | 'unknown';
 

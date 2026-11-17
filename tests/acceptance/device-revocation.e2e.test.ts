@@ -15,7 +15,9 @@
  *   4. Each session is bound to its own device key; only B is cut off,
  *      A keeps working. (passes on main; was DEFECT-H1 on integrate/wave0)
  *   5. B cannot simply sign in again with its passkey and pull
- *      items created after the revocation.                     (DEFECT-H2, todo)
+ *      items created after the revocation. (passes; was DEFECT-H2: the
+ *      passkey that enrolled B now needs re-approval from a still-trusted
+ *      device before it can enrol a new device — specs/device-identity.md §6.3)
  *   6. Revoking B's device AND removing B's passkey keeps B out.         (passes)
  * DEFECT tests are written as the correct expectation and marked todo;
  * ACCEPTANCE_STRICT=1 turns them into failures.
@@ -37,7 +39,7 @@ import { Client } from '../sync-e2e/helpers.ts';
 const API_PORT = Number(process.env.ACCEPT_H_API_PORT ?? 3253);
 const WEB_PORT = Number(process.env.ACCEPT_H_WEB_PORT ?? 5365);
 const WEB = `http://localhost:${WEB_PORT}`;
-const DB = 'vault_h_a15_e2eauth';
+const DB = process.env.ACCEPT_H_DB ?? 'vault_h_a15_e2eauth';
 const PASS = 'acceptance H passphrase 1';
 const EMAIL = `h-revoke-${Date.now()}@example.test`;
 const defect = (id: string) => (process.env.ACCEPTANCE_STRICT ? undefined : id);
@@ -188,7 +190,11 @@ test('only B is cut off: A\'s session keeps working (and syncing) after B\'s dev
 });
 
 let reEnrolledDevice = '';
-test('the revoked device cannot sign in again with its passkey and read items created after the revocation', { todo: defect('DEFECT-H2: revocation is not durable — the revoked browser signs in again with the same passkey; its revoked device key is replaced by a freshly enrolled one (Authentication::DeviceProof.device_for! enrol path, apps/api/app/domains/authentication/device_proof.rb:130) and it pulls new items. Devices::Revoke (apps/api/app/domains/devices/revoke.rb) leaves the passkey and the vault key untouched') }, async () => {
+// Was DEFECT-H2: the revoked browser signed in again with the same passkey and
+// enrolled a fresh device key. Fixed by durable revocation (§6.3): B's passkey
+// enrolled the revoked device, so it may only bind an ACTIVE device until it is
+// re-approved from a still-trusted device; the fresh enrolment is refused.
+test('the revoked device cannot sign in again with its passkey and read items created after the revocation', async () => {
 
   const p = B.page;
   await p.evaluate(() => localStorage.removeItem('my-secrect:api-token'));
