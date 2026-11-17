@@ -1,50 +1,39 @@
-# Keychain (iOS) / Keystore (Android) — PLANNED, not implemented
+# Keychain (iOS) / Keystore (Android) — implemented in `modules/device-key`
 
-## Goal
-Device-protected quick unlock: wrap a copy of the Account Master Key
-(or a Vault-Key-wrapping key) with a key held in the Secure Enclave /
-StrongBox, gated by biometrics, so Face ID / fingerprint can unlock
-the vault without typing the passphrase every time.
+The contract is `specs/mobile-local-store.md` (§3 Local Storage Key, §4
+device unlock, §5 module API). The code is the local Expo module
+`apps/mobile/modules/device-key`:
 
-## What exists today
-- `expo-local-authentication` presence check only (LockScreen).
-  It proves the user is present; it does NOT derive or unwrap any
-  vault key. The app says this on the lock screen.
-- The vault key hierarchy already supports this: a new wrapping of
-  the Account Master Key under a device-protected KEK is exactly the
-  same shape as the recovery-key wrapping in `src/vault.ts`
-  (`wrapped_recovery` / `wrapped_recovery_nonce`).
+- iOS: `ios/DeviceKeyModule.swift` (Security, LocalAuthentication, CryptoKit)
+- Android: `android/src/main/java/expo/modules/devicekey/DeviceKeyModule.kt`
+  (AndroidKeyStore, `androidx.biometric` BiometricPrompt + CryptoObject)
+- JS: `index.ts`, used only by `src/vault.ts` / `src/storage/nativePlatform.ts`
 
-## What is needed (native work, Xcode / Android Studio)
-- iOS: `Security` framework / Keychain with `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`
-  + `SecAccessControl` (`biometryCurrentSet`), key in Secure Enclave
-  (`kSecAttrTokenIDSecureEnclave`) where available.
-- Android: `AndroidKeyStore` AES/GCM key with
-  `setUserAuthenticationRequired(true)` + `setInvalidatedByBiometricEnrollment(true)`.
-- A small native module (or `expo-secure-store` as a first step —
-  note it is NOT Secure Enclave / StrongBox by itself) exposing
-  `wrapWithDeviceKey(bytes)` / `unwrapWithDeviceKey(bytes)`.
-- Enrolment flow: only after a successful passphrase unlock, offer
-  "Enable Face ID unlock", generate the device key, wrap the Master
-  Key, store the wrap next to `wrapped_recovery`. Revocation: delete
-  the device wrap on "Disable" and on biometric enrolment change.
+## What it does
 
-## Explicitly NOT done
-No device key is generated, no Master Key copy is wrapped by any
-device key, and no biometric unlock path bypasses the passphrase
-in this build. Do not claim otherwise.
+| | iOS | Android |
+|---|---|---|
+| Local Storage Key (SQLCipher key for `vault.db`, no biometric gate) | Keychain generic password `com.loygenics.my-secrect.lsk` / `v1`, AfterFirstUnlockThisDeviceOnly, shared access group | 32 random bytes, AES-256-GCM under Keystore alias `my-secrect.lsk.v1`, `filesDir/my-secrect/lsk.bin` |
+| Device-unlock key (wraps a copy of the Account Master Key) | Secure Enclave P-256 (`ios-se-p256-ecies-v1`), or a Keychain AES key when there is no Secure Enclave (`ios-kc-aesgcm-v1`, e.g. simulator); `.biometryCurrentSet`, WhenPasscodeSetThisDeviceOnly | Keystore AES-256-GCM `my-secrect.device-unlock.v1`, user auth required per use, invalidated by biometric enrolment, StrongBox when present (`android-ks-aesgcm-v1`) |
 
-## Phase F update (17 Nov 2026)
-Still PLANNED, not implemented — nothing above changed: biometrics
-remain presence-only (see `src/screens/LockScreen.tsx`, which says so
-on screen). New scaffolding this plan now points at (also NOT working):
-- iOS: `native/ios-credential-provider/VaultStore.swift` (`DeviceKeyStore`
-  — real Keychain code for a future 32-byte device wrapping key,
-  biometry-gated, device-only; it stores no vault key and wraps nothing
-  yet) + `native/ios-credential-provider/README.md`.
-- Android: `native/android-credential-provider/VaultKeystore.kt` (real
-  AndroidKeyStore AES-256/GCM device key, user-auth-required, invalidated
-  on enrolment change; it wraps nothing yet) +
-  `native/android-credential-provider/README.md`.
-The enrolment flow above is still the design; the device-key generation
-+ Master Key wrapping step has not been built.
+- Enrolment runs only right after a passphrase or recovery-key unlock
+  (`src/vault.ts` refuses otherwise). iOS checks the new key with one
+  biometric round trip before the app stores the `device_unlock` row;
+  Android encrypts through the BiometricPrompt CryptoObject.
+- Unlock: biometric prompt → native unwrap → the AMK goes back to JS as
+  base64 → `src/vault.ts` unwraps the Vault Key and items as after a
+  passphrase unlock. A wrong AMK never unlocks (the Vault Key unwrap
+  fails) and the enrolment is dropped.
+- A biometric enrolment change makes the key unusable → `KEY_INVALIDATED`
+  → the app deletes the row and the key and asks for the passphrase.
+- Errors cross the boundary only as `NOT_AVAILABLE`, `NOT_ENROLLED`,
+  `KEY_INVALIDATED`, `USER_CANCEL`, `LOCKOUT`, `AUTH_FAILED`, `CORRUPT`.
+  The prompt is biometric-only: no device passcode / PIN fallback.
+
+## Limits
+
+- The AMK crosses the JS bridge as a base64 string (contract §5 API);
+  JS strings cannot be zero-filled. Native buffers are zeroed.
+- The Secure Enclave path (`ios-se-p256-ecies-v1`) needs real hardware
+  and has not run on a device yet; the simulator uses `ios-kc-aesgcm-v1`.
+- Nothing here is audited.

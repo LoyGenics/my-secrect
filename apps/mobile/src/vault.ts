@@ -11,15 +11,18 @@
  * to a recovery KEK that also wraps the Master Key. Lose both passphrase
  * and recovery key = lose the vault. No reset, no server copy.
  *
- * DIFFERENCES from desktop: storage is AsyncStorage (not localStorage),
- * so every storage access is async; text encode/decode uses Buffer
- * (polyfilled in index.js) because Hermes has no TextEncoder. Keys live
- * in memory only, zero-filled on lock. Production mobile storage is
- * SQLCipher (encrypted SQLite) — the StorageBackend interface is the seam.
+ * Storage (specs/mobile-local-store.md): vault.db, SQLCipher-encrypted
+ * with the device Local Storage Key, holding the same encrypted rows and
+ * wrapped-key JSON the AsyncStorage build kept; an AsyncStorage vault is
+ * moved over once on first open. Biometric quick unlock: a device key
+ * (Secure Enclave / Keychain / AndroidKeyStore) wraps a copy of the
+ * Master Key; a successful biometric check releases it and the Vault Key
+ * is unwrapped exactly as after a passphrase unlock. Keys live in memory
+ * only, zero-filled on lock. Text encode/decode uses Buffer (polyfilled
+ * in index.js) because Hermes has no TextEncoder.
  *
  * NOT audited, NOT production-ready.
  */
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Buffer } from 'buffer';
 import {
   libsodiumAdapter as crypto,
@@ -36,44 +39,73 @@ import {
   parseEncryptedExportText,
 } from '../../../packages/import-export/src/index';
 import type { EncryptedExportItem, WrappedKeyEnvelope } from '../../../packages/import-export/src/index';
+import { deviceKeyErrorCode, type Biometry, type DeviceKeyErrorCode } from '../modules/device-key/src/DeviceKey.types';
+import { autofillEntryFor, autofillIndexFor } from './storage/autofillIndex';
+import { migrateFromAsyncStorage } from './storage/migration';
+import type { VaultPlatform } from './storage/platform';
+import type { StoredKeys, StoredRow, VaultStore } from './storage/vaultStore';
 
-const LS_KEY = 'my-secrect.local-vault.v1';
-const LS_KEYS = 'my-secrect.local-vault.v1.keys';
+export type { VaultPlatform } from './storage/platform';
 
-export interface StorageBackend {
-  getItem(key: string): Promise<string | null>;
-  setItem(key: string, value: string): Promise<void>;
-  removeItem(key: string): Promise<void>;
-}
-class AsyncStorageBackend implements StorageBackend {
-  getItem(key: string) { return AsyncStorage.getItem(key); }
-  async setItem(key: string, value: string) { await AsyncStorage.setItem(key, value); }
-  async removeItem(key: string) { await AsyncStorage.removeItem(key); }
-}
-const storage: StorageBackend = new AsyncStorageBackend();
+// --- platform + store -------------------------------------------------
+let platformPromise: Promise<VaultPlatform> | null = null;
+let openedStore: Promise<VaultStore> | null = null;
+let migrated: Promise<unknown> | null = null;
+let storageError: string | null = null;
 
-interface StoredRow {
-  id: string; revision: number; nonce: string; ciphertext: string;
-  wrapped_item_key: string; wrapped_nonce: string; deleted_at?: string | null;
+/** Node tests plug in a sql.js-backed store; the app uses nativePlatform. */
+export function setVaultPlatform(platform: VaultPlatform): void {
+  clearMemory();
+  platformPromise = Promise.resolve(platform);
+  openedStore = null; migrated = null; storageError = null;
 }
-interface StoredKeys {
-  salt: string; wrapped_master: string; wrapped_master_nonce: string;
-  wrapped_vault: string; wrapped_vault_nonce: string;
-  wrapped_recovery: string; wrapped_recovery_nonce: string;
+function getPlatform(): Promise<VaultPlatform> {
+  // Required lazily so Node tests (which call setVaultPlatform first) never load expo-sqlite or native code.
+  if (!platformPromise) {
+    platformPromise = Promise.resolve().then(() => (require('./storage/nativePlatform') as typeof import('./storage/nativePlatform')).nativePlatform);
+  }
+  return platformPromise;
 }
+function describe(err: unknown): string { return err instanceof Error ? err.message : String(err); }
+async function openStoreOnce(): Promise<VaultStore> {
+  if (!openedStore) {
+    const p = getPlatform().then((pf) => pf.openStore());
+    openedStore = p;
+    p.catch(() => { if (openedStore === p) openedStore = null; });
+  }
+  return openedStore;
+}
+/** The opened store with the AsyncStorage migration done. Throws (and records why) otherwise. */
+async function getStore(): Promise<VaultStore> {
+  try {
+    const store = await openStoreOnce();
+    if (!migrated) {
+      const m = getPlatform().then((pf) => migrateFromAsyncStorage(store, pf.legacy));
+      migrated = m;
+      m.catch(() => { if (migrated === m) migrated = null; });
+    }
+    await migrated;
+    storageError = null;
+    return store;
+  } catch (err) {
+    storageError = describe(err);
+    throw err;
+  }
+}
+/** Why vault.db could not be opened or migrated, for the lock screen; null when fine. */
+export function getStorageError(): string | null { return storageError; }
+
 let masterKey: Uint8Array | null = null;
 let vaultKey: Uint8Array | null = null;
 let unlockedItems: VaultItem[] = [];
+/** How this session was unlocked; device-unlock enrolment needs 'passphrase' or 'recovery'. */
+let unlockSource: 'passphrase' | 'recovery' | 'device' | 'created' | null = null;
 
-async function loadRows(): Promise<StoredRow[]> {
-  try { const p: unknown = JSON.parse((await storage.getItem(LS_KEY)) ?? '[]'); return Array.isArray(p) ? (p as StoredRow[]) : []; } catch { return []; }
-}
-async function saveRows(rows: StoredRow[]): Promise<void> { await storage.setItem(LS_KEY, JSON.stringify(rows)); }
+async function loadRows(): Promise<StoredRow[]> { return (await getStore()).listRows(); }
 async function loadKeys(): Promise<StoredKeys | null> {
-  const raw = await storage.getItem(LS_KEYS); if (!raw) return null;
-  try { return JSON.parse(raw) as StoredKeys; } catch { return null; }
+  try { return await (await getStore()).getKeys(); } catch { return null; }
 }
-function clearMemory(): void { masterKey?.fill(0); vaultKey?.fill(0); masterKey = null; vaultKey = null; unlockedItems = []; }
+function clearMemory(): void { masterKey?.fill(0); vaultKey?.fill(0); masterKey = null; vaultKey = null; unlockedItems = []; unlockSource = null; }
 function concat(a: Uint8Array, b: Uint8Array): Uint8Array { const o = new Uint8Array(a.length + b.length); o.set(a, 0); o.set(b, a.length); return o; }
 function splitNoncePrefixed(encoded: string): { nonce: Uint8Array; rest: Uint8Array } {
   const bytes = fromBase64(encoded); if (bytes.length < 24) throw new Error('encrypted blob too short');
@@ -102,16 +134,43 @@ async function decryptRows(rows: StoredRow[]): Promise<VaultItem[]> {
   }
   return items;
 }
-async function finishUnlock(master: Uint8Array, keys: StoredKeys): Promise<boolean> {
+/** 'bad_master': this Master Key does not open the Vault Key. 'bad_rows': it does, but a row failed. */
+async function finishUnlock(master: Uint8Array, keys: StoredKeys): Promise<'ok' | 'bad_master' | 'bad_rows'> {
+  let vk: Uint8Array;
+  try { vk = await crypto.unwrapKey(master, fromBase64(keys.wrapped_vault_nonce), fromBase64(keys.wrapped_vault)); }
+  catch { master.fill(0); clearMemory(); return 'bad_master'; }
+  masterKey = master; vaultKey = vk;
+  try { unlockedItems = await decryptRows(await loadRows()); return 'ok'; }
+  catch { clearMemory(); return 'bad_rows'; }
+}
+/**
+ * autofill_index is the providers' candidate list, and providers can only
+ * fill with biometric unlock on, so it exists only while that is on
+ * (contract §2: cleared on wipe and when biometric unlock is turned off).
+ * Rewritten after every unlock and enrolment; a failure only leaves it
+ * stale until the next one.
+ */
+async function refreshAutofillIndex(): Promise<void> {
   try {
-    masterKey = master;
-    vaultKey = await crypto.unwrapKey(master, fromBase64(keys.wrapped_vault_nonce), fromBase64(keys.wrapped_vault));
-    unlockedItems = await decryptRows(await loadRows());
-    return true;
-  } catch { clearMemory(); return false; }
+    const store = await getStore();
+    const enabled = (await store.getDeviceUnlock()) !== null;
+    await store.replaceAutofillIndex(enabled ? autofillIndexFor(unlockedItems) : []);
+  } catch { /* see above */ }
+}
+/** The index entry for an item write, or null (= remove) while biometric unlock is off. */
+async function indexEntryFor(store: VaultStore, item: VaultItem) {
+  return (await store.getDeviceUnlock()) !== null ? autofillEntryFor(item) : null;
 }
 
-export async function hasVault(): Promise<boolean> { return (await storage.getItem(LS_KEYS)) !== null; }
+/**
+ * True when a vault exists. When vault.db cannot be opened or the
+ * AsyncStorage migration failed, also true: the lock screen then shows
+ * getStorageError() and nothing unlocks — never onboarding over data
+ * that is still sitting in the old storage.
+ */
+export async function hasVault(): Promise<boolean> {
+  try { return (await (await getStore()).getKeysJson()) !== null; } catch { return true; }
+}
 
 export async function createVault(passphrase: string): Promise<{ recoveryKey: string }> {
   if (!passphrase) throw new Error('passphrase must not be empty');
@@ -129,10 +188,10 @@ export async function createVault(passphrase: string): Promise<{ recoveryKey: st
     wrapped_vault: toBase64(wVault.wrapped), wrapped_vault_nonce: toBase64(wVault.nonce),
     wrapped_recovery: toBase64(wRecovery.wrapped), wrapped_recovery_nonce: toBase64(wRecovery.nonce),
   };
-  await storage.setItem(LS_KEYS, JSON.stringify(keys));
-  masterKey = master; vaultKey = vk; unlockedItems = [];
-  await saveRows([]);
   kek.fill(0); recoveryKek.fill(0);
+  try { await (await getStore()).createVault(JSON.stringify(keys)); }
+  catch (err) { master.fill(0); vk.fill(0); recoveryKeyBytes.fill(0); throw err; }
+  masterKey = master; vaultKey = vk; unlockedItems = []; unlockSource = 'created';
   const recoveryKey = toBase64Url(recoveryKeyBytes); recoveryKeyBytes.fill(0);
   return { recoveryKey };
 }
@@ -142,7 +201,9 @@ export async function unlockVault(passphrase: string): Promise<boolean> {
   try {
     const kek = await crypto.deriveKek(passphrase, fromBase64(keys.salt));
     const master = await crypto.unwrapKey(kek, fromBase64(keys.wrapped_master_nonce), fromBase64(keys.wrapped_master));
-    kek.fill(0); return finishUnlock(master, keys);
+    kek.fill(0);
+    if ((await finishUnlock(master, keys)) !== 'ok') return false;
+    unlockSource = 'passphrase'; await refreshAutofillIndex(); return true;
   } catch { clearMemory(); return false; }
 }
 
@@ -152,8 +213,20 @@ export async function unlockWithRecoveryKey(recoveryKey: string): Promise<boolea
     const rb = fromBase64Url(recoveryKey.trim()); if (rb.length !== 32) return false;
     const rk = await sha256(rb); rb.fill(0);
     const master = await crypto.unwrapKey(rk, fromBase64(keys.wrapped_recovery_nonce), fromBase64(keys.wrapped_recovery));
-    rk.fill(0); return finishUnlock(master, keys);
+    rk.fill(0);
+    if ((await finishUnlock(master, keys)) !== 'ok') return false;
+    unlockSource = 'recovery'; await refreshAutofillIndex(); return true;
   } catch { clearMemory(); return false; }
+}
+
+/** Throwaway copy of the Master Key for this passphrase, or null. The caller zero-fills it. */
+async function masterFromPassphrase(passphrase: string): Promise<Uint8Array | null> {
+  const keys = await loadKeys(); if (!keys) return null;
+  try {
+    const kek = await crypto.deriveKek(passphrase, fromBase64(keys.salt));
+    try { return await crypto.unwrapKey(kek, fromBase64(keys.wrapped_master_nonce), fromBase64(keys.wrapped_master)); }
+    finally { kek.fill(0); }
+  } catch { return null; }
 }
 
 /**
@@ -165,13 +238,114 @@ export async function unlockWithRecoveryKey(recoveryKey: string): Promise<boolea
  * the passphrase.
  */
 export async function verifyPassphrase(passphrase: string): Promise<boolean> {
-  const keys = await loadKeys(); if (!keys) return false;
+  const master = await masterFromPassphrase(passphrase);
+  if (!master) return false;
+  master.fill(0);
+  return true;
+}
+
+// --- biometric quick unlock (contract §4) ------------------------------
+export type DeviceUnlockFailure = DeviceKeyErrorCode | 'NOT_SET_UP' | 'WRONG_PASSPHRASE' | 'STORAGE';
+export type DeviceUnlockResult = { ok: true } | { ok: false; code: DeviceUnlockFailure };
+export interface DeviceUnlockState {
+  /** A device_unlock row exists for this vault. */
+  enrolled: boolean;
+  /** Biometrics are enrolled and usable on this device right now. */
+  available: boolean;
+  biometry: Biometry;
+  scheme: string | null;
+}
+
+export async function getDeviceUnlockState(): Promise<DeviceUnlockState> {
+  const platform = await getPlatform();
+  let info: { available: boolean; biometry: Biometry; scheme: string | null } = { available: false, biometry: 'none', scheme: null };
+  try { info = await platform.deviceKey.isAvailable(); } catch { /* reported as unavailable */ }
+  let enrolled = false;
+  try { enrolled = (await (await getStore()).getDeviceUnlock()) !== null; } catch { /* storage error is shown separately */ }
+  return { enrolled, available: info.available, biometry: info.biometry, scheme: info.scheme };
+}
+
+/** Delete the row first, then the key: the AMK wrap lives only in the row. */
+async function dropDeviceUnlock(store: VaultStore, platform: VaultPlatform): Promise<void> {
+  try { await store.deleteDeviceUnlock(); }
+  finally { await platform.deviceKey.remove(); }
+}
+
+async function enrollMaster(master: Uint8Array, prompt: string): Promise<DeviceUnlockResult> {
+  const platform = await getPlatform();
+  let store: VaultStore;
+  try { store = await getStore(); } catch { return { ok: false, code: 'STORAGE' }; }
+  let enrolled: { scheme: string; wrappedAmkB64: string };
+  try { enrolled = await platform.deviceKey.enroll(toBase64(master), prompt); }
+  catch (err) { return { ok: false, code: deviceKeyErrorCode(err) ?? 'AUTH_FAILED' }; }
   try {
-    const kek = await crypto.deriveKek(passphrase, fromBase64(keys.salt));
-    const master = await crypto.unwrapKey(kek, fromBase64(keys.wrapped_master_nonce), fromBase64(keys.wrapped_master));
-    kek.fill(0); master.fill(0);
-    return true;
-  } catch { return false; }
+    await store.putDeviceUnlock({ scheme: enrolled.scheme, wrapped_amk: enrolled.wrappedAmkB64, created_at: new Date().toISOString() });
+  } catch {
+    await platform.deviceKey.remove().catch(() => undefined);
+    return { ok: false, code: 'STORAGE' };
+  }
+  await refreshAutofillIndex();
+  return { ok: true };
+}
+
+/**
+ * Offer right after a passphrase or recovery-key unlock: wraps the
+ * in-memory Master Key with a new biometric-gated device key. Refused
+ * after a biometric unlock or vault creation (contract §4).
+ */
+export async function enableDeviceUnlock(prompt: string): Promise<DeviceUnlockResult> {
+  if (!masterKey || (unlockSource !== 'passphrase' && unlockSource !== 'recovery')) {
+    throw new Error('biometric unlock can only be turned on right after a passphrase or recovery-key unlock');
+  }
+  return enrollMaster(masterKey, prompt);
+}
+
+/** Settings path: the passphrase is unlocked again on the spot, and that Master Key copy is enrolled then zero-filled. */
+export async function enableDeviceUnlockWithPassphrase(passphrase: string, prompt: string): Promise<DeviceUnlockResult> {
+  const master = await masterFromPassphrase(passphrase);
+  if (!master) return { ok: false, code: 'WRONG_PASSPHRASE' };
+  try { return await enrollMaster(master, prompt); } finally { master.fill(0); }
+}
+
+/**
+ * Biometric unlock. Only a successful native unwrap whose Master Key
+ * opens the Vault Key unlocks; every other outcome leaves the vault
+ * locked for the passphrase. KEY_INVALIDATED (biometrics re-enrolled)
+ * and CORRUPT delete the row and the key — the user must use the
+ * passphrase and may turn biometric unlock on again afterwards.
+ */
+export async function unlockWithDeviceKey(prompt: string): Promise<DeviceUnlockResult> {
+  const platform = await getPlatform();
+  let store: VaultStore;
+  try { store = await getStore(); } catch { return { ok: false, code: 'STORAGE' }; }
+  const keys = await store.getKeys();
+  const row = await store.getDeviceUnlock();
+  if (!keys || !row) return { ok: false, code: 'NOT_SET_UP' };
+  let amkB64: string;
+  try { amkB64 = await platform.deviceKey.unwrap(row.scheme, row.wrapped_amk, prompt); }
+  catch (err) {
+    const code = deviceKeyErrorCode(err) ?? 'AUTH_FAILED';
+    if (code === 'KEY_INVALIDATED' || code === 'CORRUPT') await dropDeviceUnlock(store, platform).catch(() => undefined);
+    return { ok: false, code };
+  }
+  let master: Uint8Array;
+  try { master = fromBase64(amkB64); } catch { master = new Uint8Array(0); }
+  if (master.length !== 32) {
+    master.fill(0);
+    await dropDeviceUnlock(store, platform).catch(() => undefined);
+    return { ok: false, code: 'CORRUPT' };
+  }
+  const result = await finishUnlock(master, keys);
+  if (result === 'ok') { unlockSource = 'device'; await refreshAutofillIndex(); return { ok: true }; }
+  if (result === 'bad_master') {
+    await dropDeviceUnlock(store, platform).catch(() => undefined);
+    return { ok: false, code: 'CORRUPT' };
+  }
+  return { ok: false, code: 'STORAGE' };
+}
+
+export async function disableDeviceUnlock(): Promise<void> {
+  await dropDeviceUnlock(await getStore(), await getPlatform());
 }
 
 /**
@@ -197,6 +371,7 @@ export async function decryptWithVaultKey(encoded: string): Promise<string | nul
   } catch { return null; }
 }
 
+/** Re-wraps the same Master Key; also turns biometric unlock off (row + key), per contract §4. */
 export async function changePassphrase(oldPassphrase: string, newPassphrase: string): Promise<void> {
   if (!newPassphrase || newPassphrase.length < 8) throw new Error('new passphrase must be at least 8 characters');
   const keys = await loadKeys(); if (!keys) throw new Error('no vault exists');
@@ -210,10 +385,20 @@ export async function changePassphrase(oldPassphrase: string, newPassphrase: str
   const newKek = await crypto.deriveKek(newPassphrase, newSalt);
   const wMaster = await crypto.wrapKey(newKek, master);
   newKek.fill(0); master.fill(0);
-  await storage.setItem(LS_KEYS, JSON.stringify({ ...keys, salt: toBase64(newSalt), wrapped_master: toBase64(wMaster.wrapped), wrapped_master_nonce: toBase64(wMaster.nonce) }));
+  const store = await getStore();
+  await store.replaceKeysAndDropDeviceUnlock(JSON.stringify({ ...keys, salt: toBase64(newSalt), wrapped_master: toBase64(wMaster.wrapped), wrapped_master_nonce: toBase64(wMaster.nonce) }));
+  await (await getPlatform()).deviceKey.remove().catch(() => undefined); // the wrap went with the row
 }
 
-export async function wipeVault(): Promise<void> { await storage.removeItem(LS_KEY); await storage.removeItem(LS_KEYS); clearMemory(); }
+/** Empties vault.db (keys, rows, device unlock, autofill index) and deletes the device key. */
+export async function wipeVault(): Promise<void> {
+  try {
+    await (await getStore()).wipe();
+    await (await getPlatform()).deviceKey.remove().catch(() => undefined); // its wrap went with the row
+  } finally {
+    clearMemory();
+  }
+}
 export function exportPlaintext(): string {
   if (!vaultKey) throw new Error('vault locked');
   return JSON.stringify({ format: 'my-secrect-vault-plaintext-export', format_version: 1, exported_at: new Date().toISOString(), vault_id: 'local', items: listItems() }, null, 2);
@@ -234,25 +419,27 @@ export async function upsertItem(item: VaultItem): Promise<void> {
   const wrapped = await crypto.wrapKey(vaultKey, itemKey);
   const { nonce, ciphertext } = await crypto.encrypt(itemKey, Buffer.from(JSON.stringify(stored), 'utf8'));
   itemKey.fill(0);
-  const rows = await loadRows();
-  const existing = rows.find((r) => r.id === stored.id);
-  const row: StoredRow = { id: stored.id, revision: (existing?.revision ?? 0) + 1, nonce: toBase64(nonce), ciphertext: toBase64(ciphertext), wrapped_item_key: toBase64(wrapped.wrapped), wrapped_nonce: toBase64(wrapped.nonce), deleted_at: null };
-  await saveRows([...rows.filter((r) => r.id !== stored.id), row]);
+  const store = await getStore();
+  await store.upsertItemRow(
+    { id: stored.id, nonce: toBase64(nonce), ciphertext: toBase64(ciphertext), wrapped_item_key: toBase64(wrapped.wrapped), wrapped_nonce: toBase64(wrapped.nonce), deleted_at: null },
+    await indexEntryFor(store, stored),
+  );
   unlockedItems = [...unlockedItems.filter((i) => i.id !== stored.id), stored];
 }
 
 export async function deleteItem(id: string): Promise<void> {
-  const now = new Date().toISOString(); const rows = await loadRows();
-  const row = rows.find((r) => r.id === id); if (row) { row.deleted_at = now; await saveRows(rows); }
+  const now = new Date().toISOString();
+  await (await getStore()).setDeletedAt(id, now, null);
   const item = unlockedItems.find((i) => i.id === id); if (item) item.deleted_at = now;
 }
 export async function restoreItem(id: string): Promise<void> {
-  const rows = await loadRows(); const row = rows.find((r) => r.id === id);
-  if (row) { row.deleted_at = null; await saveRows(rows); }
-  const item = unlockedItems.find((i) => i.id === id); if (item) item.deleted_at = null;
+  const item = unlockedItems.find((i) => i.id === id);
+  const store = await getStore();
+  await store.setDeletedAt(id, null, item ? await indexEntryFor(store, { ...item, deleted_at: null }) : null);
+  if (item) item.deleted_at = null;
 }
 export async function permanentlyDeleteItem(id: string): Promise<void> {
-  await saveRows((await loadRows()).filter((r) => r.id !== id));
+  await (await getStore()).deleteRow(id);
   unlockedItems = unlockedItems.filter((i) => i.id !== id);
 }
 export function toggleFavorite(id: string): void {
@@ -308,33 +495,6 @@ function envelopeToStoredKeys(keys: WrappedKeyEnvelope): StoredKeys {
     wrapped_recovery_nonce: keys.wrapped_recovery_nonce,
   };
 }
-async function vaultStorageOccupied(): Promise<boolean> {
-  if ((await storage.getItem(LS_KEYS)) !== null) return true;
-  const raw = await storage.getItem(LS_KEY);
-  if (!raw) return false;
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return true;
-    return parsed.length > 0;
-  } catch {
-    return true;
-  }
-}
-async function persistRestoredVault(keys: StoredKeys, rows: StoredRow[]): Promise<void> {
-  const priorKeys = await storage.getItem(LS_KEYS);
-  const priorRows = await storage.getItem(LS_KEY);
-  if (priorKeys !== null || await vaultStorageOccupied()) throw new Error('restore: vault storage is not empty');
-  try {
-    await storage.setItem(LS_KEYS, JSON.stringify(keys));
-    await storage.setItem(LS_KEY, JSON.stringify(rows));
-  } catch (err) {
-    if (priorKeys === null) await storage.removeItem(LS_KEYS);
-    else await storage.setItem(LS_KEYS, priorKeys);
-    if (priorRows === null) await storage.removeItem(LS_KEY);
-    else await storage.setItem(LS_KEY, priorRows);
-    throw err instanceof Error ? err : new Error('restore: could not write the vault');
-  }
-}
 /** format_version 2. Item cipher stays encryption_version 1. Envelope is the wrapped keys already stored locally. */
 export async function exportEncrypted(): Promise<string> {
   const keys = await loadKeys();
@@ -359,17 +519,18 @@ export async function importEncrypted(json: string): Promise<void> {
     decrypted.deleted_at = null;
     opened.push({ item: decrypted, row: rowFromExportItem(item) });
   }
-  const nextRows = (await loadRows()).map((row) => ({ ...row }));
+  const store = await getStore();
+  const current = new Map((await store.listRows()).map((r) => [r.id, r.revision]));
+  const accepted: StoredRow[] = [];
   let nextItems = [...unlockedItems];
   for (const { item, row } of opened) {
-    const existing = nextRows.find((r) => r.id === row.id);
-    if (existing && existing.revision >= row.revision) continue;
-    const idx = nextRows.findIndex((r) => r.id === row.id);
-    if (idx >= 0) nextRows[idx] = row;
-    else nextRows.push(row);
+    const existing = current.get(row.id);
+    if (existing !== undefined && existing >= row.revision) continue;
+    current.set(row.id, row.revision);
+    accepted.push(row);
     nextItems = [...nextItems.filter((i) => i.id !== item.id), item];
   }
-  await saveRows(nextRows);
+  await store.mergeRows(accepted, (await store.getDeviceUnlock()) !== null ? autofillIndexFor(nextItems) : []);
   unlockedItems = nextItems;
 }
 export type VaultRestoreSecret =
@@ -382,7 +543,8 @@ export type VaultRestoreSecret =
  */
 export async function restoreEncrypted(json: string, secret: VaultRestoreSecret): Promise<void> {
   if (isUnlocked()) throw new Error('restore: lock and wipe the vault before restoring');
-  if (await vaultStorageOccupied()) throw new Error('restore: vault storage is not empty');
+  const store = await getStore();
+  if (await store.isOccupied()) throw new Error('restore: vault storage is not empty');
   const { validation, data } = parseEncryptedExportText(json);
   if (!validation.ok || !data) throw new Error(`restore: ${validation.errors.join(' ')}`);
   const hasPassphrase = typeof secret.passphrase === 'string';
@@ -437,10 +599,12 @@ export async function restoreEncrypted(json: string, secret: VaultRestoreSecret)
       opened.push(decrypted);
       rows.push(rowFromExportItem(item));
     }
-    await persistRestoredVault(envelopeToStoredKeys(data.keys), rows);
+    // A restore lands in an empty store: no biometric unlock yet, so no autofill index.
+    await store.restoreVault(JSON.stringify(envelopeToStoredKeys(data.keys)), rows, []);
     masterKey = master;
     vaultKey = vk;
     unlockedItems = opened;
+    unlockSource = hasPassphrase ? 'passphrase' : 'recovery';
     published = true;
   } catch (err) {
     if (!published) {

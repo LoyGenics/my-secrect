@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Pressable, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import type { VaultItem } from '../../../packages/core/src/types';
@@ -170,6 +170,16 @@ function AppShell() {
     if (boot !== 'unlocked' || autoLock === 0) return;
     const id = setInterval(() => { if (Date.now() - lastActivity.current > autoLock * 60_000) doLock(); }, 10_000);
     return () => clearInterval(id);
+  }, [boot, autoLock, doLock]);
+
+  // Timers pause in the background, so check on return: background time
+  // counts as idle time, and the vault locks before anything is shown.
+  useEffect(() => {
+    if (boot !== 'unlocked' || autoLock === 0) return;
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && Date.now() - lastActivity.current > autoLock * 60_000) doLock();
+    });
+    return () => sub.remove();
   }, [boot, autoLock, doLock]);
 
   function markActivity() { lastActivity.current = Date.now(); }

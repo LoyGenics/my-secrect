@@ -4,7 +4,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import Field from '../components/Field';
 import { colors, styles } from '../theme';
-import { changePassphrase, exportEncrypted, verifyPassphrase, wipeVault } from '../vault';
+import {
+  changePassphrase, disableDeviceUnlock, enableDeviceUnlockWithPassphrase, exportEncrypted, getDeviceUnlockState, verifyPassphrase, wipeVault,
+  type DeviceUnlockState,
+} from '../vault';
+import { biometryName, deviceUnlockMessage } from './LockScreen';
 import { useTranslation } from '../../../../packages/i18n/src/react';
 import { SecurityApiClient } from '../../../../packages/sdk/src/security';
 import { API_BASE_URL_KEY, getApiToken } from './SecurityScreen';
@@ -33,10 +37,33 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
   const [stepUpCode, setStepUpCode] = useState('');
   const [stepUpError, setStepUpError] = useState('');
   const [stepUpBusy, setStepUpBusy] = useState(false);
+  // Biometric unlock (specs/mobile-local-store.md §4).
+  const [device, setDevice] = useState<DeviceUnlockState | null>(null);
+  const [bioPass, setBioPass] = useState('');
+  const [bioMessage, setBioMessage] = useState('');
+  const [bioBusy, setBioBusy] = useState(false);
+  const bioName = biometryName(device?.biometry);
 
   useEffect(() => {
     void AsyncStorage.getItem(API_BASE_URL_KEY).then((v) => setApiBaseUrl(v ?? '')).catch(() => undefined);
+    void getDeviceUnlockState().then(setDevice);
   }, []);
+
+  /** Turning it on needs the passphrase again: that unlock is what releases the Master Key copy to wrap. */
+  async function enableBiometric() {
+    setBioMessage(''); setBioBusy(true);
+    const result = await enableDeviceUnlockWithPassphrase(bioPass, `Turn on ${bioName} unlock for my-secrect`);
+    setBioBusy(false); setBioPass('');
+    setDevice(await getDeviceUnlockState());
+    setBioMessage(result.ok ? `${bioName} unlock is on.` : result.code === 'USER_CANCEL' ? `${bioName} unlock was not turned on.` : `${bioName} unlock could not be turned on: ${deviceUnlockMessage(result.code, bioName)}`);
+  }
+  async function disableBiometric() {
+    setBioMessage(''); setBioBusy(true);
+    try { await disableDeviceUnlock(); setBioMessage(`${bioName} unlock is off. The device key was deleted.`); }
+    catch { setBioMessage(`${bioName} unlock could not be fully turned off. Try again.`); }
+    setBioBusy(false);
+    setDevice(await getDeviceUnlockState());
+  }
 
   const apiConfigured = apiBaseUrl.trim() !== '';
 
@@ -93,8 +120,12 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
   }
   async function doChangePassphrase(verifiedOldPass: string) {
     setChangeError(''); setChangeOk(false);
-    try { await changePassphrase(verifiedOldPass, newPass); setNewPass(''); setNewConfirm(''); setChangeOk(true); }
-    catch (e) { setChangeError(e instanceof Error ? e.message : 'Could not change the passphrase.'); }
+    const biometricWasOn = device?.enrolled === true;
+    try {
+      await changePassphrase(verifiedOldPass, newPass); setNewPass(''); setNewConfirm(''); setChangeOk(true);
+      if (biometricWasOn) setBioMessage(`${bioName} unlock was turned off with the passphrase change. Turn it on again below if you want it.`);
+    } catch (e) { setChangeError(e instanceof Error ? e.message : 'Could not change the passphrase.'); }
+    setDevice(await getDeviceUnlockState());
   }
   async function doWipe() { await wipeVault(); onWiped(); }
 
@@ -138,6 +169,29 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
         <Text style={styles.primaryButtonText}>Change passphrase</Text>
       </Pressable>
       <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 8 }}>Changing the passphrase asks you to re-enter the current one first (step-up). Export and wipe ask the same.</Text>
+      {section('Biometric unlock')}
+      <Text testID="biometric-status" style={{ color: colors.muted, fontSize: 13, lineHeight: 18, marginBottom: 10 }}>
+        {device?.enrolled
+          ? `On. ${bioName} releases a copy of your Master Key wrapped by a device-protected key on this phone. Changing ${bioName} settings turns it off.`
+          : device?.available
+            ? `Off. Enter your passphrase to turn on ${bioName} unlock for this device.`
+            : device?.biometry && device.biometry !== 'none'
+              ? `Off. Set up ${bioName} in the device settings first.`
+              : 'Not available on this device.'}
+      </Text>
+      {device?.enrolled ? (
+        <Pressable testID="disable-biometric-button" accessibilityLabel={`Turn off ${bioName} unlock`} accessibilityRole="button" disabled={bioBusy} style={styles.ghostButton} onPress={() => void disableBiometric()}>
+          <Text style={styles.ghostButtonText}>Turn off {bioName} unlock</Text>
+        </Pressable>
+      ) : device?.available ? (
+        <>
+          <Field label="Master passphrase" testID="biometric-passphrase" placeholder="Master passphrase" secureTextEntry value={bioPass} onChangeText={setBioPass} autoCapitalize="none" autoCorrect={false} />
+          <Pressable testID="enable-biometric-settings-button" accessibilityLabel={`Turn on ${bioName} unlock`} accessibilityRole="button" disabled={bioBusy || !bioPass} style={[styles.primaryButton, bioBusy || !bioPass ? { opacity: 0.6 } : null]} onPress={() => void enableBiometric()}>
+            <Text style={styles.primaryButtonText}>Turn on {bioName} unlock</Text>
+          </Pressable>
+        </>
+      ) : null}
+      {bioMessage ? <Text testID="biometric-message" style={{ color: '#A5B4FC', fontSize: 14, lineHeight: 20, marginTop: 8 }}>{bioMessage}</Text> : null}
       <Text style={[styles.label, { marginTop: 16 }]}>Auto-lock</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
         {([1, 5, 15, 0] as AutoLockMinutes[]).map((m) => (

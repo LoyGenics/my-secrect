@@ -16,6 +16,11 @@
       "package": "com.loygenics.mysecrect",
       "versionCode": 1
     },
-    "plugins": ["expo-local-authentication"]
+    "plugins": [
+      "expo-local-authentication",
+      ["expo-sqlite", { "useSQLCipher": true }],
+      ["react-native-libsodium", {}],
+      "./plugins/with-mobile-storage"
+    ]
   }
 }
