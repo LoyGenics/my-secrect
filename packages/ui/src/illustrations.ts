@@ -26,7 +26,7 @@ import typeDocument from '../assets/illustrations/type-document.webp';
 import typeMedia from '../assets/illustrations/type-media.webp';
 import typeCollection from '../assets/illustrations/type-collection.webp';
 import typeCustom from '../assets/illustrations/type-custom.webp';
-import ghostMark from '../assets/brand/ghost-mark.webp';
+import ghostMark from '../assets/brand/source/ghost-key-cutout.webp';
 import mascotNeutral from '../assets/mascot/ghost-neutral.webp';
 import mascotHappy from '../assets/mascot/ghost-happy.webp';
 import mascotWave from '../assets/mascot/ghost-wave.webp';
@@ -112,8 +112,8 @@ export const typeArt: Partial<Record<ItemTypeKey, string>> = {
 
 /**
  * Brand mark (rail header, lock card): the ghost holding an orange key, chosen
- * from the logo concepts (07_ghost_key, seed 8209) — a full-bleed lavender
- * square, so consumers round its corners (`.ms-brand-img`). Provenance:
+ * from the logo concepts (07_ghost_key, seed 8209), using the transparent
+ * cutout without a tile or baked-in background. Provenance:
  * packages/ui/assets/ASSETS.md.
  */
 export const brandMark: { src?: string } = { src: ghostMark };

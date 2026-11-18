@@ -835,7 +835,7 @@ select.ms-input { padding-right: 32px; cursor: pointer; }
   background: var(--ms-color-bg-surface2);
 }
 .ms-rail__brand { display: flex; align-items: center; gap: 10px; padding: 20px 20px 14px; }
-.ms-brand-img { flex: none; border-radius: 11px; }
+.ms-brand-img { flex: none; object-fit: contain; }
 .ms-brand-mark {
   display: grid;
   place-items: center;

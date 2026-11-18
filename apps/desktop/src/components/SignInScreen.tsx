@@ -375,7 +375,7 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
     <div className="si">
       <aside className="si-aside">
         <div className="si-brand">
-          <img src={brandMark.src} alt="" width={36} height={36} />
+          <img className="ms-brand-img" src={brandMark.src} alt="" width={36} height={36} />
           <span>My Secret</span>
         </div>
         <div className="si-hero">

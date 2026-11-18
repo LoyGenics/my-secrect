@@ -159,7 +159,7 @@ export function SoftAlert({ testID, children }: { testID: string; children: Reac
 }
 
 export function GhostBrandMark() {
-  return <Image source={require('../../../../packages/ui/assets/brand/ghost-mark.webp')} style={{ width: 36, height: 36 }} accessibilityIgnoresInvertColors />;
+  return <Image source={require('../../../../packages/ui/assets/brand/source/ghost-key-cutout.webp')} resizeMode="contain" style={{ width: 36, height: 36 }} accessibilityIgnoresInvertColors />;
 }
 
 /** Page: brand row, floating clay hero, then a white card holding the content. */

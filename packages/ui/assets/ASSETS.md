@@ -62,7 +62,7 @@ cropped parts such as the lanyard on `type_identity` 9103, or clutter).
 
 | File | Source | Seed | Use |
 |---|---|---|---|
-| brand/ghost-mark.webp (256) | logo concept `07_ghost_key` (`hd/07_ghost_key_s8209_00001.webp`) | 8209 | `brandMark` (sidebar, lock card); also the source of the favicons (`apps/{desktop,web}/public/favicon.png`), the Tauri icons (`apps/desktop/src-tauri/icons/`) and the mobile icon, adaptive foreground and splash (`apps/mobile/assets/`, from the `cutouts_hd` transparent version) |
+| brand/ghost-mark.webp (256) | logo concept `07_ghost_key` (`hd/07_ghost_key_s8209_00001.webp`) | 8209 | Archived square-tile concept (not used as an in-app logo); also the source of the favicons (`apps/{desktop,web}/public/favicon.png`), the Tauri icons (`apps/desktop/src-tauri/icons/`) and the mobile icon, adaptive foreground and splash (`apps/mobile/assets/`, from the `cutouts_hd` transparent version) |
 
 Prompt: "A tiny friendly white ghost holding a small orange key. Mobile app icon design, soft 3D
 clay toy style … solid pastel lavender background"; chosen by the user from 20 concepts × 2 seeds.
@@ -172,3 +172,10 @@ Not covered yet: iOS 18 dark/tinted icon variants and Android legacy mipmap size
 | emptyTrash | empty | trash empty |
 | emptyFavorites (loop) / emptyFavoritesStatic | sleepy | no favourites |
 Unused for now: `guard`, `working`, `thinking` elsewhere, `hello`/`idle` loops — kept in `mascot` / `mascotMotion` for new screens. `guard` and `working` frown, so avoid them on friendly screens (recovery key looked angry with `guard`).
+
+### In-app logo transparency
+
+Desktop/web `brandMark`, the mobile `GhostBrandMark` and the landing wordmark use
+`brand/source/ghost-key-cutout.webp`, the existing RGBA cutout. They render with
+contain sizing and no square tile or corner mask. Launcher icon assets remain
+separate from the in-app logo.

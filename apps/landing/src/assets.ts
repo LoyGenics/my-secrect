@@ -1,4 +1,4 @@
-import ghostMark from '../../../packages/ui/assets/brand/ghost-favicon.svg';
+import ghostMark from '../../../packages/ui/assets/brand/source/ghost-key-cutout.webp';
 /** Clay art from the shared brand set (packages/ui/assets/illustrations). Decorative: alt is empty on purpose. */
 import hero from '../../../packages/ui/assets/mascot/ghost-proud.webp';
 import locked from '../../../packages/ui/assets/mascot/ghost-sleepy.webp';
