@@ -216,7 +216,7 @@ export const en = {
     watchtowerIssues: { one: '{0} issue', other: '{0} issues' },
     generator: 'Generator',
     settings: 'Settings',
-    securityCenter: 'Security center',
+    securityCenter: 'Security Center',
     exportBackup: 'Export encrypted backup',
     importBackup: 'Import encrypted backup',
     recoveryKey: 'Recovery key',
@@ -918,7 +918,7 @@ export const en = {
     parts: '{0} / {1} parts',
     uploadProgress: 'Upload progress for {0}',
     retryPart: 'Part {0} failed ({1}); retrying in {2} s',
-    resumed: { one: ' Resumed: {0} part was already stored.', other: ' Resumed: {0} parts were already stored.' },
+    resumed: { one: 'Resumed: {0} part was already stored.', other: 'Resumed: {0} parts were already stored.' },
     uploaded: 'Uploaded “{0}” as encrypted chunks.',
     interrupted:
       'Upload interrupted — {0} of {1} parts are stored. Resume to send the rest, or choose the same file again later.',
@@ -930,7 +930,7 @@ export const en = {
     downloadFailed: 'Download failed — nothing was saved: {0}',
     viewer: 'Viewer',
     viewerTitle: 'Viewer: {0}',
-    verifiedDecrypted: ' · verified and decrypted on this device',
+    verifiedDecrypted: 'verified and decrypted on this device',
     verifying: 'Verifying and decrypting…',
     chunksProgress: '{0} / {1} chunks',
     fetchingManifest: 'fetching manifest',
@@ -940,7 +940,7 @@ export const en = {
     emptyHint:
       'Each file is split into authenticated encrypted chunks on this device before it leaves. Thumbnails are made and encrypted here too, so the server only ever holds ciphertext.',
     filterLabel: 'Filter media',
-    filters: { all: 'All', photo: 'Photo', video: 'Video', audio: 'Audio', document: 'Document', other: 'Other' },
+    filters: { all: 'All', photo: 'Photo', video: 'Video', audio: 'Audio', document: 'Document', misc: 'Other' },
     nothingInFilter: 'Nothing in this filter.',
     footnote:
       'Thumbnails are generated on this device and stored as their own encrypted blobs; the server never sees them. Decrypted files live only in memory while shown and are released when you close them. A fully compromised device is not protected by this.',
@@ -950,7 +950,7 @@ export const en = {
     manifestMissing: 'not uploaded',
     manifestUnknown: 'unknown (no account server)',
     status: { verified: 'verified', missing: 'not uploaded', tampered: 'FAILED verification', unknown: 'unknown' },
-    chunks: { one: ' · {0} chunk', other: ' · {0} chunks' },
+    chunks: { one: '{0} chunk', other: '{0} chunks' },
     thumbFailed: 'Thumbnail failed verification — not shown.',
     manifestTampered: 'Manifest failed verification{0}. Do not open this file.',
     legacyManifest:

@@ -918,7 +918,7 @@ export const vi: Dictionary = {
     parts: '{0} / {1} phần',
     uploadProgress: 'Tiến độ tải lên {0}',
     retryPart: 'Phần {0} lỗi ({1}); thử lại sau {2} giây',
-    resumed: { one: ' Đã tiếp tục: {0} phần đã được lưu trước đó.', other: ' Đã tiếp tục: {0} phần đã được lưu trước đó.' },
+    resumed: { one: 'Đã tiếp tục: {0} phần đã được lưu trước đó.', other: 'Đã tiếp tục: {0} phần đã được lưu trước đó.' },
     uploaded: 'Đã tải lên “{0}” dưới dạng các khối mã hóa.',
     interrupted:
       'Tải lên bị gián đoạn — đã lưu {0} / {1} phần. Hãy tiếp tục để gửi phần còn lại, hoặc chọn lại đúng tệp này sau.',
@@ -930,7 +930,7 @@ export const vi: Dictionary = {
     downloadFailed: 'Tải về thất bại — chưa lưu gì cả: {0}',
     viewer: 'Trình xem',
     viewerTitle: 'Trình xem: {0}',
-    verifiedDecrypted: ' · đã xác minh và giải mã ngay trên thiết bị này',
+    verifiedDecrypted: 'đã xác minh và giải mã ngay trên thiết bị này',
     verifying: 'Đang xác minh và giải mã…',
     chunksProgress: '{0} / {1} khối',
     fetchingManifest: 'đang lấy bảng kê',
@@ -940,7 +940,7 @@ export const vi: Dictionary = {
     emptyHint:
       'Mỗi tệp được chia thành các khối mã hóa có xác thực ngay trên thiết bị này trước khi rời đi. Ảnh thu nhỏ cũng được tạo và mã hóa tại đây, nên máy chủ chỉ giữ dữ liệu đã mã hóa.',
     filterLabel: 'Lọc phương tiện',
-    filters: { all: 'Tất cả', photo: 'Ảnh', video: 'Video', audio: 'Âm thanh', document: 'Tài liệu', other: 'Khác' },
+    filters: { all: 'Tất cả', photo: 'Ảnh', video: 'Video', audio: 'Âm thanh', document: 'Tài liệu', misc: 'Khác' },
     nothingInFilter: 'Không có gì trong bộ lọc này.',
     footnote:
       'Ảnh thu nhỏ được tạo trên thiết bị này và lưu thành các blob mã hóa riêng; máy chủ không bao giờ thấy chúng. Tệp đã giải mã chỉ nằm trong bộ nhớ khi đang xem và được giải phóng khi bạn đóng. Thiết bị đã bị chiếm quyền hoàn toàn thì không được bảo vệ bởi cơ chế này.',
@@ -950,7 +950,7 @@ export const vi: Dictionary = {
     manifestMissing: 'chưa tải lên',
     manifestUnknown: 'chưa rõ (không có máy chủ tài khoản)',
     status: { verified: 'đã xác minh', missing: 'chưa tải lên', tampered: 'XÁC MINH THẤT BẠI', unknown: 'chưa rõ' },
-    chunks: { one: ' · {0} khối', other: ' · {0} khối' },
+    chunks: { one: '{0} khối', other: '{0} khối' },
     thumbFailed: 'Ảnh thu nhỏ không qua được bước xác minh — không hiển thị.',
     manifestTampered: 'Bảng kê không qua được bước xác minh{0}. Đừng mở tệp này.',
     legacyManifest:

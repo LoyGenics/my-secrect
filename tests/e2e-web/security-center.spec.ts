@@ -102,7 +102,7 @@ test.describe('Security Center: sessions', () => {
     await expect(sessionsSection.getByRole('button', { name: 'Revoke session' })).toHaveCount(0);
     expect((await apiFetch(apiUrl, otherToken, 'GET', SESSIONS_API)).status).toBe(401);
     // The revoked browser only learns on its next server call, then is sent back to sign-in.
-    await other.page.getByRole('button', { name: 'All Items' }).click();
+    await other.page.getByRole('button', { name: 'All items' }).click();
     await openSecurityCenterNoWait(other.page);
     await expect(other.page.getByRole('heading', { name: 'Sign in to your account' })).toBeVisible();
     await expect(other.page.getByText('Your session expired')).toBeVisible();

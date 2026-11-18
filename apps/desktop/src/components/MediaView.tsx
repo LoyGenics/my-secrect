@@ -186,7 +186,7 @@ export default function MediaView({ items, api = null, onItemsChanged, onSelect 
       });
       await upsertItem(item);
       onItemsChanged?.();
-      const resumed = resumedParts ? plural(locale, m.resumed, resumedParts) : '';
+      const resumed = resumedParts ? ` ${plural(locale, m.resumed, resumedParts)}` : '';
       setNotice(`${format(m.uploaded, file.name)}${resumed}${warning ? ' ' + warning : ''}`);
     } catch (e) {
       if (e instanceof BlobUploadError) {
@@ -307,7 +307,7 @@ export default function MediaView({ items, api = null, onItemsChanged, onSelect 
               <h2 className="truncate text-sm font-semibold">{viewer.item.title}</h2>
               <p className="text-xs text-ms-muted">
                 {viewer.info.mime_type} · {formatBytes(viewer.info.size_bytes)}
-                {viewer.status === 'ready' && <span className="text-[var(--ms-color-success-text)]">{m.verifiedDecrypted}</span>}
+                {viewer.status === 'ready' && <span className="text-[var(--ms-color-success-text)]">{` · ${m.verifiedDecrypted}`}</span>}
               </p>
             </div>
             <button className="btn-ghost !py-1 text-xs" onClick={closeViewer} autoFocus>{dict.common.close}</button>
@@ -361,7 +361,7 @@ export default function MediaView({ items, api = null, onItemsChanged, onSelect 
       <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label={m.filterLabel}>
         {FILTERS.map((k) => (
           <button key={k} onClick={() => setFilter(k)} aria-pressed={filter === k} className={`rounded-full px-3 py-1 text-xs transition-colors duration-150 ${filter === k ? 'bg-ms-brand-bg text-ms-text' : 'bg-ms-sunken text-ms-muted hover:bg-ms-sunken'}`}>
-            {m.filters[k]}
+            {m.filters[k === 'other' ? 'misc' : k]}
           </button>
         ))}
       </div>
@@ -458,7 +458,7 @@ function MediaTile(props: {
             <span className={status === 'verified' ? 'text-[var(--ms-color-success-text)]' : status === 'tampered' ? 'text-[var(--ms-color-danger-soft-text)]' : 'text-ms-muted'}>
               {format(m.manifest, status === 'tampered' && metaError ? m.manifestFailed : status === 'missing' ? m.manifestMissing : hasApi ? m.status[status] : m.manifestUnknown)}
             </span>
-            {manifest ? <span className="text-ms-muted">{plural(locale, m.chunks, manifest.chunks.length)}</span> : ''}
+            {manifest ? <span className="text-ms-muted">{` · ${plural(locale, m.chunks, manifest.chunks.length)}`}</span> : ''}
           </p>
           {thumbError && <p className="mt-1 text-xs text-[var(--ms-color-warning-text)]">{m.thumbFailed}</p>}
           {status === 'tampered' && <p role="alert" className="mt-1 text-xs text-[var(--ms-color-danger-soft-text)]">{format(m.manifestTampered, metaError ? `: ${metaError}` : '')}</p>}

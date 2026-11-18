@@ -74,7 +74,7 @@ export default function MediaScreen({ items, onClose, onSelect }: {
           {t.mediaLimits}
         </Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 12 }}>
-          {chip('all', dict.media.filters.all)}{chip('photo', dict.media.filters.photo)}{chip('video', dict.media.filters.video)}{chip('document', dict.media.filters.document)}{chip('other', dict.media.filters.other)}
+          {chip('all', dict.media.filters.all)}{chip('photo', dict.media.filters.photo)}{chip('video', dict.media.filters.video)}{chip('document', dict.media.filters.document)}{chip('other', dict.media.filters.misc)}
         </View>
       </View>
       {media.length === 0 ? (

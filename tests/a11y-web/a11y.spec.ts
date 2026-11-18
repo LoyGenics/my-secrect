@@ -80,7 +80,7 @@ for (const theme of ['dark', 'light'] as const) {
       await page.getByRole('heading', { name: 'Settings', level: 2 }).waitFor();
       await scan(page, `${tag} settings`);
 
-      await nav(page, /All Items/, 'Vault');
+      await nav(page, /All items/i, 'Vault');
       await page.keyboard.press('Control+k');
       await page.getByRole('dialog').waitFor();
       await scan(page, `${tag} search palette`);
