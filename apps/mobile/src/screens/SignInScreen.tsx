@@ -1,9 +1,6 @@
-import React, { useEffect, useRef, useState, type ReactNode } from 'react';
+import React, { useRef, useState, type ReactNode } from 'react';
+import { GhostBrandMark } from '../components/soft';
 import {
-  AccessibilityInfo,
-  ActivityIndicator,
-  Animated,
-  Easing,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -13,7 +10,6 @@ import {
   Text,
   TextInput,
   View,
-  type ViewStyle,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import sodium from 'libsodium-wrappers-sumo';
@@ -28,6 +24,7 @@ import { Icon, illustrations, type IconName } from '../../../../packages/ui/src/
 import { fromBase64Url, sodiumReady, toBase64 } from '../../../../packages/crypto-adapters/src/index';
 import { legacyRecoveryVerifierKeyPair, recoveryVerifierKeyPair } from '../../../../packages/sdk/src/recovery-verifier';
 import { apiStatus, isNetworkError } from '../utils/stepUp';
+import { Btn, Float, P, Rise, TextButton, useReducedMotion } from '../components/soft';
 
 /**
  * SignInScreen (mobile) — account sign-in WITHOUT WebAuthn, "soft light" finish
@@ -61,76 +58,12 @@ import { apiStatus, isNetworkError } from '../utils/stepUp';
  * for reduced motion.
  */
 
-const P = {
-  bg: '#F6F4F1',
-  surface: '#FFFFFF',
-  surface2: '#FAF9F7',
-  line: '#EBE8E3',
-  ink: '#1E2227',
-  ink2: '#565C63',
-  ink3: '#8A9097',
-  /** Button fill: white text on it is 4.7:1 (the lighter #FF6A2B is 2.9:1). */
-  brandFill: '#D23F0C',
-  brand: '#FF6A2B',
-  brandSoft: '#FFF0E8',
-  brandText: '#B8430F',
-  danger: '#8A1F23',
-  dangerSoft: '#FFE7E2',
-  warnSoft: '#FFF4D8',
-  warnText: '#6B4A07',
-};
-
 export interface SignInScreenProps {
   baseUrl: string;
   /** True when the previous session expired (401). */
   sessionExpired?: boolean;
   onSignedIn: (email: string, recoverySession: boolean) => void;
   onContinueLocalOnly: () => void;
-}
-
-function useReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    AccessibilityInfo?.isReduceMotionEnabled?.()
-      .then((v: boolean) => { if (alive) setReduced(!!v); })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, []);
-  return reduced;
-}
-
-/** Slow idle float for the clay hero. */
-function Float({ children, reduced, style }: { children: ReactNode; reduced: boolean; style?: ViewStyle }) {
-  const v = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    if (reduced) return undefined;
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(v, { toValue: 1, duration: 3200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        Animated.timing(v, { toValue: 0, duration: 3200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [reduced, v]);
-  const translateY = v.interpolate({ inputRange: [0, 1], outputRange: [0, -12] });
-  const rotate = v.interpolate({ inputRange: [0, 1], outputRange: ['-1.5deg', '1.5deg'] });
-  return <Animated.View style={[style, { transform: [{ translateY }, { rotate }] }]}>{children}</Animated.View>;
-}
-
-/** One entrance per element: fade + rise, staggered by `index`. */
-function Rise({ index = 0, reduced, children }: { index?: number; reduced: boolean; children: ReactNode }) {
-  const v = useRef(new Animated.Value(reduced ? 1 : 0)).current;
-  useEffect(() => {
-    if (reduced) {
-      v.setValue(1);
-      return;
-    }
-    Animated.timing(v, { toValue: 1, duration: 460, delay: index * 55, easing: Easing.out(Easing.exp), useNativeDriver: true }).start();
-  }, [index, reduced, v]);
-  const translateY = v.interpolate({ inputRange: [0, 1], outputRange: [14, 0] });
-  return <Animated.View style={{ opacity: v, transform: [{ translateY }] }}>{children}</Animated.View>;
 }
 
 /** Six-digit code: one real input (autofill, paste) drawn as six boxes. */
@@ -176,53 +109,6 @@ function OtpField({ value, onChange, label, testID, length = 6 }: {
         caretHidden
         style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, opacity: 0.02, fontSize: 16 }}
       />
-    </Pressable>
-  );
-}
-
-function Btn({ label, icon, onPress, disabled, busy, primary, testID }: {
-  label: string; icon?: IconName; onPress: () => void; disabled?: boolean; busy?: boolean; primary?: boolean; testID: string;
-}) {
-  const off = !!disabled || !!busy;
-  // A filled button always carries white text.
-  const color = primary ? '#FFFFFF' : P.ink;
-  return (
-    <Pressable
-      testID={testID}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ disabled: off, busy: !!busy }}
-      disabled={off}
-      onPress={onPress}
-      style={({ pressed }) => ({
-        height: 52,
-        borderRadius: 26,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 8,
-        backgroundColor: primary ? P.brandFill : P.surface,
-        borderWidth: primary ? 0 : 1,
-        borderColor: P.line,
-        opacity: disabled && !busy ? 0.55 : 1,
-        transform: [{ scale: pressed ? 0.98 : 1 }],
-        shadowColor: P.brandFill,
-        shadowOpacity: primary ? 0.3 : 0,
-        shadowRadius: 14,
-        shadowOffset: { width: 0, height: 8 },
-        elevation: primary ? 4 : 0,
-      })}
-    >
-      {busy ? <ActivityIndicator color={color} /> : icon ? <Icon name={icon} size="lg" color={color} /> : null}
-      <Text style={{ fontSize: 16, fontWeight: '700', color }}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function TextButton({ label, onPress, disabled, brand, testID }: { label: string; onPress: () => void; disabled?: boolean; brand?: boolean; testID: string }) {
-  return (
-    <Pressable testID={testID} accessibilityRole="button" accessibilityLabel={label} disabled={disabled} onPress={onPress} style={{ minHeight: 44, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.5 : 1 }}>
-      <Text style={{ fontSize: 14, fontWeight: '600', color: brand ? P.brandText : P.ink2, textAlign: 'center' }}>{label}</Text>
     </Pressable>
   );
 }
@@ -556,9 +442,7 @@ export default function SignInScreen({ baseUrl, sessionExpired, onSignedIn, onCo
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 8 }}>
-            <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: P.brandFill, alignItems: 'center', justifyContent: 'center' }}>
-              <Icon name="lock" size="lg" color="#FFFFFF" />
-            </View>
+            <GhostBrandMark />
             <Text style={{ fontSize: 17, fontWeight: '700', color: P.ink }}>My Secret</Text>
           </View>
 

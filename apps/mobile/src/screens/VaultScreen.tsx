@@ -10,6 +10,7 @@ import { exampleItems, EXAMPLE_IDS } from '../utils/exampleData';
 import { isArchived } from '../utils/itemMeta';
 import MediaScreen from './MediaScreen';
 import SharesScreen from './SharesScreen';
+import FamilyScreen from './FamilyScreen';
 
 export type VaultFilter = 'all' | 'favorites' | 'trash' | 'archived' | string; // 'tag:xxx' or a category key
 export type VaultSort = 'updated' | 'title' | 'created';
@@ -24,7 +25,7 @@ export default function VaultScreen({ items, trash, onSelect, onToggleFavorite, 
   const SORT_LABELS: Record<VaultSort, string> = { updated: dict.shell.sortUpdated, title: dict.shell.sortTitle, created: dict.shell.sortCreated };
   const [filter, setFilter] = useState<VaultFilter>('all');
   const [sort, setSort] = useState<VaultSort>('updated');
-  const [overlay, setOverlay] = useState<'media' | 'shares' | null>(null);
+  const [overlay, setOverlay] = useState<'media' | 'shares' | 'family' | null>(null);
   // Archived items are hidden from All / categories / tags until unarchived
   // (archiving itself is done on desktop for now — see README note in report).
   const liveItems = useMemo(() => items.filter((i) => !isArchived(i)), [items]);
@@ -55,6 +56,7 @@ export default function VaultScreen({ items, trash, onSelect, onToggleFavorite, 
       <Text style={{ color: filter === key ? colors.card : colors.text, fontSize: 13, fontWeight: '600' }}>{label} ({counts[key] ?? 0})</Text>
     </Pressable>
   );
+  if (overlay === 'family') return <FamilyScreen onClose={() => setOverlay(null)} />;
   if (overlay === 'media') {
     return <MediaScreen items={items} onClose={() => setOverlay(null)} onSelect={(id) => { setOverlay(null); onSelect(id); }} />;
   }
@@ -78,6 +80,7 @@ export default function VaultScreen({ items, trash, onSelect, onToggleFavorite, 
           <Pressable testID="open-media" accessibilityLabel={dict.shell.mediaGallery} style={[styles.ghostButton, { marginRight: 8, marginBottom: 0 }]} onPress={() => setOverlay('media')}>
             <Icon name="gallery" color={colors.text} /><Text style={styles.ghostButtonText}>{dict.shell.mediaGallery}</Text>
           </Pressable>
+          <Pressable testID="open-family" accessibilityRole="button" accessibilityLabel={dict.family.title} style={[styles.ghostButton, { marginRight: 8, marginBottom: 0 }]} onPress={() => setOverlay('family')}><Icon name="share" color={colors.text} /><Text style={styles.ghostButtonText}>{dict.family.title}</Text></Pressable>
           <Pressable testID="open-shares" accessibilityLabel={dict.shell.sharing} style={[styles.ghostButton, { marginBottom: 0 }]} onPress={() => setOverlay('shares')}>
             <Icon name="share" color={colors.text} /><Text style={styles.ghostButtonText}>{dict.shell.sharing}</Text>
           </Pressable>

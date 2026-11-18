@@ -942,7 +942,6 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
         wide: true,
         led: onboardingStep === 2 || restoreUi?.count != null ? 'open' : creating ? 'working' : 'locked',
         lede: o.lede,
-        footnote: o.footnote,
         children: (
           <>
             {restoreUi && restoreUi.count === null && <RestoreBackup onRestored={(count, itemList) => setRestoreUi({ count, itemList })} onCancel={() => setRestoreUi(null)} />}

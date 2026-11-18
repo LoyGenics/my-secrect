@@ -77,3 +77,20 @@ test('detectLocale never throws and normalizes tags', () => {
   assert.equal(normalizeLocale('vi-VN'), 'vi');
   assert.equal(normalizeLocale('fr-FR'), 'en');
 });
+
+test('English is the default even on a Vietnamese device; an explicit choice still wins', () => {
+  const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const storageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  try {
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { language: 'vi-VN' } });
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: () => null } });
+    assert.equal(detectLocale(), 'en');
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: () => 'vi' } });
+    assert.equal(detectLocale(), 'vi');
+  } finally {
+    if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
+    else Reflect.deleteProperty(globalThis, 'navigator');
+    if (storageDescriptor) Object.defineProperty(globalThis, 'localStorage', storageDescriptor);
+    else Reflect.deleteProperty(globalThis, 'localStorage');
+  }
+});

@@ -1,4 +1,6 @@
 class User < ApplicationRecord
+  has_one :owned_family, class_name: 'Family', foreign_key: :owner_id, dependent: :destroy
+  has_one :family_membership, dependent: :destroy
   has_many :authenticators, dependent: :destroy
   has_many :devices, dependent: :destroy
   has_many :vaults, foreign_key: :owner_id, dependent: :destroy

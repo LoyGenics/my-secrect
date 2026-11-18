@@ -1,5 +1,5 @@
 import { useRef, useState, type FormEvent } from 'react';
-import { Art, Icon, illustrations } from '../theme';
+import { Art, Icon, brandMark, illustrations } from '../theme';
 import './signin.css';
 import { useTranslation } from '../../../../packages/i18n/src/react';
 import {
@@ -375,7 +375,7 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
     <div className="si">
       <aside className="si-aside">
         <div className="si-brand">
-          <span className="si-brand__mark"><Icon name="lock" size="lg" /></span>
+          <img src={brandMark.src} alt="" width={36} height={36} />
           <span>My Secret</span>
         </div>
         <div className="si-hero">

@@ -373,3 +373,30 @@ test('L2: A resets the identity (step-up required); every share of A ends and B 
   // A's other device with the same vault loads the new identity.
   assert.deepEqual(await A2.call('startSharing'), fresh);
 });
+
+
+test('Family uses the real SDK and API without combining vaults or sharing keys', async () => {
+  await A.call('stepUp');
+  const created = await A.call<any>('familyCreate');
+  assert.equal(created.family.seats, 6);
+  assert.equal(created.family.role, 'owner');
+  assert.equal(created.current_user_id, who.A.userId);
+  await A.call('familyInvite', { email: EMAIL.B });
+  const pending = await B.call<any>('familyGet');
+  assert.equal(pending.family, null);
+  assert.equal(pending.invitation.owner_email, EMAIL.A);
+  assert.equal(pending.invitation.members, undefined);
+  await C.call('stepUp');
+  await rejectsWith(C.call('familyAccept', { id: pending.invitation.id }), 'ApiError', 404);
+  await B.call('stepUp');
+  const joined = await B.call<any>('familyAccept', { id: pending.invitation.id });
+  assert.equal(joined.family.members.length, 2);
+  assert.equal(joined.family.role, 'member');
+  assert.equal(joined.current_user_id, who.B.userId);
+  assert.deepEqual(Object.keys(joined.family).sort(), ['id', 'members', 'owner_id', 'role', 'seats']);
+  const mine = joined.family.members.find((member: any) => member.user_id === who.B.userId);
+  await B.call('familyRemove', { id: mine.id });
+  assert.equal((await B.call<any>('familyGet')).family, null);
+  await A.call('familyDissolve');
+  assert.equal((await A.call<any>('familyGet')).family, null);
+});

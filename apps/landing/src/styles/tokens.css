@@ -1,0 +1,47 @@
+:root {
+  --space-3xs: 2px; --space-2xs: 4px; --space-xs: 8px; --space-sm: 12px; --space-md: 16px; --space-lg: 24px; --space-xl: 40px; --space-2xl: 64px; --space-3xl: 96px; --space-4xl: 144px;
+  --text-xs: 0.8125rem; --text-sm: 0.875rem; --text-md: 1rem; --text-lg: 1.25rem; --text-xl: 1.5625rem; --text-2xl: 1.953rem; --text-3xl: 2.441rem;
+  --text-display-s: clamp(2.25rem, 4vw + 0.5rem, 3.75rem); --text-display: clamp(2.75rem, 4.4vw + 1rem, 4.75rem);
+  --text-section: clamp(1.875rem, 2.2vw + 1rem, 3rem); --text-title: clamp(1.25rem, 0.75vw + 0.875rem, 1.625rem); --text-lead: clamp(1.125rem, 0.35vw + 1rem, 1.375rem);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); --ease-in: cubic-bezier(0.7, 0, 0.84, 0); --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms; --dur-short: 220ms; --dur-long: 420ms;
+  --color-error: #B3261E; --color-success: #1F7A4D;
+  --container: 1240px; --gutter: 48px; --gap-columns: 32px; --section-gap-s: 96px; --section-gap: 128px; --section-gap-l: 160px;
+  --z-base: 1; --z-raised: 10; --z-dropdown: 100; --z-sticky: 200; --z-sticky-nav: 300; --z-modal: 400; --z-toast: 500; --z-tooltip: 600;
+
+  /* Soft light paper (the app's approved finish, docs/mockups/ui-soft-v1.html). */
+  --color-paper: #F7F8FA; --color-paper-2: #FBFCFD; --color-paper-3: #EBEEF2;
+  --color-surface: #FFFFFF;
+  --color-ink: #1E2227; --color-ink-2: #3A4047; --color-muted: #5B6168;
+  --color-rule: #E0E4E9; --color-rule-2: #C9CED6;
+  /* The one action colour. White text on it is 4.7:1; on the lighter brand orange it would be 2.9:1. */
+  --color-accent: #D23F0C; --color-accent-hover: #BF3708; --color-accent-ink: #FFFFFF; --color-accent-soft: #FFF0E8; --color-accent-text: #A93509; --color-focus: #D23F0C;
+  /* Clay tints, the same set as the item-type art. */
+  --tint-sky: #E6F0FF; --tint-mint: #E3F5EC; --tint-butter: #FFF4D8; --tint-coral: #FFE7E2; --tint-lavender: #EFEAFF; --tint-tangerine: #FFEEDE;
+  --color-board: #1E2227; --color-board-ink: #FBFCFD; --color-board-muted: #C3C7CC; --color-board-rule: #3A4047;
+  --color-yes: #2E9B63; --color-yes-ink: #FFFFFF; --color-no: #D6474D; --color-no-ink: #FFFFFF; --color-partial-bg: #FFF0C9; --color-partial-ink: #6B4A07;
+  --color-mark-bg: #FFE9A8; --color-mark-ink: #4A3600;
+
+  --font-display: "Bricolage Grotesque Variable", "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Be Vietnam Pro", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; --font-outlier: var(--font-body);
+  --radius-card: 20px; --radius-tile: 16px; --radius-pill: 999px; --rule-hair: 1px;
+  --shadow-card: 0 1px 2px rgb(20 23 28 / 0.04), 0 12px 32px rgb(20 23 28 / 0.07);
+  --shadow-lift: 0 2px 6px rgb(20 23 28 / 0.06), 0 18px 44px rgb(20 23 28 / 0.1);
+  --shadow-btn: 0 8px 20px rgb(210 63 12 / 0.3);
+  --shadow-art: 0 28px 28px rgb(120 70 30 / 0.16); --shadow-chip: 0 14px 16px rgb(120 70 30 / 0.2);
+  --radius-ctl: 12px;
+  --tracking-display: -0.025em; --display-weight: 700;
+}
+
+/* One automatic theme for every route; vendor artwork stays on a light plate. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-paper: #14171C; --color-paper-2: #1B1F25; --color-paper-3: #262C34; --color-surface: #1F242B;
+    --color-ink: #F5F6F8; --color-ink-2: #D6DAE1; --color-muted: #A9B1BF;
+    --color-rule: #303741; --color-rule-2: #46505D;
+    --color-accent: #D23F0C; --color-accent-hover: #BD3708; --color-accent-ink: #FFFFFF;
+    --color-accent-text: #FFAB86; --color-accent-soft: #30221E; --color-focus: #FFAB86;
+    --color-mark-bg: #594314; --color-mark-ink: #FFE3A1;
+  }
+  .comparison-logo { background: #FFFFFF; border-radius: 5px; padding: 5px; }
+}

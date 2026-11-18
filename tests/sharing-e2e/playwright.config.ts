@@ -14,7 +14,7 @@ process.env.E2E_LOG_DIR ??= path.join(here, '.out', 'stack-logs');
 
 export default defineConfig({
   testDir: '.',
-  testMatch: /ui\.spec\.ts/,
+  testMatch: /(?:family-)?ui\.spec\.ts/,
   globalSetup: '../e2e-web/global-setup.ts',
   timeout: 180_000,
   expect: { timeout: 20_000 },

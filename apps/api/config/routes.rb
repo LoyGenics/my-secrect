@@ -39,6 +39,12 @@ Rails.application.routes.draw do
       post 'blobs/:id/complete', to: 'blobs#complete'
       get 'blobs/:id/download-session', to: 'blobs#download_session'
 
+      resource :family, only: %i[show create destroy] do
+        post :invitations, action: :invite
+        post 'invitations/:id/accept', action: :accept
+        delete 'members/:id', action: :remove
+      end
+
       # --- Sharing v1 (specs/sharing-protocol.md) -------------------------
       get 'identity-key', to: 'identity_keys#show'
       put 'identity-key', to: 'identity_keys#update'

@@ -43,6 +43,8 @@ async function waitForNewCode(email: string, seen: number): Promise<string> {
 async function main() {
   const vault = await import('../../apps/desktop/src/vault.ts');
   const { SecurityApiClient } = await import('../../packages/sdk/src/security.ts');
+  const { FamilyApiClient } = await import('../../packages/sdk/src/family.ts');
+  const familyApi = new FamilyApiClient({ baseUrl: apiBase, getToken: async () => token });
   const { SharingApiClient, SharingSession } = await import('../../packages/sdk/src/sharing.ts');
   const core = await import('../../packages/core/src/sharing.ts');
   const { SoftwareAuthenticator } = await import('./software-authenticator.ts');
@@ -131,6 +133,13 @@ async function main() {
       return true;
     },
     item({ id }) { return vault.listItems(true).find((i) => i.id === id) ?? null; },
+
+    familyGet() { return familyApi.get(); },
+    familyCreate() { return familyApi.create(); },
+    familyInvite({ email }) { return familyApi.invite(email); },
+    familyAccept({ id }) { return familyApi.accept(id); },
+    familyRemove({ id }) { return familyApi.remove(id); },
+    familyDissolve() { return familyApi.dissolve(); },
 
     // --- sharing, exactly the calls the UIs make ---
     async startSharing() {

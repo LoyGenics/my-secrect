@@ -72,24 +72,12 @@ export function normalizeLocale(tag: string | undefined | null): Locale {
 
 /**
  * The user's locale: the stored choice first (set by the language switch),
- * then the browser language, then the runtime's Intl locale (React Native /
- * Hermes have no navigator.language), then English. Never throws.
+ * then English. Device and browser language do not change the default.
  */
 export function detectLocale(): Locale {
   const stored = getStoredLocale();
   if (stored) return stored;
-  try {
-    const nav =
-      typeof navigator !== 'undefined' ? (navigator as { language?: string }) : undefined;
-    if (nav?.language) return normalizeLocale(nav.language);
-  } catch {
-    /* fall through */
-  }
-  try {
-    return normalizeLocale(Intl.DateTimeFormat().resolvedOptions().locale);
-  } catch {
-    return defaultLocale;
-  }
+  return defaultLocale;
 }
 
 type NestedString = { [key: string]: string | NestedString };

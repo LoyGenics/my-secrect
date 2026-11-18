@@ -74,6 +74,7 @@ messages in English (Conventional Commits, as in `git log`).
 | `apps/desktop` | React + Vite + Tailwind; the main vault UI. Tauri shell in `src-tauri/` |
 | `apps/web` | Mirror only: `src/App.tsx` renders `../../desktop/src/App` with `allowPlaintextExport={false}`. No screens of its own |
 | `apps/mobile` | Expo React Native, same crypto, AsyncStorage |
+| `apps/landing` | Marketing site (Vite + React, en/vi): landing, pricing, security, privacy, terms, support. Placeholders in `src/site.config.ts`; see `docs/landing-pricing.md` |
 | `apps/extension` | MV3. Background worker is the only key holder |
 | `packages/*` | `core` (VaultItem), `schemas` (types, `FORBIDDEN_FIELDS`), `crypto-adapters` (libsodium), `sync`, `storage`, `import-export`, `sdk` (API client), `ui` (tokens `--ms-*`), `i18n` (en/vi) |
 | `native/*` | `crypto-core` (Rust), `ssh-agent` (Rust), iOS/Android credential providers |

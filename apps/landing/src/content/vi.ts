@@ -1,0 +1,216 @@
+import { pricing } from '../site.config';
+import type { Copy } from './en';
+
+const amount = (value: number) => new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 2 }).format(value);
+
+/** Bản tiếng Việt. Các mã trong hai dấu ngoặc vuông là chỗ trống lấy từ site.config.ts (hiện nổi bật cho tới khi điền). */
+export const vi: Copy = {
+  lang: 'vi',
+  htmlLang: 'vi',
+  meta: {
+    home: { title: 'My Secret: két mã hóa cho mọi thứ riêng tư', description: 'Mật khẩu, passkey, thẻ, giấy tờ, ghi chú, khóa SSH và ảnh video riêng tư trong một két, được mã hóa trên thiết bị của bạn trước khi đồng bộ.' },
+    pricing: { title: 'Bảng giá: Miễn phí, Pro và Trọn đời | My Secret', description: `Giá dự kiến: Miễn phí, Pro ${amount(pricing.pro.yearly)} USD mỗi năm hoặc Trọn đời ${amount(pricing.lifetime)} USD một lần. So sánh với 1Password, Bitwarden, Proton Pass và Enpass.` },
+    security: { title: 'Bảo mật: My Secret bảo vệ dữ liệu của bạn thế nào', description: 'Argon2id và XChaCha20-Poly1305, khóa luôn ở trên thiết bị của bạn, máy chủ nhìn thấy gì và những giới hạn chúng tôi chưa giải quyết.' },
+    privacy: { title: 'Chính sách quyền riêng tư | My Secret', description: 'My Secret lưu gì, không bao giờ nhận gì, giữ trong bao lâu và cách xóa tài khoản.' },
+    terms: { title: 'Điều khoản dịch vụ | My Secret', description: 'Điều khoản sử dụng My Secret, gồm các gói, gói Trọn đời và trách nhiệm của bạn với khóa của mình.' },
+    support: { title: 'Hỗ trợ | My Secret', description: 'Liên hệ My Secret và tìm câu trả lời về khôi phục, đăng nhập, xuất dữ liệu và xóa tài khoản.' },
+  },
+  nav: {
+    skip: 'Chuyển tới nội dung', home: 'Trang chủ My Secret', pricing: 'Bảng giá', security: 'Bảo mật', support: 'Hỗ trợ', cta: 'Đăng ký dùng sớm', language: 'Ngôn ngữ', menu: 'Menu', close: 'Đóng menu',
+  },
+  cta: { early: 'Đăng ký dùng sớm', earlySubject: 'Đăng ký dùng sớm My Secret' },
+  home: {
+    hero: { h1: 'Riêng tư.\nTrọn vẹn.', sub: 'Két mã hóa cho mật khẩu, thẻ, giấy tờ, ghi chú và ảnh video riêng tư.', primary: 'Đăng ký dùng sớm', secondary: 'Xem bảng giá' },
+    scene: { label: 'Mô hình tương tác của két cá nhân', open: 'Mở két', close: 'Đóng két', pause: 'Tạm dừng chuyển động', play: 'Tiếp tục chuyển động', hint: 'Khám phá bên trong.', unavailable: 'Một góc không gian riêng của bạn.' },
+    principles: ['Mã hóa ngay trên thiết bị', 'Ưu tiên ngoại tuyến', 'Khóa luôn thuộc về bạn'],
+    family: { h2: 'Gần nhau. Vẫn riêng tư.', sub: 'Một gia đình, tối đa sáu người. Mỗi người có két riêng và tự chọn những gì muốn chia sẻ.', visual: '6 người. 6 két riêng.', points: ['Khóa riêng cho từng thành viên', 'Mời và quản lý gia đình', 'Chia sẻ từng mục với người đã xác minh'], link: 'Khám phá gói Gia đình' },
+    keeps: {
+      h2: 'Không chỉ là mật khẩu.', sub: 'Từ tài khoản hằng ngày đến những tệp riêng tư nhất. Mười hai loại thông tin, ở cùng một nơi.', note: 'Mã hóa trước khi rời thiết bị của bạn.',
+      items: ['Tài khoản', 'Passkey', 'Tài khoản ngân hàng', 'Thẻ', 'Giấy tờ tùy thân', 'Khóa SSH', 'Khóa API', 'Ghi chú', 'Tài liệu', 'Ảnh và video', 'Bộ sưu tập', 'Tùy chỉnh'],
+    },
+    server: {
+      h2: 'Riêng tư ngay từ thiết bị.', sub: 'Mã hóa diễn ra trên thiết bị của bạn. Đồng bộ chỉ gửi bản đã mã hóa, còn bạn giữ khóa.',
+      yoursTitle: 'Ở lại trên thiết bị của bạn',
+      yours: ['Mật khẩu chính của bạn', 'Khóa khôi phục của bạn', 'Các mục của bạn, chỉ đọc được sau khi bạn mở khóa'],
+      serverTitle: 'Máy chủ lưu gì',
+      server: ['Mục và tệp đã mã hóa', 'Mã mục, số phiên bản, kích thước và thời gian', 'Email và khóa công khai passkey của bạn'],
+      link: 'Mã hóa hoạt động thế nào',
+    },
+    signin: {
+      h2: 'Đăng nhập theo cách của bạn. Mở khóa bằng một mật khẩu chính.',
+      items: [
+        { t: 'Mã qua email', d: 'Một mã 6 số gửi tới hộp thư. Không cần nhớ mật khẩu.' },
+        { t: 'Passkey', d: 'Thêm sau để đăng nhập nhanh hơn.' },
+        { t: 'Khóa khôi phục', d: 'Chỉ hiện một lần. Là cách duy nhất quay lại nếu bạn quên mật khẩu chính.' },
+      ],
+      note: 'Đăng nhập không bao giờ mở khóa két. Chỉ mật khẩu chính của bạn mới làm được.',
+    },
+    everywhere: {
+      h2: 'Trên những màn hình bạn đang dùng.',
+      items: [
+        { t: 'Máy tính', d: 'Ứng dụng đầy đủ, có sao lưu mã hóa và mọi loại mục.' },
+        { t: 'Web', d: 'Mở két trên trình duyệt. Chỉ xuất được bản đã mã hóa.' },
+        { t: 'Điện thoại', d: 'Ứng dụng iPhone và Android, mở khóa bằng sinh trắc học.' },
+        { t: 'Tiện ích trình duyệt', d: 'Tự điền thông tin đăng nhập trên những trang bạn cho phép, và chỉ ở đó.' },
+      ],
+      note: 'My Secret đang trong giai đoạn dùng sớm. Các ứng dụng ra mắt dần từng bước.',
+    },
+    price: { h2: 'Miễn phí để bắt đầu. Pro khi bạn cần nhiều hơn.', line: `Dự kiến: Miễn phí, ${amount(pricing.pro.yearly)} USD mỗi năm, hoặc ${amount(pricing.lifetime)} USD một lần.`, link: 'Xem các gói' },
+    faq: {
+      h2: 'Những câu hỏi đầu tiên',
+      items: [
+        { q: 'Nếu tôi quên mật khẩu chính thì sao?', a: 'Chúng tôi không thể đặt lại, và không ai làm được. Khóa khôi phục là cách duy nhất quay lại, nên hãy cất ở nơi an toàn, ngoại tuyến.' },
+        { q: 'Các bạn đọc được dữ liệu của tôi không?', a: 'Không. Các mục được mã hóa trên thiết bị của bạn trước khi rời đi. Máy chủ chỉ lưu dữ liệu đã mã hóa.' },
+        { q: 'Đã có kiểm toán bảo mật chưa?', a: 'Chưa. My Secret chưa qua kiểm toán bảo mật độc lập. Trang Bảo mật nêu rõ điều gì đã làm và điều gì chưa.' },
+        { q: 'Có dùng được khi không có mạng không?', a: 'Có. Két nằm trên thiết bị của bạn, đồng bộ là tùy chọn.' },
+        { q: 'Tôi có chia sẻ mục được không?', a: 'Có. Bạn chia sẻ từng mục với người đã xác minh, chọn quyền đọc hoặc sửa, đặt hạn và thu hồi quyền. Không thể xóa dữ liệu người nhận đã xem khỏi thiết bị của họ.' },
+      ],
+    },
+  },
+  pricing: {
+    h1: 'Miễn phí để bắt đầu. Trả theo năm hoặc một lần.',
+    sub: 'My Secret đang trong giai đoạn dùng sớm. Đây là mức giá chúng tôi dự định thu, và hiện chưa tính phí gì.',
+    plans: [
+      {
+        id: 'free', name: 'Miễn phí', price: '0 USD', unit: 'mãi mãi', blurb: 'Mọi thứ một người cần.',
+        features: ['Không giới hạn số mục, đủ 12 loại', 'Dùng ngoại tuyến trên thiết bị', 'Sao lưu và xuất dữ liệu đã mã hóa', `Đồng bộ trên ${pricing.free.syncedDevices} thiết bị`, `${pricing.free.fileStorageMB} MB lưu tệp đã mã hóa`, 'Đăng nhập bằng mã email và passkey'],
+      },
+      {
+        id: 'pro', name: 'Pro', price: `${amount(pricing.pro.yearly)} USD`, unit: 'mỗi năm', alt: `hoặc ${amount(pricing.pro.monthly)} USD mỗi tháng`, blurb: 'Dành cho người dùng nhiều thiết bị.', featured: true,
+        features: ['Mọi thứ trong gói Miễn phí', 'Không giới hạn thiết bị đồng bộ', `${pricing.pro_limits.fileStorageGB} GB lưu tệp đã mã hóa`, 'Chia sẻ từng mục đã mã hóa'],
+      },
+      {
+        id: 'lifetime', name: 'Trọn đời', price: `${amount(pricing.lifetime)} USD`, unit: 'một lần', blurb: 'Trả một lần, không gia hạn.',
+        features: ['Mọi thứ trong gói Pro', 'Gồm cả tính năng Pro tương lai', 'Trọn đời nghĩa là suốt thời gian sản phẩm còn hoạt động. Điều khoản giải thích rõ hơn.'],
+      },
+      {
+        id: 'family', name: 'Gia đình', price: 'Miễn phí', unit: 'khi dùng sớm', blurb: 'Tối đa sáu người. Mỗi người một két riêng.',
+        features: ['Một chủ nhóm và năm thành viên', 'Két và khóa mã hóa riêng cho mỗi người', 'Mời, chấp nhận, rời nhóm và xóa thành viên', 'Chia sẻ từng mục với người đã xác minh'],
+      },
+    ],
+    cta: 'Đăng ký dùng sớm',
+    compare: {
+      h2: 'Giá so với các bên khác',
+      intro: 'Giá gói cá nhân theo năm, tính bằng USD. Giá ưu đãi và giá gia hạn được ghi riêng.',
+      cols: { product: 'Sản phẩm', plan: 'Gói trả phí', year: 'Mỗi năm (USD)', free: 'Gói miễn phí', lifetime: 'Trọn đời' },
+      ours: { name: 'My Secret', plan: 'Pro', year: pricing.pro.yearly.toFixed(2).replace('.', ','), free: 'Miễn phí, không giới hạn số mục', lifetime: `${amount(pricing.lifetime)} USD một lần (dự kiến)` },
+      source: 'Nguồn',
+    },
+    matrix: {
+      h2: 'My Secret đặt cạnh các bên khác',
+      intro: 'Những tính năng giúp bạn lựa chọn. Tính năng dự kiến và giới hạn gói được ghi riêng.',
+      legend: { yes: 'Có', no: 'Không', partial: 'Một phần', na: 'Không nêu' },
+      key: 'Chú giải bảng so sánh',
+      jump: 'So sánh tính năng với các ứng dụng khác',
+      scrollHint: 'Vuốt ngang để so sánh cả năm ứng dụng. Có thể dùng phím mũi tên khi chọn bảng bằng bàn phím.',
+      oursStatus: 'Dùng sớm',
+      featureCol: 'Tính năng',
+      features: {
+        freePlan: 'Gói miễn phí',
+        lifetime: 'Gói trọn đời',
+        localFirst: 'Dùng đầy đủ ngoại tuyến, không cần tài khoản',
+        itemTypes: 'Loại mục ngoài tài khoản đăng nhập',
+        passkeys: 'Lưu passkey',
+        totp: 'Mã xác thực tích hợp',
+        files: 'Lưu tệp đã mã hóa',
+        health: 'Báo cáo sức khỏe mật khẩu',
+        sharing: 'Chia sẻ an toàn',
+        emergency: 'Truy cập khẩn cấp',
+        family: 'Gói gia đình',
+      },
+      footnote: 'My Secret đang cho dùng sớm và chưa qua kiểm toán bảo mật độc lập. Các gói trả phí và dung lượng lưu trữ là đề xuất. Một số tính năng của đối thủ cần gói trả phí; không xuất hiện trên trang giá không đồng nghĩa với không có.',
+    },
+    faq: {
+      h2: 'Về thanh toán',
+      items: [
+        { q: 'Đã tính phí chưa?', a: 'Chưa. Giai đoạn dùng sớm là miễn phí. Chúng tôi sẽ thông báo các gói trả phí trước khi tính phí.' },
+        { q: 'Trọn đời nghĩa là gì?', a: 'Bạn trả một lần và dùng Pro suốt thời gian My Secret còn hoạt động. Nếu chúng tôi ngừng hoạt động, chúng tôi sẽ báo trước và cho bạn thời gian xuất dữ liệu. Điều khoản có câu chữ chính xác.' },
+        { q: 'Nếu tôi ngừng trả tiền cho Pro thì sao?', a: 'Két vẫn ở trên thiết bị của bạn và bạn luôn xuất được. Chúng tôi sẽ công bố chính xác giới hạn đồng bộ áp dụng thế nào trước khi bắt đầu tính phí.' },
+        { q: 'Tôi có được hoàn tiền không?', a: 'Thời hạn hoàn tiền sẽ là [[REFUND_DAYS]] ngày. Chi tiết nằm trong Điều khoản.' },
+      ],
+    },
+  },
+  security: {
+    h1: 'My Secret bảo vệ dữ liệu của bạn thế nào',
+    sub: 'Điều gì đã làm, hoạt động ra sao và điều gì chưa giải quyết.',
+    sections: [
+      { h: 'Khóa luôn ở bên bạn', p: ['Mật khẩu chính của bạn được kéo giãn bằng Argon2id thành các khóa bảo vệ két. Mục và tệp được mã hóa bằng XChaCha20-Poly1305 qua libsodium, ngay trên thiết bị của bạn, trước khi đồng bộ.', 'Máy chủ không bao giờ nhận mật khẩu chính, khóa khôi phục hay bất kỳ khóa giải mã nào.'] },
+      { h: 'Máy chủ thấy được gì', ul: ['Mục đã mã hóa và các phần tệp đã mã hóa.', 'Mã mục, số phiên bản, thời gian, kích thước và mã thiết bị.', 'Email, khóa công khai passkey và khóa công khai của các thiết bị.', 'Với mỗi phiên: bản băm của token, thời hạn, tên ứng dụng và địa chỉ IP, để bạn xem lại và kết thúc phiên.'] },
+      { h: 'Đăng nhập không phải là mở khóa', p: ['Đăng nhập tài khoản dùng mã qua email, hoặc passkey khi bạn đã thêm. TOTP tùy chọn bổ sung yếu tố thứ hai. Đăng nhập cấp cho thiết bị một phiên ngắn hạn để đồng bộ và thao tác tài khoản.', 'Két chỉ mở bằng mật khẩu chính, khóa khôi phục hoặc khóa sinh trắc học trên chính thiết bị đó. Các thao tác nhạy cảm, như gỡ passkey hay xóa tài khoản, sẽ yêu cầu bạn xác minh lại trước.'] },
+      { h: 'Nếu bạn mất quyền truy cập', p: ['Không có cửa sau và không có khôi phục từ nhà cung cấp. Nếu bạn mất cả mật khẩu chính lẫn khóa khôi phục, không ai mở được két của bạn, kể cả chúng tôi.', 'Hãy giữ khóa khôi phục ngoại tuyến và cất một bản xuất đã mã hóa ở nơi an toàn.'] },
+      { h: 'Thiết bị và việc thu hồi', p: ['Mỗi thiết bị giữ một khóa riêng. Thu hồi thiết bị sẽ kết thúc các phiên của nó và đổi phong bì khóa của nó. Việc này không xóa những gì thiết bị đó đã giữ, và giao diện nói rõ điều này.', 'Tài khoản chỉ đăng nhập bằng mã email thì chưa thu hồi bền vững được: ai giữ hộp thư vẫn đăng ký lại được một thiết bị mới. Thêm passkey sẽ đóng lỗ hổng này.'] },
+      { h: 'Những giới hạn chúng tôi chưa giải quyết', ul: ['Chưa có kiểm toán bảo mật độc lập.', 'Ứng dụng web là một bề mặt tấn công riêng nên bị giới hạn: chỉ xuất bản đã mã hóa và không tự điền trên trình duyệt.', 'Chia sẻ từng mục yêu cầu người nhận có tài khoản và khóa chia sẻ đã xác minh. Tệp đính kèm không nằm trong chia sẻ từng mục.', 'Ứng dụng điện thoại chưa có khóa thiết bị, nên phiên trên điện thoại chỉ dùng cho thao tác tài khoản, chưa đồng bộ.', 'Chưa có xoay khóa két, nên thu hồi thiết bị không bảo vệ được các mục thiết bị đó đã giữ.'] },
+      { h: 'Báo lỗ hổng bảo mật', p: ['Hãy viết tới [[SECURITY_EMAIL]] kèm các bước tái hiện. Xin cho chúng tôi thời gian hợp lý để sửa trước khi bạn công bố.'] },
+    ],
+  },
+  support: {
+    h1: 'Hỗ trợ',
+    sub: 'Chúng tôi trả lời qua email. Đừng bao giờ gửi mật khẩu chính hay khóa khôi phục cho ai, kể cả chúng tôi.',
+    contactH: 'Viết cho chúng tôi',
+    contact: 'Gửi email tới [[SUPPORT_EMAIL]] và cho biết ứng dụng, phiên bản và điều bạn mong đợi.',
+    faqH: 'Câu hỏi thường gặp',
+    faq: [
+      { q: 'Tôi quên mật khẩu chính.', a: 'Hãy mở khóa bằng khóa khôi phục, rồi đặt mật khẩu chính mới. Không có khóa khôi phục thì không ai mở được két.' },
+      { q: 'Tôi làm mất điện thoại hoặc laptop.', a: 'Đăng nhập trên thiết bị khác, mở Trung tâm bảo mật và thu hồi thiết bị đã mất. Thu hồi sẽ kết thúc các phiên của nó nhưng không xóa được dữ liệu đã có trên máy.' },
+      { q: 'Mã qua email không tới.', a: 'Kiểm tra thư rác và chờ một phút rồi yêu cầu mã mới. Mỗi mã mới thay thế mã trước. Nếu tài khoản có passkey, chúng tôi gửi thông báo thay vì mã, nên hãy đăng nhập bằng passkey.' },
+      { q: 'Làm sao xuất dữ liệu của tôi?', a: 'Mở Cài đặt, rồi chọn Xuất. Bản xuất được mã hóa. Hãy cất một bản ngoại tuyến cùng khóa khôi phục.' },
+      { q: 'Làm sao xóa tài khoản của tôi?', a: 'Mở Trung tâm bảo mật, chọn Xóa tài khoản và xác minh đó là bạn. Tài khoản trên máy chủ và dữ liệu đã mã hóa bị xóa ngay và không khôi phục được. Két trên thiết bị của bạn không bị xóa.' },
+    ],
+  },
+  privacy: {
+    h1: 'Chính sách quyền riêng tư',
+    sections: [
+      { h: 'Chúng tôi là ai', p: ['My Secret do [[COMPANY_NAME]], [[COMPANY_ADDRESS]] vận hành. Chính sách này áp dụng cho các ứng dụng My Secret, tiện ích trình duyệt và trang web này. Bạn có thể liên hệ chúng tôi tại [[PRIVACY_EMAIL]].', 'Tóm lại: két của bạn được mã hóa trên thiết bị, máy chủ chỉ lưu dữ liệu đã mã hóa, và chúng tôi không chạy quảng cáo, công cụ theo dõi hay phân tích của bên thứ ba.'] },
+      { h: 'Những gì chúng tôi không bao giờ nhận', ul: ['Mật khẩu chính của bạn.', 'Khóa khôi phục của bạn.', 'Bất kỳ khóa nào giải mã được két của bạn.', 'Các mục hay tệp của bạn ở dạng đọc được, hoặc tên của chúng.'] },
+      { h: 'Những gì chúng tôi lưu', ul: [
+        'Tài khoản: email, khóa công khai passkey cùng mã định danh và bộ đếm, và khóa công khai của các thiết bị.',
+        'Két: mục đã mã hóa, các phần tệp đã mã hóa và bản kê tệp đã mã hóa, cùng mã mục, số phiên bản, thời gian, kích thước và mã thiết bị.',
+        'Gia đình: mã nhóm, mã tài khoản chủ nhóm và thành viên, trạng thái và hạn lời mời. Thành viên đã tham gia xem được danh sách email; người được mời chỉ thấy người mời.',
+        'Chia sẻ: mã tài khoản và khóa công khai của các bên, quyền truy cập, hạn dùng và các bản ghi chia sẻ đã mã hóa. Chỉ các bên nhận đúng khóa mới đọc được nội dung.',
+        'Phiên: bản băm của mỗi token phiên, thời hạn, tên ứng dụng hoặc trình duyệt, địa chỉ IP và trạng thái xác minh lại.',
+        'Nhật ký sự kiện: loại sự kiện, một ít siêu dữ liệu như phương thức đăng nhập, và thời gian. Không chứa nội dung.',
+        'Đăng ký: email và bản băm của mã 6 số, cho tới khi được dùng hoặc hết hạn.',
+      ] },
+      { h: 'Nhật ký máy chủ', p: ['Nhật ký yêu cầu của máy chủ ghi phương thức, đường dẫn với mã không mang ý nghĩa, trạng thái, thời lượng và mã yêu cầu. Chúng không ghi chuỗi truy vấn, nội dung yêu cầu hay địa chỉ IP của máy khách, và máy chủ proxy không lưu nhật ký truy cập.'] },
+      { h: 'Quảng cáo, công cụ theo dõi và phân tích', p: ['Không có. Các ứng dụng và trang web này không tải mã quảng cáo hay phân tích của bên thứ ba. Trang web không đặt cookie và chỉ lưu lựa chọn ngôn ngữ của bạn trong trình duyệt.'] },
+      { h: 'Ai xử lý dữ liệu cho chúng tôi', ul: ['[[EMAIL_PROVIDER]] gửi email đăng ký, nên nhận địa chỉ email và mã của bạn.', '[[PAYMENT_PROVIDER]] sẽ xử lý thanh toán khi các gói trả phí bắt đầu. Chúng tôi không thấy số thẻ của bạn.', 'Các nhà cung cấp lưu trữ và kho đối tượng của chúng tôi giữ dữ liệu đã mã hóa và không đọc được nó.'] },
+      { h: 'Chúng tôi giữ dữ liệu bao lâu', ul: [
+        'Dữ liệu két: cho tới khi bạn xóa mục, két hoặc tài khoản.',
+        'Bản ghi phiên: cho tới khi bạn xóa tài khoản, và bị xóa [[SESSION_PURGE_DAYS]] ngày sau khi hết hạn hoặc bị thu hồi.',
+        'Nhật ký sự kiện: được giữ mà không gắn với danh tính của bạn sau khi bạn xóa tài khoản.',
+        'Bản sao lưu: bản sao lưu tạo trước khi bạn xóa tài khoản vẫn có thể chứa dữ liệu đã mã hóa của bạn tối đa [[BACKUP_RETENTION_DAYS]] ngày.',
+      ] },
+      { h: 'Lựa chọn của bạn', ul: [
+        'Xuất két ở dạng đã mã hóa bất cứ lúc nào.',
+        'Xóa tài khoản ngay trong ứng dụng. Việc xóa diễn ra tức thì và vĩnh viễn trên máy chủ của chúng tôi. Nó không xóa két trên thiết bị của bạn.',
+        'Yêu cầu xem hoặc chỉnh sửa dữ liệu tài khoản chúng tôi đang giữ bằng cách viết tới [[PRIVACY_EMAIL]].',
+      ] },
+      { h: 'Bảo mật', p: ['Khóa không bao giờ rời thiết bị của bạn. Kết nối dùng TLS và ứng dụng web chạy dưới chính sách bảo mật nội dung nghiêm ngặt. Hãy đọc trang Bảo mật để biết điều gì đã làm và điều gì chưa. Chưa có kiểm toán độc lập nào được thực hiện.'] },
+      { h: 'Trẻ em', p: ['My Secret không dành cho trẻ em.'] },
+      { h: 'Nơi dữ liệu được xử lý', p: ['Máy chủ và các nhà cung cấp của chúng tôi có thể ở những quốc gia khác với nơi bạn sống. Chúng tôi có trụ sở tại [[COUNTRY]].'] },
+      { h: 'Thay đổi', p: ['Nếu chúng tôi thay đổi chính sách này theo cách quan trọng, chúng tôi sẽ thông báo trong ứng dụng hoặc qua email trước khi áp dụng. Ngày ở đầu trang cho biết phiên bản mới nhất.'] },
+    ],
+  },
+  terms: {
+    h1: 'Điều khoản dịch vụ',
+    sections: [
+      { h: 'Thỏa thuận', p: ['Các điều khoản này là giữa bạn và [[COMPANY_NAME]] ("chúng tôi"). Khi tạo tài khoản hoặc dùng My Secret, bạn đồng ý với chúng. Nếu không đồng ý, vui lòng không sử dụng.'] },
+      { h: 'Dịch vụ', p: ['My Secret là một két cá nhân được mã hóa, có đồng bộ tùy chọn. Dịch vụ đang trong giai đoạn dùng sớm nên tính năng có thể thay đổi, lỗi hoặc bị gỡ bỏ.'] },
+      { h: 'Tài khoản của bạn', ul: ['Bạn chịu trách nhiệm về địa chỉ email mình dùng và việc giữ an toàn cho thiết bị.', 'Bạn phải dùng email thật và không được dùng tài khoản của người khác.', 'Bạn có thể xóa tài khoản bất cứ lúc nào trong ứng dụng.'] },
+      { h: 'Nội dung và khóa của bạn', p: ['Những gì bạn lưu là của bạn. Chúng tôi không đọc được và không đòi quyền gì với chúng, ngoài quyền lưu và truyền dữ liệu đã mã hóa để dịch vụ hoạt động.', 'Bạn chịu trách nhiệm về mật khẩu chính và khóa khôi phục. Chúng tôi không thể khôi phục cả hai. Nếu bạn mất cả hai, dữ liệu sẽ mất vĩnh viễn.'] },
+      { h: 'Sử dụng hợp lệ', ul: ['Không vi phạm pháp luật hay dùng My Secret để lưu nội dung bạn không có quyền giữ.', 'Không tấn công, làm quá tải hay dò quét dịch vụ, hoặc tìm cách đọc dữ liệu của người khác.', 'Không bán lại dịch vụ.'] },
+      { h: 'Gói và thanh toán', p: ['Có một gói miễn phí. Các gói trả phí, khi bắt đầu, gồm Pro (theo tháng hoặc năm) và Trọn đời. Giá hiển thị trên trang bảng giá trước khi bạn thanh toán và được thu qua [[PAYMENT_PROVIDER]]. Có thể phát sinh thuế.', 'Pro tự gia hạn mỗi kỳ cho tới khi bạn hủy. Bạn có thể hủy bất cứ lúc nào và vẫn dùng Pro đến hết kỳ đã trả.', 'Trọn đời là một lần thanh toán để dùng tính năng Pro suốt thời gian chúng tôi còn vận hành My Secret. Nó không có nghĩa là suốt đời người mua. Nếu chúng tôi quyết định ngừng vận hành dịch vụ, chúng tôi sẽ báo trước ít nhất 90 ngày và cho bạn thời gian xuất dữ liệu.', 'Có thể hoàn tiền trong vòng [[REFUND_DAYS]] ngày kể từ lần mua đầu tiên. Chúng tôi sẽ báo cho bạn về thay đổi giá trước khi nó áp dụng với bạn.'] },
+      { h: 'Không bảo đảm', p: ['My Secret được cung cấp nguyên trạng, trong giai đoạn dùng sớm, không bảo đảm sẽ không gián đoạn hay không có lỗi. Dịch vụ chưa qua kiểm toán bảo mật độc lập. Hãy giữ một bản xuất đã mã hóa của két.'] },
+      { h: 'Giới hạn trách nhiệm', p: ['Trong phạm vi pháp luật cho phép, chúng tôi không chịu trách nhiệm về tổn thất gián tiếp hay hệ quả, hoặc về việc mất dữ liệu mà bạn có thể tránh được bằng bản sao lưu hay khóa khôi phục. Tổng trách nhiệm của chúng tôi cho mọi khiếu nại giới hạn ở số tiền bạn đã trả cho chúng tôi trong 12 tháng trước đó. Không điều gì ở đây giới hạn trách nhiệm mà pháp luật không cho phép giới hạn.'] },
+      { h: 'Chấm dứt thỏa thuận', p: ['Bạn có thể dừng bất cứ lúc nào và xóa tài khoản. Chúng tôi có thể tạm ngưng hoặc chấm dứt tài khoản vi phạm các điều khoản này hoặc gây rủi ro cho dịch vụ hay người khác, và sẽ nói lý do khi có thể.'] },
+      { h: 'Thay đổi điều khoản', p: ['Chúng tôi có thể cập nhật các điều khoản này. Nếu thay đổi quan trọng, chúng tôi sẽ báo trong ứng dụng hoặc qua email trước khi áp dụng. Tiếp tục dùng dịch vụ sau đó nghĩa là bạn chấp nhận.'] },
+      { h: 'Luật áp dụng', p: ['Các điều khoản này chịu sự điều chỉnh của pháp luật [[COUNTRY]]. Câu hỏi về chúng có thể gửi tới [[SUPPORT_EMAIL]].'] },
+    ],
+  },
+  footer: {
+    tagline: 'Mã hóa trên thiết bị của bạn. Lưu trữ dưới dạng dữ liệu đã mã hóa.',
+    product: 'Sản phẩm', legal: 'Pháp lý', company: 'Trợ giúp', privacy: 'Chính sách quyền riêng tư', terms: 'Điều khoản dịch vụ',
+    early: 'Phần mềm đang trong giai đoạn dùng sớm.', rights: '© 2026 [[COMPANY_NAME]]', updated: 'Cập nhật lần cuối',
+  },
+  common: { updatedOn: 'Cập nhật lần cuối', sourceFor: 'Nguồn', open: 'Mở' },
+};

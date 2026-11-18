@@ -1,0 +1,37 @@
+import { expect, LS_API_BASE_URL, newVirtualAuthenticator, signedInWithVault, stepUpWithPasskey, test, uniqueEmail } from '../e2e-web/fixtures';
+
+test('Family: owner invites, member accepts then leaves, and both personal vaults remain usable', async ({ page, authenticator, apiUrl, browser }) => {
+  void authenticator;
+  const emailA = uniqueEmail('family-owner');
+  const emailB = uniqueEmail('family-member');
+  const contextB = await browser.newContext();
+  const pageB = await contextB.newPage();
+  await pageB.addInitScript(([key, url]) => localStorage.setItem(key, url), [LS_API_BASE_URL, `${apiUrl}/api`]);
+  await newVirtualAuthenticator(pageB);
+  await signedInWithVault(page, { email: emailA });
+  await signedInWithVault(pageB, { email: emailB });
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const familyA = page.getByRole('region', { name: 'Family', exact: true });
+  await familyA.getByRole('button', { name: 'Create a family' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await stepUpWithPasskey(page);
+  await expect(familyA.getByText('1 of 6 seats reserved')).toBeVisible();
+  await familyA.getByLabel('Member’s email address').fill(emailB);
+  await familyA.getByRole('button', { name: 'Invite member' }).click();
+  await expect(familyA.getByText(emailB, { exact: true })).toBeVisible();
+  await pageB.getByRole('button', { name: 'Settings', exact: true }).click();
+  const familyB = pageB.getByRole('region', { name: 'Family', exact: true });
+  await expect(familyB.getByText(`You have an invitation from ${emailA}.`)).toBeVisible();
+  await familyB.getByRole('button', { name: 'Join family' }).click();
+  await expect(pageB.getByRole('dialog')).toBeVisible();
+  await stepUpWithPasskey(pageB);
+  await expect(familyB.getByText('2 of 6 seats reserved')).toBeVisible();
+  await familyB.getByRole('button', { name: 'Leave family' }).click();
+  await familyB.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(familyB.getByRole('button', { name: 'Create a family' })).toBeVisible();
+  await page.getByRole('button', { name: /All items/i }).click();
+  await pageB.getByRole('button', { name: /All items/i }).click();
+  await expect(page.getByRole('button', { name: '+ New item' })).toBeVisible();
+  await expect(pageB.getByRole('button', { name: '+ New item' })).toBeVisible();
+  await contextB.close();
+});

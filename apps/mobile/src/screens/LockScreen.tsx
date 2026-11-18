@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
-import Field from '../components/Field';
-import { colors, styles } from '../theme';
+import { Text } from 'react-native';
+import { illustrations } from '../../../../packages/ui/src/native';
+import { Btn, P, Rise, SoftAlert, SoftField, SoftScreen, TextButton, useReducedMotion } from '../components/soft';
 import {
   enableDeviceUnlock, getDeviceUnlockState, getStorageError, unlockVault, unlockWithDeviceKey, unlockWithRecoveryKey,
   type DeviceUnlockFailure, type DeviceUnlockState,
@@ -38,6 +38,7 @@ export function deviceUnlockMessage(code: DeviceUnlockFailure, name: string): st
  * screen offers to turn biometric unlock on (contract §4).
  */
 export default function LockScreen({ onUnlocked }: { onUnlocked: () => void }) {
+  const reduced = useReducedMotion();
   const [pass, setPass] = useState('');
   const [recovery, setRecovery] = useState('');
   const [useRecovery, setUseRecovery] = useState(false);
@@ -95,53 +96,47 @@ export default function LockScreen({ onUnlocked }: { onUnlocked: () => void }) {
 
   if (offer) {
     return (
-      <ScrollView style={styles.screen} contentContainerStyle={{ padding: 20, paddingTop: 96 }}>
-        <Text style={styles.title}>Turn on {name} unlock?</Text>
-        <Text style={styles.subtitle}>{name} will unlock this vault on this device. A copy of your Master Key is wrapped by a key that only {name} on this device can release. Your passphrase keeps working, and is required again if {name} settings change.</Text>
-        {offerError ? <Text testID="enable-biometric-error" style={[styles.error, { marginTop: 12 }]}>{offerError}</Text> : null}
-        <Pressable testID="enable-biometric-button" accessibilityLabel={`Turn on ${name} unlock`} accessibilityRole="button" disabled={busy} onPress={() => void handleEnable()} style={[styles.primaryButton, { marginTop: 24 }, busy ? { opacity: 0.6 } : null]}>
-          <Text style={styles.primaryButtonText}>Turn on {name} unlock</Text>
-        </Pressable>
-        <Pressable testID="skip-biometric-button" accessibilityLabel="Not now" accessibilityRole="button" disabled={busy} onPress={finish} style={[styles.ghostButton, { marginTop: 12 }]}>
-          <Text style={styles.ghostButtonText}>Not now</Text>
-        </Pressable>
-      </ScrollView>
+      <SoftScreen art={illustrations.splash} title={`Turn on ${name} unlock?`} subtitle={`${name} will unlock this vault on this device. A copy of your Master Key is wrapped by a key that only ${name} on this device can release. Your passphrase keeps working, and is required again if ${name} settings change.`}>
+        {offerError ? <SoftAlert testID="enable-biometric-error">{offerError}</SoftAlert> : null}
+        <Btn testID="enable-biometric-button" primary icon="security" label={`Turn on ${name} unlock`} busy={busy} onPress={() => void handleEnable()} />
+        <Btn testID="skip-biometric-button" label="Not now" disabled={busy} onPress={finish} />
+      </SoftScreen>
     );
   }
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={{ padding: 20, paddingTop: 96 }} keyboardShouldPersistTaps="handled">
-      <Text style={styles.title}>my-secrect</Text>
-      <Text style={styles.subtitle}>Your vault is locked. Enter your passphrase to unlock.</Text>
-      {storageError ? (
-        <Text testID="storage-error" style={[styles.error, { marginTop: 16 }]}>
-          The vault storage on this device could not be opened: {storageError}. Nothing was deleted; data that was not moved yet is still in the old storage. Restart the app to retry.
-        </Text>
-      ) : null}
-      <View style={{ marginTop: 24 }}>
-        {useRecovery ? (
-          <Field label="Recovery key" testID="recovery-key-input" placeholder="Paste your recovery key" value={recovery} onChangeText={setRecovery} autoCapitalize="none" autoCorrect={false} />
-        ) : (
-          <Field label="Master passphrase" testID="master-passphrase" placeholder="Master passphrase" secureTextEntry value={pass} onChangeText={setPass} autoCapitalize="none" autoCorrect={false} />
-        )}
-        {error ? <Text testID="lock-error" style={[styles.error, { marginBottom: 12 }]}>{error}</Text> : null}
-        <Pressable testID="unlock-button" accessibilityLabel={useRecovery ? 'Unlock with recovery key' : 'Unlock'} accessibilityRole="button" disabled={busy} onPress={() => void handleUnlock()} style={[styles.primaryButton, busy ? { opacity: 0.6 } : null]}>
-          <Text style={styles.primaryButtonText}>{busy ? 'Unlocking…' : useRecovery ? 'Unlock with recovery key' : 'Unlock'}</Text>
-        </Pressable>
-        {device?.enrolled && !useRecovery ? (
-          <Pressable testID="biometric-button" accessibilityLabel={`Unlock with ${name}`} accessibilityRole="button" disabled={busy} style={[styles.ghostButton, { marginTop: 12 }]} onPress={() => void handleBiometric()}>
-            <Text style={styles.ghostButtonText}>Unlock with {name}</Text>
-          </Pressable>
-        ) : null}
-        <Pressable testID="toggle-recovery" accessibilityLabel={useRecovery ? 'Use passphrase instead' : 'Unlock with a recovery key'} accessibilityRole="button" onPress={() => { setUseRecovery((v) => !v); setError(''); }} style={{ marginTop: 16, alignItems: 'center', minHeight: 44, justifyContent: 'center' }}>
-          <Text style={{ color: colors.link, fontSize: 15 }}>{useRecovery ? 'Use passphrase instead…' : 'Unlock with a recovery key…'}</Text>
-        </Pressable>
-        <Text style={{ color: colors.faint, fontSize: 12, lineHeight: 17, marginTop: 12 }}>
+    <SoftScreen
+      art={illustrations.splash}
+      title="Your vault is locked"
+      subtitle="Enter your passphrase to unlock."
+      footer={
+        <Text style={{ color: P.ink3, fontSize: 12, lineHeight: 17, marginTop: 16, textAlign: 'center' }}>
           {device?.enrolled
             ? `${name} releases a copy of your Master Key held by a device-protected key on this phone. Your passphrase always works.`
             : 'Biometric unlock is off. You can turn it on right after unlocking with your passphrase or recovery key.'}
         </Text>
-      </View>
-    </ScrollView>
+      }
+    >
+      {storageError ? (
+        <SoftAlert testID="storage-error">
+          The vault storage on this device could not be opened: {storageError}. Nothing was deleted; data that was not moved yet is still in the old storage. Restart the app to retry.
+        </SoftAlert>
+      ) : null}
+      <Rise index={0} reduced={reduced}>
+        {useRecovery ? (
+          <SoftField label="Recovery key" testID="recovery-key-input" icon="recovery" placeholder="Paste your recovery key" value={recovery} onChangeText={setRecovery} autoCapitalize="none" autoCorrect={false} />
+        ) : (
+          <SoftField label="Master passphrase" testID="master-passphrase" icon="lock" placeholder="Master passphrase" secureTextEntry value={pass} onChangeText={setPass} autoCapitalize="none" autoCorrect={false} />
+        )}
+      </Rise>
+      {error ? <SoftAlert testID="lock-error">{error}</SoftAlert> : null}
+      <Rise index={1} reduced={reduced}>
+        <Btn testID="unlock-button" primary icon="unlock" label={busy ? 'Unlocking…' : useRecovery ? 'Unlock with recovery key' : 'Unlock'} busy={busy} onPress={() => void handleUnlock()} />
+      </Rise>
+      {device?.enrolled && !useRecovery ? (
+        <Btn testID="biometric-button" icon="security" label={`Unlock with ${name}`} disabled={busy} onPress={() => void handleBiometric()} />
+      ) : null}
+      <TextButton testID="toggle-recovery" brand label={useRecovery ? 'Use passphrase instead…' : 'Unlock with a recovery key…'} onPress={() => { setUseRecovery((v) => !v); setError(''); }} />
+    </SoftScreen>
   );
 }

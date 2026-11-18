@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { VaultItem } from '../../../../packages/core/src/types';
 import CsvImport from './CsvImport';
+import FamilyView from './FamilyView';
 import {
   Alert,
   Button,
@@ -140,6 +141,8 @@ export default function SettingsView({
         <h2 className="ms-heading ms-heading--lg">{st.title}</h2>
         <p className="ms-text-sm ms-text-muted mb-0 mt-1">{tp(st.summary, itemCount)}</p>
       </div>
+
+      <FamilyView apiBaseUrl={apiBaseUrl} />
 
       {/* Preferences: language + finish (UI preferences, stored on this device only). */}
       <Section id="settings-preferences-heading" icon="language" title={st.preferencesTitle}>
