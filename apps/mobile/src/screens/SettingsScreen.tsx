@@ -133,7 +133,7 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
   return (
     <ScrollView style={styles.screen} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
       <Text style={styles.title}>Settings</Text>
-      {notice ? <Text testID="settings-notice" style={{ color: '#A5B4FC', fontSize: 14, lineHeight: 20, marginTop: 10 }}>{notice}</Text> : null}
+      {notice ? <Text testID="settings-notice" style={{ color: colors.link, fontSize: 14, lineHeight: 20, marginTop: 10 }}>{notice}</Text> : null}
       {stepUpAction ? (
         <View style={{ backgroundColor: colors.card, borderColor: colors.accent, borderWidth: 1, borderRadius: 12, padding: 16, marginTop: 16 }}>
           <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700' }}>{t('security.stepUpTitle')}</Text>
@@ -191,7 +191,7 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
           </Pressable>
         </>
       ) : null}
-      {bioMessage ? <Text testID="biometric-message" style={{ color: '#A5B4FC', fontSize: 14, lineHeight: 20, marginTop: 8 }}>{bioMessage}</Text> : null}
+      {bioMessage ? <Text testID="biometric-message" style={{ color: colors.link, fontSize: 14, lineHeight: 20, marginTop: 8 }}>{bioMessage}</Text> : null}
       <Text style={[styles.label, { marginTop: 16 }]}>Auto-lock</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
         {([1, 5, 15, 0] as AutoLockMinutes[]).map((m) => (

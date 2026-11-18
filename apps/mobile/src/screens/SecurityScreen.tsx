@@ -492,7 +492,7 @@ export default function SecurityScreen({ onClose, onSignedOut, onUnauthorized }:
   if (baseUrl === '') {
     return (
       <ScrollView style={styles.screen} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
-        <Pressable testID="security-back" accessibilityLabel="Back to settings" onPress={onClose} hitSlop={10} style={{ alignSelf: 'flex-start', paddingVertical: 8 }}><Text style={{ color: '#A5B4FC', fontSize: 15 }}>‹ Back</Text></Pressable>
+        <Pressable testID="security-back" accessibilityLabel="Back to settings" onPress={onClose} hitSlop={10} style={{ alignSelf: 'flex-start', paddingVertical: 8 }}><Text style={{ color: colors.link, fontSize: 15 }}>‹ Back</Text></Pressable>
         <Text style={styles.title}>{t('security.title')}</Text>
         <Text style={[styles.subtitle, { marginTop: 12 }]}>{t('security.notConfigured')}</Text>
         <Text style={{ color: colors.muted, fontSize: 14, lineHeight: 20, marginTop: 8 }}>{t('security.notConfiguredBody')}</Text>
@@ -505,10 +505,10 @@ export default function SecurityScreen({ onClose, onSignedOut, onUnauthorized }:
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
-      <Pressable testID="security-back" accessibilityLabel="Back to settings" onPress={onClose} hitSlop={10} style={{ alignSelf: 'flex-start', paddingVertical: 8 }}><Text style={{ color: '#A5B4FC', fontSize: 15 }}>‹ Back</Text></Pressable>
+      <Pressable testID="security-back" accessibilityLabel="Back to settings" onPress={onClose} hitSlop={10} style={{ alignSelf: 'flex-start', paddingVertical: 8 }}><Text style={{ color: colors.link, fontSize: 15 }}>‹ Back</Text></Pressable>
       <Text style={styles.title}>{t('security.title')}</Text>
       <Text style={styles.subtitle}>{t('security.subtitle')}</Text>
-      {notice ? <Text testID="security-notice" style={{ color: '#A5B4FC', fontSize: 14, lineHeight: 20, marginTop: 10 }}>{notice}</Text> : null}
+      {notice ? <Text testID="security-notice" style={{ color: colors.link, fontSize: 14, lineHeight: 20, marginTop: 10 }}>{notice}</Text> : null}
       {error ? <Text testID="security-error" style={[styles.error, { marginTop: 10 }]}>{error}</Text> : null}
       {offline ? (
         <View style={{ marginTop: 12 }}>
