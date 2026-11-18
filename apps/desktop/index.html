@@ -1,11 +1,13 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>my-secrect</title>
+    <!-- Pre-paint theme (light unless a stored choice says otherwise). Same-origin, not inline: the CSP forbids inline scripts. -->
+    <script src="/theme-init.js"></script>
   </head>
-  <body style="background-color: #0B0F14">
+  <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

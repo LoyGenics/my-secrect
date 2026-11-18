@@ -9,7 +9,6 @@ import {
   darkTheme,
   density,
   fontFamily,
-  legendTracking,
   lightTheme,
   motion,
   radii,
@@ -69,9 +68,7 @@ function block(selector: string, theme: ThemeTokens, indent = ''): string {
 function scaleBlock(): string {
   const lines: string[] = [
     `  --ms-font-sans: ${fontFamily.sans};`,
-    `  --ms-font-legend: ${fontFamily.legend};`,
     `  --ms-font-mono: ${fontFamily.mono};`,
-    `  --ms-legend-tracking: ${legendTracking};`,
   ];
   for (const [step, [size, leading]] of Object.entries(textScale)) {
     lines.push(`  --ms-text-${step}: ${size}px;`, `  --ms-leading-${step}: ${leading}px;`);
@@ -87,8 +84,8 @@ function scaleBlock(): string {
     `  --ms-control-height-sm: ${density.compact.controlHeight}px;`,
     `  --ms-control-padding-x: ${density.comfortable.controlPaddingX}px;`,
     `  --ms-control-height-touch: ${density.comfortable.controlHeightTouch}px;`,
-    `  --ms-focus-width: ${darkTheme.focus.width};`,
-    `  --ms-focus-offset: ${darkTheme.focus.offset};`,
+    `  --ms-focus-width: ${lightTheme.focus.width};`,
+    `  --ms-focus-offset: ${lightTheme.focus.offset};`,
   );
   return [':root {', ...lines, '}'].join('\n');
 }
@@ -99,31 +96,30 @@ export function renderTokensCss(): string {
  * Change tokens.ts, then: npm --workspace @my-secrect/ui run tokens
  *
  * Theme selection (see src/theme.ts):
- * - No attribute, or data-theme="dark"   -> dark (default).
- * - data-theme="light"                    -> light.
- * - data-theme="system" + prefers-color-scheme: light -> light.
+ * - No attribute, or data-theme="light"  -> light (default).
+ * - data-theme="dark"                     -> dark.
+ * - data-theme="system" + prefers-color-scheme: dark -> dark.
  */
 
-${block(":root,\n[data-theme='dark']", darkTheme)}
+${block(":root,\n[data-theme='light']", lightTheme)}
 
-${block("[data-theme='light']", lightTheme)}
+${block("[data-theme='dark']", darkTheme)}
 
 /* System mode: plain CSS cannot share a block between a selector and a
- * media query, so the light values are emitted twice. */
-@media (prefers-color-scheme: light) {
-${block("[data-theme='system']", lightTheme, '  ')}
+ * media query, so the dark values are emitted twice. */
+@media (prefers-color-scheme: dark) {
+${block("[data-theme='system']", darkTheme, '  ')}
 }
 
 /* Theme-independent scales. */
 ${scaleBlock()}
 
-/* Global focus mark: orange 2px ring at 2px offset, with an ink band inside
- * it on the light finish (orange alone is 2.44:1 on aluminium). WCAG 2.4.7 /
- * 1.4.11. components.css refines it per component; this is the safety net. */
+/* Global focus mark: a 2px ring at 2px offset in the finish's focus colour
+ * (>= 3:1 on body and cards in both finishes). WCAG 2.4.7 / 1.4.11.
+ * components.css refines it per component; this is the safety net. */
 :focus-visible {
   outline: var(--ms-focus-width) solid var(--ms-color-focus-ring);
   outline-offset: var(--ms-focus-offset);
-  box-shadow: 0 0 0 var(--ms-focus-offset) var(--ms-color-focus-outline);
 }
 
 /* Browser surfaces carry the palette too. */

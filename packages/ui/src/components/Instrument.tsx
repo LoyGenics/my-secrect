@@ -1,7 +1,7 @@
 import type { CSSProperties, HTMLAttributes, ReactNode } from 'react';
 import { cn } from '../utils';
 import { itemTypeColorVar } from '../tokens-css';
-import { MODULE_VIEWBOX, isItemTypeKey, moduleIcon, moduleSilhouette } from '../modules';
+import { isItemTypeKey, moduleIcon } from '../modules';
 import { typeArt } from '../illustrations';
 import { Icon } from './Icon';
 
@@ -19,23 +19,15 @@ export function Led({ tone = 'off', className }: { tone?: LedTone; className?: s
 export type LedStripState = 'off' | 'locked' | 'working' | 'error' | 'turn' | 'open';
 
 /**
- * Four-segment LED strip on the device face. locked = amber, working =
- * amber pulse (KDF running), error = red, turn = the unlock sweep (amber →
- * orange → green, staggered), open = green. Decorative: the state is also
- * stated in text next to it.
+ * Lock-card status dot. locked = amber, working = soft amber pulse (KDF
+ * running), error = red, turn = the unlock moment (amber → green), open =
+ * green. Decorative: the state is also stated in text next to it.
  */
 export function LedStrip({ state, className }: { state: LedStripState; className?: string }) {
-  return (
-    <span className={cn('ms-led-strip', className)} data-state={state} aria-hidden="true">
-      <span className="ms-led-strip__seg" />
-      <span className="ms-led-strip__seg" />
-      <span className="ms-led-strip__seg" />
-      <span className="ms-led-strip__seg" />
-    </span>
-  );
+  return <span className={cn('ms-status-dot', className)} data-state={state} aria-hidden="true" />;
 }
 
-/** LCD-style tabular readout (counts, scores). Pass `label` when the number has no visible context. */
+/** Quiet tabular count (rail counts, scores). Pass `label` when the number has no visible context. */
 export function Readout({ value, label, size = 'md', className }: { value: ReactNode; label?: string; size?: 'md' | 'lg'; className?: string }) {
   return (
     <span className={cn('ms-readout', size === 'lg' && 'ms-readout--lg', className)} aria-label={label} role={label ? 'img' : undefined}>
@@ -45,11 +37,11 @@ export function Readout({ value, label, size = 'md', className }: { value: React
 }
 
 export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
-  /** `legend` prints it as an uppercase tracked legend (type names, states). */
+  /** `legend` prints it in the small label style (type names, states). */
   legend?: boolean;
 }
 
-/** Small hairline chip for tags and type legends. Not interactive — use a Button for actions. */
+/** Small soft chip for tags and type names. Not interactive — use a Button for actions. */
 export function Badge({ legend, className, children, ...rest }: BadgeProps) {
   return (
     <span className={cn('ms-badge', legend && 'ms-badge--legend', className)} {...rest}>
@@ -77,9 +69,9 @@ export interface TypeModuleProps {
 }
 
 /**
- * The item type's module: its own silhouette filled with its muted code
- * colour, the Lucide glyph printed on top. Identical in rail, list, detail
- * and mobile (same path data, same colour tokens).
+ * The item type's tile: a soft rounded square in its clay colour with the
+ * Lucide glyph printed on it. Identical in rail, list, detail and mobile
+ * (same glyph map, same colour tokens).
  */
 export function TypeModule({ type, size = 'md', label, className }: TypeModuleProps) {
   const key = isItemTypeKey(type) ? type : 'custom';
@@ -92,9 +84,6 @@ export function TypeModule({ type, size = 'md', label, className }: TypeModulePr
       aria-label={label}
       aria-hidden={label ? undefined : true}
     >
-      <svg className="ms-module__shape" viewBox={MODULE_VIEWBOX} aria-hidden="true" focusable="false">
-        <path d={moduleSilhouette[key]} fill="var(--module-fill)" />
-      </svg>
       <Icon name={moduleIcon[key]} size={size === 'lg' ? 'lg' : size === 'sm' ? 'xs' : 'sm'} />
     </span>
   );
@@ -145,7 +134,7 @@ export interface AlertProps {
 
 const ALERT_LED: Record<AlertTone, LedTone> = { info: 'off', success: 'ok', warning: 'attention', danger: 'danger' };
 
-/** Inline notice plate: LED + text. Colour is the LED and the title ink only — no tinted slabs, no side stripes. */
+/** Inline notice: status dot + text. Colour is the dot and the title ink only — no tinted slabs, no side stripes. */
 export function Alert({ tone = 'info', title, children, announce = false, action, className }: AlertProps) {
   const role = announce ? (tone === 'danger' ? 'alert' : 'status') : undefined;
   return (

@@ -4,39 +4,36 @@
  * `tokens.ts` only (see apps/mobile/src/theme.ts).
  *
  * Every function is DOM-guarded: importing this module in a non-DOM
- * environment is safe; calls become no-ops / fall back to `'dark'`.
+ * environment is safe; calls become no-ops / fall back to `'light'`.
  *
  * Storage: the choice is a UI preference, stored in `localStorage` under
  * `THEME_STORAGE_KEY`. It is not vault data and never leaves the device.
  */
-import { darkTheme, lightTheme, type ThemeName, type ThemeTokens } from './tokens';
+import { DEFAULT_THEME, darkTheme, lightTheme, type ThemeName, type ThemeTokens } from './tokens';
 
 export type ThemeMode = ThemeName | 'system';
 
 export const THEME_STORAGE_KEY = 'my-secrect:theme';
 
-export const DEFAULT_THEME_MODE: ThemeMode = 'dark';
+/** Aluminium (light) for new users; a stored choice always wins. */
+export const DEFAULT_THEME_MODE: ThemeMode = DEFAULT_THEME;
 
 /** Resolve a mode to a concrete theme using the OS preference for 'system'. */
 export function resolveTheme(mode: ThemeMode): { name: ThemeName; tokens: ThemeTokens } {
-  if (mode === 'system') {
-    return getSystemTheme() === 'light'
-      ? { name: 'light', tokens: lightTheme }
-      : { name: 'dark', tokens: darkTheme };
-  }
-  return mode === 'light' ? { name: 'light', tokens: lightTheme } : { name: 'dark', tokens: darkTheme };
+  const name = mode === 'system' ? getSystemTheme() : mode;
+  return name === 'dark' ? { name: 'dark', tokens: darkTheme } : { name: 'light', tokens: lightTheme };
 }
 
-/** OS preference via matchMedia; `'dark'` when unavailable (keeps the current dark-only look). */
+/** OS preference via matchMedia; the default finish when unavailable. */
 export function getSystemTheme(): ThemeName {
   try {
     if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
-      return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     }
   } catch {
-    /* ignore — fall through to dark */
+    /* ignore — fall through to the default */
   }
-  return 'dark';
+  return DEFAULT_THEME;
 }
 
 /** Read the stored mode; returns null when nothing was stored or storage is unavailable. */
@@ -79,7 +76,7 @@ export function applyTheme(mode: ThemeMode, options?: { persist?: boolean }): Th
 }
 
 /**
- * Initialize at app startup: stored mode wins, else the default ('dark').
+ * Initialize at app startup: stored mode wins, else the default ('light').
  * Returns the mode and a cleanup function that stops listening for OS
  * changes (only active while mode is 'system').
  */
@@ -89,7 +86,7 @@ export function initTheme(): { mode: ThemeMode; resolved: ThemeName; dispose: ()
   let dispose: () => void = () => undefined;
   try {
     if (mode === 'system' && typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
-      const mq = window.matchMedia('(prefers-color-scheme: light)');
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
       const onChange = () => applyTheme('system', { persist: false });
       if (typeof mq.addEventListener === 'function') {
         mq.addEventListener('change', onChange);
@@ -103,10 +100,11 @@ export function initTheme(): { mode: ThemeMode; resolved: ThemeName; dispose: ()
 }
 
 /**
- * Inline script for index.html to avoid a theme flash before the bundle
- * loads. NOT applied anywhere yet — index.html files are not owned by
- * Phase D. An app can inline it in a <script> tag in <head>:
- *   <script dangerouslySetInnerHTML or inline>${themeInitScript}</script>
- * It reads the same localStorage key and sets data-theme before first paint.
+ * Pre-paint theme script: sets `data-theme` from the stored mode before the
+ * bundle loads, so a stored dark choice never flashes light. The production
+ * CSP (`script-src 'self'`, no 'unsafe-inline') blocks inline scripts, so
+ * each app serves this exact text as `public/theme-init.js`, loaded with a
+ * blocking `<script src>` in `<head>`; packages/ui/tests/tokens-sync.test.ts
+ * fails when a copy drifts from this string.
  */
-export const themeInitScript = `(function(){try{var m=localStorage.getItem('${THEME_STORAGE_KEY}');if(m!=='light'&&m!=='dark'&&m!=='system')m='dark';document.documentElement.setAttribute('data-theme',m);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();`;
+export const themeInitScript = `(function(){var m;try{m=localStorage.getItem('${THEME_STORAGE_KEY}');}catch(e){}if(m!=='light'&&m!=='dark'&&m!=='system')m='${DEFAULT_THEME}';document.documentElement.setAttribute('data-theme',m);})();\n`;
