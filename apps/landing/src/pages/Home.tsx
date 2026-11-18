@@ -6,7 +6,8 @@ import { ArrowRight, ArrowUpRight, Fingerprint, KeyRound, Laptop, LockKeyhole, M
 import { Faq, Section } from '../components/Chrome';
 import VaultScene from '../components/VaultScene';
 import VaultExplorer from '../components/VaultExplorer';
-import { Link, copyFor, earlyAccessHref, href, type Lang } from '../lib';
+import { Link, copyFor, href, type Lang } from '../lib';
+import { site } from '../site.config';
 
 export default function Home({ lang }: { lang: Lang }) {
   const c = copyFor(lang);
@@ -26,7 +27,7 @@ export default function Home({ lang }: { lang: Lang }) {
             <h1>{h.hero.h1.split('\n').map((line, i) => <span key={line} className={i ? 'hero__accent' : undefined}>{line}</span>)}</h1>
             <p className="hero__sub">{h.hero.sub}</p>
             <div className="actions">
-              <a className="btn btn--lg" href={earlyAccessHref(lang)}>{h.hero.primary}<ArrowUpRight size={19} aria-hidden="true" /></a>
+              <a className="btn btn--lg" href={site.appUrl}>{h.hero.primary}<ArrowUpRight size={19} aria-hidden="true" /></a>
               <Link className="hero__secondary" to={href(lang, 'pricing')}>{h.hero.secondary}<ArrowRight size={18} aria-hidden="true" /></Link>
             </div>
           </motion.div>

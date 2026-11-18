@@ -31,6 +31,16 @@ change — only the backing services do.
 - My Secret uses `my-secret-sandbox` for local development and
   `my-secret-production` for the hosted API. Give each Rails environment
   its own Object Read & Write token, scoped to its one bucket.
+- To run Rails with the sandbox settings, load the ignored `.env.r2-sandbox`
+  in `apps/api` before starting the server. Keep the file readable only by
+  its owner (`chmod 600`).
+  ```sh
+  cd apps/api
+  set -a
+  . ./.env.r2-sandbox
+  set +a
+  bundle exec rails server -p 3000
+  ```
 - The local web and desktop origins are `http://localhost:5174` and
   `http://localhost:1420`. The hosted web origin is `https://msecret.app`.
   Configure each bucket for its corresponding origins only.
@@ -39,6 +49,9 @@ change — only the backing services do.
   reach R2, and updating the web proxy's storage origin for CSP. Check for
   existing MinIO objects before switching a live environment: copy existing
   ciphertext to R2 under the same object keys before pointing Rails at it.
+  The production token is stored in Coolify as runtime variables
+  `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`. Map them to Rails'
+  `S3_ACCESS_KEY` and `S3_SECRET_KEY` for both services at cutover.
 - Keep the bucket private: disable r2.dev and public custom-domain access.
   The API grants access through authenticated, short-lived presigned URLs.
 - Apply `r2-cors.example.json` after replacing the example origin with the

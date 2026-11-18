@@ -11,3 +11,8 @@ export async function clearFilePreviews(): Promise<void> {
   const names = await FS.readDirectoryAsync(FS.cacheDirectory);
   await Promise.all(names.filter(name => name.startsWith(PREFIX)).map(name => FS.deleteAsync(`${FS.cacheDirectory}${name}`, { idempotent: true })));
 }
+
+export async function removeFilePreview(uri: string): Promise<void> {
+  if (!FS.cacheDirectory || !uri.startsWith(`${FS.cacheDirectory}${PREFIX}`)) return;
+  await FS.deleteAsync(uri.slice(0, uri.lastIndexOf('/')), { idempotent: true });
+}

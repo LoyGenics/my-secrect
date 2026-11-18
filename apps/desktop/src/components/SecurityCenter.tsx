@@ -105,6 +105,7 @@ type LoadStatus = 'not-configured' | 'loading' | 'ready' | 'error';
 function describeError(err: unknown, dict: Dictionary): string {
   const s = dict.security;
   if (err instanceof ApiError) {
+    if (err.status === 409 && err.message.includes('active_billing')) return dict.billing.deletionBlocked;
     if (err.status === 422 && err.message.includes('last_authenticator')) return dict.securityActions.lastPasskeyBlocked;
     return `${s.error} (HTTP ${err.status})`;
   }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ghostMark } from '../assets';
-import { LANGS, Link, copyFor, earlyAccessHref, fill, href, rememberLang, type Lang, type Page } from '../lib';
+import { LANGS, Link, copyFor, fill, href, rememberLang, type Lang, type Page } from '../lib';
+import { site } from '../site.config';
 
 export function Wordmark({ lang }: { lang: Lang }) {
   const c = copyFor(lang);
@@ -41,7 +42,7 @@ export function Nav({ lang, page }: { lang: Lang; page: Page }) {
         </nav>
         <div className="nav__end">
           <LangSwitch lang={lang} page={page} />
-          <a className="btn btn--sm nav__cta" href={earlyAccessHref(lang)}>{c.nav.cta}</a>
+          <a className="btn btn--sm nav__cta" href={site.appUrl}>{c.nav.cta}</a>
           <button type="button" className="nav__burger" aria-expanded={open} aria-controls="primary-nav" aria-label={open ? c.nav.close : c.nav.menu} onClick={() => setOpen((v) => !v)}>
             <span aria-hidden="true" />
           </button>
@@ -50,7 +51,7 @@ export function Nav({ lang, page }: { lang: Lang; page: Page }) {
       <nav id="primary-nav" className="nav__sheet" aria-label="Primary" hidden={!open}>
         <div className="container">
           {links.map(([p, label]) => (<Link key={p} to={href(lang, p)} className="nav__sheet-link" aria-current={page === p ? 'page' : undefined}>{label}</Link>))}
-          <a className="btn" href={earlyAccessHref(lang)}>{c.nav.cta}</a>
+          <a className="btn" href={site.appUrl}>{c.nav.cta}</a>
         </div>
       </nav>
     </header>

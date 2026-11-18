@@ -16,11 +16,11 @@ export const en = {
     support: { title: 'Support | My Secret', description: 'Contact My Secret and find answers about recovery, sign-in, export and deleting your account.' },
   },
   nav: {
-    skip: 'Skip to content', home: 'My Secret home', pricing: 'Pricing', security: 'Security', support: 'Support', cta: 'Get early access', language: 'Language', menu: 'Menu', close: 'Close menu',
+    skip: 'Skip to content', home: 'My Secret home', pricing: 'Pricing', security: 'Security', support: 'Support', cta: 'Sign in', language: 'Language', menu: 'Menu', close: 'Close menu',
   },
   cta: { early: 'Get early access', earlySubject: 'Early access to My Secret' },
   home: {
-    hero: { h1: 'Your life.\nUnder lock.', sub: 'An encrypted vault for passwords, cards, IDs, notes and private media.', primary: 'Get early access', secondary: 'See pricing' },
+    hero: { h1: 'Your life.\nUnder lock.', sub: 'An encrypted vault for passwords, cards, IDs, notes and private media.', primary: 'Open the web app', secondary: 'See pricing' },
     scene: { label: 'Interactive illustration of a personal vault', open: 'Open the vault', close: 'Close the vault', pause: 'Pause motion', play: 'Resume motion', hint: 'A little look inside.', unavailable: 'A preview of your private space.' },
     principles: ['Encrypted on your device', 'Offline comes first', 'Your keys stay yours'],
     family: { h2: 'Close to them. Private to you.', sub: 'One family, up to six people. Everyone keeps a separate vault and chooses exactly what to share.', visual: '6 people. 6 private vaults.', points: ['Personal keys for every member', 'Invite and manage your family', 'Share individual items with verified contacts'], link: 'Explore Family' },

@@ -18,11 +18,11 @@ module Billing
           end
           StripeSync.subscriptions!(account: account, gateway: gateway)
           raise Conflict, 'existing_purchase' if Access.purchases(user: user).any?(&:blocks_checkout?)
-          open = account.billing_checkouts.where(status: %w[pending open complete]).order(created_at: :desc).first
+          open = account.billing_checkouts.where(status: %w[pending open processing complete]).order(created_at: :desc).first
           if open&.session_id
             session = gateway.session(open.session_id)
             StripeSync.checkout!(account: account, session: session, gateway: gateway)
-            raise Conflict, 'payment_processing' if session['status'] == 'complete'
+            raise Conflict, 'payment_processing' if session['status'] == 'complete' && open.reload.status != 'failed'
             if session['status'] == 'open'
               raise Conflict, 'checkout_in_progress' if open.option != option
               next session.fetch('url')
@@ -31,11 +31,12 @@ module Billing
           # An unsent/ambiguous API request reuses the durable row and key.
           open = nil if open && open.status != 'pending'
           raise Conflict, 'checkout_in_progress' if open && open.option != option
-          open ||= account.billing_checkouts.create!(option: option)
+          open ||= account.billing_checkouts.create!(option: option, price_id: price_id)
+          open.update!(price_id: price_id) unless open.price_id
           gateway.catalog # Validate server-owned Price type, currency and mode.
           params = {
             mode: option == 'lifetime' ? 'payment' : 'subscription', customer: account.customer_id,
-            line_items: [{ price: price_id, quantity: 1 }],
+            line_items: [{ price: open.price_id, quantity: 1 }],
             success_url: "#{Config.web_url}/?billing=success", cancel_url: "#{Config.web_url}/?billing=cancel",
             integration_identifier: 'my_secret_web_qmdptxza'
           }

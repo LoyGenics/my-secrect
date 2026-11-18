@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.2].define(version: 2026_11_18_120000) do
+ActiveRecord::Schema[7.2].define(version: 2026_11_18_120001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -65,6 +65,7 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_18_120000) do
     t.datetime "expires_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "price_id"
     t.index ["billing_account_id"], name: "index_billing_checkouts_on_billing_account_id"
     t.index ["session_id"], name: "index_billing_checkouts_on_session_id", unique: true
   end
@@ -92,6 +93,7 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_18_120000) do
     t.datetime "verified_at", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "price_id"
     t.index ["provider", "environment", "external_id"], name: "billing_purchase_identity", unique: true
     t.index ["user_id"], name: "index_billing_purchases_on_user_id"
   end

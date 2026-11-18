@@ -1,0 +1,440 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-18T09:15:59.006Z",
+  "title": "Design System: My Secret Mobile",
+  "extensions": {
+    "colorMeta": {
+      "primary-fill": {
+        "role": "primary",
+        "displayName": "Deep orange",
+        "tonalRamp": [
+          "oklch(15% 0.1912 36.3)",
+          "oklch(27% 0.1912 36.3)",
+          "oklch(38% 0.1912 36.3)",
+          "oklch(50% 0.1912 36.3)",
+          "oklch(61% 0.1912 36.3)",
+          "oklch(73% 0.1912 36.3)",
+          "oklch(84% 0.1912 36.3)",
+          "oklch(95% 0.1912 36.3)"
+        ]
+      },
+      "white": {
+        "role": "neutral",
+        "displayName": "White",
+        "tonalRamp": [
+          "oklch(15% 0.0000 0)",
+          "oklch(27% 0.0000 0)",
+          "oklch(38% 0.0000 0)",
+          "oklch(50% 0.0000 0)",
+          "oklch(61% 0.0000 0)",
+          "oklch(73% 0.0000 0)",
+          "oklch(84% 0.0000 0)",
+          "oklch(95% 0.0000 0)"
+        ]
+      },
+      "link-light": {
+        "role": "primary",
+        "displayName": "Orange link on light",
+        "tonalRamp": [
+          "oklch(15% 0.1682 38.1)",
+          "oklch(27% 0.1682 38.1)",
+          "oklch(38% 0.1682 38.1)",
+          "oklch(50% 0.1682 38.1)",
+          "oklch(61% 0.1682 38.1)",
+          "oklch(73% 0.1682 38.1)",
+          "oklch(84% 0.1682 38.1)",
+          "oklch(95% 0.1682 38.1)"
+        ]
+      },
+      "link-dark": {
+        "role": "primary",
+        "displayName": "Orange link on dark",
+        "tonalRamp": [
+          "oklch(15% 0.1339 43.0)",
+          "oklch(27% 0.1339 43.0)",
+          "oklch(38% 0.1339 43.0)",
+          "oklch(50% 0.1339 43.0)",
+          "oklch(61% 0.1339 43.0)",
+          "oklch(73% 0.1339 43.0)",
+          "oklch(84% 0.1339 43.0)",
+          "oklch(95% 0.1339 43.0)"
+        ]
+      },
+      "selection-light": {
+        "role": "primary",
+        "displayName": "Light selection wash",
+        "tonalRamp": [
+          "oklch(15% 0.0195 50.2)",
+          "oklch(27% 0.0195 50.2)",
+          "oklch(38% 0.0195 50.2)",
+          "oklch(50% 0.0195 50.2)",
+          "oklch(61% 0.0195 50.2)",
+          "oklch(73% 0.0195 50.2)",
+          "oklch(84% 0.0195 50.2)",
+          "oklch(95% 0.0195 50.2)"
+        ]
+      },
+      "selection-dark": {
+        "role": "primary",
+        "displayName": "Dark selection wash",
+        "tonalRamp": [
+          "oklch(15% 0.1956 40.7 / 0.16)",
+          "oklch(27% 0.1956 40.7 / 0.16)",
+          "oklch(38% 0.1956 40.7 / 0.16)",
+          "oklch(50% 0.1956 40.7 / 0.16)",
+          "oklch(61% 0.1956 40.7 / 0.16)",
+          "oklch(73% 0.1956 40.7 / 0.16)",
+          "oklch(84% 0.1956 40.7 / 0.16)",
+          "oklch(95% 0.1956 40.7 / 0.16)"
+        ]
+      },
+      "canvas-light": {
+        "role": "neutral",
+        "displayName": "Warm canvas",
+        "tonalRamp": [
+          "oklch(15% 0.0045 78.3)",
+          "oklch(27% 0.0045 78.3)",
+          "oklch(38% 0.0045 78.3)",
+          "oklch(50% 0.0045 78.3)",
+          "oklch(61% 0.0045 78.3)",
+          "oklch(73% 0.0045 78.3)",
+          "oklch(84% 0.0045 78.3)",
+          "oklch(95% 0.0045 78.3)"
+        ]
+      },
+      "canvas-dark": {
+        "role": "neutral",
+        "displayName": "Charcoal canvas",
+        "tonalRamp": [
+          "oklch(15% 0.0067 258.4)",
+          "oklch(27% 0.0067 258.4)",
+          "oklch(38% 0.0067 258.4)",
+          "oklch(50% 0.0067 258.4)",
+          "oklch(61% 0.0067 258.4)",
+          "oklch(73% 0.0067 258.4)",
+          "oklch(84% 0.0067 258.4)",
+          "oklch(95% 0.0067 258.4)"
+        ]
+      },
+      "surface-dark": {
+        "role": "neutral",
+        "displayName": "Charcoal group",
+        "tonalRamp": [
+          "oklch(15% 0.0104 260.7)",
+          "oklch(27% 0.0104 260.7)",
+          "oklch(38% 0.0104 260.7)",
+          "oklch(50% 0.0104 260.7)",
+          "oklch(61% 0.0104 260.7)",
+          "oklch(73% 0.0104 260.7)",
+          "oklch(84% 0.0104 260.7)",
+          "oklch(95% 0.0104 260.7)"
+        ]
+      },
+      "inset-light": {
+        "role": "neutral",
+        "displayName": "Warm inset",
+        "tonalRamp": [
+          "oklch(15% 0.0029 84.6)",
+          "oklch(27% 0.0029 84.6)",
+          "oklch(38% 0.0029 84.6)",
+          "oklch(50% 0.0029 84.6)",
+          "oklch(61% 0.0029 84.6)",
+          "oklch(73% 0.0029 84.6)",
+          "oklch(84% 0.0029 84.6)",
+          "oklch(95% 0.0029 84.6)"
+        ]
+      },
+      "inset-dark": {
+        "role": "neutral",
+        "displayName": "Charcoal inset",
+        "tonalRamp": [
+          "oklch(15% 0.0089 255.6)",
+          "oklch(27% 0.0089 255.6)",
+          "oklch(38% 0.0089 255.6)",
+          "oklch(50% 0.0089 255.6)",
+          "oklch(61% 0.0089 255.6)",
+          "oklch(73% 0.0089 255.6)",
+          "oklch(84% 0.0089 255.6)",
+          "oklch(95% 0.0089 255.6)"
+        ]
+      },
+      "ink-light": {
+        "role": "neutral",
+        "displayName": "Dark ink",
+        "tonalRamp": [
+          "oklch(15% 0.0112 254.0)",
+          "oklch(27% 0.0112 254.0)",
+          "oklch(38% 0.0112 254.0)",
+          "oklch(50% 0.0112 254.0)",
+          "oklch(61% 0.0112 254.0)",
+          "oklch(73% 0.0112 254.0)",
+          "oklch(84% 0.0112 254.0)",
+          "oklch(95% 0.0112 254.0)"
+        ]
+      },
+      "ink-dark": {
+        "role": "neutral",
+        "displayName": "Light ink",
+        "tonalRamp": [
+          "oklch(15% 0.0017 247.8)",
+          "oklch(27% 0.0017 247.8)",
+          "oklch(38% 0.0017 247.8)",
+          "oklch(50% 0.0017 247.8)",
+          "oklch(61% 0.0017 247.8)",
+          "oklch(73% 0.0017 247.8)",
+          "oklch(84% 0.0017 247.8)",
+          "oklch(95% 0.0017 247.8)"
+        ]
+      },
+      "secondary-dark": {
+        "role": "neutral",
+        "displayName": "Secondary ink on dark",
+        "tonalRamp": [
+          "oklch(15% 0.0100 252.8)",
+          "oklch(27% 0.0100 252.8)",
+          "oklch(38% 0.0100 252.8)",
+          "oklch(50% 0.0100 252.8)",
+          "oklch(61% 0.0100 252.8)",
+          "oklch(73% 0.0100 252.8)",
+          "oklch(84% 0.0100 252.8)",
+          "oklch(95% 0.0100 252.8)"
+        ]
+      },
+      "muted-light": {
+        "role": "neutral",
+        "displayName": "Muted ink on light",
+        "tonalRamp": [
+          "oklch(15% 0.0134 252.2)",
+          "oklch(27% 0.0134 252.2)",
+          "oklch(38% 0.0134 252.2)",
+          "oklch(50% 0.0134 252.2)",
+          "oklch(61% 0.0134 252.2)",
+          "oklch(73% 0.0134 252.2)",
+          "oklch(84% 0.0134 252.2)",
+          "oklch(95% 0.0134 252.2)"
+        ]
+      },
+      "muted-dark": {
+        "role": "neutral",
+        "displayName": "Muted ink on dark",
+        "tonalRamp": [
+          "oklch(15% 0.0129 248.0)",
+          "oklch(27% 0.0129 248.0)",
+          "oklch(38% 0.0129 248.0)",
+          "oklch(50% 0.0129 248.0)",
+          "oklch(61% 0.0129 248.0)",
+          "oklch(73% 0.0129 248.0)",
+          "oklch(84% 0.0129 248.0)",
+          "oklch(95% 0.0129 248.0)"
+        ]
+      },
+      "divider-light": {
+        "role": "neutral",
+        "displayName": "Warm divider",
+        "tonalRamp": [
+          "oklch(15% 0.0075 80.7)",
+          "oklch(27% 0.0075 80.7)",
+          "oklch(38% 0.0075 80.7)",
+          "oklch(50% 0.0075 80.7)",
+          "oklch(61% 0.0075 80.7)",
+          "oklch(73% 0.0075 80.7)",
+          "oklch(84% 0.0075 80.7)",
+          "oklch(95% 0.0075 80.7)"
+        ]
+      },
+      "divider-dark": {
+        "role": "neutral",
+        "displayName": "Charcoal divider",
+        "tonalRamp": [
+          "oklch(15% 0.0142 256.8)",
+          "oklch(27% 0.0142 256.8)",
+          "oklch(38% 0.0142 256.8)",
+          "oklch(50% 0.0142 256.8)",
+          "oklch(61% 0.0142 256.8)",
+          "oklch(73% 0.0142 256.8)",
+          "oklch(84% 0.0142 256.8)",
+          "oklch(95% 0.0142 256.8)"
+        ]
+      },
+      "danger-fill": {
+        "role": "secondary",
+        "displayName": "Destructive red",
+        "tonalRamp": [
+          "oklch(15% 0.1836 23.8)",
+          "oklch(27% 0.1836 23.8)",
+          "oklch(38% 0.1836 23.8)",
+          "oklch(50% 0.1836 23.8)",
+          "oklch(61% 0.1836 23.8)",
+          "oklch(73% 0.1836 23.8)",
+          "oklch(84% 0.1836 23.8)",
+          "oklch(95% 0.1836 23.8)"
+        ]
+      },
+      "danger-ink-light": {
+        "role": "secondary",
+        "displayName": "Danger ink on light",
+        "tonalRamp": [
+          "oklch(15% 0.1802 25.3)",
+          "oklch(27% 0.1802 25.3)",
+          "oklch(38% 0.1802 25.3)",
+          "oklch(50% 0.1802 25.3)",
+          "oklch(61% 0.1802 25.3)",
+          "oklch(73% 0.1802 25.3)",
+          "oklch(84% 0.1802 25.3)",
+          "oklch(95% 0.1802 25.3)"
+        ]
+      },
+      "danger-ink-dark": {
+        "role": "secondary",
+        "displayName": "Danger ink on dark",
+        "tonalRamp": [
+          "oklch(15% 0.1419 19.4)",
+          "oklch(27% 0.1419 19.4)",
+          "oklch(38% 0.1419 19.4)",
+          "oklch(50% 0.1419 19.4)",
+          "oklch(61% 0.1419 19.4)",
+          "oklch(73% 0.1419 19.4)",
+          "oklch(84% 0.1419 19.4)",
+          "oklch(95% 0.1419 19.4)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Large screen headings."
+      },
+      "headline": {
+        "displayName": "Section headline",
+        "purpose": "Emphasized section headings."
+      },
+      "navigation-title": {
+        "displayName": "Navigation title",
+        "purpose": "Stable title in native stack headers."
+      },
+      "category-title": {
+        "displayName": "Category title",
+        "purpose": "Active option in the category dropdown."
+      },
+      "item-title": {
+        "displayName": "Item title",
+        "purpose": "Vault and file row titles and shared action labels."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Short explanatory copy and supporting information."
+      },
+      "field": {
+        "displayName": "Field",
+        "purpose": "Input values, search controls, and regular-weight row labels."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Counts, metadata, and group labels."
+      },
+      "tab-label": {
+        "displayName": "Tab label",
+        "purpose": "Name beneath a bottom tab glyph."
+      }
+    },
+    "shadows": [
+      {
+        "name": "app-notice",
+        "value": "0 3px 12px rgba(0, 0, 0, 0.12)",
+        "purpose": "CSS preview of the soft native shadow under a transient notice."
+      }
+    ],
+    "motion": [
+      {
+        "name": "category-sheet",
+        "value": "fade",
+        "purpose": "React Native Modal animation for the category dropdown."
+      },
+      {
+        "name": "file-management-sheet",
+        "value": "slide",
+        "purpose": "React Native Modal animation for folder creation, rename, and move."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary action",
+      "kind": "button",
+      "refersTo": "primary-action",
+      "description": "Filled button for the next step.",
+      "html": "<button class=\"ds-primary-action\" type=\"button\">Create link</button>",
+      "css": ".ds-primary-action { width: 100%; min-height: 50px; padding: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 12px; background: #D23F0C; color: #FFFFFF; font: 600 16px system-ui; cursor: pointer; } .ds-primary-action:active { opacity: 0.75; } .ds-primary-action:disabled { opacity: 0.45; cursor: default; } .ds-primary-action:focus-visible { outline: 2px solid #b83c0a; outline-offset: 2px; } @media (prefers-color-scheme: dark) { .ds-primary-action:focus-visible { outline-color: #ff9a70; } }"
+    },
+    {
+      "name": "Secondary action",
+      "kind": "button",
+      "refersTo": "secondary-action",
+      "description": "Neutral action on a grouped surface.",
+      "html": "<button class=\"ds-secondary-action\" type=\"button\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"18\" cy=\"5\" r=\"3\"/><circle cx=\"6\" cy=\"12\" r=\"3\"/><circle cx=\"18\" cy=\"19\" r=\"3\"/><line x1=\"8.59\" x2=\"15.42\" y1=\"13.51\" y2=\"17.49\"/><line x1=\"15.41\" x2=\"8.59\" y1=\"6.51\" y2=\"10.49\"/></svg><span>Share link</span></button>",
+      "css": ".ds-secondary-action { width: 100%; min-height: 50px; padding: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 12px; background: #FFFFFF; color: #1e2227; font: 600 16px system-ui; cursor: pointer; } .ds-secondary-action:active { opacity: 0.75; } .ds-secondary-action:disabled { opacity: 0.45; cursor: default; } @media (prefers-color-scheme: dark) { .ds-secondary-action { background: #212429; color: #f1f2f3; } } .ds-secondary-action:focus-visible { outline: 2px solid #b83c0a; outline-offset: 2px; } @media (prefers-color-scheme: dark) { .ds-secondary-action:focus-visible { outline-color: #ff9a70; } }"
+    },
+    {
+      "name": "Grouped settings",
+      "kind": "card",
+      "refersTo": "group",
+      "description": "Inset dividers separate individual settings inside a shared surface.",
+      "html": "<section class=\"ds-group\"><button class=\"ds-settings-row\" type=\"button\">Security Center<svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m9 18 6-6-6-6\"/></svg></button><button class=\"ds-settings-row\" type=\"button\">Trash<svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m9 18 6-6-6-6\"/></svg></button></section>",
+      "css": ".ds-group { overflow: hidden; border-radius: 14px; background: #FFFFFF; color: #1e2227; } .ds-settings-row { position: relative; display: flex; justify-content: space-between; align-items: center; width: 100%; min-height: 54px; padding: 13px 16px; border: 0; background: transparent; color: inherit; font: 400 16px system-ui; text-align: left; cursor: pointer; } .ds-settings-row + .ds-settings-row::before { position: absolute; inset: 0 0 auto 16px; height: 0.5px; background: #ebe8e3; content: \"\"; } .ds-settings-row svg { color: #5f656c; } .ds-settings-row:hover, .ds-settings-row:active { background: #faf9f7; } @media (prefers-color-scheme: dark) { .ds-group { background: #212429; color: #f1f2f3; } } @media (prefers-color-scheme: dark) { .ds-settings-row + .ds-settings-row::before { background: #2f343b; } } @media (prefers-color-scheme: dark) { .ds-settings-row svg { color: #a0a7ae; } } @media (prefers-color-scheme: dark) { .ds-settings-row:hover, .ds-settings-row:active { background: #1c1f23; } } .ds-settings-row:focus-visible { outline: 2px solid #b83c0a; outline-offset: 2px; } @media (prefers-color-scheme: dark) { .ds-settings-row:focus-visible { outline-color: #ff9a70; } } .ds-settings-row:focus-visible { outline-offset: -2px; }"
+    },
+    {
+      "name": "Labeled field",
+      "kind": "input",
+      "refersTo": "field",
+      "description": "A persistent label identifies a theme-aware native text input.",
+      "html": "<label class=\"ds-field\">Folder name<input type=\"text\" class=\"ds-field-input\" value=\"Receipts\"></label>",
+      "css": ".ds-field { display: grid; gap: 6px; color: #5f656c; font: 600 13px system-ui; } .ds-field-input { min-width: 0; min-height: 50px; padding: 13px 14px; border: 1px solid #ebe8e3; border-radius: 14px; background: #faf9f7; color: #1e2227; font: 400 16px system-ui; box-sizing: border-box; } @media (prefers-color-scheme: dark) { .ds-field { color: #a0a7ae; } } @media (prefers-color-scheme: dark) { .ds-field-input { border-color: #2f343b; background: #1c1f23; color: #f1f2f3; } } .ds-field-input:focus-visible { outline: 2px solid #b83c0a; outline-offset: 2px; } @media (prefers-color-scheme: dark) { .ds-field-input:focus-visible { outline-color: #ff9a70; } }"
+    },
+    {
+      "name": "Global search trigger",
+      "kind": "button",
+      "refersTo": "search-trigger",
+      "description": "The Vault entry opens the shared search modal.",
+      "html": "<button type=\"button\" class=\"ds-search-trigger\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" width=\"19\" height=\"19\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m21 21-4.34-4.34\"/><circle cx=\"11\" cy=\"11\" r=\"8\"/></svg><span>Search all items</span></button>",
+      "css": ".ds-search-trigger { display: flex; align-items: center; min-height: 46px; width: 100%; padding: 0 14px; gap: 10px; border: 0; border-radius: 11px; background: #faf9f7; color: #5f656c; font: 400 16px system-ui; cursor: pointer; } @media (prefers-color-scheme: dark) { .ds-search-trigger { background: #1c1f23; color: #a0a7ae; } } .ds-search-trigger:focus-visible { outline: 2px solid #b83c0a; outline-offset: 2px; } @media (prefers-color-scheme: dark) { .ds-search-trigger:focus-visible { outline-color: #ff9a70; } }"
+    },
+    {
+      "name": "Category dropdown",
+      "kind": "button",
+      "refersTo": "category-select",
+      "description": "The current category opens a selection sheet.",
+      "html": "<button type=\"button\" class=\"ds-category\" aria-label=\"Categories, All items\">All items<svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m6 9 6 6 6-6\"/></svg></button>",
+      "css": ".ds-category { display: inline-flex; align-items: center; gap: 8px; min-height: 46px; padding: 0; border: 0; background: transparent; color: #1e2227; font: 600 17px system-ui; cursor: pointer; } .ds-category svg { color: #5f656c; } @media (prefers-color-scheme: dark) { .ds-category { color: #f1f2f3; } } @media (prefers-color-scheme: dark) { .ds-category svg { color: #a0a7ae; } } .ds-category:focus-visible { outline: 2px solid #b83c0a; outline-offset: 2px; } @media (prefers-color-scheme: dark) { .ds-category:focus-visible { outline-color: #ff9a70; } }"
+    },
+    {
+      "name": "Bottom tab bar",
+      "kind": "nav",
+      "refersTo": "tab-bar",
+      "description": "The active tab uses the mode-specific link color.",
+      "html": "<nav class=\"ds-tab-bar\" aria-label=\"Main navigation\"><button type=\"button\" class=\"ds-tab\" aria-current=\"page\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect width=\"7\" height=\"7\" x=\"3\" y=\"3\" rx=\"1\"/><rect width=\"7\" height=\"7\" x=\"3\" y=\"14\" rx=\"1\"/><path d=\"M14 4h7\"/><path d=\"M14 9h7\"/><path d=\"M14 15h7\"/><path d=\"M14 20h7\"/></svg><span>Vault</span></button><button type=\"button\" class=\"ds-tab\" ><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M10 9H8\"/><path d=\"M16 13H8\"/><path d=\"M16 17H8\"/></svg><span>Files</span></button><button type=\"button\" class=\"ds-tab\" ><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect width=\"12\" height=\"12\" x=\"2\" y=\"10\" rx=\"2\" ry=\"2\"/><path d=\"m17.92 14 3.5-3.5a2.24 2.24 0 0 0 0-3l-5-4.92a2.24 2.24 0 0 0-3 0L10 6\"/><path d=\"M6 18h.01\"/><path d=\"M10 14h.01\"/><path d=\"M15 6h.01\"/><path d=\"M18 9h.01\"/></svg><span>Generator</span></button><button type=\"button\" class=\"ds-tab\" ><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2\"/></svg><span>Watchtower</span></button><button type=\"button\" class=\"ds-tab\" ><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/></svg><span>Settings</span></button></nav>",
+      "css": ".ds-tab-bar { display: flex; border-top: 1px solid #ebe8e3; background: #FFFFFF; color: #5f656c; } .ds-tab { display: grid; place-items: center; align-content: center; gap: 2px; flex: 1; min-width: 0; min-height: 49px; padding: 4px 2px; border: 0; background: transparent; color: inherit; font: 500 11px system-ui; overflow-wrap: anywhere; cursor: pointer; } .ds-tab[aria-current] { color: #b83c0a; } @media (prefers-color-scheme: dark) { .ds-tab-bar { border-color: #2f343b; background: #212429; color: #a0a7ae; } } @media (prefers-color-scheme: dark) { .ds-tab[aria-current] { color: #ff9a70; } } .ds-tab:focus-visible { outline: 2px solid #b83c0a; outline-offset: 2px; } @media (prefers-color-scheme: dark) { .ds-tab:focus-visible { outline-color: #ff9a70; } } .ds-tab:focus-visible { outline-offset: -2px; }"
+    },
+    {
+      "name": "Folder row",
+      "kind": "custom",
+      "refersTo": "file-row",
+      "description": "A folder name and child count sit beside a neutral type glyph and a separate action menu.",
+      "html": "<div class=\"ds-file-row\"><button class=\"ds-file-open\" type=\"button\"><span class=\"ds-file-glyph\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/></svg></span><span class=\"ds-file-copy\"><strong>Receipts</strong><small>3 items</small></span></button><button class=\"ds-file-menu\" type=\"button\" aria-label=\"File options: Receipts\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/><circle cx=\"5\" cy=\"12\" r=\"1\"/></svg></button></div>",
+      "css": ".ds-file-row { display: flex; align-items: center; border-bottom: 0.5px solid #ebe8e3; background: #FFFFFF; color: #1e2227; } .ds-file-open { display: flex; align-items: center; gap: 13px; flex: 1; min-width: 0; min-height: 78px; padding: 14px; border: 0; background: transparent; color: inherit; text-align: left; font: 400 16px system-ui; cursor: pointer; } .ds-file-glyph { display: grid; place-items: center; flex: 0 0 42px; height: 42px; border-radius: 10px; background: #faf9f7; color: #5f656c; } .ds-file-copy { display: grid; gap: 4px; min-width: 0; } .ds-file-copy strong { font-weight: 600; } .ds-file-copy small { color: #5f656c; font-size: 13px; } .ds-file-menu { display: grid; place-items: center; width: 48px; height: 54px; padding: 0; border: 0; background: transparent; color: #5f656c; cursor: pointer; } @media (prefers-color-scheme: dark) { .ds-file-row { border-color: #2f343b; background: #212429; color: #f1f2f3; } } @media (prefers-color-scheme: dark) { .ds-file-glyph { background: #1c1f23; color: #c3c8ce; } } @media (prefers-color-scheme: dark) { .ds-file-copy small, .ds-file-menu { color: #a0a7ae; } } .ds-file-open:focus-visible { outline: 2px solid #b83c0a; outline-offset: 2px; } @media (prefers-color-scheme: dark) { .ds-file-open:focus-visible { outline-color: #ff9a70; } } .ds-file-menu:focus-visible { outline: 2px solid #b83c0a; outline-offset: 2px; } @media (prefers-color-scheme: dark) { .ds-file-menu:focus-visible { outline-color: #ff9a70; } }"
+    }
+  ],
+  "narrative": {
+    "overview": "The vault opens on its contents. A compact title bar and quiet grouped rows help people find, inspect, and copy items, then return to where they were.\n\nThe transparent ghost and orange accents carry the My Secret identity. Native stacks, tabs, keyboards, and pickers give the app familiar behavior on iOS and Android.",
+    "keyCharacteristics": [
+      "Warm neutral light surfaces and charcoal dark surfaces follow device appearance.",
+      "System typography and recognizable Lucide glyphs keep rows easy to scan.",
+      "A category dropdown, one global search, and a dedicated Files tab give each task a clear entry point."
+    ],
+    "dos": [
+      "Do keep search, item actions, and reading order consistent across themes and device widths.",
+      "Do use accessible labels for icon-only controls and keep icons decorative when visible text already names the action.",
+      "Do use the ghost illustration for onboarding and empty states and Lucide glyphs for routine navigation and rows.",
+      "Do use synthetic vault contents for review captures. Record coverage for each current build, device class, appearance, and text size that was checked."
+    ]
+  }
+}

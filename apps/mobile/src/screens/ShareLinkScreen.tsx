@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Alert, Share, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
-import { Copy, Share2, Trash2 } from 'lucide-react-native';
+import { Copy, Share2 } from 'lucide-react-native';
 import type { VaultItem } from '../../../../packages/core/src/types';
 import { createShareLink, shareLinkURL } from '../../../../packages/core/src/share-link';
 import { ShareLinksApiClient, type OwnedShareLink } from '../../../../packages/sdk/src/share-links';
@@ -69,13 +69,15 @@ export default function ShareLinkScreen({ item }: { item: VaultItem }) {
   return <Page>
     <Text style={{ color: colors.text, fontSize: 24, lineHeight: 31, fontWeight: '600', marginBottom: 12 }}>{item.title}</Text>
     <Text style={{ color: colors.muted, fontSize: 14, lineHeight: 21, marginBottom: 24 }}>{t('mobileUI.linkAnyone')}</Text>
-    <Group title={t('mobileUI.linkExpiry')}><View style={{ paddingHorizontal: 16 }}><Select testID="share-link-expiry" label={t('mobileUI.linkExpiry')} value={ttl} choices={[{ value: '3600', label: t('mobileUI.hour') }, { value: '86400', label: t('mobileUI.day') }, { value: '604800', label: t('mobileUI.week') }]} onChange={setTTL} /></View></Group>
     {!!error && <Text testID="share-link-error" accessibilityRole="alert" style={{ color: colors.dangerText, fontSize: 14, lineHeight: 21, marginBottom: 18 }}>{error}</Text>}
-    <Action testID="create-share-link" label={busy ? t('mobileUI.creatingLink') : t('mobileUI.createLink')} disabled={!api || busy} onPress={() => void create()} />
-    {!!url && <View style={{ marginTop: 16, gap: 12 }}>
-      <Action testID="copy-share-link" label={copied ? dict.common.copied : t('mobileUI.copyLink')} secondary icon={<Copy size={18} color={colors.text} />} onPress={() => void Clipboard.setStringAsync(url).then(() => setCopied(true))} />
-      <Action testID="send-share-link" label={t('mobileUI.sendLink')} secondary icon={<Share2 size={18} color={colors.text} />} onPress={() => void Share.share({ message: url, url })} />
-    </View>}
+    {url ? <View style={{ gap: 12 }}>
+      <Action testID="copy-share-link" label={copied ? dict.common.copied : t('mobileUI.copyLink')} icon={<Copy size={18} color="#FFFFFF" />} onPress={() => void Clipboard.setStringAsync(url).then(() => setCopied(true))} />
+      <Action testID="send-share-link" label={t('mobileUI.sendLink')} secondary icon={<Share2 size={18} color={colors.text} />} onPress={() => void Share.share({ message: url })} />
+      <Row label={t('mobileUI.createLink')} onPress={() => { setURL(''); setCopied(false); }} />
+    </View> : <>
+      <Group title={t('mobileUI.linkExpiry')}><View style={{ paddingHorizontal: 16 }}><Select testID="share-link-expiry" label={t('mobileUI.linkExpiry')} value={ttl} choices={[{ value: '3600', label: t('mobileUI.hour') }, { value: '86400', label: t('mobileUI.day') }, { value: '604800', label: t('mobileUI.week') }]} onChange={setTTL} /></View></Group>
+      <Action testID="create-share-link" label={busy ? t('mobileUI.creatingLink') : t('mobileUI.createLink')} disabled={!api || busy} onPress={() => void create()} />
+    </>}
     {!!links.length && <View style={{ marginTop: 32 }}><Group title={t('mobileUI.activeLinks')}>
       {links.map(({ link, url: existing }, index) => <React.Fragment key={link.id}>{index > 0 && <Rule />}<Row testID={`shared-link-${link.id}`} label={t('mobileUI.expiresAt', when(link.expires_at))} onPress={() => { setURL(existing); setCopied(false); }}>
         <View style={{ flexDirection: 'row' }}><Action testID={`revoke-link-${link.id}`} label={t('mobileUI.revokeLink')} secondary disabled={busy} onPress={() => revoke(link.id)} /></View>

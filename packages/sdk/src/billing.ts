@@ -52,6 +52,9 @@ export function storeManagementUrl(provider: Exclude<BillingProvider, 'stripe'>,
 /** Stripe amounts use the currency's smallest unit, including JPY/KRW. */
 export function formatBillingPrice(amount: number, currency: string, locale: string): string {
   const formatter = new Intl.NumberFormat(locale, { style: 'currency', currency: currency.toUpperCase() });
-  const digits = formatter.resolvedOptions().maximumFractionDigits ?? 2;
+  const code = currency.toLowerCase();
+  const zeroDecimal = new Set(['bif', 'clp', 'djf', 'gnf', 'jpy', 'kmf', 'krw', 'mga', 'pyg', 'rwf', 'vnd', 'vuv', 'xaf', 'xof', 'xpf']);
+  // ISK/UGX retain two-decimal API representations for compatibility.
+  const digits = code === 'isk' || code === 'ugx' ? 2 : zeroDecimal.has(code) ? 0 : formatter.resolvedOptions().maximumFractionDigits ?? 2;
   return formatter.format(amount / (10 ** digits));
 }

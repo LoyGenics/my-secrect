@@ -16,11 +16,11 @@ export const vi: Copy = {
     support: { title: 'Hỗ trợ | My Secret', description: 'Liên hệ My Secret và tìm câu trả lời về khôi phục, đăng nhập, xuất dữ liệu và xóa tài khoản.' },
   },
   nav: {
-    skip: 'Chuyển tới nội dung', home: 'Trang chủ My Secret', pricing: 'Bảng giá', security: 'Bảo mật', support: 'Hỗ trợ', cta: 'Đăng ký dùng sớm', language: 'Ngôn ngữ', menu: 'Menu', close: 'Đóng menu',
+    skip: 'Chuyển tới nội dung', home: 'Trang chủ My Secret', pricing: 'Bảng giá', security: 'Bảo mật', support: 'Hỗ trợ', cta: 'Đăng nhập', language: 'Ngôn ngữ', menu: 'Menu', close: 'Đóng menu',
   },
   cta: { early: 'Đăng ký dùng sớm', earlySubject: 'Đăng ký dùng sớm My Secret' },
   home: {
-    hero: { h1: 'Riêng tư.\nTrọn vẹn.', sub: 'Két mã hóa cho mật khẩu, thẻ, giấy tờ, ghi chú và ảnh video riêng tư.', primary: 'Đăng ký dùng sớm', secondary: 'Xem bảng giá' },
+    hero: { h1: 'Riêng tư.\nTrọn vẹn.', sub: 'Két mã hóa cho mật khẩu, thẻ, giấy tờ, ghi chú và ảnh video riêng tư.', primary: 'Mở ứng dụng web', secondary: 'Xem bảng giá' },
     scene: { label: 'Mô hình tương tác của két cá nhân', open: 'Mở két', close: 'Đóng két', pause: 'Tạm dừng chuyển động', play: 'Tiếp tục chuyển động', hint: 'Khám phá bên trong.', unavailable: 'Một góc không gian riêng của bạn.' },
     principles: ['Mã hóa ngay trên thiết bị', 'Ưu tiên ngoại tuyến', 'Khóa luôn thuộc về bạn'],
     family: { h2: 'Gần nhau. Vẫn riêng tư.', sub: 'Một gia đình, tối đa sáu người. Mỗi người có két riêng và tự chọn những gì muốn chia sẻ.', visual: '6 người. 6 két riêng.', points: ['Khóa riêng cho từng thành viên', 'Mời và quản lý gia đình', 'Chia sẻ từng mục với người đã xác minh'], link: 'Khám phá gói Gia đình' },

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, FlatList, Image, Modal, Pressable, SafeAreaView, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, FlatList, Image, Modal, Platform, Pressable, SafeAreaView, Text, View } from 'react-native';
 import * as Documents from 'expo-document-picker';
 import * as Photos from 'expo-image-picker';
 import * as FS from 'expo-file-system';
@@ -14,7 +14,8 @@ import { illustrations } from '../../../../packages/ui/src/native';
 import { Action, Empty, Page, Row } from '../components/mobile-ui';
 import Field from '../components/Field';
 import { useMobileTheme } from '../theme';
-import { importNativeFile, openNativeFile } from '../storage/localFiles';
+import { importNativeFile, openNativeFile, removeEncryptedFile } from '../storage/localFiles';
+import { removeFilePreview } from '../storage/filePreviews';
 import { isUnlocked } from '../vault';
 
 function id() {
@@ -23,7 +24,8 @@ function id() {
   return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
 }
 function size(value: unknown): string {
-  const bytes = Number(value) || 0;
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes <= 0) return '';
   return bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 function FileGlyph({ item }: { item: VaultItem }) {
@@ -51,7 +53,10 @@ export default function FilesScreen({ items, folderId = '', onSave, onDelete, on
         if (!info.exists || info.isDirectory) throw new Error('unreadable');
         try {
           const item = await importNativeFile({ uri: asset.uri, name: asset.name || `File-${Date.now()}`, size: asset.size ?? info.size, mimeType: asset.mimeType || 'application/octet-stream' }, folderId, setProgress);
-          await onSave(item);
+          try { await onSave(item); } catch (error) {
+            await removeEncryptedFile(item.id);
+            throw error;
+          }
         } finally {
           // Only picker-created cache copies, never a user's original file.
           if (FS.cacheDirectory && asset.uri.startsWith(FS.cacheDirectory)) await FS.deleteAsync(asset.uri, { idempotent: true });
@@ -85,26 +90,28 @@ export default function FilesScreen({ items, folderId = '', onSave, onDelete, on
     } catch { setError(t('mobileUI.saveFailed')); } finally { setBusy(false); }
   }
   function actions(item: VaultItem) {
-    Alert.alert(item.title, undefined, [
-      { text: t('mobileUI.rename'), onPress: () => { setName(item.title); setDialog({ kind: 'rename', item }); } },
+    const buttons: Parameters<typeof Alert.alert>[2] = [
+      { text: t('mobileUI.rename'), onPress: () => { setName(item.title); setError(''); setDialog({ kind: 'rename', item }); } },
       { text: t('mobileUI.move'), onPress: () => setMoving(item) },
       { text: dict.common.delete, style: 'destructive', onPress: () => {
         if (isFileFolder(item) && items.some(child => !child.deleted_at && fileParent(child, items) === item.id)) { Alert.alert(t('mobileUI.folderNotEmpty')); return; }
         Alert.alert(dict.mobile.moveToTrashTitle, undefined, [{ text: dict.common.cancel, style: 'cancel' }, { text: dict.common.delete, style: 'destructive', onPress: () => void onDelete(item.id).catch(() => setError(t('mobileUI.saveFailed'))) }]);
-      } }, { text: dict.common.cancel, style: 'cancel' },
-    ]);
+      } },
+    ];
+    if (Platform.OS === 'ios') buttons.push({ text: dict.common.cancel, style: 'cancel' });
+    Alert.alert(item.title, undefined, buttons, { cancelable: true });
   }
   return <View style={styles.screen}>
     <FlatList data={entries} keyExtractor={item => item.id} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 20, paddingTop: 8, paddingBottom: 40, width: '100%', maxWidth: 820, alignSelf: 'center' }}
       ListHeaderComponent={<View style={{ marginBottom: 18 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <Pressable testID="files-upload" accessibilityRole="button" accessibilityLabel={t('mobileUI.upload')} disabled={busy} onPress={uploadMenu} style={{ minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 8, opacity: busy ? 0.5 : 1 }}><Upload size={20} color={colors.link} /><Text style={{ color: colors.link, fontSize: 16, fontWeight: '600' }}>{t('mobileUI.upload')}</Text></Pressable>
-          <Pressable testID="files-new-folder" accessibilityRole="button" accessibilityLabel={t('mobileUI.newFolder')} disabled={busy} onPress={() => { setName(''); setDialog({ kind: 'folder' }); }} style={{ minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 8 }}><FolderPlus size={20} color={colors.link} /><Text style={{ color: colors.link, fontSize: 16, fontWeight: '600' }}>{t('mobileUI.newFolder')}</Text></Pressable>
+          <Pressable testID="files-new-folder" accessibilityRole="button" accessibilityLabel={t('mobileUI.newFolder')} disabled={busy} onPress={() => { setName(''); setError(''); setDialog({ kind: 'folder' }); }} style={{ minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 8 }}><FolderPlus size={20} color={colors.link} /><Text style={{ color: colors.link, fontSize: 16, fontWeight: '600' }}>{t('mobileUI.newFolder')}</Text></Pressable>
         </View>
         {busy && <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 14 }}><ActivityIndicator color={colors.accent} /><Text style={{ color: colors.muted, fontSize: 14 }}>{t('mobileUI.uploading', progress)}</Text></View>}
-        {!!error && <Text testID="files-error" accessibilityRole="alert" style={{ color: colors.dangerText, fontSize: 14, lineHeight: 21, paddingVertical: 12 }}>{error}</Text>}
+        {!!error && !dialog && <Text testID="files-error" accessibilityRole="alert" style={{ color: colors.dangerText, fontSize: 14, lineHeight: 21, paddingVertical: 12 }}>{error}</Text>}
       </View>}
-      ListEmptyComponent={<Empty image={illustrations.emptyVault} title={t('mobileUI.filesEmpty')} detail={t('mobileUI.filesEmptyBody')} />}
+      ListEmptyComponent={<Empty image={illustrations.emptyVault} title={t('mobileUI.noItems')} />}
       renderItem={({ item }) => <View style={{ backgroundColor: colors.card, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 0.5, borderBottomColor: colors.line }}>
         <Pressable testID={`file-entry-${item.id}`} accessibilityRole="button" accessibilityLabel={item.title} onLongPress={() => actions(item)} onPress={() => isFileFolder(item) ? onOpenFolder(item.id) : onOpenFile(item.id)} style={{ flex: 1, minHeight: 78, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 13 }}>
           <FileGlyph item={item} /><View style={{ flex: 1, minWidth: 0 }}><Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }} numberOfLines={2}>{item.title}</Text><Text style={{ color: colors.muted, fontSize: 13, marginTop: 4 }}>{isFileFolder(item) ? t('mobileUI.itemCount', items.filter(child => fileParent(child, items) === item.id && !child.deleted_at).length) : size(item.fields.size_bytes)}</Text></View>
@@ -119,6 +126,7 @@ export default function FilesScreen({ items, folderId = '', onSave, onDelete, on
           const source = moving; setMoving(null); void onSave(moveFileEntry(source, target?.id || '', items)).catch(() => setError(t('mobileUI.saveFailed')));
         }}>{fileParent(moving, items) === (target?.id || '') ? <Check size={20} color={colors.link} /> : <ChevronRight size={18} color={colors.muted} />}</Row>} /> : <Page>
           <Field testID="files-name" label={dialog?.kind === 'folder' ? t('mobileUI.folderName') : dict.itemForm.title} value={name} onChangeText={setName} autoFocus autoCapitalize="sentences" />
+          {!!error && <Text accessibilityRole="alert" style={[styles.error, { marginBottom: 14 }]}>{error}</Text>}
           <Action testID="files-save-name" label={dict.common.save} disabled={busy || !name.trim()} onPress={() => void saveName()} />
         </Page>}
       </SafeAreaView>
@@ -131,6 +139,18 @@ function FileVideo({ uri }: { uri: string }) {
 }
 export function FilePreviewScreen({ item }: { item: VaultItem }) {
   const { colors } = useMobileTheme(); const { t } = useTranslation();
+  if (item.fields.storage === 'local-encrypted-v1') return <LocalFilePreview item={item} />;
+  const mime = typeof item.fields.mime_type === 'string' ? item.fields.mime_type : '';
+  const byteSize = size(item.fields.size_bytes);
+  return <Page>
+    <Text style={{ color: colors.text, fontSize: 23, lineHeight: 30, fontWeight: '600', marginBottom: 12 }}>{item.title}</Text>
+    {!!(mime || byteSize) && <Text style={{ color: colors.muted, marginBottom: 18 }}>{[mime, byteSize].filter(Boolean).join(' · ')}</Text>}
+    {typeof item.fields.notes === 'string' && <Text style={{ color: colors.text, lineHeight: 22, marginBottom: 18 }}>{item.fields.notes}</Text>}
+    <Text style={{ color: colors.muted }}>{t('mobileUI.fileUnavailable')}</Text>
+  </Page>;
+}
+function LocalFilePreview({ item }: { item: VaultItem }) {
+  const { colors } = useMobileTheme(); const { t } = useTranslation();
   const [preview, setPreview] = useState<{ uri: string; mime: string } | null>(null); const [error, setError] = useState('');
   useEffect(() => {
     let alive = true; let uri = ''; let generation = 0;
@@ -138,16 +158,16 @@ export function FilePreviewScreen({ item }: { item: VaultItem }) {
       const current = ++generation; setError('');
       try {
         const value = await openNativeFile(item);
-        if (!alive || current !== generation || !isUnlocked()) { await FS.deleteAsync(value.uri, { idempotent: true }); return; }
+        if (!alive || current !== generation || !isUnlocked()) { await removeFilePreview(value.uri); return; }
         uri = value.uri; setPreview(value);
       } catch { if (alive) setError(t('mobileUI.fileUnavailable')); }
     }
     void load();
     const listener = AppState.addEventListener('change', state => {
-      if (state === 'background') { generation++; setPreview(null); if (uri) void FS.deleteAsync(uri, { idempotent: true }); }
-      if (state === 'active' && isUnlocked()) void load();
+      if (state === 'background') { generation++; setPreview(null); if (uri) void removeFilePreview(uri).catch(() => undefined); uri = ''; }
+      if (state === 'active' && isUnlocked() && !uri) void load();
     });
-    return () => { alive = false; generation++; listener.remove(); if (uri) void FS.deleteAsync(uri, { idempotent: true }); };
+    return () => { alive = false; generation++; listener.remove(); if (uri) void removeFilePreview(uri).catch(() => undefined); };
   }, [item.id]);
   return <Page>
     <Text style={{ color: colors.text, fontSize: 23, lineHeight: 30, fontWeight: '600', marginBottom: 20 }}>{item.title}</Text>

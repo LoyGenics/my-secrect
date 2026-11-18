@@ -6,7 +6,10 @@ module Billing
   # can grant access directly. Stripe purchases are deliberately excluded.
   class RevenueCat
     STORES = { 'app_store' => 'app_store', 'play_store' => 'google_play' }.freeze
-    def self.ready? = ENV['REVENUECAT_SECRET_API_KEY'].present? && ENV['REVENUECAT_PRODUCTS'].present?
+    def self.ready?
+      ENV['REVENUECAT_SECRET_API_KEY'].present? && ENV['REVENUECAT_PRODUCTS'].present? &&
+        ENV['REVENUECAT_WEBHOOK_AUTHORIZATION'].present?
+    end
 
     def fetch_subscriber(user_id)
       raise Config::Unavailable, 'store_billing_not_configured' unless self.class.ready?
@@ -16,7 +19,7 @@ module Billing
       response = Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: 5, read_timeout: 15) { |http| http.request(req) }
       raise Config::Unavailable, 'store_billing_unavailable' unless response.is_a?(Net::HTTPSuccess)
       JSON.parse(response.body).fetch('subscriber')
-    rescue JSON::ParserError, KeyError, Timeout::Error, SocketError, IOError, SystemCallError
+    rescue JSON::ParserError, KeyError, Timeout::Error, SocketError, IOError, SystemCallError, OpenSSL::SSL::SSLError, Net::ProtocolError
       raise Config::Unavailable, 'store_billing_unavailable'
     end
 
@@ -29,12 +32,14 @@ module Billing
       (subscriber['subscriptions'] || {}).each do |product_id, value|
         provider = STORES[value['store']]
         option = products.dig(provider, product_id) if provider
-        next unless %w[monthly yearly].include?(option) && matching_environment?(value)
+        next unless %w[monthly yearly].include?(option) && matching_environment?(value) && value['ownership_type'] != 'FAMILY_SHARED'
+        transaction = value['store_transaction_id']
+        next unless transaction.present?
         expires = timestamp(value['grace_period_expires_date']) || timestamp(value['expires_date'])
         next unless expires
         status = value['refunded_at'] ? 'refunded' : expires > Time.current ? 'active' : 'expired'
         status = 'grace_period' if status == 'active' && value['grace_period_expires_date']
-        seen << upsert!(user: user, provider: provider, external_id: "subscription:#{user.id}:#{product_id}",
+        seen << upsert!(user: user, provider: provider, external_id: "subscription:#{transaction}",
           option: option, status: status, expires_at: expires, cancel: value['unsubscribe_detected_at'].present?).id
       end
       (subscriber['non_subscriptions'] || {}).each do |product_id, values|
@@ -43,8 +48,17 @@ module Billing
           next unless provider && products.dig(provider, product_id) == 'lifetime' && matching_environment?(value)
           transaction = value['store_transaction_id'] || value['id']
           next unless transaction.present?
+          # Purchase history alone does not prove current lifetime access:
+          # refunded non-consumables can remain in historical transactions.
+          entitlement_id = ENV.fetch('REVENUECAT_ENTITLEMENT', 'pro')
+          entitlements = subscriber.fetch('entitlements', {})
+          entitled = [entitlement_id, "#{entitlement_id}_#{provider}_lifetime"].any? do |key|
+            entitlement = entitlements[key]
+            entitlement && entitlement['product_identifier'] == product_id &&
+              entitlement.key?('expires_date') && entitlement['expires_date'].nil?
+          end
           seen << upsert!(user: user, provider: provider, external_id: "purchase:#{transaction}", option: 'lifetime',
-            status: value['refunded_at'] ? 'refunded' : 'active', expires_at: nil, cancel: false).id
+            status: value['refunded_at'] ? 'refunded' : entitled ? 'active' : 'inactive', expires_at: nil, cancel: false).id
         end
       end
       # A removed/refunded/transferred purchase disappears from the snapshot.

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Alert, FlatList, Pressable, Text, View } from 'react-native';
+import { Alert, FlatList, Platform, Pressable, Text, View } from 'react-native';
 import { ArrowDownUp, MoreHorizontal } from 'lucide-react-native';
 import { useTranslation } from '../../../../packages/i18n/src/react';
 import type { VaultItem } from '../../../../packages/core/src/types';
@@ -40,8 +40,8 @@ export default function VaultScreen({ items, trash, onSelect, onToggleFavorite, 
       { text: dict.shell.sharing, onPress: () => onOpen?.('Shares') },
       { text: dict.family.title, onPress: () => onOpen?.('Family') },
       { text: hasExamples ? dict.mobileUI.clearExamples : dict.mobileUI.loadExamples, onPress: () => hasExamples ? onClearExamples(EXAMPLE_IDS) : onLoadExamples(exampleItems()) },
-      { text: dict.common.cancel, style: 'cancel' },
-    ]);
+      ...(Platform.OS === 'ios' ? [{ text: dict.common.cancel, style: 'cancel' as const }] : []),
+    ], { cancelable: true });
   }
   return <View style={{ flex: 1, backgroundColor: colors.bg }}>
     <FlatList data={visible} keyExtractor={i => i.id} contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" contentContainerStyle={{ width: '100%', maxWidth: 820, alignSelf: 'center', paddingHorizontal: 20, paddingBottom: 32 }}
@@ -51,8 +51,8 @@ export default function VaultScreen({ items, trash, onSelect, onToggleFavorite, 
           <Select value={filter} choices={choices} onChange={setFilter} label={t('mobileUI.categories')} testID="vault-filter" />
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <Pressable testID="vault-sort" accessibilityRole="button" accessibilityLabel={t('mobileUI.sort')} onPress={() => Alert.alert(t('mobileUI.sort'), undefined, [
-              ...(['updated', 'title', 'created'] as const).map(value => ({ text: value === 'updated' ? dict.shell.sortUpdated : value === 'title' ? dict.shell.sortTitle : dict.shell.sortCreated, onPress: () => setSort(value) })), { text: dict.common.cancel, style: 'cancel' },
-            ])} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><ArrowDownUp size={19} color={colors.muted} /></Pressable>
+              ...(['updated', 'title', 'created'] as const).map(value => ({ text: value === 'updated' ? dict.shell.sortUpdated : value === 'title' ? dict.shell.sortTitle : dict.shell.sortCreated, onPress: () => setSort(value) })), ...(Platform.OS === 'ios' ? [{ text: dict.common.cancel, style: 'cancel' as const }] : []),
+            ], { cancelable: true })} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><ArrowDownUp size={19} color={colors.muted} /></Pressable>
             <Pressable testID="vault-more" accessibilityRole="button" accessibilityLabel={t('mobileUI.vaultActions')} onPress={menu} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><MoreHorizontal size={22} color={colors.muted} /></Pressable>
           </View>
         </View>

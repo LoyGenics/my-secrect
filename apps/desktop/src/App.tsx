@@ -139,7 +139,10 @@ function passphraseScore(pw: string): { score: number; label: string } {
 
 export type ItemSort = 'updated' | 'title' | 'created';
 
-export default function App({ allowPlaintextExport = true }: { allowPlaintextExport?: boolean } = {}) {
+export default function App({
+  allowPlaintextExport = true,
+  defaultApiBaseUrl = '',
+}: { allowPlaintextExport?: boolean; defaultApiBaseUrl?: string } = {}) {
   const [vaultExists, setVaultExists] = useState<boolean>(() => hasVault());
   const [unlocked, setUnlocked] = useState<boolean>(() => isUnlocked());
   const [items, setItems] = useState<VaultItem[]>(() => (isUnlocked() ? listItems() : []));
@@ -202,9 +205,9 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
   // without Authorization and the server answers 401.
   const [apiBaseUrl, setApiBaseUrl] = useState<string>(() => {
     try {
-      return localStorage.getItem(LS_API_BASE_URL) ?? '';
+      return localStorage.getItem(LS_API_BASE_URL) ?? defaultApiBaseUrl;
     } catch {
-      return '';
+      return defaultApiBaseUrl;
     }
   });
   const securityClient = useMemo<SecurityApiClient | null>(() => {
@@ -332,12 +335,12 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
     setSessionExpired(false);
     try {
       const trimmed = url.trim();
-      if (trimmed) localStorage.setItem(LS_API_BASE_URL, trimmed);
+      if (trimmed || defaultApiBaseUrl) localStorage.setItem(LS_API_BASE_URL, trimmed);
       else localStorage.removeItem(LS_API_BASE_URL);
     } catch {
       // API URL persistence is non-critical; a full localStorage must not break the vault.
     }
-  }, []);
+  }, [defaultApiBaseUrl]);
 
   useEffect(() => initTheme().dispose, []);
 

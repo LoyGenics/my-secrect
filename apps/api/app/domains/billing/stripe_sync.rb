@@ -12,11 +12,17 @@ module Billing
       items = sub.dig('items', 'data') || []
       return unless items.size == 1
       item = items.first
-      option = Config.prices.key(id(item['price']))
-      return unless %w[monthly yearly].include?(option)
       purchase = BillingPurchase.find_or_initialize_by(provider: 'stripe', environment: account.environment, external_id: sub.fetch('id'))
       raise Checkout::Conflict, 'purchase_owner_mismatch' if purchase.persisted? && purchase.user_id != account.user_id
+      price_id = id(item['price'])
+      option = Config.prices.key(price_id)
+      # Retired prices remain valid for already-bound subscriptions, including
+      # renewals/cancellation, but cannot authorize a new unknown subscription.
+      option ||= purchase.option if purchase.persisted? && purchase.price_id == price_id
+      option ||= account.billing_checkouts.where(price_id: price_id, option: %w[monthly yearly]).pick(:option)
+      return unless %w[monthly yearly].include?(option)
       purchase.assign_attributes(user: account.user, option: option, status: sub.fetch('status'),
+        price_id: price_id,
         expires_at: item['current_period_end'] && Time.at(item['current_period_end']),
         cancel_at_period_end: sub['cancel_at_period_end'] == true, verified_at: Time.current)
       purchase.save!
@@ -26,10 +32,16 @@ module Billing
       return unless id(session['customer']) == account.customer_id && session['livemode'] == (account.environment == 'live')
       checkout = account.billing_checkouts.find_by(session_id: session.fetch('id'))
       return unless checkout
-      checkout.update!(status: session.fetch('status'))
+      status = session.fetch('status')
+      if status == 'complete' && session['payment_status'] == 'unpaid'
+        intent_id = id(session['payment_intent'])
+        intent_status = gateway.payment_intent(intent_id)['status'] if intent_id
+        status = %w[canceled requires_payment_method].include?(intent_status) ? 'failed' : 'processing'
+      end
+      checkout.update!(status: status)
       return unless checkout.option == 'lifetime' && session['status'] == 'complete' && session['payment_status'] == 'paid'
       items = gateway.line_items(session.fetch('id'))
-      return unless items.size == 1 && id(items.first['price']) == Config.prices['lifetime'] && items.first['quantity'] == 1
+      return unless items.size == 1 && id(items.first['price']) == (checkout.price_id || Config.prices['lifetime']) && items.first['quantity'] == 1
       intent = gateway.payment_intent(id(session['payment_intent']))
       return unless intent['status'] == 'succeeded'
       charge = intent['latest_charge']
@@ -38,6 +50,7 @@ module Billing
       purchase = account.user.billing_purchases.find_or_initialize_by(provider: 'stripe', environment: account.environment, external_id: session.fetch('id'))
       # A later success delivery must not clear an earlier risk decision.
       purchase.update!(option: 'lifetime', status: 'active', expires_at: nil,
+        price_id: id(items.first['price']),
         risk_state: risk || purchase.risk_state, cancel_at_period_end: false, verified_at: Time.current)
     end
 
@@ -64,7 +77,7 @@ module Billing
 
     def reconcile!(account:, gateway:)
       subscriptions!(account: account, gateway: gateway)
-      account.billing_checkouts.where(status: %w[pending open complete]).where.not(session_id: nil).find_each do |checkout|
+      account.billing_checkouts.where(status: %w[pending open processing complete]).where.not(session_id: nil).find_each do |checkout|
         checkout!(account: account, session: gateway.session(checkout.session_id), gateway: gateway)
       end
     end

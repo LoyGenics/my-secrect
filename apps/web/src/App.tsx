@@ -18,7 +18,10 @@ export default function App() {
         {/* Web must never offer plaintext export: the shared desktop App gates
             it behind this prop, so Settings hides the plaintext section and
             the export handler refuses it as a second line of defence. */}
-        <DesktopApp allowPlaintextExport={false} />
+        <DesktopApp
+          allowPlaintextExport={false}
+          defaultApiBaseUrl={import.meta.env.PROD ? `${window.location.origin}/api` : ''}
+        />
       </div>
     </div>
   );
