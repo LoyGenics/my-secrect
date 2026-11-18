@@ -134,7 +134,7 @@ export default function LockScreen({ onUnlocked }: { onUnlocked: () => void }) {
           </Pressable>
         ) : null}
         <Pressable testID="toggle-recovery" accessibilityLabel={useRecovery ? 'Use passphrase instead' : 'Unlock with a recovery key'} accessibilityRole="button" onPress={() => { setUseRecovery((v) => !v); setError(''); }} style={{ marginTop: 16, alignItems: 'center', minHeight: 44, justifyContent: 'center' }}>
-          <Text style={{ color: '#A5B4FC', fontSize: 15 }}>{useRecovery ? 'Use passphrase instead…' : 'Unlock with a recovery key…'}</Text>
+          <Text style={{ color: colors.link, fontSize: 15 }}>{useRecovery ? 'Use passphrase instead…' : 'Unlock with a recovery key…'}</Text>
         </Pressable>
         <Text style={{ color: colors.faint, fontSize: 12, lineHeight: 17, marginTop: 12 }}>
           {device?.enrolled

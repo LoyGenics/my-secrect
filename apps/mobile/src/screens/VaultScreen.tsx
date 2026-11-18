@@ -1,10 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import { FlatList, Image, Pressable, Text, View } from 'react-native';
 import { useTranslation } from '../../../../packages/i18n/src/react';
+import { format } from '../../../../packages/i18n/src/index';
 import type { VaultItem } from '../../../../packages/core/src/types';
 import ItemRow, { CATEGORY_META, categoryForType } from '../components/ItemRow';
 import { useMobileTheme } from '../theme';
-import { Icon, illustrations, typeArt } from '../../../../packages/ui/src/native';
+import { Icon, illustrations } from '../../../../packages/ui/src/native';
 import { exampleItems, EXAMPLE_IDS } from '../utils/exampleData';
 import { isArchived } from '../utils/itemMeta';
 import MediaScreen from './MediaScreen';
@@ -13,14 +14,14 @@ import SharesScreen from './SharesScreen';
 export type VaultFilter = 'all' | 'favorites' | 'trash' | 'archived' | string; // 'tag:xxx' or a category key
 export type VaultSort = 'updated' | 'title' | 'created';
 
-const SORT_LABELS: Record<VaultSort, string> = { updated: 'Recently updated', title: 'Title A–Z', created: 'Newest first' };
-
 export default function VaultScreen({ items, trash, onSelect, onToggleFavorite, onNew, onLoadExamples, onClearExamples }: {
   items: VaultItem[]; trash: VaultItem[]; onSelect: (id: string) => void; onToggleFavorite: (id: string) => void; onNew: () => void;
   onLoadExamples: (items: VaultItem[]) => void; onClearExamples: (ids: string[]) => void;
 }) {
   const { colors, styles } = useMobileTheme();
   const { dict } = useTranslation();
+  const m = dict.mobile;
+  const SORT_LABELS: Record<VaultSort, string> = { updated: dict.shell.sortUpdated, title: dict.shell.sortTitle, created: dict.shell.sortCreated };
   const [filter, setFilter] = useState<VaultFilter>('all');
   const [sort, setSort] = useState<VaultSort>('updated');
   const [overlay, setOverlay] = useState<'media' | 'shares' | null>(null);
@@ -50,8 +51,8 @@ export default function VaultScreen({ items, trash, onSelect, onToggleFavorite, 
   }, [filter, liveItems, archivedItems, trash, sort]);
   const hasExamples = items.some((i) => EXAMPLE_IDS.includes(i.id));
   const chip = (key: string, label: string) => (
-    <Pressable key={key} testID={`filter-${key}`} accessibilityLabel={`Filter ${label}`} accessibilityRole="button" onPress={() => setFilter(key)} style={{ backgroundColor: filter === key ? colors.accent : colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, marginRight: 8 }}>
-      <Text style={{ color: filter === key ? colors.onAccent : colors.text, fontSize: 13, fontWeight: '600' }}>{label} ({counts[key] ?? 0})</Text>
+    <Pressable key={key} testID={`filter-${key}`} accessibilityLabel={format(m.filterLabel, label)} accessibilityRole="button" onPress={() => setFilter(key)} style={{ backgroundColor: filter === key ? colors.text : colors.card, borderColor: filter === key ? colors.text : colors.cardBorder, borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, marginRight: 8, marginBottom: 8 }}>
+      <Text style={{ color: filter === key ? colors.card : colors.text, fontSize: 13, fontWeight: '600' }}>{label} ({counts[key] ?? 0})</Text>
     </Pressable>
   );
   if (overlay === 'media') {
@@ -64,9 +65,9 @@ export default function VaultScreen({ items, trash, onSelect, onToggleFavorite, 
     <View style={styles.screen}>
       <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text style={styles.title}>Vault</Text>
-          <Pressable testID="new-item-button" accessibilityLabel="Add new item" accessibilityRole="button" onPress={onNew} style={{ backgroundColor: colors.accent, borderRadius: 999, minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 }}>
-            <Text style={styles.primaryButtonText}>+ New</Text>
+          <Text accessibilityRole="header" style={styles.title}>{dict.shell.tabs.vault}</Text>
+          <Pressable testID="new-item-button" accessibilityLabel={dict.shell.newItem} accessibilityRole="button" onPress={onNew} style={{ backgroundColor: colors.accent, borderRadius: 999, minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 }}>
+            <Text style={styles.primaryButtonText}>{m.newShort}</Text>
           </Pressable>
         </View>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 0, marginTop: 4 }}>
@@ -74,20 +75,20 @@ export default function VaultScreen({ items, trash, onSelect, onToggleFavorite, 
           {Object.keys(CATEGORY_META).map((key) => chip(key, (dict.categories as Record<string, string>)[key] ?? key))}
         </View>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 10 }}>
-          <Pressable testID="open-media" accessibilityLabel="Open media gallery" style={[styles.ghostButton, { marginRight: 8, marginBottom: 0 }]} onPress={() => setOverlay('media')}>
+          <Pressable testID="open-media" accessibilityLabel={dict.shell.mediaGallery} style={[styles.ghostButton, { marginRight: 8, marginBottom: 0 }]} onPress={() => setOverlay('media')}>
             <Icon name="gallery" color={colors.text} /><Text style={styles.ghostButtonText}>{dict.shell.mediaGallery}</Text>
           </Pressable>
-          <Pressable testID="open-shares" accessibilityLabel="Open sharing" style={[styles.ghostButton, { marginBottom: 0 }]} onPress={() => setOverlay('shares')}>
+          <Pressable testID="open-shares" accessibilityLabel={dict.shell.sharing} style={[styles.ghostButton, { marginBottom: 0 }]} onPress={() => setOverlay('shares')}>
             <Icon name="share" color={colors.text} /><Text style={styles.ghostButtonText}>{dict.shell.sharing}</Text>
           </Pressable>
-          <Pressable testID="sort-cycle" accessibilityLabel={`Sort: ${SORT_LABELS[sort]}. Tap to change sort order.`} style={[styles.ghostButton, { marginLeft: 8, marginBottom: 0 }]} onPress={() => setSort((s) => (s === 'updated' ? 'title' : s === 'title' ? 'created' : 'updated'))}>
-            <Text style={styles.ghostButtonText}>Sort: {SORT_LABELS[sort]}</Text>
+          <Pressable testID="sort-cycle" accessibilityLabel={`${format(m.sortBy, SORT_LABELS[sort])}. ${m.sortHint}`} style={[styles.ghostButton, { marginLeft: 8, marginBottom: 0 }]} onPress={() => setSort((s) => (s === 'updated' ? 'title' : s === 'title' ? 'created' : 'updated'))}>
+            <Text style={styles.ghostButtonText}>{format(m.sortBy, SORT_LABELS[sort])}</Text>
           </Pressable>
         </View>
         {tags.length > 0 && (
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 10 }}>
             {tags.map((t) => (
-              <Pressable key={t} testID={`tag-${t}`} accessibilityLabel={`Filter tag ${t}`} onPress={() => setFilter(`tag:${t}`)} style={{ backgroundColor: filter === `tag:${t}` ? colors.accentSoft : colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, marginRight: 6, marginBottom: 6 }}>
+              <Pressable key={t} testID={`tag-${t}`} accessibilityLabel={format(m.filterTag, t)} onPress={() => setFilter(`tag:${t}`)} style={{ backgroundColor: filter === `tag:${t}` ? colors.accentSoft : colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, marginRight: 6, marginBottom: 6 }}>
                 <Text style={{ color: filter === `tag:${t}` ? colors.text : colors.secondary, fontSize: 12, fontWeight: '600' }}>#{t}</Text>
               </Pressable>
             ))}
@@ -97,19 +98,19 @@ export default function VaultScreen({ items, trash, onSelect, onToggleFavorite, 
       {visible.length === 0 ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
           <Image source={filter === 'trash' ? illustrations.emptyTrash : filter === 'archived' ? illustrations.emptyArchive : illustrations.emptyVault} style={{ width: 136, height: 136 }} accessibilityIgnoresInvertColors />
-          <Text style={{ color: colors.text, fontSize: 17, fontWeight: '700', marginTop: 12, textAlign: 'center' }}>{filter === 'trash' ? 'Trash is empty' : filter === 'archived' ? 'Nothing archived' : 'No items yet'}</Text>
-          <Text style={{ color: colors.muted, fontSize: 14, lineHeight: 20, textAlign: 'center', marginTop: 6 }}>{filter === 'trash' ? 'Deleted items are kept here until you permanently delete them.' : filter === 'archived' ? 'Archive an item from the desktop app to hide it here without deleting it. Archiving on mobile is not built yet.' : 'Tap + New to add your first login, bank account, note or key.'}</Text>
+          <Text style={{ color: colors.text, fontSize: 17, fontWeight: '700', marginTop: 12, textAlign: 'center' }}>{filter === 'trash' ? dict.shell.empty.trashTitle : filter === 'archived' ? dict.shell.empty.archivedTitle : dict.shell.empty.allTitle}</Text>
+          <Text style={{ color: colors.muted, fontSize: 14, lineHeight: 20, textAlign: 'center', marginTop: 6 }}>{filter === 'trash' ? dict.shell.empty.trashBody : filter === 'archived' ? m.emptyArchivedBody : m.emptyAllBody}</Text>
           {!hasExamples && filter === 'all' ? (
-            <Pressable testID="load-example-data" accessibilityLabel="Load example data" accessibilityRole="button" style={[styles.ghostButton, { marginTop: 18 }]} onPress={() => onLoadExamples(exampleItems())}>
-              <Text style={styles.ghostButtonText}>Load example data</Text>
+            <Pressable testID="load-example-data" accessibilityLabel={dict.shell.loadExample} accessibilityRole="button" style={[styles.ghostButton, { marginTop: 18 }]} onPress={() => onLoadExamples(exampleItems())}>
+              <Text style={styles.ghostButtonText}>{dict.shell.loadExample}</Text>
             </Pressable>
           ) : null}
           {hasExamples ? (
-            <Pressable testID="clear-example-data" accessibilityLabel="Clear example data" accessibilityRole="button" style={[styles.ghostButton, { marginTop: 18 }]} onPress={() => onClearExamples(EXAMPLE_IDS)}>
-              <Text style={styles.ghostButtonText}>Clear example data</Text>
+            <Pressable testID="clear-example-data" accessibilityLabel={dict.shell.clearExample} accessibilityRole="button" style={[styles.ghostButton, { marginTop: 18 }]} onPress={() => onClearExamples(EXAMPLE_IDS)}>
+              <Text style={styles.ghostButtonText}>{dict.shell.clearExample}</Text>
             </Pressable>
           ) : null}
-          <Text style={{ color: colors.faint, fontSize: 12, marginTop: 12 }}>Example data is clearly labelled and uses fake values only.</Text>
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 12, textAlign: 'center' }}>{dict.shell.exampleNote}</Text>
         </View>
       ) : (
         <FlatList

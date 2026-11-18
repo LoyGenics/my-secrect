@@ -1,4 +1,4 @@
-# Design system — "Precision Instrument"
+# Design system — soft, light
 
 Status: implemented in `packages/ui` and adopted by the vault screens (desktop,
 web mirror, mobile). Direction contract:
@@ -7,16 +7,19 @@ web mirror, mobile). Direction contract:
 
 ## 1. Principles
 
-- The vault is a precisely made personal device: two finishes of one object,
-  **graphite** (dark, default) and **aluminium** (light).
-- Colour is signal only: one **orange key** (`#FF5B1F`, primary action + focus)
-  and **LEDs** (green ok, amber attention, red danger). Item types carry their own
-  pastel code colour from the clay palette.
-- Plates (flat machined panels, 1px hairline + 1px top highlight), molded **keys**
-  (printed UPPERCASE legend, 1px lower edge; pressed drops 1px), recessed **wells**
-  for inputs, rocker switches, LCD **readouts**. No gradients, glass or glow.
-- Imagery (soft-3D clay) only on onboarding/splash, lock screen (>= 1024px), empty,
-  error and success states and item-type art. Never in rows, never as an icon.
+- A calm, friendly place for everything private: **light by default** (warm
+  body, white cards) with a matching **soft dark** theme. Mockup:
+  `docs/mockups/ui-soft-v1.html`.
+- Colour is signal: one **orange** (`#FF6A2B`, the primary action) and small
+  status dots (green ok, amber attention, red danger). Each item type sits on one
+  **pastel tile** (sky, mint, butter, coral, lavender, tangerine).
+- Cards are white with a hairline, 20px radius and one gentle shadow; buttons
+  are **pills** with sentence-case labels; fields are soft 44px fields; counts
+  are quiet numbers. No UPPERCASE tracked labels, LEDs, metal edges or gradients
+  (except the brand mark and the lock-screen backdrop).
+- The 3D pictures appear on onboarding/splash, the lock screen (>= 1024px), empty,
+  error and success states and on the **item-type tiles** (list rows and detail
+  header). Never as an interface icon.
 
 ## 2. Tokens — one source
 
@@ -30,24 +33,26 @@ npx tsx --test packages/ui/tests/tokens-sync.test.ts   # fails if stale (in npm 
 
 | Group | CSS variables | Notes |
 |---|---|---|
-| background | `--ms-color-bg-{base,surface,raised,sunken,input,muted}` | base = chassis, surface = plate, input = well |
+| background | `--ms-color-bg-{base,surface,surface2,raised,sunken,input,muted}` | base = body, surface = cards, surface2 = sidebar and fields |
 | text | `--ms-color-text-{primary,secondary,muted,faint,on-brand,on-danger,on-module,link}` | faint is decoration only (< 4.5:1) |
-| border | `--ms-color-border-{default,strong,subtle,control}` | control is the only >= 3:1 border (wells, switches) |
-| brand | `--ms-color-brand[-hover,-active,-soft,-soft-text,-focus]` | legend on orange is ink, never white (3.10:1) |
+| border | `--ms-color-border-{default,strong,subtle,control}` | default = the hairline; control is the >= 3:1 edge of checkboxes and switch tracks |
+| brand | `--ms-color-brand[-hover,-active,-soft,-soft-text,-focus]` | label on orange is ink, never white (2.86:1) |
 | danger / success / warning | `--ms-color-{danger,success,warning}-*` | `*-text` / `danger-soft-text` are the text colours |
-| led | `--ms-color-led-{ok,attention,danger,active,off}` | dots and segments only |
-| focus | `--ms-color-focus-{ring,outline}` | aluminium adds an ink band (orange alone is 2.44:1 there) |
-| edge | `--ms-color-edge-{highlight,key,key-brand,key-danger,well}` | machining |
-| itemType | `--ms-color-type-<type>` | sky, mint, butter, coral, lavender, tangerine pastels |
+| led | `--ms-color-led-{ok,attention,danger,active,off}` | status dots, meter segments and the TOTP ring only (the name is historical) |
+| focus | `--ms-color-focus-ring` | light uses a deeper orange (`#D4460E`, >= 3:1) |
+| pastel | `--ms-color-pastel-{sky,mint,butter,coral,lavender,tangerine}` | tile colours; `--ms-color-type-<type>` points at one of them |
+| shadow | `--ms-shadow-{sm,md}` | two levels: cards and selected rows; dialogs, menus, toasts |
 | scale | `--ms-text-{legend,sm,md,lg,xl}` + `--ms-leading-*`, `--ms-radius-*`, `--ms-space-*`, `--ms-duration-{fast,base,slow,turn}`, `--ms-easing-*`, `--ms-control-height*` | five-step type scale, nothing else |
 
-Type: system UI for body and fields; **Barlow Semi Condensed** (self-hosted via
-`@fontsource`, OFL, Vietnamese subset) for legends and headings. Mobile keeps the
-platform font with uppercase tracked legends.
+Type: the platform's rounded system face (`ui-rounded`, SF Pro Rounded, system-ui)
+at a five-step scale, sentence case; nothing is downloaded. Radii 10 / 14 / 20 /
+28 px and pills; motion 0.2s on `cubic-bezier(.2,.8,.2,1)`.
 
-Contrast (computed; rendered pairs checked by axe in both finishes): ink on plate
-15.1 / 13.7:1, muted on well 5.0 / 6.8:1, legend ink on orange 5.5:1, white on
-danger key 5.5:1, danger text 5.8 / 7.2:1, warning text 5.3 / 8.2:1.
+Contrast (computed; rendered pairs checked by axe in both themes): ink on card
+16.7:1, quiet ink (`#5F656C`) on body 5.3:1, ink on the orange 5.5:1, white on the
+danger button 5.2:1. Deviations from the mockup, for contrast: labels on orange are
+ink not white (white is 2.86:1), `text.faint` (`#9AA0A6`) is for decoration and
+disabled states only, links use a deeper orange (`#B83C0A`).
 
 ## 3. Using it
 
@@ -66,43 +71,44 @@ differs), which is why `Field` has `flush` and `Card` has `padding`.
 
 | Component | Contract |
 |---|---|
-| `Button` | Molded key. `variant`: `primary` (orange — one per view), `secondary` (neutral, default), `ghost`, `danger` (final, red key), `danger-outline` (recoverable destructive: red LED + danger legend), `link`. `size` sm/md/lg, `block`, `loading` (spinner, `aria-busy`, disabled), `icon` (leading Lucide name), `asChild`. `type` defaults to `button`. 36px (48px on coarse pointers). |
-| `IconButton` | Icon-only key; `label` is required (aria-label + title). |
+| `Button` | Pill. `variant`: `primary` (orange — one per view), `secondary` (neutral, default), `ghost`, `danger` (final, red), `danger-outline` (recoverable destructive: quiet, danger ink), `link`. `size` sm/md/lg, `block`, `loading` (spinner, `aria-busy`, disabled), `icon` (leading Lucide name), `asChild`. `type` defaults to `button`. 40px (48px on coarse pointers). |
+| `IconButton` | Icon-only button; `label` is required (aria-label + title). |
 | `Icon` | The only icon component (lucide-react). `name` from `icons.ts`, `size` token, one stroke width; decorative unless `label`. Native twin: `native/Icon` (lucide-react-native), same names. |
-| `Card` | Plate. `as` (div/section/article/aside), `padding` none/sm/md/lg. Never nest plates. |
-| `Field` | Label (printed legend) + control + hint/error. Wires `htmlFor`/`id`, `aria-describedby`, `aria-invalid`; error is `role="alert"`. `id` keeps stable ids for tests; `flush` drops the bottom margin. |
-| `Input`, `Textarea`, `Select` | Recessed wells; `mono` for secrets/keys/URLs; always inside `Field` or with `aria-label`. |
-| `SecureField` | Password well with a reveal key (`aria-pressed`, localized name, keeps focus). |
-| `SearchField` | `role="searchbox"`, clear key returns focus. |
-| `Checkbox` | Native input in a well; checked = ink square with a printed tick. `label`, `hint`. |
-| `Switch` | Physical switch: `role="switch"`, `aria-checked`, LED lights green when on. |
-| `SegmentedControl` | Rocker: radiogroup, roving tabindex scoped to the group, arrows move + select, selected segment raised with an orange LED. |
-| `Led`, `LedStrip`, `Readout`, `Badge`, `Kbd` | Signal primitives. LEDs are aria-hidden — always pair with text. `LedStrip` states: off/locked/working/error/turn/open. `Readout` = LCD tabular numerals. |
-| `TypeModule` | Item-type module: silhouette (`modules.ts`) + code colour + Lucide glyph; identical in rail, list and mobile. |
-| `ItemTypeArt` | Detail-header art slot: clay object from `typeArt`, falls back to `TypeModule`. |
+| `Card` | White card. `as` (div/section/article/aside), `padding` none/sm/md/lg. Never nest cards. |
+| `Field` | Label + control + hint/error. Wires `htmlFor`/`id`, `aria-describedby`, `aria-invalid`; error is `role="alert"`. `id` keeps stable ids for tests; `flush` drops the bottom margin. |
+| `Input`, `Textarea`, `Select` | Soft fields; `mono` for secrets/keys/URLs; always inside `Field` or with `aria-label`. |
+| `SecureField` | Password field with a reveal button (`aria-pressed`, localized name, keeps focus). |
+| `SearchField` | Pill, `role="searchbox"`, clear button returns focus. |
+| `Checkbox` | Native input; checked = orange square with a tick. `label`, `hint`. |
+| `Switch` | `role="switch"`, `aria-checked`; the track turns orange when on. |
+| `SegmentedControl` | Pill track: radiogroup, roving tabindex scoped to the group, arrows move + select, the selected segment is a raised white pill. |
+| `Led`, `LedStrip`, `Readout`, `Badge`, `Kbd` | Small primitives. `Led` is a status dot and `LedStrip` the lock-card dot (states off/locked/working/error/turn/open); both aria-hidden — always pair with text. `Readout` = quiet tabular count. |
+| `TypeModule` | Item-type tile: the type's pastel with its 3D picture (`md` rows, `lg` detail); `sm` is a swatch with the Lucide glyph (sidebar, palette). Identical on mobile (`native/TypeModule`). |
+| `ItemTypeArt` | The detail header's large tile (same as `TypeModule size="lg"`). |
 | `Art` | Decorative illustration; animated slots render a `<picture>` that serves the still first frame under `prefers-reduced-motion`. |
-| `Alert` | Notice plate: LED + text, tone info/success/warning/danger, `announce` → `role="alert"` (danger) or `"status"`, optional `action`. |
-| `Dial` | Watchtower instrument: 240° scale, LED-coloured arc by band, LCD readout; `role="meter"`. |
-| `Progress`, `Skeleton` | Bar in a well (`role="progressbar"`, animates transform); loading placeholder with `aria-busy`. |
+| `Alert` | Notice: dot + text, tone info/success/warning/danger, `announce` → `role="alert"` (danger) or `"status"`, optional `action`. |
+| `Dial` | Health score: soft 240° arc coloured by band, the score inside; `role="meter"`. |
+| `Ring` | Countdown ring (TOTP): `role="progressbar"`, the arc shrinks as time runs out. |
+| `Progress`, `Skeleton` | Rounded bar (`role="progressbar"`, animates transform); loading placeholder with `aria-busy`. |
 | `EmptyState`, `ErrorState` | One illustration, title, one sentence, action(s), optional note. Error is `role="alert"`. |
 | `Dialog`, `Sheet`, `ConfirmationDialog` | Radix Dialog: focus trap, Escape, focus return, required title, localized close key. Sheet `side` right/left/bottom, `flush`, `hideTitle`. Confirmation focuses Cancel first. |
-| `CommandPalette` | Top-anchored plate; combobox + listbox, `aria-activedescendant`; `keywords`, `leading`, `meta`, `limit`, `title`, `emptyLabel(query)`. |
-| `DropdownMenu`, `Tabs`, `Tooltip`, `Toast` | Radix primitives in the instrument grammar; tooltips never carry essential information. |
-| `copyWithClear` / `useClipboardStatus` | Copy and clear the clipboard after 30 s even if the view unmounts; drives the "Copied · clears in Ns" LED. |
+| `CommandPalette` | Top-anchored card; combobox + listbox, `aria-activedescendant`; `keywords`, `leading`, `meta`, `limit`, `title`, `emptyLabel(query)`. |
+| `DropdownMenu`, `Tabs`, `Tooltip`, `Toast` | Radix primitives in the soft grammar; tooltips never carry essential information. |
+| `copyWithClear` / `useClipboardStatus` | Copy and clear the clipboard after 30 s even if the view unmounts; drives the "Copied · clears in Ns" chip. Web/desktop only — mobile does not clear the clipboard, so its copy feedback never says it does. |
 
 Layout classes (in `components.css`): `ms-app` shell (rail | main), `ms-rail`
-(desktop rail, 768–1023 px icon rail with labels kept as accessible names, phone
-drawer `ms-rail--drawer`), `ms-topbar`, `ms-split` list | detail (phones push the
+(sidebar, 768–1023 px icon rail with labels kept as accessible names, phone
+drawer `ms-rail--drawer`), `ms-topbar` (hidden on list views from 768px, where the list column carries the title, new button and search), `ms-split` list | detail (phones push the
 detail, `data-pushed`), `ms-tabbar` (phone bottom tabs), `ms-action-rail` (phone
-thumb-reach keys), `ms-spec` (spec-sheet detail), `ms-device` (lock / onboarding
-face), `ms-keyturn` (unlock overlay), `ms-banner` / `ms-footer` (web frame).
+thumb-reach buttons), `ms-spec` (item detail), `ms-device` (lock / onboarding
+card), `ms-keyturn` (unlock overlay), `ms-banner` / `ms-footer` (web frame).
 
 ## 5. Motion
 
-120–180 ms ease-out detents, no bounce. Signature: the unlock **key turn** — LED
-strip sweeps amber → orange → green and the device face slides away (280 ms).
-Copy feedback lights the field's LED. Under `prefers-reduced-motion`: overlays
-crossfade, nothing slides, scales, shimmers or loops; animated illustrations show
+0.2s on one ease-out curve, no bounce. Signature: the unlock — the lock card's
+status dot settles green and the card fades up and away (320 ms). Copying shows a
+green "Copied" chip beside the value. Under `prefers-reduced-motion`: overlays
+crossfade, nothing slides, lifts, shimmers or loops; animated illustrations show
 their first frame.
 
 ## 6. Imagery
@@ -125,17 +131,17 @@ shape. Never translate vault content, keys, codes or file formats.
 ## 8. Accessibility verification
 
 - `npm run test:a11y:web`: axe-core (WCAG 2.0/2.1/2.2 A + AA) against the
-  production web build, both finishes, 1280 and 390 px, 11 screens; serious or
+  production web build, both themes, 1280 and 390 px, 11 screens; serious or
   critical violations fail.
 - Keyboard: every rail entry, row, key and switch is a native button; skip link;
-  focus mark visible on both finishes; sticky toolbars use scroll padding.
+  focus ring visible on both themes; sticky toolbars use scroll padding.
 
 ## 9. Adoption status
 
 | Surface | Status |
 |---|---|
-| Desktop/web shell, lock, onboarding, restore, rail, list, detail, form, generator, Watchtower, settings, search, CSV import | On the design system + i18n |
-| Security Center, sign-in, step-up, media, sharing, sync bar (owned elsewhere) | Legacy classes reskinned to the instrument grammar via `apps/desktop/src/index.css`; still carry hard-coded Tailwind zinc/indigo/amber classes and English strings |
-| Mobile vault, search, trash, generator, health, detail, form, onboarding, restore, media | Instrument theme, Lucide, illustrations; strings partly English |
-| Mobile lock, settings, sign-in, security, shares (owned elsewhere) | Static graphite theme; `FOLLOW_OS_APPEARANCE` stays off until they use `useMobileTheme()` |
+| Desktop/web shell, lock, onboarding, restore, sidebar, list, detail, form, generator, health, settings, search, CSV import | On the design system + i18n |
+| Security Center, sign-in, step-up, media, sharing, sync bar | Legacy classes restyled in `packages/ui/src/legacy.css` (shared by desktop and web); hard-coded Tailwind colours replaced by token-backed `ms-*` colour names (`apps/desktop/tailwind.config.js`). Strings are in the dictionary (media view and sync bar included). |
+| Mobile vault, search, trash, generator, health, detail, form, onboarding, restore, media | Soft light theme, pastel type tiles, safe-area frame (`components/ScreenFrame.tsx`), detail thumb bar. Vault, detail, media and the notices read strings from the dictionary; other screens are partly English |
+| Mobile lock, settings, sign-in, security, shares | Static (light) theme; still mostly English strings. `FOLLOW_OS_APPEARANCE` stays off until every screen reads `useMobileTheme()`, so phones are light-only for now |
 | Extension | Not started |

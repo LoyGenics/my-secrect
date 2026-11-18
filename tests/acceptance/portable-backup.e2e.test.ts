@@ -73,7 +73,7 @@ const vaultItems = (page: Page) => page.evaluate(async (u) => {
 }, VAULT_URL) as Promise<VaultItem[]>;
 
 async function openItem(page: Page, title: string) {
-  await page.getByRole('button', { name: 'All Items' }).click();
+  await page.getByRole('button', { name: 'All items' }).click();
   await page.getByText(title, { exact: true }).first().click();
   await page.getByRole('heading', { name: 'Relations' }).waitFor();
 }
@@ -104,7 +104,7 @@ test('profile A: relation-rich vault (module + item form), one item trashed in t
   await page.getByText(UI_TITLE).first().waitFor();
 
   // Trash one item through the UI.
-  await page.getByRole('button', { name: 'All Items' }).click();
+  await page.getByRole('button', { name: 'All items' }).click();
   await page.getByText('E Old login (trashed)', { exact: true }).first().click();
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
   await page.getByText('E Old login (trashed)', { exact: true }).waitFor({ state: 'detached' });

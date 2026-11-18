@@ -66,9 +66,9 @@ export interface SegmentedControlProps<T extends string> {
 }
 
 /**
- * Rocker switch: single-select radiogroup for 2–4 mutually exclusive
- * options (theme, language, credential type). The selected segment is
- * raised with an orange LED. Arrow keys move and select (roving tabindex,
+ * Pill segmented control: single-select radiogroup for 2–4 mutually
+ * exclusive options (theme, language, credential type). The selected
+ * segment is a raised white pill. Arrow keys move and select (roving tabindex,
  * focus kept inside this group), Space/Enter select.
  */
 export function SegmentedControl<T extends string>({ options, value, onChange, ariaLabel, disabled = false, className }: SegmentedControlProps<T>) {

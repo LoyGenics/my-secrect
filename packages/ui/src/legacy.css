@@ -1,0 +1,106 @@
+/*
+ * Shared classes for the screens that are not yet built from the design-system
+ * components (Security Center, sign-in, step-up, media, shares, sync bar).
+ * Same soft grammar as components.css: white card, pill buttons, soft fields.
+ * Both apps import this file inside the Tailwind `components` layer, so
+ * Tailwind utilities on the element (padding, width, margin) still win.
+ * New code uses the components, never these classes.
+ */
+@layer components {
+  .card {
+    border-radius: var(--ms-radius-lg);
+    background-color: var(--ms-color-bg-surface);
+    border: 1px solid var(--ms-color-border-default);
+    box-shadow: var(--ms-shadow-sm);
+  }
+  .btn,
+  .btn-primary,
+  .btn-ghost,
+  .btn-secondary,
+  .btn-danger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 16px;
+    border-radius: var(--ms-radius-full);
+    border: 1px solid var(--ms-color-border-default);
+    background-color: var(--ms-color-bg-surface);
+    color: var(--ms-color-text-primary);
+    font-size: var(--ms-text-sm);
+    line-height: var(--ms-leading-sm);
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color var(--ms-duration-base) var(--ms-easing-out),
+      box-shadow var(--ms-duration-base) var(--ms-easing-out);
+  }
+  .btn:hover:not(:disabled),
+  .btn-ghost:hover:not(:disabled),
+  .btn-secondary:hover:not(:disabled) {
+    box-shadow: var(--ms-shadow-sm);
+  }
+  .btn:focus-visible,
+  .btn-primary:focus-visible,
+  .btn-ghost:focus-visible,
+  .btn-secondary:focus-visible,
+  .btn-danger:focus-visible {
+    outline: var(--ms-focus-width) solid var(--ms-color-focus-ring);
+    outline-offset: var(--ms-focus-offset);
+  }
+  .btn:disabled,
+  .btn-primary:disabled,
+  .btn-ghost:disabled,
+  .btn-secondary:disabled,
+  .btn-danger:disabled {
+    cursor: not-allowed;
+    background-color: var(--ms-color-bg-muted);
+    border-color: transparent;
+    color: var(--ms-color-text-faint);
+    box-shadow: none;
+  }
+  .btn-primary {
+    background-color: var(--ms-color-brand);
+    border-color: transparent;
+    color: var(--ms-color-text-on-brand);
+    box-shadow: 0 6px 16px color-mix(in srgb, var(--ms-color-brand) 28%, transparent);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background-color: var(--ms-color-brand-hover);
+  }
+  .btn-danger {
+    background-color: var(--ms-color-danger-soft);
+    border-color: var(--ms-color-danger-border);
+    color: var(--ms-color-danger-soft-text);
+  }
+  .btn-danger:hover:not(:disabled) {
+    box-shadow: var(--ms-shadow-sm);
+  }
+  .input {
+    width: 100%;
+    padding: 10px 14px;
+    min-height: 44px;
+    border-radius: var(--ms-radius-md);
+    background-color: var(--ms-color-bg-input);
+    border: 1px solid var(--ms-color-border-default);
+    color: var(--ms-color-text-primary);
+    font-size: var(--ms-text-md);
+    line-height: var(--ms-leading-md);
+  }
+  .input::placeholder {
+    color: var(--ms-color-text-muted);
+    opacity: 1;
+  }
+  .input:focus {
+    outline: none;
+    border-color: var(--ms-color-focus-ring);
+    box-shadow: 0 0 0 3px var(--ms-color-brand-soft);
+  }
+  .label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: var(--ms-text-sm);
+    line-height: var(--ms-leading-sm);
+    font-weight: 500;
+    color: var(--ms-color-text-muted);
+  }
+}

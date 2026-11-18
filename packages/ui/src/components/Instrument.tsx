@@ -1,17 +1,17 @@
 import type { CSSProperties, HTMLAttributes, ReactNode } from 'react';
 import { cn } from '../utils';
 import { itemTypeColorVar } from '../tokens-css';
-import { MODULE_VIEWBOX, isItemTypeKey, moduleIcon, moduleSilhouette } from '../modules';
+import { isItemTypeKey, moduleIcon } from '../modules';
 import { typeArt } from '../illustrations';
 import { Icon } from './Icon';
 
 // ---------------------------------------------------------------------------
-// LED, LED strip, readout, badge, kbd
+// Status dot, lock-card dot, count, badge, kbd
 // ---------------------------------------------------------------------------
 
 export type LedTone = 'off' | 'ok' | 'attention' | 'danger' | 'active';
 
-/** Status LED dot. Colour is signal only: always pair it with text (the LED is aria-hidden). */
+/** Small status dot. Colour is signal only: always pair it with text (the dot is aria-hidden). */
 export function Led({ tone = 'off', className }: { tone?: LedTone; className?: string }) {
   return <span className={cn('ms-led', tone !== 'off' && `ms-led--${tone}`, className)} aria-hidden="true" />;
 }
@@ -19,23 +19,15 @@ export function Led({ tone = 'off', className }: { tone?: LedTone; className?: s
 export type LedStripState = 'off' | 'locked' | 'working' | 'error' | 'turn' | 'open';
 
 /**
- * Four-segment LED strip on the device face. locked = amber, working =
- * amber pulse (KDF running), error = red, turn = the unlock sweep (amber →
- * orange → green, staggered), open = green. Decorative: the state is also
- * stated in text next to it.
+ * Lock-card status dot. locked = amber, working = soft amber pulse (key
+ * derivation running), error = red, turn = the unlock moment (amber → green),
+ * open = green. Decorative: the state is also stated in text next to it.
  */
 export function LedStrip({ state, className }: { state: LedStripState; className?: string }) {
-  return (
-    <span className={cn('ms-led-strip', className)} data-state={state} aria-hidden="true">
-      <span className="ms-led-strip__seg" />
-      <span className="ms-led-strip__seg" />
-      <span className="ms-led-strip__seg" />
-      <span className="ms-led-strip__seg" />
-    </span>
-  );
+  return <span className={cn('ms-status-dot', className)} data-state={state} aria-hidden="true" />;
 }
 
-/** LCD-style tabular readout (counts, scores). Pass `label` when the number has no visible context. */
+/** Quiet tabular count (rail counts, scores). Pass `label` when the number has no visible context. */
 export function Readout({ value, label, size = 'md', className }: { value: ReactNode; label?: string; size?: 'md' | 'lg'; className?: string }) {
   return (
     <span className={cn('ms-readout', size === 'lg' && 'ms-readout--lg', className)} aria-label={label} role={label ? 'img' : undefined}>
@@ -45,11 +37,11 @@ export function Readout({ value, label, size = 'md', className }: { value: React
 }
 
 export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
-  /** `legend` prints it as an uppercase tracked legend (type names, states). */
+  /** `legend` prints it in the small label style (type names, states). */
   legend?: boolean;
 }
 
-/** Small hairline chip for tags and type legends. Not interactive — use a Button for actions. */
+/** Small soft chip for tags and type names. Not interactive — use a Button for actions. */
 export function Badge({ legend, className, children, ...rest }: BadgeProps) {
   return (
     <span className={cn('ms-badge', legend && 'ms-badge--legend', className)} {...rest}>
@@ -77,13 +69,15 @@ export interface TypeModuleProps {
 }
 
 /**
- * The item type's module: its own silhouette filled with its muted code
- * colour, the Lucide glyph printed on top. Identical in rail, list, detail
- * and mobile (same path data, same colour tokens).
+ * The item type's tile: a rounded square in the type's pastel colour with its
+ * 3D picture on it (`md` list rows, `lg` detail header). `sm` is a small
+ * swatch with the Lucide glyph (sidebar, palette, health lists), where the
+ * picture would be unreadable. Same pastel tokens on every surface.
  */
 export function TypeModule({ type, size = 'md', label, className }: TypeModuleProps) {
   const key = isItemTypeKey(type) ? type : 'custom';
   const style = { '--module-fill': `var(${itemTypeColorVar(key)})` } as CSSProperties;
+  const art = size === 'sm' ? undefined : typeArt[key];
   return (
     <span
       className={cn('ms-module', size !== 'md' && `ms-module--${size}`, className)}
@@ -92,35 +86,18 @@ export function TypeModule({ type, size = 'md', label, className }: TypeModulePr
       aria-label={label}
       aria-hidden={label ? undefined : true}
     >
-      <svg className="ms-module__shape" viewBox={MODULE_VIEWBOX} aria-hidden="true" focusable="false">
-        <path d={moduleSilhouette[key]} fill="var(--module-fill)" />
-      </svg>
-      <Icon name={moduleIcon[key]} size={size === 'lg' ? 'lg' : size === 'sm' ? 'xs' : 'sm'} />
+      {art ? (
+        <img className="ms-module__art" src={art} alt="" loading="lazy" decoding="async" />
+      ) : (
+        <Icon name={moduleIcon[key]} size={size === 'lg' ? 'lg' : size === 'sm' ? 'xs' : 'sm'} />
+      )}
     </span>
   );
 }
 
-/**
- * Item-type art slot (detail header, rail): the type's rendered object from
- * `typeArt` when one exists, otherwise the vector module. Decorative unless
- * `label` is given.
- */
+/** The detail header's large tile (the same tile as the list, drawn bigger). */
 export function ItemTypeArt({ type, size = 'lg', label, className }: TypeModuleProps) {
-  const key = isItemTypeKey(type) ? type : 'custom';
-  const src = typeArt[key];
-  if (!src) return <TypeModule type={key} size={size} label={label} className={className} />;
-  const px = size === 'lg' ? 64 : size === 'sm' ? 24 : 40;
-  return (
-    <img
-      className={cn('ms-art', className)}
-      src={src}
-      width={px}
-      height={px}
-      alt={label ?? ''}
-      loading="lazy"
-      decoding="async"
-    />
-  );
+  return <TypeModule type={type} size={size} label={label} className={className} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -145,7 +122,7 @@ export interface AlertProps {
 
 const ALERT_LED: Record<AlertTone, LedTone> = { info: 'off', success: 'ok', warning: 'attention', danger: 'danger' };
 
-/** Inline notice plate: LED + text. Colour is the LED and the title ink only — no tinted slabs, no side stripes. */
+/** Inline notice: status dot + text. Colour is the dot and the title ink only — no tinted slabs, no side stripes. */
 export function Alert({ tone = 'info', title, children, announce = false, action, className }: AlertProps) {
   const role = announce ? (tone === 'danger' ? 'alert' : 'status') : undefined;
   return (
@@ -161,7 +138,57 @@ export function Alert({ tone = 'info', title, children, announce = false, action
 }
 
 // ---------------------------------------------------------------------------
-// Dial (Watchtower)
+// Countdown ring (TOTP)
+// ---------------------------------------------------------------------------
+
+export interface RingProps {
+  /** Remaining share, 0–100 (the arc that is still drawn). */
+  value: number;
+  /** Accessible name, e.g. "Code refreshes". */
+  label: string;
+  /** Spoken value, e.g. "12 seconds left". */
+  valueText?: string;
+  tone?: 'success' | 'warning' | 'danger';
+  /** Diameter in px (default 32). */
+  size?: number;
+  className?: string;
+}
+
+/** A thin countdown ring: role="progressbar", the arc shrinks as time runs out. */
+export function Ring({ value, label, valueText, tone = 'success', size = 32, className }: RingProps) {
+  const v = Math.max(0, Math.min(100, value));
+  const stroke = 4;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  return (
+    <svg
+      className={cn('ms-ring', className)}
+      width={size}
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(v)}
+      aria-valuetext={valueText}
+    >
+      <circle className="ms-ring__track" cx={size / 2} cy={size / 2} r={r} strokeWidth={stroke} />
+      <circle
+        className={`ms-ring__value ms-ring__value--${tone}`}
+        cx={size / 2}
+        cy={size / 2}
+        r={r}
+        strokeWidth={stroke}
+        strokeDasharray={c}
+        strokeDashoffset={c - (c * v) / 100}
+      />
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Dial (vault health)
 // ---------------------------------------------------------------------------
 
 export interface DialProps {
@@ -169,16 +196,16 @@ export interface DialProps {
   value: number;
   /** Accessible name, e.g. "Vault health 72 of 100". */
   label: string;
-  /** Legend printed under the readout (e.g. "/ 100"). */
+  /** Text under the score (e.g. "/ 100"). */
   legend?: string;
   size?: number;
   className?: string;
 }
 
 /**
- * One instrument dial: a 240° scale with ticks, the score as the needle arc
- * (LED colour by band: <50 danger, <80 attention, else ok) and an LCD
- * readout. role="meter" with aria-valuenow so the number is the content.
+ * Score dial: a soft 240° arc with the score inside (colour by band: <50
+ * danger, <80 attention, else ok). role="meter" with aria-valuenow so the
+ * number is the content.
  */
 export function Dial({ value, label, legend, size = 200, className }: DialProps) {
   const v = Math.max(0, Math.min(100, Math.round(value)));
@@ -187,10 +214,6 @@ export function Dial({ value, label, legend, size = 200, className }: DialProps)
   const sweep = 240;
   const circumference = 2 * Math.PI * r;
   const arc = (circumference * sweep) / 360;
-  const ticks = Array.from({ length: 11 }, (_, i) => {
-    const angle = ((150 + (sweep * i) / 10) * Math.PI) / 180;
-    return { x1: 100 + Math.cos(angle) * 92, y1: 100 + Math.sin(angle) * 92, x2: 100 + Math.cos(angle) * 98, y2: 100 + Math.sin(angle) * 98 };
-  });
   return (
     <svg
       className={cn('ms-dial', className)}
@@ -202,15 +225,12 @@ export function Dial({ value, label, legend, size = 200, className }: DialProps)
       aria-valuemax={100}
       aria-valuenow={v}
     >
-      {ticks.map((t, i) => (
-        <line key={i} className="ms-dial__tick" x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} />
-      ))}
       <circle
         className="ms-dial__track"
         cx="100"
         cy="100"
         r={r}
-        strokeWidth="12"
+        strokeWidth="14"
         strokeDasharray={`${arc} ${circumference}`}
         transform="rotate(150 100 100)"
       />
@@ -219,7 +239,7 @@ export function Dial({ value, label, legend, size = 200, className }: DialProps)
         cx="100"
         cy="100"
         r={r}
-        strokeWidth="12"
+        strokeWidth="14"
         strokeDasharray={`${arc} ${circumference}`}
         strokeDashoffset={arc - (arc * v) / 100}
         transform="rotate(150 100 100)"
@@ -228,7 +248,7 @@ export function Dial({ value, label, legend, size = 200, className }: DialProps)
         {v}
       </text>
       {legend && (
-        <text className="ms-dial__legend" x="100" y="134" textAnchor="middle" fontSize="11">
+        <text className="ms-dial__legend" x="100" y="134" textAnchor="middle" fontSize="12">
           {legend}
         </text>
       )}

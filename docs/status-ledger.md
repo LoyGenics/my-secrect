@@ -19,6 +19,7 @@ Re-run 2026-11-18 04:05 on main a7a777c (after desktop storage + sync integrity)
 
 ## Generated imagery (2026-11-18, Colab A100, runtime deleted after download)
 - Kept: 20 logo/icon concepts × 2 (user to choose), 49 cute soft-3D illustrations × 2, 8 animated loops (opaque + transparent WebP). Unpacked outside the repo at ../my-secrect-assets-inbox; models Qwen-Image + Wan 2.2 TI2V-5B (Apache-2.0), Real-ESRGAN x4plus (BSD-3), BiRefNet (MIT).
+- Mascot set (2026-11-18, branch feat/ghost-mascot, not pushed): 14 expressions x 2 seeds (Qwen-Image-Edit 2511), 5 loops + alternates (Wan 2.2), hand-drawn SVGs, full app-icon set. Colab A100 runtime deleted after download. Not wired into screens until each image is approved. Details: packages/ui/assets/ASSETS.md.
 - Discarded: the first grey "product shot" set (dull, and a "Braun" style cue printed that trademark on some renders).
 
 
@@ -62,7 +63,7 @@ On main cb1bca6: npm run test:acceptance 45 pass / 3 todo; npm run test:acceptan
 Covered: A, B, D, E, I, K, M. Partial: C, F, H. Pending: G, J, L. Open defects: H1/H2 device revocation (re-check on main), H3 pull 401 not handled, H4 local-only choice not sticky, C1 different vault key pushes unreadable items (high), K3 rollback (high, needs v2 AD + signed events), K2 backup item omission undetected, E1 relations rewritten on save.
 
 ## In progress
-- No agents running. Waiting on the user: logo choice (app icon slot empty; expo prebuild warns "No icon").
+- Logo chosen by the user: 07_ghost_key (seed 8209); wired on feat/ui-soften (brand mark, favicons, Tauri and mobile icons).
 
 ## Open (not assigned yet)
 - Mobile UI: "+ New" and detail "Back" sit under the status bar on iOS and Android (reported by three agents).

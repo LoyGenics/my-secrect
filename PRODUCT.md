@@ -39,13 +39,13 @@ An all-in-one vault, not just a password manager: logins, passkeys, cards, banki
 
 - Name: "My Secret" (repository and code identifier `my-secrect`).
 - Honest security copy: never claim audits, certifications or guarantees that do not exist; revocation does not erase data already on another device and the UI says so.
-- Icons: Lucide for interface icons; 3D imagery only for onboarding, empty states, feature cards and success screens, from 3dicons (CC0) and Microsoft Fluent Emoji 3D (MIT). No emoji used as interface icons. Third-party licences tracked in THIRD_PARTY_NOTICES.md.
-- The user rejected the current look as monotonous, dated and "AI vibe-coded"; the redesign must read as a deliberate, premium consumer product.
+- Icons: Lucide for interface icons; 3D imagery for onboarding, empty states, feature cards, success screens and the item-type tiles (a pastel square behind each type's picture), from 3dicons (CC0) and Microsoft Fluent Emoji 3D (MIT). No emoji used as interface icons. Third-party licences tracked in THIRD_PARTY_NOTICES.md.
+- Look: soft and light by default (warm neutral body, white cards, pill buttons, sentence-case text, big radii, gentle shadows, one orange for the primary action), with a matching soft dark theme. It must feel friendly and trustworthy to an ordinary person, not like an IT tool or a hardware panel; the earlier "Precision Instrument" look (UPPERCASE legends, LEDs, metal edges) was rejected as too mechanical. Approved mockup: docs/mockups/ui-soft-v1.html; design contract: apps/desktop/.impeccable/surfaces/apps-desktop-src-app-tsx.md.
 
 ## Evidence on Hand
 
 - Example data: 12 fake items, one per type (Load example data). No real testimonials, customers, audits, store ratings or press exist; none may be invented.
-- No logo or brand mark exists yet.
+- Logo: the ghost holding an orange key (concept 07_ghost_key, seed 8209), on a lavender square. Source: the logo concept set; provenance in packages/ui/assets/ASSETS.md.
 
 ## Product Principles
 

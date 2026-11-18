@@ -34,6 +34,7 @@ letters, logos or brand marks.
 | Tool | Licence | Source |
 |---|---|---|
 | Qwen-Image (illustrations) | Apache-2.0 | https://huggingface.co/Qwen/Qwen-Image |
+| Qwen-Image-Edit 2511 (mascot expressions, edited from the ghost master) | Apache-2.0 | https://huggingface.co/Qwen/Qwen-Image-Edit-2511 |
 | Wan 2.2 TI2V-5B (motion) | Apache-2.0 | https://github.com/Wan-Video/Wan2.2 |
 | Real-ESRGAN x4plus (upscaling) | BSD-3-Clause | https://github.com/xinntao/Real-ESRGAN |
 | BiRefNet (background removal) | MIT | https://github.com/ZhengPeng7/BiRefNet |

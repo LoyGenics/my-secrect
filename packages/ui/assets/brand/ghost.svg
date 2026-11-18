@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="My Secret ghost holding a key">
+  <defs>
+    <path id="b" d="M56 190C50 146 54 106 72 78C88 52 108 38 128 38C148 38 168 52 184 78C202 106 206 146 200 190C198 204 204 214 194 218C184 222 178 210 166 210C154 210 152 222 140 222C128 222 126 210 114 210C102 210 100 222 88 222C74 222 58 208 56 190Z"/>
+    <clipPath id="c"><use xlink:href="#b"/></clipPath>
+  </defs>
+  <use xlink:href="#b" fill="#E3DCF6"/>
+  <g clip-path="url(#c)"><use xlink:href="#b" fill="#FFFFFF" transform="translate(-9 -4)"/></g>
+  <ellipse cx="108" cy="102" rx="9.5" ry="12.5" fill="#3B2B4A" transform="rotate(-6 108 102)"/>
+  <ellipse cx="150" cy="104" rx="9.5" ry="12.5" fill="#3B2B4A" transform="rotate(6 150 104)"/>
+  <circle cx="129" cy="128" r="5.5" fill="#3B2B4A"/>
+  <rect x="118" y="168" width="11" height="42" rx="5" fill="#FF7A3D" transform="rotate(-3 124 188)"/>
+  <rect x="127" y="184" width="11" height="6.5" rx="3" fill="#FF7A3D"/>
+  <rect x="127" y="197" width="9" height="6.5" rx="3" fill="#FF7A3D"/>
+  <circle cx="124" cy="156" r="22" fill="#FF7A3D"/>
+  <circle cx="124" cy="153" r="6.5" fill="#E3DCF6"/>
+  <ellipse cx="92" cy="166" rx="15" ry="13" fill="#FFFFFF" stroke="#E3DCF6" stroke-width="3"/>
+  <ellipse cx="156" cy="166" rx="15" ry="13" fill="#FFFFFF" stroke="#E3DCF6" stroke-width="3"/>
+</svg>

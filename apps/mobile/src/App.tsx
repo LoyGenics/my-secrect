@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Platform, Pressable, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import type { VaultItem } from '../../../packages/core/src/types';
@@ -19,6 +19,7 @@ import {
   deleteItem, restoreItem, permanentlyDeleteItem, toggleFavorite,
 } from './vault';
 import { useMobileTheme } from './theme';
+import ScreenFrame from './components/ScreenFrame';
 import { Icon, type IconName } from '../../../packages/ui/src/native';
 import { I18nProvider, useTranslation } from '../../../packages/i18n/src/react';
 import { LOCALE_STORAGE_KEY, detectLocale, type Locale } from '../../../packages/i18n/src/index';
@@ -197,8 +198,8 @@ function AppShell() {
   }
   async function handleRestore(id: string) { await restoreItem(id); refresh(); setSelectedId(id); setShowTrash(false); }
   function handleToggleFavorite(id: string) { toggleFavorite(id); refresh(); }
-  async function handleLoadExamples(list: VaultItem[]) { for (const it of list) await upsertItem(it); refresh(); setNotice('Example data loaded — fake values only.'); }
-  async function handleClearExamples(ids: string[]) { for (const id of ids) await permanentlyDeleteItem(id); refresh(); setNotice('Example data cleared.'); }
+  async function handleLoadExamples(list: VaultItem[]) { for (const it of list) await upsertItem(it); refresh(); setNotice(dict.mobile.exampleLoaded); }
+  async function handleClearExamples(ids: string[]) { for (const id of ids) await permanentlyDeleteItem(id); refresh(); setNotice(dict.mobile.exampleCleared); }
 
   const selectedItem = [...items, ...trash].find((i) => i.id === selectedId) ?? null;
   const inTrash = selectedItem ? trash.some((t) => t.id === selectedItem.id) : false;
@@ -213,7 +214,7 @@ function AppShell() {
   // signing in' keeps the local vault usable offline.
   if (boot === 'signin') {
     return (
-      <View style={styles.screen}>
+      <ScreenFrame style={styles.screen}>
         <StatusBar style={statusBar} />
         <SignInScreen
           baseUrl={apiBaseUrl}
@@ -227,13 +228,14 @@ function AppShell() {
             })();
           }}
         />
-      </View>
+      </ScreenFrame>
     );
   }
 
   return (
     <View style={styles.screen} onTouchStart={markActivity}>
       <StatusBar style={statusBar} />
+      <ScreenFrame>
       {showSecurity ? (
         <SecurityScreen
           onClose={() => setShowSecurity(false)}
@@ -258,24 +260,25 @@ function AppShell() {
         <SettingsScreen autoLock={autoLock} onAutoLockChange={setAutoLock} onLock={doLock} onWiped={() => setBoot('onboarding')} notice={notice} setNotice={setNotice} onViewTrash={() => setShowTrash(true)} onViewSecurity={() => setShowSecurity(true)} />
       )}
       {notice && !showForm && !selectedItem && !showTrash && !showSecurity ? (
-        <Pressable testID="app-notice" accessibilityLabel="Dismiss notice" onPress={() => setNotice('')} style={{ backgroundColor: colors.card, borderTopColor: colors.cardBorder, borderTopWidth: 1, padding: 10 }}>
+        <Pressable testID="app-notice" accessibilityLabel={dict.mobile.dismissNotice} onPress={() => setNotice('')} style={{ backgroundColor: colors.card, borderTopColor: colors.cardBorder, borderTopWidth: 1, padding: 10 }}>
           <Text style={{ color: colors.secondary, fontSize: 13, textAlign: 'center' }}>{notice}</Text>
         </Pressable>
       ) : null}
       {!showForm && !selectedItem && !showTrash && !showSecurity ? (
-        <View accessibilityRole="tablist" style={{ flexDirection: 'row', borderTopColor: colors.cardBorder, borderTopWidth: 1, backgroundColor: colors.card, paddingBottom: 20, paddingTop: 6 }}>
+        <View accessibilityRole="tablist" style={{ flexDirection: 'row', borderTopColor: colors.cardBorder, borderTopWidth: 1, backgroundColor: colors.card, paddingBottom: Platform.OS === 'ios' ? 2 : 8, paddingTop: 6 }}>
           {TABS.map((t) => {
             const selected = tab === t.key;
             const label = dict.shell.tabs[t.label];
             return (
               <Pressable key={t.key} testID={`tab-${t.key}`} accessibilityLabel={label} accessibilityRole="tab" accessibilityState={{ selected }} onPress={() => { setTab(t.key); clearSelection(); }} style={{ flex: 1, alignItems: 'center', minHeight: 52, justifyContent: 'center', gap: 3 }}>
                 <Icon name={t.icon} size="lg" color={selected ? colors.accent : colors.muted} />
-                <Text style={[styles.legend, { fontSize: 10, color: selected ? colors.text : colors.muted }]}>{label}</Text>
+                <Text style={[styles.legend, { fontSize: 11, color: selected ? colors.text : colors.muted }]}>{label}</Text>
               </Pressable>
             );
           })}
         </View>
       ) : null}
+      </ScreenFrame>
     </View>
   );
 }

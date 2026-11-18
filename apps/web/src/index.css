@@ -1,23 +1,14 @@
 @import '../../../packages/ui/src/tokens.css';
+@import '../../../packages/ui/src/legacy.css';
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 /*
- * Web shell styles — now token-driven and identical to desktop.
- *
- * DRIFT FIX (Phase D): this file previously redefined .btn as sky-600
- * with a sky-400 focus ring, so the web client looked like a different
- * product from the desktop client (sky vs indigo). The sky values are
- * deleted. Every shared class below uses the same tokens as
- * apps/desktop/src/index.css (same colors, focus, radii); the only
- * intentional difference is .card keeping web's p-4. The only web-only
- * rules are the .web-shell responsive layout; the amber banner is in App.tsx.
- *
- * Classes the shared desktop App needs that web previously lacked
- * (.btn-ghost, .label, .nav-item, .nav-item-active) are added here so the
- * mirrored App renders identically. .btn-secondary is kept as an alias of
- * .btn-ghost for backwards compatibility.
+ * Web shell styles: token-driven and identical to desktop. The shared
+ * classes of the screens not yet migrated come from
+ * packages/ui/src/legacy.css (same file as desktop). The only web-only rules
+ * are the .web-shell responsive layout below; the warning banner is in App.tsx.
  */
 
 html,
@@ -85,99 +76,5 @@ body {
   }
   .web-shell header {
     flex-wrap: wrap;
-  }
-}
-
-@layer components {
-  .card {
-    @apply rounded-xl p-4 shadow-sm;
-    background-color: var(--ms-color-bg-surface);
-    border: 1px solid var(--ms-color-border-default);
-  }
-
-  .btn {
-    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-50;
-    background-color: var(--ms-color-brand);
-    color: var(--ms-color-text-on-brand);
-  }
-  .btn:focus-visible {
-    outline: 2px solid var(--ms-color-focus-ring);
-    outline-offset: 2px;
-  }
-  .btn:hover {
-    background-color: var(--ms-color-brand-hover);
-  }
-
-  /* Primary is the default .btn (as on desktop); explicit alias for clarity. */
-  .btn-primary {
-    @apply btn;
-  }
-
-  .btn-ghost,
-  .btn-secondary {
-    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-50;
-    background-color: var(--ms-color-bg-raised);
-    border: 1px solid var(--ms-color-border-strong);
-    color: var(--ms-color-text-primary);
-  }
-  .btn-ghost:hover,
-  .btn-secondary:hover {
-    background-color: var(--ms-color-bg-surface);
-  }
-  .btn-ghost:focus-visible,
-  .btn-secondary:focus-visible {
-    outline: 2px solid var(--ms-color-focus-ring);
-    outline-offset: 2px;
-  }
-
-  .btn-danger {
-    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-50;
-    background-color: var(--ms-color-danger-soft);
-    border: 1px solid var(--ms-color-danger-border);
-    color: var(--ms-color-danger-soft-text);
-  }
-  .btn-danger:hover {
-    filter: brightness(1.15);
-  }
-  .btn-danger:focus-visible {
-    outline: 2px solid var(--ms-color-focus-ring);
-    outline-offset: 2px;
-  }
-
-  .input {
-    @apply w-full rounded-lg px-3 py-2 text-sm focus:outline-none;
-    background-color: var(--ms-color-bg-input);
-    border: 1px solid var(--ms-color-border-strong);
-    color: var(--ms-color-text-primary);
-  }
-  .input::placeholder {
-    color: var(--ms-color-text-muted);
-    opacity: 1;
-  }
-  .input:focus {
-    border-color: var(--ms-color-brand-focus);
-    box-shadow: 0 0 0 3px var(--ms-color-brand-soft);
-  }
-
-  .label {
-    @apply mb-1 block text-xs font-medium uppercase tracking-wide;
-    color: var(--ms-color-text-muted);
-  }
-
-  .nav-item {
-    @apply flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors focus:outline-none;
-    color: var(--ms-color-text-secondary);
-  }
-  .nav-item:hover {
-    background-color: var(--ms-color-bg-surface);
-    color: var(--ms-color-text-primary);
-  }
-  .nav-item:focus-visible {
-    outline: 2px solid var(--ms-color-focus-ring);
-    outline-offset: 2px;
-  }
-  .nav-item-active {
-    background-color: var(--ms-color-brand-soft);
-    color: var(--ms-color-brand-soft-text);
   }
 }

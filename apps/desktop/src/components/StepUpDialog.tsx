@@ -224,7 +224,7 @@ export default function StepUpDialog({
         <h2 id="step-up-title" className="text-base font-semibold">
           {s.stepUpTitle}
         </h2>
-        <p className="mt-1 text-sm text-zinc-400">
+        <p className="mt-1 text-sm text-ms-muted">
           {serverOnly ? x.stepUpServerBody : reason === 'export' ? s.exportRequiresStepUp : s.stepUpBody}
         </p>
 
@@ -233,14 +233,14 @@ export default function StepUpDialog({
             {s.stepUp}
           </legend>
           {!serverOnly && (
-            <label className="flex items-center gap-2 text-sm text-zinc-200">
+            <label className="flex items-center gap-2 text-sm text-ms-text">
               <input
                 type="radio"
                 name="step-up-method"
                 value="passphrase"
                 checked={method === 'passphrase'}
                 onChange={() => setMethod('passphrase')}
-                className="accent-indigo-600"
+                className="accent-[var(--ms-color-brand)]"
                 aria-label={s.stepUpPassphraseLabel}
               />
               {s.stepUpPassphrase}
@@ -261,28 +261,28 @@ export default function StepUpDialog({
             </label>
           )}
           {canUseServerMethods && (
-            <label className="flex items-center gap-2 text-sm text-zinc-200">
+            <label className="flex items-center gap-2 text-sm text-ms-text">
               <input
                 type="radio"
                 name="step-up-method"
                 value="totp"
                 checked={method === 'totp'}
                 onChange={() => setMethod('totp')}
-                className="accent-indigo-600"
+                className="accent-[var(--ms-color-brand)]"
                 aria-label={s.stepUpTotpLabel}
               />
               {s.stepUpTotpLabel}
             </label>
           )}
           {canUseServerMethods && (
-            <label className="flex items-center gap-2 text-sm text-zinc-200">
+            <label className="flex items-center gap-2 text-sm text-ms-text">
               <input
                 type="radio"
                 name="step-up-method"
                 value="passkey"
                 checked={method === 'passkey'}
                 onChange={() => setMethod('passkey')}
-                className="accent-indigo-600"
+                className="accent-[var(--ms-color-brand)]"
                 aria-label={s.stepUpPasskeyLabel}
                 disabled={!webauthn}
               />
@@ -395,7 +395,7 @@ export default function StepUpDialog({
         {method === 'passkey' && canUseServerMethods && (
           <div className="mt-4 space-y-3">
             {!webauthn ? (
-              <p className="rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
+              <p className="rounded-lg border border-ms-warn-line bg-ms-warn-bg px-3 py-2 text-sm text-ms-warn-text">
                 WebAuthn is not available in this browser or build, so a passkey cannot be used
                 here.{serverOnly ? '' : ' Use your master passphrase instead.'}
               </p>
@@ -408,7 +408,7 @@ export default function StepUpDialog({
         )}
 
         {error && (
-          <p role="alert" className="mt-3 text-sm text-red-400">
+          <p role="alert" className="mt-3 text-sm text-ms-danger-text">
             {error}
           </p>
         )}

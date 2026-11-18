@@ -85,7 +85,7 @@ export interface SidebarProps {
   setView: (view: SidebarView) => void;
   counts: SidebarCounts;
   tags: string[];
-  /** Watchtower score 0–100 for the rail readout. */
+  /** Vault health score 0–100 shown next to the health entry. */
   healthScore?: number;
   onLock: () => void;
   onExport: () => void;
@@ -125,11 +125,10 @@ function NavItem({ current, label, onClick, glyph, count, trailing, tone }: NavI
 const icon = (name: IconName) => <Icon name={name} />;
 
 /**
- * The instrument rail: views, category modules with LCD counts, the
- * Watchtower readout, tags and the Lock key. Every entry is a real
- * <button> with aria-current on the active view. Tablet collapses it to
- * icon modules (labels stay as accessible names); phones host it in the
- * navigation drawer.
+ * The sidebar: views, category swatches with counts, the health score,
+ * tags and the Lock button. Every entry is a real <button> with
+ * aria-current on the active view. Tablet collapses it to icons (labels
+ * stay as accessible names); phones host it in the navigation drawer.
  */
 export default function Sidebar({
   view,
@@ -152,10 +151,14 @@ export default function Sidebar({
   return (
     <nav className={cn('ms-rail', inDrawer && 'ms-rail--drawer')} aria-label={s.navLabel}>
       <div className="ms-rail__brand">
-        {brandMark.src ? <img src={brandMark.src} alt="" width={28} height={28} /> : <Led tone="ok" />}
+        {brandMark.src ? (
+          <img className="ms-brand-img" src={brandMark.src} alt="" width={34} height={34} />
+        ) : (
+          <span className="ms-brand-mark" aria-hidden="true">{dict.common.appName.charAt(0)}</span>
+        )}
         <span className="ms-rail__brand-text">
-          <span className="ms-heading ms-heading--md block uppercase tracking-[0.14em]">{dict.common.appName}</span>
-          <span className="ms-legend block normal-case tracking-normal">{s.tagline}</span>
+          <span className="ms-heading ms-heading--md block">{dict.common.appName}</span>
+          <span className="ms-text-sm ms-text-muted block">{s.tagline}</span>
         </span>
       </div>
 

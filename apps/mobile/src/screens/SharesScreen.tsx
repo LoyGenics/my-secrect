@@ -352,7 +352,7 @@ export default function SharesScreen({ onClose }: { onClose: () => void }) {
   const header = (
     <>
       <Pressable testID="shares-back" accessibilityLabel="Back to vault" onPress={onClose} hitSlop={10} style={{ alignSelf: 'flex-start', paddingVertical: 8 }}>
-        <Text style={{ color: '#A5B4FC', fontSize: 15 }}>‹ Back</Text>
+        <Text style={{ color: colors.link, fontSize: 15 }}>‹ Back</Text>
       </Pressable>
       <Text style={styles.title}>{t('shares.title')}</Text>
     </>

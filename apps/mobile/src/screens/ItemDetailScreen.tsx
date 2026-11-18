@@ -1,27 +1,49 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, Text, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import Svg, { Circle } from 'react-native-svg';
 import * as Clipboard from 'expo-clipboard';
 import type { VaultItem } from '../../../../packages/core/src/types';
 import { useMobileTheme } from '../theme';
-import { Icon, illustrations, typeArt } from '../../../../packages/ui/src/native';
+import { Icon, TypeModule } from '../../../../packages/ui/src/native';
+import { useTranslation } from '../../../../packages/i18n/src/react';
+import { format, plural, formatDate } from '../../../../packages/i18n/src/index';
 import { typeLabel } from '../components/ItemRow';
 import MarkdownText from '../components/MarkdownText';
+import ScreenFrame from '../components/ScreenFrame';
 import { generateTotp } from '../utils/totp';
 import { getPasswordHistory, getNoteRevisions, isArchived } from '../utils/itemMeta';
 
+/** Fields that hold the secret, in the order "Copy password" prefers. */
+const SECRET_KEYS = ['password', 'key', 'account_number', 'document_number', 'private_key_ref'];
+
+/** Thin countdown ring for the one-time code (remaining share 0–100). */
+function Ring({ value, color, track }: { value: number; color: string; track: string }) {
+  const size = 36;
+  const stroke = 4;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  return (
+    <Svg width={size} height={size} accessible={false} importantForAccessibility="no-hide-descendants" style={{ transform: [{ rotate: '-90deg' }] }}>
+      <Circle cx={size / 2} cy={size / 2} r={r} stroke={track} strokeWidth={stroke} fill="none" />
+      <Circle cx={size / 2} cy={size / 2} r={r} stroke={color} strokeWidth={stroke} fill="none" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c - (c * value) / 100} />
+    </Svg>
+  );
+}
+
 function FieldRow({ label, value, secret, testID }: { label: string; value: string; secret?: boolean; testID: string }) {
   const { colors, styles } = useMobileTheme();
+  const { dict } = useTranslation();
   const [show, setShow] = useState(false);
   const display = secret && !show ? '•'.repeat(Math.min(12, Math.max(4, value.length))) : value;
   return (
-    <View style={{ marginBottom: 14 }}>
-      <Text style={styles.label}>{label}</Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.input, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, minHeight: 48 }}>
-        <Text selectable style={{ flex: 1, color: colors.text, fontSize: 15 }} numberOfLines={secret && !show ? 1 : undefined}>{display}</Text>
+    <View style={{ paddingVertical: 12, paddingHorizontal: 16, borderTopColor: colors.cardBorder, borderTopWidth: 1 }}>
+      <Text style={{ color: colors.muted, fontSize: 13, marginBottom: 4 }}>{label}</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <Text selectable style={{ flex: 1, color: colors.text, fontSize: 16 }} numberOfLines={secret && !show ? 1 : undefined}>{display}</Text>
         {secret ? (
-          <Pressable testID={`${testID}-toggle`} accessibilityLabel={show ? `Hide ${label}` : `Show ${label}`} onPress={() => setShow((v) => !v)} hitSlop={10} style={{ padding: 6 }}><Icon name={show ? 'hide' : 'show'} color={colors.text} /></Pressable>
+          <Pressable testID={`${testID}-toggle`} accessibilityLabel={format(show ? dict.itemDetail.hide : dict.itemDetail.show, label)} onPress={() => setShow((v) => !v)} hitSlop={10} style={{ padding: 8 }}><Icon name={show ? 'hide' : 'show'} color={colors.muted} /></Pressable>
         ) : null}
-        <Pressable testID={`${testID}-copy`} accessibilityLabel={`Copy ${label}`} onPress={() => { void Clipboard.setStringAsync(value); }} hitSlop={10} style={{ padding: 6 }}><Icon name="copy" color={colors.text} /></Pressable>
+        <Pressable testID={`${testID}-copy`} accessibilityLabel={format(dict.itemDetail.copy, label)} onPress={() => { void Clipboard.setStringAsync(value); }} hitSlop={10} style={{ padding: 8 }}><Icon name="copy" color={colors.muted} /></Pressable>
       </View>
     </View>
   );
@@ -31,16 +53,26 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
   item: VaultItem; allItems: VaultItem[]; inTrash: boolean;
   onEdit: () => void; onDelete: () => void; onRestore: () => void; onToggleFavorite: () => void; onClose: () => void; onSelectRelated: (id: string) => void;
 }) {
-  const { colors, styles } = useMobileTheme();
+  const { colors, styles, theme } = useMobileTheme();
+  const { dict, locale } = useTranslation();
+  const d = dict.itemDetail;
+  const m = dict.mobile;
   const f = item.fields as Record<string, unknown>;
   const str = (k: string) => (typeof f[k] === 'string' ? (f[k] as string) : '');
   const [totp, setTotp] = useState('');
   const [totpLeft, setTotpLeft] = useState(30);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => {
     const secret = str('totp_secret'); if (!secret) return;
     const tick = () => { const r = generateTotp(secret); setTotp(r.code); setTotpLeft(r.secondsRemaining); };
     tick(); const id = setInterval(tick, 1000); return () => clearInterval(id);
   }, [item.id]);
+  useEffect(() => {
+    if (!copiedKey) return;
+    const id = setTimeout(() => setCopiedKey(null), 2000);
+    return () => clearTimeout(id);
+  }, [copiedKey]);
   const related = (item.relations ?? []).map((r) => allItems.find((i) => i.id === r.target_id)).filter((i): i is VaultItem => !!i);
   const archived = isArchived(item);
   const passwordHistory = item.type === 'login' ? getPasswordHistory(item) : [];
@@ -48,118 +80,159 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
   const parentId = typeof f.parent_id === 'string' ? (f.parent_id as string) : '';
   const parent = parentId ? allItems.find((c) => c.id === parentId) : undefined;
   const children = item.type === 'collection' ? allItems.filter((c) => typeof c.fields?.parent_id === 'string' && c.fields.parent_id === item.id) : [];
-  const entries: Array<[string, string, boolean]> = [];
-  const add = (label: string, key: string, secret = false) => { const v = str(key); if (v) entries.push([label, v, secret]); };
-  if (item.type === 'login' || item.type === 'passkey') { add('Username', 'username'); add('Password', 'password', true); add('Website', 'url'); add('Credential ID', 'credential_id'); add('RP ID', 'rp_id'); add('Notes', 'notes'); }
-  if (item.type === 'bank_account') { add('Bank', 'bank_name'); add('Account number', 'account_number', true); add('Currency', 'currency'); add('Holder', 'holder_name'); add('Branch', 'branch'); add('Notes', 'notes'); }
-  if (item.type === 'card') { add('Cardholder', 'cardholder'); add('Last 4', 'last4'); add('Brand', 'brand'); add('Expiry', 'expiry'); add('Bank', 'bank'); add('Notes', 'notes'); }
-  if (item.type === 'identity') { add('Full name', 'full_name'); add('Document number', 'document_number', true); add('Issued', 'issued_date'); add('Expiry', 'expiry_date'); add('Notes', 'notes'); }
-  if (item.type === 'ssh_key') { add('Public key', 'public_key'); add('Private key reference', 'private_key_ref', true); add('Comment', 'comment'); add('Notes', 'notes'); }
-  if (item.type === 'api_key') { add('Service', 'service'); add('Key', 'key', true); add('Scopes', 'scopes'); add('Expires', 'expires_at'); add('Notes', 'notes'); }
-  if (item.type === 'secure_note') { add('Body', 'body'); }
-  if (item.type === 'document' || item.type === 'media') { add('Blob ID', 'blob_id'); add('MIME type', 'mime_type'); if (item.type === 'media') { add('Width', 'width'); add('Height', 'height'); add('Duration (s)', 'duration_s'); } add('Notes', 'notes'); }
-  if (item.type === 'collection' || item.type === 'custom') { add('Description', 'description'); for (const [k, v] of Object.entries(f)) if (typeof v === 'string' && v && k !== 'description') entries.push([k, v, false]); }
+  const fieldLabel = (key: string) => (dict.fields as Record<string, string>)[key] ?? key.replace(/_/g, ' ');
+  const entries: Array<[string, string, boolean, string]> = []; // [label, value, secret, key]
+  const add = (key: string, secret = false) => { const v = str(key); if (v) entries.push([fieldLabel(key), v, secret, key]); };
+  if (item.type === 'login' || item.type === 'passkey') ['username', 'password', 'url', 'credential_id', 'rp_id', 'notes'].forEach((k) => add(k, k === 'password'));
+  if (item.type === 'bank_account') ['bank_name', 'account_number', 'currency', 'holder_name', 'branch', 'notes'].forEach((k) => add(k, k === 'account_number'));
+  if (item.type === 'card') ['cardholder', 'last4', 'brand', 'expiry', 'bank', 'notes'].forEach((k) => add(k));
+  if (item.type === 'identity') ['full_name', 'document_number', 'issued_date', 'expiry_date', 'notes'].forEach((k) => add(k, k === 'document_number'));
+  if (item.type === 'ssh_key') ['public_key', 'private_key_ref', 'comment', 'notes'].forEach((k) => add(k, k === 'private_key_ref'));
+  if (item.type === 'api_key') ['service', 'key', 'scopes', 'expires_at', 'notes'].forEach((k) => add(k, k === 'key'));
+  if (item.type === 'secure_note') add('body');
+  if (item.type === 'document' || item.type === 'media') { ['blob_id', 'mime_type'].forEach((k) => add(k)); if (item.type === 'media') ['width', 'height', 'duration_s'].forEach((k) => add(k)); add('notes'); }
+  if (item.type === 'collection' || item.type === 'custom') { add('description'); for (const [k, v] of Object.entries(f)) if (typeof v === 'string' && v && k !== 'description') entries.push([k, v, false, k]); }
+  const secretKey = SECRET_KEYS.find((k) => str(k));
+  const copySecret = () => { if (!secretKey) return; void Clipboard.setStringAsync(str(secretKey)); setCopiedKey(secretKey); };
+  const when = (iso: string) => formatDate(locale, new Date(iso), { dateStyle: 'medium', timeStyle: 'short' });
+  const confirmTrash = () => Alert.alert(m.moveToTrashTitle, m.moveToTrashBody, [{ text: dict.common.cancel, style: 'cancel' }, { text: dict.shell.bulkMoveToTrash, style: 'destructive', onPress: onDelete }]);
+  const confirmForever = () => Alert.alert(m.deleteForeverTitle, m.deleteForeverBody, [{ text: dict.common.cancel, style: 'cancel' }, { text: dict.common.delete, style: 'destructive', onPress: onDelete }]);
+  const card = { backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 20 } as const;
+  const sheetAction = (testID: string, label: string, onPress: () => void, tone?: 'danger') => (
+    <Pressable key={testID} testID={testID} accessibilityRole="button" accessibilityLabel={label} onPress={() => { setMenuOpen(false); onPress(); }} style={{ minHeight: 52, justifyContent: 'center', paddingHorizontal: 16 }}>
+      <Text style={{ color: tone === 'danger' ? colors.dangerText : colors.text, fontSize: 16, fontWeight: '600' }}>{label}</Text>
+    </Pressable>
+  );
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={{ padding: 16 }}>
-      <Pressable testID="detail-back" accessibilityLabel="Back to vault" onPress={onClose} hitSlop={10} style={{ alignSelf: 'flex-start', paddingVertical: 8 }}><View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}><Icon name="back" color={colors.text} /><Text style={styles.legend}>Back</Text></View></Pressable>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 4 }}>
-        <Image source={typeArt[item.type as keyof typeof typeArt] ?? typeArt.custom} style={{ width: 56, height: 56 }} accessibilityIgnoresInvertColors />
-        <Text style={[styles.heading, { flex: 1 }]}>{item.title}</Text>
-      </View>
-      <Text style={{ color: colors.muted, fontSize: 14, marginTop: 4 }}>{typeLabel(item.type)}{item.favorite ? '  · Favorite' : ''}{inTrash ? '  • In Trash' : ''}{archived ? '  · Archived' : ''}</Text>
-      {parent ? (
-        <Pressable testID="detail-parent" accessibilityLabel={`Open parent collection ${parent.title}`} onPress={() => onSelectRelated(parent.id)} style={{ marginTop: 6 }}>
-          <Text style={{ color: colors.text, fontSize: 14, textDecorationLine: 'underline' }}>In collection: {parent.title}</Text>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 24 }}>
+        <Pressable testID="detail-back" accessibilityLabel={m.backToVault} accessibilityRole="button" onPress={onClose} hitSlop={10} style={{ alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}><Icon name="back" color={colors.accent} /><Text style={{ color: colors.link, fontSize: 16, fontWeight: '600' }}>{dict.common.back}</Text></View>
         </Pressable>
-      ) : null}
-      {str('totp_secret') ? (
-        <View style={{ backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 14, padding: 14, marginTop: 16 }}>
-          <Text style={styles.label}>Authenticator (TOTP)</Text>
-          <Text testID="totp-code" accessibilityLabel={`One-time code ${totp}`} style={{ color: colors.text, fontSize: 28, fontWeight: '700', letterSpacing: 4 }}>{totp || 'Invalid TOTP secret'}</Text>
-          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Refreshes in {totpLeft}s · 30-second period</Text>
-          <Pressable testID="totp-copy" accessibilityLabel="Copy one-time code" style={[styles.ghostButton, { marginTop: 10 }]} onPress={() => { void Clipboard.setStringAsync(totp); }}><Text style={styles.ghostButtonText}>Copy code</Text></Pressable>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 4 }}>
+          <TypeModule type={item.type} theme={theme} size={72} />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.heading, { fontSize: 22, lineHeight: 28 }]}>{item.title}</Text>
+            <Text style={{ color: colors.muted, fontSize: 14, marginTop: 4 }}>{typeLabel(dict, item.type)}{item.favorite ? `  · ${d.favorite}` : ''}{inTrash ? `  · ${d.inTrash}` : ''}{archived ? `  · ${d.archived}` : ''}</Text>
+          </View>
         </View>
-      ) : null}
-      <View style={{ marginTop: 16 }}>
-        {entries.map(([label, value, secret]) =>
-          item.type === 'secure_note' && label === 'Body' ? (
-            <View key={label} style={{ marginBottom: 14 }}>
-              <Text style={styles.label}>Note</Text>
-              <View style={{ backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 12 }}>
+        {parent ? (
+          <Pressable testID="detail-parent" accessibilityLabel={`${d.inCollection}: ${parent.title}`} onPress={() => onSelectRelated(parent.id)} style={{ marginTop: 8 }}>
+            <Text style={{ color: colors.link, fontSize: 14, textDecorationLine: 'underline' }}>{d.inCollection}: {parent.title}</Text>
+          </Pressable>
+        ) : null}
+        {str('totp_secret') ? (
+          <View style={[card, { padding: 16, marginTop: 16, flexDirection: 'row', alignItems: 'center', gap: 14 }]}>
+            <Ring value={(totpLeft / 30) * 100} color={totpLeft <= 5 ? colors.danger : colors.ok} track={colors.cardBorder} />
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.muted, fontSize: 13 }}>{d.totp}</Text>
+              <Text testID="totp-code" accessibilityLabel={`${d.totp} ${totp}`} style={{ color: colors.text, fontSize: 26, fontWeight: '700', letterSpacing: 3 }}>{totp ? (totp.length === 6 ? `${totp.slice(0, 3)} ${totp.slice(3)}` : totp) : d.totpInvalid}</Text>
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{plural(locale, d.totpRefresh, totpLeft)}</Text>
+            </View>
+            <Pressable testID="totp-copy" accessibilityLabel={d.copyCode} accessibilityRole="button" hitSlop={8} style={{ width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: colors.cardBorder, alignItems: 'center', justifyContent: 'center' }} onPress={() => { void Clipboard.setStringAsync(totp); }}>
+              <Icon name="copy" color={colors.text} />
+            </Pressable>
+          </View>
+        ) : null}
+        <View style={[card, { marginTop: 16, overflow: 'hidden' }]}>
+          {entries.map(([label, value, secret, key], i) =>
+            item.type === 'secure_note' && key === 'body' ? (
+              <View key={key} style={{ padding: 16 }}>
+                <Text style={{ color: colors.muted, fontSize: 13, marginBottom: 6 }}>{label}</Text>
                 <MarkdownText source={value} />
               </View>
-            </View>
-          ) : (
-            <FieldRow key={label} label={label} value={value} secret={secret} testID={`field-${label}`} />
-          ),
-        )}
-        {entries.length === 0 ? <Text style={{ color: colors.muted }}>No fields saved for this item.</Text> : null}
-      </View>
-      {passwordHistory.length > 0 ? (
-        <View style={{ marginTop: 20 }}>
-          <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700', marginBottom: 8 }}>Previous passwords</Text>
-          <Text style={{ color: colors.muted, fontSize: 13, marginBottom: 10 }}>Kept encrypted with this item (max 5). The current password is above.</Text>
-          {passwordHistory.map((entry, i) => (
-            <FieldRow key={i} label={`Changed ${new Date(entry.changed_at).toLocaleString()}`} value={entry.password} secret testID={`history-${i}`} />
-          ))}
+            ) : (
+              <View key={key} style={i === 0 ? { marginTop: -1 } : undefined}>
+                <FieldRow label={label} value={value} secret={secret} testID={`field-${key}`} />
+              </View>
+            ),
+          )}
+          {entries.length === 0 ? <Text style={{ color: colors.muted, padding: 16 }}>{d.noFields}</Text> : null}
         </View>
-      ) : null}
-      {revisions.length > 0 ? (
-        <View style={{ marginTop: 20 }}>
-          <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700', marginBottom: 8 }}>Note revisions</Text>
-          <Text style={{ color: colors.muted, fontSize: 13, marginBottom: 10 }}>Previous versions of this note (max 10). Restoring a revision is done on desktop — here you can copy an old version and paste it into Edit.</Text>
-          {revisions.map((rev, i) => (
-            <View key={i} style={{ backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 8 }}>
-              <Text style={{ color: colors.muted, fontSize: 12 }}>Saved {new Date(rev.saved_at).toLocaleString()}</Text>
-              <Text style={{ color: colors.text, fontSize: 14, lineHeight: 19, marginTop: 6 }} numberOfLines={4}>{rev.body}</Text>
-              <Pressable testID={`revision-copy-${i}`} accessibilityLabel="Copy this revision" style={[styles.ghostButton, { marginTop: 8 }]} onPress={() => { void Clipboard.setStringAsync(rev.body); }}>
-                <Text style={styles.ghostButtonText}>Copy this version</Text>
+        {passwordHistory.length > 0 ? (
+          <View style={{ marginTop: 20 }}>
+            <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700', marginBottom: 6 }}>{d.previousPasswords}</Text>
+            <Text style={{ color: colors.muted, fontSize: 13, marginBottom: 10 }}>{d.previousPasswordsHint}</Text>
+            <View style={[card, { overflow: 'hidden' }]}>
+              {passwordHistory.map((entry, i) => (
+                <FieldRow key={i} label={format(d.changedAt, when(entry.changed_at))} value={entry.password} secret testID={`history-${i}`} />
+              ))}
+            </View>
+          </View>
+        ) : null}
+        {revisions.length > 0 ? (
+          <View style={{ marginTop: 20 }}>
+            <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700', marginBottom: 6 }}>{d.revisions}</Text>
+            <Text style={{ color: colors.muted, fontSize: 13, marginBottom: 10 }}>{m.revisionsHint}</Text>
+            {revisions.map((rev, i) => (
+              <View key={i} style={[card, { padding: 14, marginBottom: 8 }]}>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>{format(d.savedAt, when(rev.saved_at))}</Text>
+                <Text style={{ color: colors.text, fontSize: 14, lineHeight: 19, marginTop: 6 }} numberOfLines={4}>{rev.body}</Text>
+                <Pressable testID={`revision-copy-${i}`} accessibilityLabel={m.copyVersion} style={[styles.ghostButton, { marginTop: 8 }]} onPress={() => { void Clipboard.setStringAsync(rev.body); }}>
+                  <Text style={styles.ghostButtonText}>{m.copyVersion}</Text>
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        ) : null}
+        {children.length > 0 ? (
+          <View style={{ marginTop: 20 }}>
+            <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700', marginBottom: 8 }}>{d.inside}</Text>
+            {children.map((child) => (
+              <Pressable key={child.id} testID={`child-${child.id}`} accessibilityLabel={child.title} onPress={() => onSelectRelated(child.id)} style={[card, { padding: 14, marginBottom: 8 }]}>
+                <Text style={{ color: colors.text, fontSize: 15, fontWeight: '600' }}>{child.title}</Text>
+                <Text style={{ color: colors.muted, fontSize: 13 }}>{typeLabel(dict, child.type)}</Text>
               </Pressable>
-            </View>
-          ))}
-        </View>
-      ) : null}
-      {children.length > 0 ? (
-        <View style={{ marginTop: 20 }}>
-          <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700', marginBottom: 8 }}>Inside this collection</Text>
-          {children.map((child) => (
-            <Pressable key={child.id} testID={`child-${child.id}`} accessibilityLabel={`Open ${child.title}`} onPress={() => onSelectRelated(child.id)} style={{ backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 8 }}>
-              <Text style={{ color: colors.text, fontSize: 15, fontWeight: '600' }}>{child.title}</Text>
-              <Text style={{ color: colors.muted, fontSize: 13 }}>{typeLabel(child.type)}</Text>
-            </Pressable>
-          ))}
-        </View>
-      ) : null}
-      {(item.tags ?? []).length > 0 && (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 }}>{item.tags.map((t) => (<View key={t} style={styles.chip}><Text style={styles.chipText}>#{t}</Text></View>))}</View>
-      )}
-      {related.length > 0 && (
-        <View style={{ marginTop: 20 }}>
-          <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700', marginBottom: 8 }}>Related items</Text>
-          {related.map((r) => (
-            <Pressable key={r.id} testID={`related-${r.id}`} accessibilityLabel={`Open related item ${r.title}`} onPress={() => onSelectRelated(r.id)} style={{ backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 8 }}>
-              <Text style={{ color: colors.text, fontSize: 15, fontWeight: '600' }}>{r.title}</Text>
-              <Text style={{ color: colors.muted, fontSize: 13 }}>{typeLabel(r.type)}</Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
-      {item.type === 'card' ? <Text style={{ color: colors.warn, fontSize: 13, lineHeight: 18, marginTop: 12 }}>Card metadata only — CVV and PIN are never stored.</Text> : null}
-      <View style={{ flexDirection: 'row', gap: 10, marginTop: 20 }}>
-        {!inTrash ? <Pressable testID="detail-edit" accessibilityLabel="Edit item" style={[styles.primaryButton, { flex: 1 }]} onPress={onEdit}><Text style={styles.primaryButtonText}>Edit</Text></Pressable> : null}
-        <Pressable testID="detail-favorite" accessibilityLabel={item.favorite ? 'Remove from favorites' : 'Add to favorites'} style={[styles.ghostButton, { flex: 1 }]} onPress={onToggleFavorite}><Icon name="favorite" color={colors.text} /><Text style={styles.ghostButtonText}>{item.favorite ? 'Favorited' : 'Favorite'}</Text></Pressable>
-      </View>
-      {inTrash ? (
-        <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
-          <Pressable testID="detail-restore" accessibilityLabel="Restore item" style={[styles.primaryButton, { flex: 1 }]} onPress={onRestore}><Text style={styles.primaryButtonText}>Restore</Text></Pressable>
-          <Pressable testID="detail-delete-permanent" accessibilityLabel="Delete permanently" style={[styles.dangerButton, { flex: 1 }]} onPress={() => Alert.alert('Delete permanently?', 'This cannot be undone.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: onDelete }])}><Text style={styles.dangerButtonText}>Delete forever</Text></Pressable>
-        </View>
-      ) : (
-        <Pressable testID="detail-delete" accessibilityLabel="Move to trash" style={[styles.ghostButton, { marginTop: 10 }]} onPress={() => Alert.alert('Move to Trash?', 'You can restore it from Trash later.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Move to Trash', style: 'destructive', onPress: onDelete }])}>
-          <View style={[styles.led, { backgroundColor: colors.danger }]} /><Text style={[styles.ghostButtonText, { color: colors.dangerText }]}>Move to Trash</Text>
+            ))}
+          </View>
+        ) : null}
+        {(item.tags ?? []).length > 0 && (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 16 }}>{item.tags.map((t) => (<View key={t} style={styles.chip}><Text style={styles.chipText}>#{t}</Text></View>))}</View>
+        )}
+        {related.length > 0 && (
+          <View style={{ marginTop: 20 }}>
+            <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700', marginBottom: 8 }}>{d.relations}</Text>
+            {related.map((r) => (
+              <Pressable key={r.id} testID={`related-${r.id}`} accessibilityLabel={r.title} onPress={() => onSelectRelated(r.id)} style={[card, { padding: 14, marginBottom: 8 }]}>
+                <Text style={{ color: colors.text, fontSize: 15, fontWeight: '600' }}>{r.title}</Text>
+                <Text style={{ color: colors.muted, fontSize: 13 }}>{typeLabel(dict, r.type)}</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+        {item.type === 'card' ? <Text style={{ color: colors.warnText, fontSize: 13, lineHeight: 18, marginTop: 12 }}>{m.cardNote}</Text> : null}
+        <Text style={{ color: colors.muted, fontSize: 12, marginTop: 16 }}>{format(d.created, when(item.created_at))} · {format(d.updated, when(item.updated_at))}</Text>
+      </ScrollView>
+
+      {/* Thumb bar: the main action and the rest behind "•••". A share button goes here when sharing ships. */}
+      <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 12, backgroundColor: colors.bg, borderTopColor: colors.cardBorder, borderTopWidth: 1 }}>
+        {inTrash ? (
+          <Pressable testID="detail-restore" accessibilityRole="button" accessibilityLabel={d.restore} style={[styles.primaryButton, { flex: 1 }]} onPress={onRestore}><Text style={styles.primaryButtonText}>{d.restore}</Text></Pressable>
+        ) : (
+          <Pressable testID="detail-copy-secret" accessibilityRole="button" accessibilityLabel={secretKey ? format(d.copy, fieldLabel(secretKey)) : d.copyPassword} accessibilityState={{ disabled: !secretKey }} disabled={!secretKey} style={[styles.primaryButton, { flex: 1, opacity: secretKey ? 1 : 0.5 }]} onPress={copySecret}>
+            <Icon name="copy" color={colors.onAccent} />
+            <Text style={styles.primaryButtonText}>{copiedKey ? dict.common.copied : secretKey === 'password' || !secretKey ? d.copyPassword : format(d.copy, fieldLabel(secretKey))}</Text>
+          </Pressable>
+        )}
+        <Pressable testID="detail-more" accessibilityRole="button" accessibilityLabel={d.more} onPress={() => setMenuOpen(true)} style={[styles.ghostButton, { width: 56, paddingHorizontal: 0 }]}>
+          <Icon name="more" color={colors.text} />
         </Pressable>
-      )}
-      <Text style={{ color: colors.faint, fontSize: 12, marginTop: 16 }}>Created {new Date(item.created_at).toLocaleString()} · Updated {new Date(item.updated_at).toLocaleString()}</Text>
-    </ScrollView>
+      </View>
+
+      <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+        <Pressable accessibilityLabel={dict.common.close} onPress={() => setMenuOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(30,34,39,0.28)', justifyContent: 'flex-end' }}>
+          <ScreenFrame style={{ flex: 0 }}>
+            <View accessibilityViewIsModal style={{ backgroundColor: colors.card, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingVertical: 8, margin: 0 }}>
+              {!inTrash ? sheetAction('detail-edit', d.edit, onEdit) : null}
+              {sheetAction('detail-favorite', item.favorite ? d.unfavoriteAction : d.favoriteAction, onToggleFavorite)}
+              {inTrash
+                ? sheetAction('detail-delete-permanent', dict.shell.bulkDeleteForever, confirmForever, 'danger')
+                : sheetAction('detail-delete', dict.shell.bulkMoveToTrash, confirmTrash, 'danger')}
+              {sheetAction('detail-menu-close', dict.common.cancel, () => undefined)}
+            </View>
+          </ScreenFrame>
+        </Pressable>
+      </Modal>
+    </View>
   );
 }

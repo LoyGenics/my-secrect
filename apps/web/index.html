@@ -1,11 +1,18 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="my-secrect web client — local-first, end-to-end encrypted personal vault. Limited features: use the desktop app for sensitive data." />
-    <meta name="theme-color" content="#0b0f14" />
+    <meta name="theme-color" content="#f3f1ed" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#151618" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>my-secrect — Web</title>
+    <!-- Pre-paint theme (light unless a stored choice says otherwise). Same-origin, not inline: the CSP forbids inline scripts. -->
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>

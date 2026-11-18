@@ -20,6 +20,8 @@ import {
   type MediaKind,
 } from '../utils/media';
 import { upsertItem, withVaultKey, encryptWithVaultKey } from '../vault';
+import { useTranslation } from '../../../../packages/i18n/src/react';
+import { format, plural, type Dictionary } from '../../../../packages/i18n/src/index';
 
 /**
  * MediaView — encrypted file upload / download / gallery / viewer.
@@ -75,12 +77,12 @@ function KindIcon({ kind, className = 'h-8 w-8' }: { kind: MediaKind; className?
 }
 
 /** Can this browser show the decrypted file in-app? (images by type; audio/video asked of the element). */
-function previewSupport(info: MediaInfo): { ok: boolean; reason?: string } {
-  if (info.kind === 'photo') return isSupportedMime(info.mime_type) ? { ok: true } : { ok: false, reason: `${info.mime_type} is not previewed in-app` };
-  if (info.kind !== 'video' && info.kind !== 'audio') return { ok: false, reason: 'no in-app preview for this type' };
-  if (typeof document === 'undefined') return { ok: false, reason: 'no media element here' };
+function previewSupport(info: MediaInfo, m: Dictionary['media']): { ok: boolean; reason?: string } {
+  if (info.kind === 'photo') return isSupportedMime(info.mime_type) ? { ok: true } : { ok: false, reason: format(m.notPreviewed, info.mime_type) };
+  if (info.kind !== 'video' && info.kind !== 'audio') return { ok: false, reason: m.noPreviewType };
+  if (typeof document === 'undefined') return { ok: false, reason: m.noMediaElement };
   const can = document.createElement(info.kind).canPlayType(info.mime_type);
-  return can ? { ok: true } : { ok: false, reason: `this browser cannot play ${info.mime_type}` };
+  return can ? { ok: true } : { ok: false, reason: format(m.cannotPlay, info.mime_type) };
 }
 
 /** Runs at most `limit` decrypt jobs at a time so a long gallery does not fire every request at once. */
@@ -118,6 +120,8 @@ interface ViewerState {
 }
 
 export default function MediaView({ items, api = null, onItemsChanged, onSelect }: MediaViewProps) {
+  const { dict, locale } = useTranslation();
+  const m = dict.media;
   const [filter, setFilter] = useState<Filter>('all');
   const [manifests, setManifests] = useState<Record<string, BlobManifest>>({});
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
@@ -177,30 +181,30 @@ export default function MediaView({ items, api = null, onItemsChanged, onSelect 
         makeEncryptedMetadataB64: () => encryptWithVaultKey(JSON.stringify({ name: 'My vault' })),
         transfer: {
           onProgress: (done, total) => setUpload((u) => u && { ...u, done, total, retry: undefined }),
-          onRetry: (r) => setUpload((u) => u && { ...u, retry: `Part ${r.partNumber} failed (${r.error.split(' — ')[0]}); retrying in ${(r.delayMs / 1000).toFixed(1)} s` }),
+          onRetry: (r) => setUpload((u) => u && { ...u, retry: format(m.retryPart, r.partNumber, r.error.split(' — ')[0], (r.delayMs / 1000).toFixed(1)) }),
         },
       });
       await upsertItem(item);
       onItemsChanged?.();
-      const resumed = resumedParts ? ` Resumed: ${resumedParts} part${resumedParts > 1 ? 's were' : ' was'} already stored.` : '';
-      setNotice(`Uploaded “${file.name}” as encrypted chunks.${resumed}${warning ? ' ' + warning : ''}`);
+      const resumed = resumedParts ? ` ${plural(locale, m.resumed, resumedParts)}` : '';
+      setNotice(`${format(m.uploaded, file.name)}${resumed}${warning ? ' ' + warning : ''}`);
     } catch (e) {
       if (e instanceof BlobUploadError) {
         const total = Math.max(1, Math.ceil(file.size / (1024 * 1024)));
         setInterrupted({ file, stored: total - e.missingParts.length, total });
-        setError(`Upload interrupted — ${total - e.missingParts.length} of ${total} parts are stored. Resume to send the rest, or choose the same file again later.`);
+        setError(format(m.interrupted, total - e.missingParts.length, total));
       } else {
-        setError(`Upload failed: ${e instanceof Error ? e.message : String(e)}`);
+        setError(format(m.uploadFailed, e instanceof Error ? e.message : String(e)));
       }
     } finally {
       setUpload(null);
       if (fileInput.current) fileInput.current.value = '';
     }
-  }, [api, onItemsChanged, resumeStore]);
+  }, [api, onItemsChanged, resumeStore, m, locale]);
 
   const onDownload = useCallback(async (item: VaultItem) => {
     if (!api) return;
-    setError(null); setNotice(null); setBusy(`Downloading and verifying ${item.title}…`);
+    setError(null); setNotice(null); setBusy(format(m.downloading, item.title));
     try {
       const got = await downloadMediaItem({ api, item, withVaultKey });
       const url = URL.createObjectURL(got.blob);
@@ -208,13 +212,13 @@ export default function MediaView({ items, api = null, onItemsChanged, onSelect 
       a.href = url; a.download = got.fileName; a.rel = 'noopener';
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 10_000); // the browser has taken the file by then
-      setNotice(`Decrypted and verified “${got.fileName}” (${formatBytes(got.blob.size)})${got.sha256Matches ? '; SHA-256 matches.' : '.'}`);
+      setNotice(format(m.downloaded, got.fileName, formatBytes(got.blob.size), got.sha256Matches ? m.sha256Matches : '.'));
     } catch (e) {
-      setError(`Download failed — nothing was saved: ${e instanceof Error ? e.message : String(e)}`);
+      setError(format(m.downloadFailed, e instanceof Error ? e.message : String(e)));
     } finally {
       setBusy(null);
     }
-  }, [api]);
+  }, [api, m]);
 
   const closeViewer = useCallback(() => {
     setViewer((v) => { release(v?.url); return null; });
@@ -245,27 +249,27 @@ export default function MediaView({ items, api = null, onItemsChanged, onSelect 
     <div className="mb-5">
       {api ? (
         <div className="flex flex-wrap items-center gap-3">
-          <label className={`btn-primary cursor-pointer text-sm ${upload || busy ? 'pointer-events-none opacity-50' : ''}`} htmlFor="media-upload-input">Upload encrypted file…</label>
+          <label className={`btn-primary cursor-pointer text-sm ${upload || busy ? 'pointer-events-none opacity-50' : ''}`} htmlFor="media-upload-input">{m.upload}</label>
           <input
             id="media-upload-input" ref={fileInput} data-testid="media-upload-input" type="file" className="sr-only"
             disabled={upload !== null || busy !== null}
             onChange={(e) => { const f = e.target.files?.[0]; if (f) void onUpload(f); }}
           />
-          <span className="text-xs text-zinc-500">Encrypted on this device before upload · max {formatBytes(MAX_MEDIA_BYTES)} per file</span>
+          <span className="text-xs text-ms-muted">{format(m.uploadHint, formatBytes(MAX_MEDIA_BYTES))}</span>
         </div>
       ) : (
-        <p role="note" className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200">
-          Local-only: file upload and download need an account server. Set the API base URL in Settings and sign in. Until then no file bytes are stored anywhere.
+        <p role="note" className="rounded-lg border border-ms-warn-line bg-ms-warn-bg p-3 text-xs text-ms-warn-text">
+          {m.localOnly}
         </p>
       )}
       {upload && (
         <div className="mt-3 max-w-xl" role="status" aria-live="polite">
           <div className="flex items-baseline justify-between gap-3 text-xs">
-            <span className="truncate text-zinc-200">Encrypting and uploading {upload.fileName}</span>
-            <span className="shrink-0 tabular-nums text-zinc-400">{upload.done} / {upload.total} parts</span>
+            <span className="truncate text-ms-text">{format(m.uploading, upload.fileName)}</span>
+            <span className="shrink-0 tabular-nums text-ms-muted">{format(m.parts, upload.done, upload.total)}</span>
           </div>
           <div
-            className="mt-1.5 h-1 overflow-hidden rounded-full bg-zinc-800" role="progressbar" aria-label={`Upload progress for ${upload.fileName}`}
+            className="mt-1.5 h-1 overflow-hidden rounded-full bg-ms-sunken" role="progressbar" aria-label={format(m.uploadProgress, upload.fileName)}
             aria-valuemin={0} aria-valuemax={upload.total} aria-valuenow={upload.done}
           >
             <div className="h-full rounded-full bg-[var(--ms-color-brand)] transition-[width] duration-200 ease-out" style={{ width: `${(100 * upload.done) / upload.total}%` }} />
@@ -273,14 +277,14 @@ export default function MediaView({ items, api = null, onItemsChanged, onSelect 
           {upload.retry && <p className="mt-1.5 text-xs text-[var(--ms-color-warning-text)]">{upload.retry}</p>}
         </div>
       )}
-      {busy && <p role="status" className="mt-3 text-xs text-zinc-300">{busy}</p>}
+      {busy && <p role="status" className="mt-3 text-xs text-ms-muted">{busy}</p>}
       {notice && <p role="status" className="mt-3 text-xs text-[var(--ms-color-success-text)]">{notice}</p>}
       {error && (
         <div role="alert" className="mt-3 flex max-w-xl flex-wrap items-center gap-3 rounded-lg border border-[var(--ms-color-danger-border)] bg-[var(--ms-color-danger-soft)] px-3 py-2 text-xs text-[var(--ms-color-danger-soft-text)]">
           <span className="min-w-0 flex-1">{error}</span>
           {interrupted && (
             <button className="btn-ghost !py-1 text-xs" disabled={upload !== null} onClick={() => void onUpload(interrupted.file)}>
-              Resume upload
+              {m.resume}
             </button>
           )}
         </div>
@@ -291,37 +295,37 @@ export default function MediaView({ items, api = null, onItemsChanged, onSelect 
   const viewerDialog = (
     <dialog
       ref={dialogRef}
-      aria-label={viewer ? `Viewer: ${viewer.item.title}` : 'Viewer'}
+      aria-label={viewer ? format(m.viewerTitle, viewer.item.title) : m.viewer}
       onClose={closeViewer}
       onClick={(e) => { if (e.target === e.currentTarget) closeViewer(); }}
-      className="w-[min(92vw,64rem)] overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 p-0 text-zinc-100 shadow-2xl backdrop:bg-black/70"
+      className="w-[min(92vw,64rem)] overflow-hidden rounded-xl border border-ms-line bg-ms-surface2 p-0 text-ms-text shadow-2xl backdrop:bg-black/70"
     >
       {viewer && (
         <div className="flex max-h-[88vh] flex-col">
-          <div className="flex items-center gap-3 border-b border-zinc-800 px-4 py-3">
+          <div className="flex items-center gap-3 border-b border-ms-line px-4 py-3">
             <div className="min-w-0 flex-1">
               <h2 className="truncate text-sm font-semibold">{viewer.item.title}</h2>
-              <p className="text-xs text-zinc-400">
+              <p className="text-xs text-ms-muted">
                 {viewer.info.mime_type} · {formatBytes(viewer.info.size_bytes)}
-                {viewer.status === 'ready' && <span className="text-[var(--ms-color-success-text)]"> · verified and decrypted on this device</span>}
+                {viewer.status === 'ready' && <span className="text-[var(--ms-color-success-text)]">{` · ${m.verifiedDecrypted}`}</span>}
               </p>
             </div>
-            <button className="btn-ghost !py-1 text-xs" onClick={closeViewer} autoFocus>Close</button>
+            <button className="btn-ghost !py-1 text-xs" onClick={closeViewer} autoFocus>{dict.common.close}</button>
           </div>
           <div className="flex min-h-[16rem] flex-1 items-center justify-center overflow-auto bg-black/40 p-4">
             {viewer.status === 'decrypting' && (
               <div className="w-full max-w-sm text-center" role="status" aria-live="polite">
-                <p className="text-sm text-zinc-300">Verifying and decrypting…</p>
-                <p className="mt-1 text-xs tabular-nums text-zinc-500">{viewer.total ? `${viewer.done} / ${viewer.total} chunks` : 'fetching manifest'}</p>
-                <div className="mt-3 h-1 overflow-hidden rounded-full bg-zinc-800">
+                <p className="text-sm text-ms-muted">{m.verifying}</p>
+                <p className="mt-1 text-xs tabular-nums text-ms-muted">{viewer.total ? format(m.chunksProgress, viewer.done, viewer.total) : m.fetchingManifest}</p>
+                <div className="mt-3 h-1 overflow-hidden rounded-full bg-ms-sunken">
                   <div className="h-full rounded-full bg-[var(--ms-color-brand)] transition-[width] duration-200 ease-out" style={{ width: viewer.total ? `${(100 * viewer.done) / viewer.total}%` : '0%' }} />
                 </div>
-                <p className="mt-3 text-xs text-zinc-500">Nothing is shown until every chunk has been verified.</p>
+                <p className="mt-3 text-xs text-ms-muted">{m.nothingShown}</p>
               </div>
             )}
             {viewer.status === 'failed' && (
               <p role="alert" className="max-w-md text-center text-sm text-[var(--ms-color-danger-soft-text)]">
-                Could not open — nothing was shown: {viewer.error}
+                {format(m.couldNotOpen, viewer.error ?? '')}
               </p>
             )}
             {viewer.status === 'ready' && viewer.url && (
@@ -340,10 +344,10 @@ export default function MediaView({ items, api = null, onItemsChanged, onSelect 
       <div className="p-5">
         {header}
         <div className="mx-auto mt-10 max-w-md text-center">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-500"><KindIcon kind="photo" className="h-7 w-7" /></div>
-          <p className="mt-4 text-sm text-zinc-200">No photos, videos or documents yet.</p>
-          <p className="mt-1 text-xs text-zinc-500">
-            Each file is split into authenticated encrypted chunks on this device before it leaves. Thumbnails are made and encrypted here too, so the server only ever holds ciphertext.
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-xl border border-ms-line bg-ms-surface2 text-ms-muted"><KindIcon kind="photo" className="h-7 w-7" /></div>
+          <p className="mt-4 text-sm text-ms-text">{m.empty}</p>
+          <p className="mt-1 text-xs text-ms-muted">
+            {m.emptyHint}
           </p>
         </div>
         {viewerDialog}
@@ -354,21 +358,21 @@ export default function MediaView({ items, api = null, onItemsChanged, onSelect 
   return (
     <div className="p-5">
       {header}
-      <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="Filter media">
+      <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label={m.filterLabel}>
         {FILTERS.map((k) => (
-          <button key={k} onClick={() => setFilter(k)} aria-pressed={filter === k} className={`rounded-full px-3 py-1 text-xs transition-colors duration-150 ${filter === k ? 'bg-indigo-600 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}>
-            {k === 'all' ? 'All' : k[0].toUpperCase() + k.slice(1)}
+          <button key={k} onClick={() => setFilter(k)} aria-pressed={filter === k} className={`rounded-full px-3 py-1 text-xs transition-colors duration-150 ${filter === k ? 'bg-ms-brand-bg text-ms-text' : 'bg-ms-sunken text-ms-muted hover:bg-ms-sunken'}`}>
+            {m.filters[k === 'other' ? 'misc' : k]}
           </button>
         ))}
       </div>
-      {mediaItems.length === 0 && <p className="text-sm text-zinc-400">Nothing in this filter.</p>}
+      {mediaItems.length === 0 && <p className="text-sm text-ms-muted">{m.nothingInFilter}</p>}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {mediaItems.map(({ item, info }) => {
           const manifest = manifests[info.blob_id];
           const uploaded = isUploadedBlobId(info.blob_id);
           const metaError = metaErrors[info.blob_id];
           const status = !uploaded ? 'missing' : metaError ? 'tampered' : manifestStatus(manifest);
-          const preview = previewSupport(info);
+          const preview = previewSupport(info, m);
           return (
             <MediaTile
               key={item.id}
@@ -390,8 +394,8 @@ export default function MediaView({ items, api = null, onItemsChanged, onSelect 
           );
         })}
       </div>
-      <p className="mt-5 max-w-3xl text-xs text-zinc-500">
-        Thumbnails are generated on this device and stored as their own encrypted blobs; the server never sees them. Decrypted files live only in memory while shown and are released when you close them. A fully compromised device is not protected by this.
+      <p className="mt-5 max-w-3xl text-xs text-ms-muted">
+        {m.footnote}
       </p>
       {viewerDialog}
     </div>
@@ -415,6 +419,8 @@ function MediaTile(props: {
   onDownload: () => void;
 }) {
   const { item, info, thumb, thumbError, manifest, status, metaError, hasApi, busy, preview, onVisible } = props;
+  const { dict, locale } = useTranslation();
+  const m = dict.media;
   const ref = useRef<HTMLElement>(null);
   const uploaded = isUploadedBlobId(info.blob_id);
 
@@ -434,50 +440,50 @@ function MediaTile(props: {
   const blocked = !hasApi || status === 'tampered' || status === 'missing' || busy;
 
   return (
-    <article ref={ref} className="card overflow-hidden" aria-label={`Media item ${item.title}`}>
+    <article ref={ref} className="card overflow-hidden" aria-label={format(m.tileLabel, item.title)}>
       <button className="group block w-full text-left focus-visible:outline-none" onClick={() => props.onSelect?.(item)} disabled={status === 'tampered'}>
-        <div className={`relative flex aspect-[4/3] items-center justify-center overflow-hidden bg-zinc-900 text-zinc-500 ${loadingThumb ? 'animate-pulse' : ''}`}>
+        <div className={`relative flex aspect-[4/3] items-center justify-center overflow-hidden bg-ms-surface2 text-ms-muted ${loadingThumb ? 'animate-pulse' : ''}`}>
           {thumb ? <img src={thumb} alt="" className="h-full w-full object-cover" /> : <KindIcon kind={info.kind} />}
           {info.duration_s != null && (
-            <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[11px] tabular-nums text-zinc-100">{formatDuration(info.duration_s)}</span>
+            <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[11px] tabular-nums text-white">{formatDuration(info.duration_s)}</span>
           )}
         </div>
         <div className="p-3">
-          <h3 className="truncate text-sm font-semibold text-zinc-100 group-hover:text-white">{item.title}</h3>
-          <p className="mt-1 text-xs text-zinc-400">
+          <h3 className="truncate text-sm font-semibold text-ms-text group-hover:text-ms-text">{item.title}</h3>
+          <p className="mt-1 text-xs text-ms-muted">
             {info.mime_type} · {formatBytes(info.size_bytes)}
             {info.width && info.height ? ` · ${info.width}×${info.height}` : ''}
           </p>
           <p className="mt-1 text-xs">
-            <span className={status === 'verified' ? 'text-[var(--ms-color-success-text)]' : status === 'tampered' ? 'text-[var(--ms-color-danger-soft-text)]' : 'text-zinc-500'}>
-              Manifest: {status === 'tampered' && metaError ? 'FAILED verification' : status === 'missing' ? 'not uploaded' : hasApi ? status : 'unknown (no account server)'}
+            <span className={status === 'verified' ? 'text-[var(--ms-color-success-text)]' : status === 'tampered' ? 'text-[var(--ms-color-danger-soft-text)]' : 'text-ms-muted'}>
+              {format(m.manifest, status === 'tampered' && metaError ? m.manifestFailed : status === 'missing' ? m.manifestMissing : hasApi ? m.status[status] : m.manifestUnknown)}
             </span>
-            {manifest ? <span className="text-zinc-500">{` · ${manifest.chunks.length} chunk${manifest.chunks.length > 1 ? 's' : ''}`}</span> : ''}
+            {manifest ? <span className="text-ms-muted">{` · ${plural(locale, m.chunks, manifest.chunks.length)}`}</span> : ''}
           </p>
-          {thumbError && <p className="mt-1 text-xs text-[var(--ms-color-warning-text)]">Thumbnail failed verification — not shown.</p>}
-          {status === 'tampered' && <p role="alert" className="mt-1 text-xs text-[var(--ms-color-danger-soft-text)]">Manifest failed verification{metaError ? `: ${metaError}` : ''}. Do not open this file.</p>}
-          {status === 'missing' && <p className="mt-1 text-xs text-[var(--ms-color-warning-text)]">This item was created with the old manifest-only form: no file bytes were ever stored, so there is nothing to download.</p>}
+          {thumbError && <p className="mt-1 text-xs text-[var(--ms-color-warning-text)]">{m.thumbFailed}</p>}
+          {status === 'tampered' && <p role="alert" className="mt-1 text-xs text-[var(--ms-color-danger-soft-text)]">{format(m.manifestTampered, metaError ? `: ${metaError}` : '')}</p>}
+          {status === 'missing' && <p className="mt-1 text-xs text-[var(--ms-color-warning-text)]">{m.legacyManifest}</p>}
           {info.kind === 'video' && manifest && (
-            <p className="mt-1 text-xs text-zinc-500">{seekChunksLabel(manifest, 0)} — video seeks fetch only the needed chunks.</p>
+            <p className="mt-1 text-xs text-ms-muted">{format(m.seekNote, seekChunksLabel(manifest, 0))}</p>
           )}
         </div>
       </button>
-      <div className="flex flex-wrap gap-2 border-t border-zinc-800 px-3 py-2">
+      <div className="flex flex-wrap gap-2 border-t border-ms-line px-3 py-2">
         {(info.kind === 'photo' || info.kind === 'video' || info.kind === 'audio') && (
           <button
             className="btn-ghost !py-1 text-xs" disabled={blocked || !preview.ok} onClick={props.onView}
-            title={preview.ok ? undefined : `Download only: ${preview.reason}`}
+            title={preview.ok ? undefined : format(m.downloadOnlyTitle, preview.reason ?? '')}
           >
-            View
+            {m.view}
           </button>
         )}
-        <button className="btn-ghost !py-1 text-xs" disabled={blocked} onClick={props.onDownload}>Download decrypted</button>
+        <button className="btn-ghost !py-1 text-xs" disabled={blocked} onClick={props.onDownload}>{m.download}</button>
       </div>
       {!preview.ok && info.kind !== 'document' && info.kind !== 'other' && (
-        <p className="px-3 pb-2 text-xs text-[var(--ms-color-warning-text)]">Download only: {preview.reason}.</p>
+        <p className="px-3 pb-2 text-xs text-[var(--ms-color-warning-text)]">{format(m.downloadOnly, preview.reason ?? '')}</p>
       )}
       {!isSupportedMime(info.mime_type) && (info.kind === 'document' || info.kind === 'other') && (
-        <p className="px-3 pb-2 text-xs text-zinc-500">No in-app preview for this type — download only.</p>
+        <p className="px-3 pb-2 text-xs text-ms-muted">{m.noPreview}</p>
       )}
     </article>
   );

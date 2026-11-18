@@ -42,14 +42,14 @@ export interface ProgressProps {
   value: number;
   /** Accessible name (e.g. 'Vault health', 'Code refreshes'). */
   label: string;
-  /** LED colour of the bar; default ink. */
+  /** Colour of the bar; default ink. */
   tone?: 'neutral' | 'brand' | 'success' | 'warning' | 'danger';
   /** Optional aria-valuetext (e.g. '12 seconds left'). */
   valueText?: string;
   className?: string;
 }
 
-/** Bar in a recessed track: role="progressbar", clamped 0–100. */
+/** Rounded bar: role="progressbar", clamped 0–100. */
 export function Progress({ value, label, tone = 'neutral', valueText, className }: ProgressProps) {
   const clamped = Math.min(100, Math.max(0, value));
   return (

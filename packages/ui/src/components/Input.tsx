@@ -133,9 +133,9 @@ export interface SwitchProps {
 }
 
 /**
- * Physical switch: role="switch" with aria-checked; Space/Enter toggle
- * (native button). The knob travels 18px with a detent; the LED lights
- * green when on, so state never depends on knob position alone.
+ * Switch: role="switch" with aria-checked; Space/Enter toggle (native
+ * button). The track turns orange when on, so state never depends on the
+ * knob position alone.
  */
 export function Switch({ checked, onCheckedChange, label, disabled, id, className }: SwitchProps) {
   return (
@@ -152,7 +152,6 @@ export function Switch({ checked, onCheckedChange, label, disabled, id, classNam
         <span className="ms-switch__knob" />
       </span>
       <span>{label}</span>
-      <span className={cn('ms-led', 'ms-switch__led', checked && 'ms-led--ok')} aria-hidden="true" />
     </button>
   );
 }

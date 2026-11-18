@@ -10,6 +10,7 @@
     "./tokens": "./src/tokens.ts",
     "./tokens.css": "./src/tokens.css",
     "./components.css": "./src/components.css",
+    "./legacy.css": "./src/legacy.css",
     "./theme": "./src/theme.ts",
     "./icons": "./src/icons.ts",
     "./native": "./src/native/index.ts"
@@ -24,6 +25,7 @@
   },
   "dependencies": {
     "@fontsource/barlow-semi-condensed": "^5.3.0",
+    "@fontsource/be-vietnam-pro": "^5.3.0",
     "@my-secrect/i18n": "*",
     "@radix-ui/react-dialog": "^1.1.0",
     "@radix-ui/react-dropdown-menu": "^2.1.0",
