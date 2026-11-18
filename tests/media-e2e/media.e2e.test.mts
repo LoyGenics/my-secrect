@@ -33,7 +33,7 @@ const has = (hay: Uint8Array, needle: Uint8Array) => Buffer.from(hay).includes(B
 const sameBytes = (a: Uint8Array, b: Uint8Array) => a.length === b.length && Buffer.compare(Buffer.from(a), Buffer.from(b)) === 0;
 
 async function put(url: string, body: Uint8Array) {
-  const r = await fetch(url, { method: 'PUT', body: body as unknown as BodyInit, headers: { Origin: ORIGIN } });
+  const r = await fetch(url, { method: 'PUT', body: body as unknown as BodyInit, headers: { Origin: ORIGIN, 'Content-Type': 'application/octet-stream' } });
   assert.equal(r.status, 200, `PUT ${r.status}`);
 }
 async function rawObjects(blobId: string): Promise<Uint8Array[]> {
@@ -109,7 +109,7 @@ test('TAMPER in MinIO: duplicated chunk is rejected', async () => {
 test('TAMPER in MinIO: a presigned upload URL refuses a different length (signed Content-Length)', async () => {
   const p = await upload(fileBytes(2 * CHUNK_SIZE + 700));
   const objs = await rawObjects(p.blobId);
-  const r = await fetch(p.urls.get(3)!, { method: 'PUT', body: objs[2].subarray(0, objs[2].length - 100) as unknown as BodyInit, headers: { Origin: ORIGIN } });
+  const r = await fetch(p.urls.get(3)!, { method: 'PUT', body: objs[2].subarray(0, objs[2].length - 100) as unknown as BodyInit, headers: { Origin: ORIGIN, 'Content-Type': 'application/octet-stream' } });
   assert.equal(r.status, 403, 'storage must refuse a part whose length differs from the signed size');
   assert.match(await r.text(), /SignatureDoesNotMatch/);
 });

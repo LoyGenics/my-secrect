@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Text } from 'react-native';
 import { illustrations } from '../../../../packages/ui/src/native';
-import { Btn, P, Rise, SoftAlert, SoftField, SoftScreen, TextButton, useReducedMotion } from '../components/soft';
+import { Btn, useSoftPalette, Rise, SoftAlert, SoftField, SoftScreen, TextButton, useReducedMotion } from '../components/soft';
 import {
   enableDeviceUnlock, getDeviceUnlockState, getStorageError, unlockVault, unlockWithDeviceKey, unlockWithRecoveryKey,
   type DeviceUnlockFailure, type DeviceUnlockState,
@@ -38,6 +38,7 @@ export function deviceUnlockMessage(code: DeviceUnlockFailure, name: string): st
  * screen offers to turn biometric unlock on (contract §4).
  */
 export default function LockScreen({ onUnlocked }: { onUnlocked: () => void }) {
+  const P = useSoftPalette();
   const reduced = useReducedMotion();
   const [pass, setPass] = useState('');
   const [recovery, setRecovery] = useState('');
@@ -108,18 +109,10 @@ export default function LockScreen({ onUnlocked }: { onUnlocked: () => void }) {
     <SoftScreen
       art={illustrations.splash}
       title="Your vault is locked"
-      subtitle="Enter your passphrase to unlock."
-      footer={
-        <Text style={{ color: P.ink3, fontSize: 12, lineHeight: 17, marginTop: 16, textAlign: 'center' }}>
-          {device?.enrolled
-            ? `${name} releases a copy of your Master Key held by a device-protected key on this phone. Your passphrase always works.`
-            : 'Biometric unlock is off. You can turn it on right after unlocking with your passphrase or recovery key.'}
-        </Text>
-      }
     >
       {storageError ? (
         <SoftAlert testID="storage-error">
-          The vault storage on this device could not be opened: {storageError}. Nothing was deleted; data that was not moved yet is still in the old storage. Restart the app to retry.
+          Couldn’t open the vault. Restart the app to try again.
         </SoftAlert>
       ) : null}
       <Rise index={0} reduced={reduced}>

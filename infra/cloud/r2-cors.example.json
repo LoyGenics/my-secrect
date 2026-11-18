@@ -1,0 +1,8 @@
+[
+  {
+    "AllowedOrigins": ["https://vault.example.com"],
+    "AllowedMethods": ["GET", "PUT"],
+    "AllowedHeaders": ["Content-Type"],
+    "MaxAgeSeconds": 300
+  }
+]

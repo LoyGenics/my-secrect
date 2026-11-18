@@ -5,13 +5,14 @@ import { useMobileTheme } from '../theme';
 import { Icon, illustrations } from '../../../../packages/ui/src/native';
 import { passwordStrength } from '../utils/password';
 import { createVault } from '../vault';
-import { Btn, P, Rise, SoftAlert, SoftField, SoftScreen, useReducedMotion } from '../components/soft';
+import { Btn, useSoftPalette, Rise, SoftAlert, SoftField, SoftScreen, useReducedMotion } from '../components/soft';
 import RestoreBackupPanel from './RestoreBackupPanel';
 
 const STEPS = ['Create passphrase', 'Save recovery key', 'Done'];
 
 /** Step 0: create passphrase. Step 1: recovery key shown ONCE. Step 2: done. Soft light finish (components/soft.tsx). */
 export default function OnboardingScreen({ onDone, onRestored }: { onDone: () => void; onRestored?: () => void }) {
+  const P = useSoftPalette();
   const { colors, styles } = useMobileTheme();
   const reduced = useReducedMotion();
   const [restoring, setRestoring] = useState(false);
@@ -39,10 +40,9 @@ export default function OnboardingScreen({ onDone, onRestored }: { onDone: () =>
   // The backup restore panel keeps the app's themed finish.
   if (restoring && onRestored) {
     return (
-      <ScrollView style={styles.screen} contentContainerStyle={{ padding: 20, paddingTop: 64 }} keyboardShouldPersistTaps="handled">
-        <Text style={styles.title}>my-secrect</Text>
+      <SoftScreen art={illustrations.restore} title="Restore your vault" subtitle="Use an encrypted backup and your passphrase or recovery key.">
         <RestoreBackupPanel onRestored={onRestored} onCancel={() => setRestoring(false)} />
-      </ScrollView>
+      </SoftScreen>
     );
   }
 
@@ -53,15 +53,10 @@ export default function OnboardingScreen({ onDone, onRestored }: { onDone: () =>
   return (
     <SoftScreen
       art={art}
-      title="Create your vault"
-      subtitle="Everything is encrypted on this device with Argon2id + XChaCha20-Poly1305 before anything leaves it."
+      title={step === 0 ? "Create your vault" : step === 1 ? "Save your recovery key" : "Your vault is ready"}
     >
-      <View style={{ flexDirection: 'row', gap: 6 }}>
-        {STEPS.map((name, i) => (
-          <View key={name} style={{ flex: 1, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 4, backgroundColor: i === step ? P.brandSoft : P.surface2, alignItems: 'center' }}>
-            <Text style={{ color: i === step ? P.brandText : P.ink3, fontSize: 11, fontWeight: '700', textAlign: 'center' }}>{i + 1}. {name}</Text>
-          </View>
-        ))}
+      <View accessibilityLabel={`Setup step ${step + 1} of 3`} style={{ flexDirection: 'row', gap: 6, marginBottom: 4 }}>
+        {STEPS.map((name, index) => <View key={name} style={{ flex: 1, height: 3, borderRadius: 2, backgroundColor: index <= step ? P.brandFill : P.line }} />)}
       </View>
 
       {step === 0 && (
@@ -96,7 +91,7 @@ export default function OnboardingScreen({ onDone, onRestored }: { onDone: () =>
       {step === 1 && (
         <View key="s1" style={{ gap: 14 }}>
           <Rise index={0} reduced={reduced}>
-            <Text style={{ color: P.ink, fontSize: 15, lineHeight: 22 }}><Text style={{ fontWeight: '700' }}>Save this recovery key — it is shown only once.</Text> It is the only way back in if you forget your passphrase. It is never stored on this device in readable form.</Text>
+            <Text style={{ color: P.ink, fontSize: 15, lineHeight: 22 }}><Text style={{ fontWeight: '700' }}>Save this key somewhere safe.</Text> You’ll need it if you forget your passphrase.</Text>
           </Rise>
           <Rise index={1} reduced={reduced}>
             <View testID="recovery-key" accessibilityLabel="Recovery key" style={{ backgroundColor: P.surface2, borderColor: P.line, borderWidth: 1, borderRadius: 14, padding: 14 }}>
@@ -114,9 +109,6 @@ export default function OnboardingScreen({ onDone, onRestored }: { onDone: () =>
 
       {step === 2 && (
         <View key="s2" style={{ gap: 14 }}>
-          <Rise index={0} reduced={reduced}>
-            <Text style={{ color: P.ink2, fontSize: 15, lineHeight: 22, textAlign: 'center' }}>Your vault is created and unlocked. Add your first item to get started.</Text>
-          </Rise>
           <Rise index={1} reduced={reduced}>
             <Btn testID="open-vault-button" primary icon="unlock" label="Open vault" onPress={onDone} />
           </Rise>

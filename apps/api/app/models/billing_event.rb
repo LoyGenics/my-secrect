@@ -1,0 +1,2 @@
+class BillingEvent < ApplicationRecord
+end

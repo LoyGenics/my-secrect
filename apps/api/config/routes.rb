@@ -3,6 +3,12 @@ Rails.application.routes.draw do
 
   namespace :api do
     namespace :v1 do
+      get 'billing', to: 'billing#show'
+      post 'billing/checkout', to: 'billing#checkout'
+      post 'billing/portal', to: 'billing#portal'
+      post 'billing/refresh', to: 'billing#refresh'
+      post 'billing/webhooks/stripe', to: 'billing_webhooks#stripe'
+      post 'billing/webhooks/revenuecat', to: 'billing_webhooks#revenuecat'
       # Account + device authentication (WebAuthn/passkeys). NOT vault unlock.
       post 'auth/passkeys/register', to: 'auth#register_passkey'
       post 'auth/passkeys/verify', to: 'auth#verify_passkey'
@@ -44,6 +50,8 @@ Rails.application.routes.draw do
         post 'invitations/:id/accept', action: :accept
         delete 'members/:id', action: :remove
       end
+
+      resources :share_links, path: 'share-links', only: %i[index create show destroy]
 
       # --- Sharing v1 (specs/sharing-protocol.md) -------------------------
       get 'identity-key', to: 'identity_keys#show'

@@ -1,68 +1,24 @@
-import React from 'react';
-import { Image, Pressable, ScrollView, Text, View } from 'react-native';
+import React, { useMemo } from 'react';
+import { Text, View } from 'react-native';
+import { ChevronRight, ShieldCheck } from 'lucide-react-native';
 import type { VaultItem } from '../../../../packages/core/src/types';
+import { illustrations } from '../../../../packages/ui/src/native';
+import { useTranslation } from '../../../../packages/i18n/src/react';
 import { useMobileTheme } from '../theme';
-import { Icon, illustrations, typeArt } from '../../../../packages/ui/src/native';
 import { computeHealth } from '../utils/health';
-import { isArchived } from '../utils/itemMeta';
+import { Empty, Group, Page, Row, Rule } from '../components/mobile-ui';
 
 export default function HealthScreen({ items, onFix }: { items: VaultItem[]; onFix: (item: VaultItem) => void }) {
-  const { colors, styles } = useMobileTheme();
-  // Archived items are excluded from health, like trashed items.
-  const h = computeHealth(items.filter((i) => !isArchived(i)));
-  const color = h.score >= 80 ? colors.ok : h.score >= 50 ? colors.warn : colors.danger;
-  return (
-    <ScrollView style={styles.screen} contentContainerStyle={{ padding: 16 }}>
-      <Text style={styles.title}>Security Health</Text>
-      <Text style={styles.subtitle}>Weak and reused passwords, plus cards and documents expiring in the next 30 days. Trashed and archived items are excluded.</Text>
-      <View style={[styles.card, { marginTop: 16, alignItems: 'center' }]}>
-        <Text testID="health-score" accessibilityLabel={`Vault health score ${h.score} out of 100`} style={{ color, fontSize: 44, fontWeight: '800' }}>{h.score}</Text>
-        <Text style={{ color: colors.muted, fontSize: 13 }}>out of 100 · {h.total} item(s) checked</Text>
-        <View style={{ height: 8, borderRadius: 999, backgroundColor: colors.input, marginTop: 12, width: '100%', overflow: 'hidden' }}>
-          <View style={{ height: '100%', width: `${h.score}%`, backgroundColor: color, borderRadius: 999 }} />
-        </View>
-      </View>
-      <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
-        <View style={[styles.card, { flex: 1, alignItems: 'center' }]}><Text style={{ color: colors.danger, fontSize: 24, fontWeight: '800' }}>{h.weakCount}</Text><Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Weak passwords</Text></View>
-        <View style={[styles.card, { flex: 1, alignItems: 'center' }]}><Text style={{ color: colors.warn, fontSize: 24, fontWeight: '800' }}>{h.reusedCount}</Text><Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Reused passwords</Text></View>
-        <View style={[styles.card, { flex: 1, alignItems: 'center' }]}><Text style={{ color: colors.text, fontSize: 24, fontWeight: '800' }}>{h.expiringItems.length}</Text><Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Expiring soon</Text></View>
-      </View>
-      {h.weakItems.length > 0 && (
-        <View style={{ marginTop: 20 }}>
-          <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700', marginBottom: 8 }}>Weak passwords</Text>
-          {h.weakItems.map((i) => (
-            <Pressable key={i.id} testID={`health-fix-${i.id}`} accessibilityLabel={`Fix weak password for ${i.title}`} onPress={() => onFix(i)} style={{ backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 8 }}>
-              <Text style={{ color: colors.text, fontSize: 15, fontWeight: '600' }}>{i.title}</Text>
-              <Text style={{ color: colors.danger, fontSize: 13, marginTop: 2 }}>Tap to fix →</Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
-      {h.reusedGroups.length > 0 && (
-        <View style={{ marginTop: 12 }}>
-          <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700', marginBottom: 8 }}>Reused passwords</Text>
-          {h.reusedGroups.map((g, idx) => (
-            <View key={idx} style={{ backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 8 }}>
-              <Text style={{ color: colors.text, fontSize: 15 }}>Used by {g.itemIds.length} items</Text>
-              <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }}>Change it to a unique password on each account, starting with the most important.</Text>
-            </View>
-          ))}
-        </View>
-      )}
-      {h.expiringItems.length > 0 && (
-        <View style={{ marginTop: 12 }}>
-          <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700', marginBottom: 8 }}>Expiring in the next 30 days</Text>
-          {h.expiringItems.map((i) => (
-            <Pressable key={i.id} testID={`health-expiring-${i.id}`} accessibilityLabel={`Open expiring item ${i.title}`} onPress={() => onFix(i)} style={{ backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 8 }}>
-              <Text style={{ color: colors.text, fontSize: 15, fontWeight: '600' }}>{i.title}</Text>
-              <Text style={{ color: colors.warn, fontSize: 13, marginTop: 2 }}>Expires {(i.fields as Record<string, unknown>).expiry_date as string ?? (i.fields as Record<string, unknown>).expiry as string}</Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
-      {h.weakItems.length === 0 && h.reusedGroups.length === 0 && h.expiringItems.length === 0 ? (
-        <View style={{ alignItems: 'center', marginTop: 32 }}><Image source={illustrations.healthClear} style={{ width: 120, height: 120 }} accessibilityIgnoresInvertColors /><Text style={{ color: colors.muted, fontSize: 14, marginTop: 8, textAlign: 'center' }}>All clear — no weak or reused passwords, nothing expiring soon.</Text></View>
-      ) : null}
-    </ScrollView>
-  );
+  const { colors } = useMobileTheme(); const { t } = useTranslation();
+  const h = useMemo(() => computeHealth(items), [items]);
+  const issues = h.weakCount + h.reusedCount + h.expiringItems.length;
+  const reused = items.filter(i => h.reusedGroups.some(g => g.itemIds.includes(i.id)));
+  const sections = [ { key: 'weakPasswords', items: h.weakItems }, { key: 'reusedPasswords', items: reused }, { key: 'expiring', items: h.expiringItems } ];
+  if (!items.length) return <Page><Empty image={illustrations.healthClear} title={t('mobileUI.healthEmpty')} detail={t('mobileUI.healthEmptyBody')} /></Page>;
+  return <Page>
+    {!issues ? <Empty image={illustrations.healthClear} title={t('mobileUI.healthClear')} detail={t('mobileUI.healthClearBody')} /> : <View style={{ paddingVertical: 12, marginBottom: 24 }}><ShieldCheck size={32} color={colors.accent} /><Text style={{ color: colors.text, fontSize: 24, lineHeight: 30, fontWeight: '600', marginTop: 16 }}>{t('mobileUI.healthAttention')}</Text><Text style={{ color: colors.muted, fontSize: 15, lineHeight: 22, marginTop: 8 }}>{t('mobileUI.healthAttentionBody')}</Text></View>}
+    {sections.map(section => <Group key={section.key} title={t(`mobileUI.${section.key}`)}>
+      {section.items.length ? section.items.map((item, index) => <React.Fragment key={item.id}>{index > 0 && <Rule />}<Row testID={`health-fix-${item.id}`} label={item.title} detail={section.key === 'expiring' ? String(item.fields.expiry_date ?? item.fields.expiry ?? '') : t('mobileUI.fixPassword')} onPress={() => onFix(item)}><ChevronRight size={18} color={colors.muted} /></Row></React.Fragment>) : <Row label={t('mobileUI.itemCount', 0)}><Text style={{ color: colors.okText, fontSize: 14 }}>{t('mobileUI.healthClear')}</Text></Row>}
+    </Group>)}
+  </Page>;
 }

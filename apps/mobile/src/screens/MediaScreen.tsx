@@ -4,6 +4,7 @@ import type { VaultItem } from '../../../../packages/core/src/types';
 import { useMobileTheme } from '../theme';
 import { Icon, illustrations } from '../../../../packages/ui/src/native';
 import { useTranslation } from '../../../../packages/i18n/src/react';
+import { Empty, Select } from '../components/mobile-ui';
 import { format } from '../../../../packages/i18n/src/index';
 
 /**
@@ -60,48 +61,20 @@ export default function MediaScreen({ items, onClose, onSelect }: {
       });
     return filter === 'all' ? list : list.filter((m) => m.kind === filter);
   }, [items, filter]);
-  const chip = (key: Filter, label: string) => (
-    <Pressable key={key} testID={`media-filter-${key}`} accessibilityLabel={format(t.filterLabel, label)} onPress={() => setFilter(key)} style={{ backgroundColor: filter === key ? colors.accent : colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, marginRight: 8, marginBottom: 8 }}>
-      <Text style={{ color: filter === key ? colors.onAccent : colors.text, fontSize: 13, fontWeight: '600' }}>{label}</Text>
-    </Pressable>
-  );
-  return (
-    <View style={styles.screen}>
-      <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
-        <Pressable testID="media-back" accessibilityLabel={t.backToVault} onPress={onClose} hitSlop={10} style={{ alignSelf: 'flex-start', paddingVertical: 8 }}><Text style={{ color: colors.link, fontSize: 16, fontWeight: '600' }}>‹ {dict.common.back}</Text></Pressable>
-        <Text accessibilityRole="header" style={styles.title}>{dict.shell.mediaGallery}</Text>
-        <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 6 }}>
-          {t.mediaLimits}
-        </Text>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 12 }}>
-          {chip('all', dict.media.filters.all)}{chip('photo', dict.media.filters.photo)}{chip('video', dict.media.filters.video)}{chip('document', dict.media.filters.document)}{chip('other', dict.media.filters.misc)}
-        </View>
-      </View>
-      {media.length === 0 ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <Image source={illustrations.emptyVault} style={{ width: 136, height: 136 }} accessibilityIgnoresInvertColors />
-          <Text style={{ color: colors.muted, fontSize: 14, textAlign: 'center', marginTop: 12 }}>{t.mediaEmpty}</Text>
-        </View>
-      ) : (
-        <FlatList
-          data={media}
-          keyExtractor={(m) => m.item.id}
-          contentContainerStyle={{ padding: 16 }}
-          renderItem={({ item: m }) => (
-            <Pressable testID={`media-${m.item.id}`} accessibilityLabel={format(t.open, m.item.title)} onPress={() => onSelect(m.item.id)} style={{ backgroundColor: colors.card, borderRadius: 14, padding: 14, marginBottom: 10 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <View style={{ marginRight: 12 }}><Icon name={ICON[m.kind]} size="xl" color={colors.text} /></View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }} numberOfLines={1}>{m.item.title}</Text>
-                  <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }}>{m.mime} · {formatBytes(m.size, t.sizeUnknown)}</Text>
-                  <Text style={{ color: colors.faint, fontSize: 12, marginTop: 2 }}>{t.mediaManifestLine}</Text>
-                  {m.sha ? <Text style={{ color: colors.faint, fontSize: 11, marginTop: 2 }} numberOfLines={1}>SHA-256: {m.sha.slice(0, 32)}…</Text> : null}
-                </View>
-              </View>
-            </Pressable>
-          )}
-        />
-      )}
-    </View>
-  );
+  return <View style={styles.screen}>
+    <FlatList data={media} keyExtractor={entry => entry.item.id} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 20, paddingBottom: 40, width: '100%', maxWidth: 820, alignSelf: 'center' }}
+      ListHeaderComponent={<View style={{ marginBottom: 18 }}>
+        <Select testID="media-filter" label={dict.mobileUI.media} value={filter} choices={[
+          { value: 'all', label: dict.media.filters.all }, { value: 'photo', label: dict.media.filters.photo },
+          { value: 'video', label: dict.media.filters.video }, { value: 'document', label: dict.media.filters.document }, { value: 'other', label: dict.media.filters.misc },
+        ]} onChange={value => setFilter(value as Filter)} />
+        <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 19, marginTop: 8 }}>{t.mediaLimits}</Text>
+      </View>}
+      ListEmptyComponent={<Empty image={illustrations.emptyVault} title={dict.mobileUI.noItems} detail={t.mediaEmpty} />}
+      renderItem={({ item: entry }) => <Pressable testID={`media-${entry.item.id}`} accessibilityRole="button" accessibilityLabel={format(t.open, entry.item.title)} onPress={() => onSelect(entry.item.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: colors.card, padding: 16, minHeight: 78, borderBottomWidth: 0.5, borderBottomColor: colors.line }}>
+        <Icon name={ICON[entry.kind]} size="xl" color={colors.secondary} />
+        <View style={{ flex: 1 }}><Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }} numberOfLines={1}>{entry.item.title}</Text><Text style={{ color: colors.muted, fontSize: 13, marginTop: 5 }}>{entry.mime} · {formatBytes(entry.size, t.sizeUnknown)}</Text></View>
+      </Pressable>}
+    />
+  </View>;
 }

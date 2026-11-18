@@ -1,6 +1,6 @@
 import React from 'react';
 import { Text, TextInput, View, type TextInputProps } from 'react-native';
-import { colors, styles } from '../theme';
+import { useMobileTheme } from '../theme';
 
 interface FieldProps extends Omit<TextInputProps, 'style'> {
   label: string;
@@ -10,6 +10,7 @@ interface FieldProps extends Omit<TextInputProps, 'style'> {
 /** Labelled input — every form field in the app uses this, so every input
  *  has a visible label, an accessibilityLabel and a testID. */
 export default function Field({ label, testID, multiline, ...props }: FieldProps) {
+  const { colors, styles } = useMobileTheme();
   return (
     <View style={{ marginBottom: 14 }}>
       <Text style={styles.label} accessibilityRole="text">{label}</Text>

@@ -92,9 +92,11 @@ module Blobs
     # The exact part size is a SIGNED header (Content-Length is unsigned by
     # default in aws-sdk): storage rejects a PUT of any other length with a
     # signature error, so a presigned URL can never store more than the
-    # session declared for that part.
+    # session declared for that part. Only opaque binary content is signed:
+    # original names/MIME types belong inside the encrypted manifest.
     def presigned_put(object_key:, content_length:)
       @presigner.presigned_url(:put_object, bucket: @bucket, key: object_key, content_length: content_length,
+                                            content_type: 'application/octet-stream',
                                             whitelist_headers: ['content-length'], expires_in: PRESIGN_TTL)
     end
 

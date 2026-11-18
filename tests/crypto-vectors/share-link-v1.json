@@ -1,0 +1,26 @@
+{
+  "generator": "PyNaCl crypto_aead_xchacha20poly1305_ietf_encrypt",
+  "now": 1794960000000,
+  "secret": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "record": {
+    "id": "abcdefghijklmnopqrstuvwxABCDEFGH",
+    "format_version": 1,
+    "expires_at": "2026-11-18T01:00:00.000Z",
+    "encrypted_payload": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYX5eBmG7Lor91bJVSrr3/Lhzs+ConfomSbGjgFlFHCkjAwJJrGMgRhAbj08S+qUyALHtTAY3ZY2W1u7/9Yrd1moHGAlpNj8QtklvxI4TaEswksIOwFJ5QftXT2VBLddQBuVH9XOWR1AqWEYFj1CSM7NUhLuomDGx4cqBwuQwKnuoZ/h05vu9Y4qfX3RTcki9/mjiUE8GbxAm7I3nRY9MvtlEHW/zCWRp7ZtQs9LzXV7Ha62crFCNBzFW6nBM9uVTy3lBXmj8dAQM5RYOx3Rb/Zb+USqUqX9xiPKphMIDfCyQTPOe+vNyA6KzO2NJY/cH2rgyjobf4qla4AiMz0V8ej4rDvEPEOPjggJ+aeo3//r/dsGCvZ10q2GJ67FPNrMd8v6YvEa3cwiDA="
+  },
+  "expected": {
+    "id": "shared-copy",
+    "type": "login",
+    "schema_version": 1,
+    "title": "Tài khoản mẫu 🔑",
+    "fields": {
+      "username": "fixture@example.com",
+      "password": "example-only"
+    },
+    "tags": [],
+    "relations": [],
+    "attachments": [],
+    "created_at": "2026-11-18T00:00:00.000Z",
+    "updated_at": "2026-11-18T00:00:00.000Z"
+  }
+}

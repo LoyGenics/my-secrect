@@ -35,6 +35,10 @@ export interface NativeSodium {
   /** HMAC-SHA256 with `salt` as the HMAC key over `key` (RFC 5869 HKDF-Extract). */
   _unstable_crypto_kdf_hkdf_sha256_extract(key: Bytes, salt: Bytes): Bytes;
   to_hex(input: Bytes): string;
+  to_string(input: Bytes): string;
+  crypto_box_keypair(): { publicKey: Bytes; privateKey: Bytes };
+  crypto_box_easy(message: Message, nonce: Bytes, publicKey: Bytes, privateKey: Bytes): Bytes;
+  crypto_box_open_easy(ciphertext: Bytes, nonce: Bytes, publicKey: Bytes, privateKey: Bytes): Bytes;
 }
 
 /**
@@ -66,7 +70,7 @@ function adString(ad: Bytes | string | null | undefined): string {
 
 const utf8 = new TextEncoder();
 
-export function createSodium(native: NativeSodium, sha256: (data: Bytes) => Bytes) {
+export function createSodium(native: NativeSodium, sha256: ((data: Bytes) => Bytes) & { create?: () => { update(data: Bytes): unknown; digest(): Bytes } }) {
   return {
     // Constants come from the JSI install; missing ones mean the native module is not in this build.
     ready: native.ready.then(() => {
@@ -97,6 +101,19 @@ export function createSodium(native: NativeSodium, sha256: (data: Bytes) => Byte
     crypto_auth_hmacsha256_BYTES: 32, // libsodium crypto_auth_hmacsha256_BYTES
     crypto_auth_hmacsha256_KEYBYTES: 32, // libsodium crypto_auth_hmacsha256_KEYBYTES
     crypto_hash_sha256: (message: Bytes): Bytes => sha256(message),
+    crypto_hash_sha256_init: () => {
+      if (!sha256.create) throw new Error('incremental SHA-256 is unavailable');
+      return sha256.create();
+    },
+    crypto_hash_sha256_update: (state: { update(data: Bytes): unknown }, message: Bytes): void => { state.update(message); },
+    crypto_hash_sha256_final: (state: { digest(): Bytes }): Bytes => state.digest(),
+    to_string: (bytes: Bytes): string => native.to_string(own(bytes)),
+    crypto_box_keypair: () => native.crypto_box_keypair(),
+    crypto_box_easy: (message: Message, nonce: Bytes, publicKey: Bytes, privateKey: Bytes): Bytes => native.crypto_box_easy(msg(message), own(nonce), own(publicKey), own(privateKey)),
+    crypto_box_open_easy: (ciphertext: Bytes, nonce: Bytes, publicKey: Bytes, privateKey: Bytes): Bytes => native.crypto_box_open_easy(own(ciphertext), own(nonce), own(publicKey), own(privateKey)),
+    // These comparisons handle public keys, fingerprints and public AD bindings.
+    memcmp: (a: Bytes, b: Bytes): boolean => a.length === b.length && a.every((value, index) => value === b[index]),
+    memzero: (bytes: Bytes): void => { bytes.fill(0); },
     to_hex: (input: Bytes): string => native.to_hex(own(input)),
     from_string: (s: string): Bytes => utf8.encode(s),
   };

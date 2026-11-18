@@ -14,6 +14,7 @@ gem 'rotp', '~> 6.3'       # TOTP MFA (RFC 6238) — account second factor, neve
 gem 'rbnacl', '~> 7.1'     # Ed25519 recovery-key signatures (RbNaCl::VerifyKey)
 gem 'aws-sdk-s3', '~> 1.0'  # S3 / R2 / MinIO presigned URLs (client uploads ciphertext directly)
 gem 'rack-cors'
+gem 'stripe', '~> 21.0'    # Hosted web Checkout + verified billing webhooks
 gem 'rack-attack', '~> 6.7' # rate-limit auth + recovery endpoints (see config/initializers/rack_attack.rb)
 gem 'bootsnap', require: false
 

@@ -1,40 +1,32 @@
 import React, { useMemo, useState } from 'react';
-import { FlatList, Image, Text, TextInput, View } from 'react-native';
+import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
+import { Search, X } from 'lucide-react-native';
 import type { VaultItem } from '../../../../packages/core/src/types';
+import { useTranslation } from '../../../../packages/i18n/src/react';
+import { illustrations } from '../../../../packages/ui/src/native';
 import ItemRow from '../components/ItemRow';
+import { Empty } from '../components/mobile-ui';
 import { useMobileTheme } from '../theme';
-import { Icon, illustrations, typeArt } from '../../../../packages/ui/src/native';
 import { searchLocal } from '../vault';
-import { isArchived } from '../utils/itemMeta';
 
 export default function SearchScreen({ items, onSelect, onToggleFavorite }: { items: VaultItem[]; onSelect: (id: string) => void; onToggleFavorite: (id: string) => void }) {
-  const { colors, styles } = useMobileTheme();
+  const { colors } = useMobileTheme(); const { t, dict } = useTranslation();
   const [q, setQ] = useState('');
-  // Local search only, and archived items are excluded (find them under Archived).
-  const results = useMemo(() => searchLocal(q).filter((i) => !isArchived(i)), [q]);
-  return (
-    <View style={styles.screen}>
-      <View style={{ padding: 16 }}>
-        <Text style={styles.title}>Search</Text>
-        <Text style={styles.subtitle}>Instant local search — the query never leaves this device.</Text>
-        <TextInput
-          testID="search-input" accessibilityLabel="Search items" placeholder="Search title, tags, fields…" placeholderTextColor={colors.faint}
-          value={q} onChangeText={setQ} autoCapitalize="none" autoCorrect={false} returnKeyType="search"
-          style={[styles.input, { marginTop: 14 }]}
-        />
-      </View>
-      {q.trim() === '' ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <Image source={illustrations.noResults} style={{ width: 120, height: 120 }} accessibilityIgnoresInvertColors />
-          <Text style={{ color: colors.muted, fontSize: 14, textAlign: 'center', marginTop: 12 }}>Type to search across {items.length} item(s) — titles, tags and fields.</Text>
+  // The live item index is also a dependency: edits and imports refresh results.
+  // Archived items remain searchable; deleted items live in Trash.
+  const results = useMemo(() => q.trim() ? searchLocal(q) : [...items].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 8), [q, items]);
+  return <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <FlatList data={results} keyExtractor={i => i.id} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={{ padding: 20, paddingTop: 8, paddingBottom: 40, width: '100%', maxWidth: 820, alignSelf: 'center' }}
+      ListHeaderComponent={<View style={{ marginBottom: 18 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 14, borderRadius: 11, backgroundColor: colors.surface2, minHeight: 48 }}>
+          <Search size={19} color={colors.muted} />
+          <TextInput testID="search-input" accessibilityLabel={t('mobileUI.searchAll')} placeholder={dict.search.placeholder} placeholderTextColor={colors.muted} value={q} onChangeText={setQ} autoFocus autoCapitalize="none" autoCorrect={false} returnKeyType="search" clearButtonMode="never" style={{ color: colors.text, flex: 1, fontSize: 16, paddingVertical: 13 }} />
+          {!!q && <Pressable accessibilityRole="button" accessibilityLabel={dict.common.clear} onPress={() => setQ('')} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><X size={18} color={colors.muted} /></Pressable>}
         </View>
-      ) : results.length === 0 ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <Text style={{ color: colors.muted, fontSize: 15 }}>No results for “{q}”.</Text>
-        </View>
-      ) : (
-        <FlatList data={results} keyExtractor={(i) => i.id} contentContainerStyle={{ padding: 16, paddingTop: 0 }} renderItem={({ item }) => <ItemRow item={item} onPress={() => onSelect(item.id)} onToggleFavorite={() => onToggleFavorite(item.id)} />} />
-      )}
-    </View>
-  );
+        <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 19, marginTop: 12 }}>{q.trim() ? t('mobileUI.itemCount', results.length) : t('mobileUI.recentItems')}</Text>
+      </View>}
+      renderItem={({ item }) => <ItemRow item={item} onPress={() => onSelect(item.id)} onToggleFavorite={() => onToggleFavorite(item.id)} />}
+      ListEmptyComponent={<Empty image={illustrations.noResults} title={q.trim() ? t('mobileUI.noResults', q) : t('mobileUI.searchAll')} detail={t('mobileUI.searchHint')} />}
+    />
+  </View>;
 }

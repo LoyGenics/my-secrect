@@ -1,28 +1,40 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, SafeAreaView, ScrollView, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import Field from '../components/Field';
-import { colors, styles } from '../theme';
+import { useMobileTheme } from '../theme';
 import {
   changePassphrase, disableDeviceUnlock, enableDeviceUnlockWithPassphrase, exportEncrypted, getDeviceUnlockState, verifyPassphrase, wipeVault,
   type DeviceUnlockState,
 } from '../vault';
 import { biometryName, deviceUnlockMessage } from './LockScreen';
 import { useTranslation } from '../../../../packages/i18n/src/react';
-import { SecurityApiClient } from '../../../../packages/sdk/src/security';
+import { LS_API_TOKEN, LS_API_TOKEN_EXPIRES_AT, LS_ACCOUNT_EMAIL, SecurityApiClient } from '../../../../packages/sdk/src/security';
 import { API_BASE_URL_KEY, getApiToken } from './SecurityScreen';
 import { isStepUpRequired } from '../utils/stepUp';
+import { Action, Group, Page, Row, Rule, Select } from '../components/mobile-ui';
+import { Archive, ChevronLeft, Fingerprint, Globe, Image, KeyRound, Lock, Search, ShieldCheck, Trash2, Users, Share2, X } from 'lucide-react-native';
+import { SHARE_WEB_ORIGIN_KEY } from './ShareLinkScreen';
+import { removeAllEncryptedFiles } from '../storage/localFiles';
+import { GhostBrandMark } from '../components/soft';
 
 export type AutoLockMinutes = 1 | 5 | 15 | 0;
 
 type PendingAction = 'export' | 'change' | 'wipe';
 
-export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onWiped, notice, setNotice, onViewTrash, onViewSecurity }: {
+export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onWiped, notice, setNotice, onViewTrash, onViewSecurity, onOpen, onSearch, onServerSaved }: {
   autoLock: AutoLockMinutes; onAutoLockChange: (m: AutoLockMinutes) => void; onLock: () => void; onWiped: () => void;
-  notice: string; setNotice: (s: string) => void; onViewTrash: () => void; onViewSecurity: () => void;
+  notice: string; setNotice: (s: string) => void; onViewTrash: () => void; onViewSecurity: () => void; onOpen?: (screen: 'Family' | 'Shares') => void; onSearch?: () => void; onServerSaved?: (url: string) => Promise<void>;
 }) {
-  const { t } = useTranslation();
+  const { colors, styles } = useMobileTheme();
+  const { t, dict, locale, setLocale } = useTranslation();
+  const [panel, setPanel] = useState<'unlock' | 'change' | 'backup' | 'server' | 'delete' | 'about' | null>(null);
+  const [serverSaved, setServerSaved] = useState(false);
+  const [serverDraft, setServerDraft] = useState('');
+  const [webOrigin, setWebOrigin] = useState('');
+  const [serverError, setServerError] = useState('');
+  function closePanel() { setPanel(null); setNewPass(''); setNewConfirm(''); setStepUpAction(null); setStepUpPass(''); setStepUpCode(''); setStepUpError(''); setBioPass(''); setExported(''); setWipeArmed(false); }
   const [newPass, setNewPass] = useState('');
   const [newConfirm, setNewConfirm] = useState('');
   const [changeError, setChangeError] = useState('');
@@ -45,8 +57,9 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
   const bioName = biometryName(device?.biometry);
 
   useEffect(() => {
-    void AsyncStorage.getItem(API_BASE_URL_KEY).then((v) => setApiBaseUrl(v ?? '')).catch(() => undefined);
+    void AsyncStorage.getItem(API_BASE_URL_KEY).then((v) => { setApiBaseUrl(v ?? ''); setServerDraft(v ?? ''); }).catch(() => undefined);
     void getDeviceUnlockState().then(setDevice);
+    void AsyncStorage.getItem(SHARE_WEB_ORIGIN_KEY).then(value => setWebOrigin(value ?? ''));
   }, []);
 
   /** Turning it on needs the passphrase again: that unlock is what releases the Master Key copy to wrap. */
@@ -68,8 +81,23 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
   const apiConfigured = apiBaseUrl.trim() !== '';
 
   async function saveApiBaseUrl(v: string) {
-    setApiBaseUrl(v);
-    try { await AsyncStorage.setItem(API_BASE_URL_KEY, v); } catch { /* non-critical setting */ }
+    setServerError(''); setServerSaved(false);
+    try {
+      const target = webOrigin.trim();
+      if (target) {
+        const parsed = new URL(target);
+        if ((parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname))) || parsed.username || parsed.password) throw new Error('invalid URL');
+      }
+      if (v) { const parsed = new URL(v); if (!['https:', 'http:'].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error('invalid URL'); }
+      const next = v.replace(/\/+$/, '');
+      if (next !== apiBaseUrl) {
+        // The bearer session belongs to the previously configured server.
+        await AsyncStorage.multiRemove([LS_API_TOKEN, LS_API_TOKEN_EXPIRES_AT, LS_ACCOUNT_EMAIL]);
+      }
+      await AsyncStorage.multiSet([[API_BASE_URL_KEY, next], [SHARE_WEB_ORIGIN_KEY, target]]);
+      setApiBaseUrl(next); setServerSaved(true);
+      await onServerSaved?.(next);
+    } catch { setServerError(t('mobileUI.saveFailed')); }
   }
 
   function requestExport() { setChangeError(''); setStepUpError(''); setStepUpAction('export'); }
@@ -115,7 +143,7 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
   }
 
   async function doExport() {
-    try { const json = await exportEncrypted(); setExported(json); await Clipboard.setStringAsync(json); setNotice('Encrypted backup copied to clipboard. It stays encrypted — keep it safe.'); }
+    try { const json = await exportEncrypted(); setExported(json); await Clipboard.setStringAsync(json); setNotice('Encrypted backup copied. Keep it somewhere safe.'); }
     catch { setNotice('Export failed.'); }
   }
   async function doChangePassphrase(verifiedOldPass: string) {
@@ -127,106 +155,84 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
     } catch (e) { setChangeError(e instanceof Error ? e.message : 'Could not change the passphrase.'); }
     setDevice(await getDeviceUnlockState());
   }
-  async function doWipe() { await wipeVault(); onWiped(); }
+  async function doWipe() { await wipeVault(); await removeAllEncryptedFiles().catch(() => undefined); onWiped(); }
 
-  const section = (title: string) => <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700', marginTop: 24, marginBottom: 10 }}>{title}</Text>;
-  return (
-    <ScrollView style={styles.screen} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
-      <Text style={styles.title}>Settings</Text>
-      {notice ? <Text testID="settings-notice" style={{ color: colors.link, fontSize: 14, lineHeight: 20, marginTop: 10 }}>{notice}</Text> : null}
-      {stepUpAction ? (
-        <View style={{ backgroundColor: colors.card, borderColor: colors.accent, borderWidth: 1, borderRadius: 12, padding: 16, marginTop: 16 }}>
-          <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700' }}>{t('security.stepUpTitle')}</Text>
-          <Text style={{ color: colors.muted, fontSize: 14, lineHeight: 20, marginTop: 6 }}>{t('security.stepUpBody')}</Text>
-          {stepUpAction === 'export' ? <Text style={{ color: colors.muted, fontSize: 14, lineHeight: 20, marginTop: 6 }}>{t('security.exportRequiresStepUp')}</Text> : null}
-          <View style={{ marginTop: 12 }}>
-            <Field label={t('security.stepUpPassphraseLabel')} testID="stepup-passphrase" placeholder="Master passphrase" secureTextEntry value={stepUpPass} onChangeText={setStepUpPass} autoCapitalize="none" autoCorrect={false} />
-          </View>
-          {apiConfigured ? (
-            <Field label={t('security.stepUpTotpLabel')} testID="stepup-totp-code" placeholder="123456" value={stepUpCode} onChangeText={setStepUpCode} autoCapitalize="none" autoCorrect={false} keyboardType="number-pad" />
-          ) : null}
-          {stepUpError ? <Text testID="stepup-error" style={[styles.error, { marginBottom: 10 }]}>{stepUpError}</Text> : null}
-          <View style={{ flexDirection: 'row' }}>
-            <Pressable testID="stepup-confirm" accessibilityLabel={t('security.confirm')} disabled={stepUpBusy} style={[styles.primaryButton, { flex: 1, marginRight: 8 }]} onPress={() => void submitStepUp()}>
-              <Text style={styles.primaryButtonText}>{t('security.confirm')}</Text>
-            </Pressable>
-            <Pressable testID="stepup-cancel" accessibilityLabel={t('security.cancel')} style={[styles.ghostButton, { flex: 1 }]} onPress={() => { setStepUpAction(null); setStepUpPass(''); setStepUpCode(''); setStepUpError(''); }}>
-              <Text style={styles.ghostButtonText}>{t('security.cancel')}</Text>
-            </Pressable>
-          </View>
-        </View>
-      ) : null}
-      {section('Security')}
-      <Pressable testID="security-center-button" accessibilityLabel={t('security.title')} accessibilityRole="button" style={styles.primaryButton} onPress={onViewSecurity}>
-        <Text style={styles.primaryButtonText}>{t('security.title')}</Text>
-      </Pressable>
-      <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 8 }}>Passkeys, MFA, trusted devices, sessions and recovery — account security, separate from vault unlock.</Text>
-      <Field label="New passphrase" testID="new-passphrase" placeholder="At least 8 characters" secureTextEntry value={newPass} onChangeText={setNewPass} autoCapitalize="none" autoCorrect={false} />
-      <Field label="Confirm new passphrase" testID="confirm-new-passphrase" placeholder="Repeat the new passphrase" secureTextEntry value={newConfirm} onChangeText={setNewConfirm} autoCapitalize="none" autoCorrect={false} />
-      {changeError ? <Text testID="change-passphrase-error" style={[styles.error, { marginBottom: 10 }]}>{changeError}</Text> : null}
-      {changeOk ? <Text testID="change-passphrase-ok" style={{ color: colors.ok, fontSize: 14, marginBottom: 10 }}>Passphrase changed. Your items were not re-encrypted — the same Master Key is now wrapped under the new passphrase. Your recovery key still works.</Text> : null}
-      <Pressable testID="change-passphrase-button" accessibilityLabel="Change passphrase" accessibilityRole="button" style={styles.primaryButton} onPress={requestChangePassphrase}>
-        <Text style={styles.primaryButtonText}>Change passphrase</Text>
-      </Pressable>
-      <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 8 }}>Changing the passphrase asks you to re-enter the current one first (step-up). Export and wipe ask the same.</Text>
-      {section('Biometric unlock')}
-      <Text testID="biometric-status" style={{ color: colors.muted, fontSize: 13, lineHeight: 18, marginBottom: 10 }}>
-        {device?.enrolled
-          ? `On. ${bioName} releases a copy of your Master Key wrapped by a device-protected key on this phone. Changing ${bioName} settings turns it off.`
-          : device?.available
-            ? `Off. Enter your passphrase to turn on ${bioName} unlock for this device.`
-            : device?.biometry && device.biometry !== 'none'
-              ? `Off. Set up ${bioName} in the device settings first.`
-              : 'Not available on this device.'}
-      </Text>
-      {device?.enrolled ? (
-        <Pressable testID="disable-biometric-button" accessibilityLabel={`Turn off ${bioName} unlock`} accessibilityRole="button" disabled={bioBusy} style={styles.ghostButton} onPress={() => void disableBiometric()}>
-          <Text style={styles.ghostButtonText}>Turn off {bioName} unlock</Text>
-        </Pressable>
-      ) : device?.available ? (
-        <>
-          <Field label="Master passphrase" testID="biometric-passphrase" placeholder="Master passphrase" secureTextEntry value={bioPass} onChangeText={setBioPass} autoCapitalize="none" autoCorrect={false} />
-          <Pressable testID="enable-biometric-settings-button" accessibilityLabel={`Turn on ${bioName} unlock`} accessibilityRole="button" disabled={bioBusy || !bioPass} style={[styles.primaryButton, bioBusy || !bioPass ? { opacity: 0.6 } : null]} onPress={() => void enableBiometric()}>
-            <Text style={styles.primaryButtonText}>Turn on {bioName} unlock</Text>
-          </Pressable>
-        </>
-      ) : null}
-      {bioMessage ? <Text testID="biometric-message" style={{ color: colors.link, fontSize: 14, lineHeight: 20, marginTop: 8 }}>{bioMessage}</Text> : null}
-      <Text style={[styles.label, { marginTop: 16 }]}>Auto-lock</Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-        {([1, 5, 15, 0] as AutoLockMinutes[]).map((m) => (
-          <Pressable key={m} testID={`autolock-${m}`} accessibilityLabel={`Auto-lock ${m === 0 ? 'never' : `${m} minutes`}`} onPress={() => onAutoLockChange(m)} style={{ backgroundColor: autoLock === m ? colors.accent : colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 9, marginRight: 8, marginBottom: 8 }}>
-            <Text style={{ color: autoLock === m ? '#FFF' : colors.text, fontWeight: '600' }}>{m === 0 ? 'Never' : `${m} min`}</Text>
-          </Pressable>
-        ))}
+  const panelTitle = panel === 'unlock' ? t('mobileUI.unlockSettings') : panel === 'change' ? t('mobileUI.changePassphrase') : panel === 'backup' ? t('mobileUI.backupSettings') : panel === 'server' ? t('mobileUI.serverSettings') : panel === 'delete' ? t('mobileUI.dangerZone') : t('mobileUI.about');
+  const icon = (Node: typeof Lock) => <Node size={21} color={colors.secondary} />;
+  const hint = (text: string) => <Text style={{ color: colors.muted, fontSize: 14, lineHeight: 21, marginBottom: 20 }}>{text}</Text>;
+  return <>
+    <Page>
+      <View style={{ flexDirection: 'row', gap: 14, alignItems: 'center', marginBottom: 26, paddingHorizontal: 12 }}>
+        <GhostBrandMark /><View><Text style={{ color: colors.text, fontSize: 20, fontWeight: '600' }}>My Secret</Text><Text style={{ color: colors.muted, fontSize: 13, marginTop: 4 }}>{t('mobileUI.localOnly')}</Text></View>
       </View>
-      <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 18 }}>Recovery key: shown only once, when the vault was created. It cannot be displayed again. If you still have it, use it on the lock screen ("Unlock with a recovery key…").</Text>
-      <Pressable testID="lock-now-button" accessibilityLabel="Lock vault now" style={[styles.ghostButton, { marginTop: 12 }]} onPress={onLock}>
-        <Text style={styles.ghostButtonText}>Lock vault now</Text>
-      </Pressable>
-      <Pressable testID="view-trash-button" accessibilityLabel="View trash" style={[styles.ghostButton, { marginTop: 12 }]} onPress={onViewTrash}>
-        <Text style={styles.ghostButtonText}>View Trash</Text>
-      </Pressable>
-      {section('Server (optional)')}
-      <Field label="API base URL" testID="api-base-url" placeholder="https://… (empty = local-only)" value={apiBaseUrl} onChangeText={(v) => void saveApiBaseUrl(v)} autoCapitalize="none" autoCorrect={false} keyboardType="url" />
-      <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 18 }}>The server never sees vault content — only ciphertext and opaque ids. Leave empty to stay local-only; the Security Center shows a not-configured state instead of fake data.</Text>
-      {section('Backup & export')}
-      <Pressable testID="export-encrypted-button" accessibilityLabel="Export encrypted backup" style={styles.primaryButton} onPress={requestExport}>
-        <Text style={styles.primaryButtonText}>Export encrypted backup</Text>
-      </Pressable>
-      <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 8 }}>The encrypted backup is copied to the clipboard as JSON. It can only be imported back into this vault. Import is in the desktop app; mobile import is not yet built — see README.</Text>
-      <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 12 }}>Plaintext export is desktop-only — it is not offered on mobile (a plaintext export copied to the clipboard would linger in clipboard history). Use the desktop app, where it requires an explicit warning acknowledgement first.</Text>
-      {exported ? (
-        <View style={{ backgroundColor: colors.input, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 12, marginTop: 12 }}>
-          <Text style={{ color: colors.muted, fontSize: 12 }}>Last export (first 200 characters):</Text>
-          <Text selectable style={{ color: colors.text, fontSize: 12, fontFamily: 'monospace', marginTop: 6 }}>{exported.slice(0, 200)}{exported.length > 200 ? '…' : ''}</Text>
+      <Group title={t('mobileUI.vaultSettings')}>
+        <Row testID="settings-unlock" icon={icon(Fingerprint)} label={t('mobileUI.unlockSettings')} detail={autoLock === 0 ? t('mobileUI.never') : t('mobileUI.minutes', autoLock)} onPress={() => setPanel('unlock')} /><Rule />
+        <Row testID="settings-passphrase" icon={icon(KeyRound)} label={t('mobileUI.changePassphrase')} onPress={() => setPanel('change')} /><Rule />
+        <Row testID="settings-backup" icon={icon(Archive)} label={t('mobileUI.backupSettings')} onPress={() => setPanel('backup')} /><Rule />
+        <Row testID="view-trash-button" icon={icon(Trash2)} label={dict.shell.trash} onPress={onViewTrash} />
+      </Group>
+      <Group title={t('mobileUI.accountSettings')}>
+        <Row testID="security-center-button" icon={icon(ShieldCheck)} label={t('security.title')} onPress={onViewSecurity} /><Rule />
+        <Row testID="settings-sharing" icon={icon(Share2)} label={t('mobileUI.sharing')} onPress={() => onOpen?.('Shares')} /><Rule />
+        <Row testID="settings-family" icon={icon(Users)} label={t('mobileUI.familyPlan')} onPress={() => onOpen?.('Family')} />
+      </Group>
+      <Group title={dict.settings.preferencesTitle}>
+        <View style={{ paddingHorizontal: 16 }}><Select label={t('mobileUI.language')} testID="settings-language" value={locale} choices={[{ value: 'en', label: 'English' }, { value: 'vi', label: 'Tiếng Việt' }]} onChange={value => setLocale(value as 'en' | 'vi')} /></View><Rule />
+        <Row testID="settings-server" icon={icon(Globe)} label={t('mobileUI.serverSettings')} detail={apiConfigured ? t('mobileUI.connected') : t('mobileUI.notConnected')} onPress={() => { setServerDraft(apiBaseUrl); setPanel('server'); }} /><Rule />
+        <Row testID="settings-about" label={t('mobileUI.about')} onPress={() => setPanel('about')} />
+      </Group>
+      <Group><Row testID="lock-now-button" icon={icon(Lock)} label={t('mobileUI.lockNow')} onPress={onLock} /></Group>
+      <Row testID="settings-delete" label={t('mobileUI.dangerZone')} destructive onPress={() => setPanel('delete')} />
+    </Page>
+    <Modal visible={panel !== null} animationType="slide" presentationStyle="pageSheet" onRequestClose={closePanel} onDismiss={closePanel}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', padding: 12, gap: 8 }}>
+          <Text accessibilityRole="header" style={{ color: colors.text, fontSize: 18, fontWeight: '600', flex: 1, marginLeft: 8 }}>{panelTitle}</Text>
+          {!!onSearch && <Pressable testID="settings-panel-search" accessibilityRole="button" accessibilityLabel={t('mobileUI.searchAll')} onPress={() => { closePanel(); onSearch(); }} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Search size={21} color={colors.link} /></Pressable>}
+          <Pressable testID="settings-panel-close" accessibilityRole="button" accessibilityLabel={dict.common.close} onPress={closePanel} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><X size={22} color={colors.link} /></Pressable>
         </View>
-      ) : null}
-      {section('Danger zone')}
-      <Pressable testID="wipe-vault-button" accessibilityLabel="Delete entire vault" accessibilityRole="button" style={[styles.dangerButton, wipeArmed ? { opacity: 1 } : { opacity: 0.85 }]} onPress={() => { if (wipeArmed) { requestWipe(); } else { Alert.alert('Delete entire vault?', 'This permanently deletes the vault, every item and the keys. There is no undo. Tap the button again to confirm.', [{ text: 'Cancel', style: 'cancel', onPress: () => setWipeArmed(false) }, { text: 'Arm delete', style: 'destructive', onPress: () => setWipeArmed(true) }]); } }}>
-        <Text style={styles.primaryButtonText}>{wipeArmed ? 'Tap again to permanently delete the vault' : 'Delete entire vault…'}</Text>
-      </Pressable>
-      <Text style={{ color: colors.faint, fontSize: 12, lineHeight: 17, marginTop: 16 }}>my-secrect 0.1.0 · Local-first E2EE · Argon2id + XChaCha20-Poly1305 (libsodium) · Not audited, not production-ready.</Text>
-    </ScrollView>
-  );
+        <Page>
+          {stepUpAction ? <>
+            <Text style={[styles.heading, { marginBottom: 12 }]}>{t('security.stepUpTitle')}</Text>
+            {hint(t('security.stepUpBody'))}
+            <Field label={t('security.stepUpPassphraseLabel')} testID="stepup-passphrase" secureTextEntry value={stepUpPass} onChangeText={setStepUpPass} autoCapitalize="none" autoCorrect={false} />
+            {apiConfigured && <Field label={t('security.stepUpTotpLabel')} testID="stepup-totp-code" value={stepUpCode} onChangeText={setStepUpCode} autoCapitalize="none" autoCorrect={false} keyboardType="number-pad" />}
+            {!!stepUpError && <Text testID="stepup-error" style={[styles.error, { marginBottom: 14 }]}>{stepUpError}</Text>}
+            <Action testID="stepup-confirm" label={stepUpBusy ? dict.common.loading : t('security.confirm')} disabled={stepUpBusy} onPress={() => void submitStepUp()} />
+            <View style={{ marginTop: 12 }}><Action testID="stepup-cancel" secondary label={dict.common.cancel} disabled={stepUpBusy} onPress={() => { setStepUpAction(null); setStepUpPass(''); setStepUpCode(''); setStepUpError(''); }} /></View>
+          </> : panel === 'unlock' ? <>
+            <Group title={t('mobileUI.autoLock')}><View style={{ paddingHorizontal: 16 }}><Select testID="settings-autolock" label={t('mobileUI.autoLock')} value={String(autoLock)} choices={[1,5,15,0].map(minutes => ({ value: String(minutes), label: minutes === 0 ? t('mobileUI.never') : t('mobileUI.minutes', minutes) }))} onChange={value => onAutoLockChange(Number(value) as AutoLockMinutes)} /></View></Group>
+            {hint(device?.enrolled ? `${bioName} unlock is on.` : device?.available ? `Turn on ${bioName} to unlock this vault on this device.` : `${bioName} is not available. Set it up in your device settings first.`)}
+            {device?.enrolled ? <Action testID="disable-biometric-button" secondary label={`Turn off ${bioName}`} disabled={bioBusy} onPress={() => void disableBiometric()} /> : device?.available ? <>
+              <Field label={dict.settings.current} testID="biometric-passphrase" secureTextEntry value={bioPass} onChangeText={setBioPass} autoCapitalize="none" autoCorrect={false} />
+              <Action testID="enable-biometric-settings-button" label={`Turn on ${bioName}`} disabled={bioBusy || !bioPass} onPress={() => void enableBiometric()} />
+            </> : null}
+            {!!bioMessage && <Text testID="biometric-message" style={[styles.body, { marginTop: 16 }]}>{bioMessage}</Text>}
+          </> : panel === 'change' ? <>
+            <Field label={dict.settings.newPassphrase} testID="new-passphrase" secureTextEntry value={newPass} onChangeText={setNewPass} autoCapitalize="none" autoCorrect={false} />
+            <Field label={dict.settings.confirm} testID="confirm-new-passphrase" secureTextEntry value={newConfirm} onChangeText={setNewConfirm} autoCapitalize="none" autoCorrect={false} />
+            {!!changeError && <Text testID="change-passphrase-error" style={[styles.error, { marginBottom: 16 }]}>{changeError}</Text>}
+            {changeOk && hint(t('mobileUI.saved'))}
+            <Action testID="change-passphrase-button" label={dict.settings.change} onPress={requestChangePassphrase} />
+          </> : panel === 'backup' ? <>
+            {hint(t('mobileUI.backupHelp'))}
+            <Action testID="export-encrypted-button" label={t('mobileUI.exportBackup')} onPress={requestExport} />
+            {!!exported && <Text accessibilityLiveRegion="polite" style={{ color: colors.okText, fontSize: 15, marginTop: 20 }}>{t('mobileUI.backupCopied')}</Text>}
+          </> : panel === 'server' ? <>
+            <Field label={t('mobileUI.serverURL')} testID="api-base-url" placeholder="https://vault.example.com/api" value={serverDraft} onChangeText={value => { setServerDraft(value); setServerSaved(false); }} autoCapitalize="none" autoCorrect={false} keyboardType="url" />
+            <Field label={t('mobileUI.webAppURL')} testID="share-web-origin" placeholder="https://vault.example.com" value={webOrigin} onChangeText={setWebOrigin} autoCapitalize="none" autoCorrect={false} keyboardType="url" />
+            {!!serverError && <Text accessibilityRole="alert" style={[styles.error, { marginBottom: 16 }]}>{serverError}</Text>}
+            <Action testID="save-api-server" label={t('mobileUI.saveServer')} onPress={() => void saveApiBaseUrl(serverDraft.trim())} />
+            {serverSaved && <Text accessibilityLiveRegion="polite" style={{ color: colors.okText, marginTop: 16 }}>{t('mobileUI.saved')}</Text>}
+          </> : panel === 'delete' ? <>
+            {hint(t('mobileUI.dangerHelp'))}
+            <Action testID="wipe-vault-button" destructive label={t('mobileUI.dangerZone')} onPress={() => Alert.alert(dict.settings.wipeTitle, dict.settings.wipeBody, [{ text: dict.common.cancel, style: 'cancel' }, { text: dict.common.delete, style: 'destructive', onPress: requestWipe }])} />
+          </> : panel === 'about' ? <>
+            {hint(t('mobileUI.aboutBody'))}
+            <Group><Row label={dict.settings.encryption} detail={dict.settings.encryptionValue} /></Group>
+          </> : null}
+        </Page>
+      </SafeAreaView>
+    </Modal>
+  </>;
 }

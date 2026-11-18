@@ -24,7 +24,7 @@ import { Icon, illustrations, type IconName } from '../../../../packages/ui/src/
 import { fromBase64Url, sodiumReady, toBase64 } from '../../../../packages/crypto-adapters/src/index';
 import { legacyRecoveryVerifierKeyPair, recoveryVerifierKeyPair } from '../../../../packages/sdk/src/recovery-verifier';
 import { apiStatus, isNetworkError } from '../utils/stepUp';
-import { Btn, Float, P, Rise, TextButton, useReducedMotion } from '../components/soft';
+import { Btn, Float, useSoftPalette, Rise, TextButton, useReducedMotion } from '../components/soft';
 
 /**
  * SignInScreen (mobile) — account sign-in WITHOUT WebAuthn, "soft light" finish
@@ -70,6 +70,7 @@ export interface SignInScreenProps {
 function OtpField({ value, onChange, label, testID, length = 6 }: {
   value: string; onChange: (v: string) => void; label: string; testID: string; length?: number;
 }) {
+  const P = useSoftPalette();
   const ref = useRef<TextInput>(null);
   const [focused, setFocused] = useState(false);
   return (
@@ -114,6 +115,7 @@ function OtpField({ value, onChange, label, testID, length = 6 }: {
 }
 
 export default function SignInScreen({ baseUrl, sessionExpired, onSignedIn, onContinueLocalOnly }: SignInScreenProps) {
+  const P = useSoftPalette();
   const { t } = useTranslation();
   const reduced = useReducedMotion();
   const [mode, setMode] = useState<'email' | 'recovery'>('email');
@@ -432,52 +434,33 @@ export default function SignInScreen({ baseUrl, sessionExpired, onSignedIn, onCo
     );
   }
 
-  const trust: Array<{ icon: IconName; text: string }> = [
-    { icon: 'lock', text: t('signin.trustEncrypted') },
-    { icon: 'server', text: t('signin.trustCiphertext') },
-  ];
-
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: P.bg }}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 24, paddingBottom: 40, width: '100%', maxWidth: 560, alignSelf: 'center' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 8 }}>
             <GhostBrandMark />
             <Text style={{ fontSize: 17, fontWeight: '700', color: P.ink }}>My Secret</Text>
           </View>
 
-          <View style={{ alignItems: 'center', marginTop: 8, marginBottom: -8 }}>
+          <View style={{ alignItems: 'center', marginTop: 24, marginBottom: 20 }}>
             <Float reduced={reduced}>
-              <Image source={illustrations.deviceHero} accessibilityIgnoresInvertColors style={{ width: 190, height: 190 }} resizeMode="contain" />
+              <Image source={illustrations.deviceHero} accessibilityIgnoresInvertColors style={{ width: 112, height: 112 }} resizeMode="contain" />
             </Float>
-            <View style={{ width: 120, height: 14, borderRadius: 60, backgroundColor: 'rgba(30,20,10,0.10)', marginTop: -6 }} />
+
           </View>
 
-          <View style={{ backgroundColor: P.surface, borderRadius: 28, borderWidth: 1, borderColor: P.line, padding: 22, shadowColor: '#14171C', shadowOpacity: 0.1, shadowRadius: 28, shadowOffset: { width: 0, height: 14 }, elevation: 6 }}>
-            <Text accessibilityRole="header" style={{ fontSize: 24, fontWeight: '800', letterSpacing: -0.4, color: P.ink }}>{t('signin.title')}</Text>
-            <Text style={{ fontSize: 14, lineHeight: 20, color: P.ink2, marginTop: 8 }}>{t('signin.subtitle')}</Text>
+          <View style={{ backgroundColor: P.surface, borderRadius: 14, padding: 22 }}>
+            <Text accessibilityRole="header" style={{ fontSize: 27, lineHeight: 33, fontWeight: '700', letterSpacing: -0.4, color: P.ink }}>{t('signin.title')}</Text>
             {sessionExpired ? (
               <Text testID="signin-session-expired" style={{ backgroundColor: P.warnSoft, color: P.warnText, borderRadius: 14, padding: 12, fontSize: 14, lineHeight: 20, marginTop: 14 }}>{t('signin.sessionExpired')}</Text>
             ) : null}
             <View style={{ marginTop: 18 }}>{body}</View>
           </View>
 
-          <View style={{ marginTop: 18, gap: 10 }}>
-            {trust.map((row) => (
-              <View key={row.icon} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <View style={{ width: 30, height: 30, borderRadius: 10, backgroundColor: P.surface, alignItems: 'center', justifyContent: 'center' }}>
-                  <Icon name={row.icon} size="md" color={P.brandFill} />
-                </View>
-                <Text style={{ flex: 1, fontSize: 13, lineHeight: 18, color: P.ink2 }}>{row.text}</Text>
-              </View>
-            ))}
-            <Text style={{ fontSize: 12.5, lineHeight: 18, color: P.ink3 }}>{t('signin.mobileNoDeviceNote')}</Text>
-          </View>
-
           <Pressable testID="signin-local-only" accessibilityRole="button" accessibilityLabel={t('signin.continueLocalOnly')} onPress={onContinueLocalOnly} style={{ minHeight: 44, alignItems: 'center', justifyContent: 'center', marginTop: 8 }}>
             <Text style={{ fontSize: 14, fontWeight: '600', color: P.ink2 }}>{t('signin.continueLocalOnly')}</Text>
           </Pressable>
-          <Text style={{ fontSize: 12, lineHeight: 17, color: P.ink3, textAlign: 'center', marginTop: 4 }}>{t('signin.footerNote')}</Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

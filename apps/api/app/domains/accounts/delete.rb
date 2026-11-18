@@ -47,6 +47,9 @@ module Accounts
     end
 
     def call(user:)
+      # Check before removing any encrypted bytes, then again under the user
+      # lock so a concurrent checkout cannot leave a recurring charge behind.
+      user.with_lock { Billing::DeletionGuard.check!(user: user) }
       # Pass 1 runs OUTSIDE the DB transaction so a failure's audit event
       # is not rolled back with it. Pass 2 (inside the lock) only catches
       # parts created between pass 1 and the lock.
@@ -54,6 +57,7 @@ module Accounts
       deleted = pre_vault_ids.empty? ? [] : delete_storage_objects!(user: user, vault_ids: pre_vault_ids)
 
       tombstone = user.with_lock do
+        Billing::DeletionGuard.check!(user: user)
         device_ids = user.devices.pluck(:id)
         vault_ids = user.vaults.pluck(:id)
 

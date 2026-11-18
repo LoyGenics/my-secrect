@@ -10,9 +10,8 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.2].define(version: 2026_11_18_090000) do
+ActiveRecord::Schema[7.2].define(version: 2026_11_18_120000) do
   # These are extensions that must be enabled in order to support this database
-  enable_extension "pgcrypto"
   enable_extension "plpgsql"
 
   create_table "account_tombstones", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -27,9 +26,11 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_18_090000) do
     t.uuid "user_id"
     t.uuid "device_id"
     t.string "event_type", null: false
-    t.jsonb "metadata", default: {}
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.jsonb "metadata", default: {}
+    t.index ["device_id"], name: "index_audit_events_on_device_id"
+    t.index ["user_id"], name: "index_audit_events_on_user_id"
   end
 
   create_table "authenticators", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -45,6 +46,56 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_18_090000) do
     t.index ["user_id"], name: "index_authenticators_on_user_id"
   end
 
+  create_table "billing_accounts", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "user_id", null: false
+    t.string "environment", null: false
+    t.string "customer_id"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["customer_id", "environment"], name: "index_billing_accounts_on_customer_id_and_environment", unique: true
+    t.index ["user_id", "environment"], name: "index_billing_accounts_on_user_id_and_environment", unique: true
+    t.index ["user_id"], name: "index_billing_accounts_on_user_id"
+  end
+
+  create_table "billing_checkouts", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "billing_account_id", null: false
+    t.string "option", null: false
+    t.string "session_id"
+    t.string "status", default: "pending", null: false
+    t.datetime "expires_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["billing_account_id"], name: "index_billing_checkouts_on_billing_account_id"
+    t.index ["session_id"], name: "index_billing_checkouts_on_session_id", unique: true
+  end
+
+  create_table "billing_events", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.string "provider", null: false
+    t.string "environment", null: false
+    t.string "external_id", null: false
+    t.string "event_type", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["provider", "environment", "external_id"], name: "billing_event_identity", unique: true
+  end
+
+  create_table "billing_purchases", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "user_id", null: false
+    t.string "provider", null: false
+    t.string "environment", null: false
+    t.string "external_id", null: false
+    t.string "option", null: false
+    t.string "status", null: false
+    t.string "risk_state"
+    t.datetime "expires_at"
+    t.boolean "cancel_at_period_end", default: false, null: false
+    t.datetime "verified_at", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["provider", "environment", "external_id"], name: "billing_purchase_identity", unique: true
+    t.index ["user_id"], name: "index_billing_purchases_on_user_id"
+  end
+
   create_table "blob_parts", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.uuid "blob_id", null: false
     t.integer "part_number", null: false
@@ -53,6 +104,7 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_18_090000) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["blob_id", "part_number"], name: "index_blob_parts_on_blob_id_and_part_number", unique: true
+    t.index ["blob_id"], name: "index_blob_parts_on_blob_id"
   end
 
   create_table "blobs", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -65,6 +117,7 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_18_090000) do
     t.datetime "updated_at", null: false
     t.datetime "upload_expires_at"
     t.index ["status", "upload_expires_at"], name: "index_blobs_on_status_and_upload_expires_at"
+    t.index ["vault_id"], name: "index_blobs_on_vault_id"
   end
 
   create_table "device_challenges", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -88,18 +141,20 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_18_090000) do
     t.binary "checkpoint_hash"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.index ["device_id"], name: "index_device_checkpoints_on_device_id"
+    t.index ["vault_id"], name: "index_device_checkpoints_on_vault_id"
   end
 
   create_table "devices", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.uuid "user_id", null: false
     t.binary "public_key", null: false
     t.binary "name_encrypted"
-    t.string "platform"
-    t.datetime "trusted_at"
     t.datetime "last_seen_at"
     t.datetime "revoked_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "platform"
+    t.datetime "trusted_at"
     t.string "public_key_alg"
     t.uuid "authenticator_id"
     t.index ["authenticator_id"], name: "index_devices_on_authenticator_id"
@@ -183,6 +238,7 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_18_090000) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["item_id", "revision"], name: "index_item_versions_on_item_id_and_revision", unique: true
+    t.index ["item_id"], name: "index_item_versions_on_item_id"
   end
 
   create_table "items", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -191,6 +247,7 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_18_090000) do
     t.datetime "deleted_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.index ["vault_id"], name: "index_items_on_vault_id"
   end
 
   create_table "key_envelopes", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -200,6 +257,7 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_18_090000) do
     t.binary "encrypted_key", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.index ["vault_id"], name: "index_key_envelopes_on_vault_id"
   end
 
   create_table "mfa_challenges", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -213,6 +271,7 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_18_090000) do
     t.jsonb "pending_device"
     t.uuid "authenticator_id"
     t.index ["authenticator_id"], name: "index_mfa_challenges_on_authenticator_id"
+    t.index ["device_id"], name: "index_mfa_challenges_on_device_id"
     t.index ["token_digest"], name: "index_mfa_challenges_on_token_digest", unique: true
     t.index ["user_id"], name: "index_mfa_challenges_on_user_id"
   end
@@ -250,6 +309,7 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_18_090000) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["user_id", "code_digest"], name: "index_recovery_codes_on_user_id_and_code_digest", unique: true
+    t.index ["user_id"], name: "index_recovery_codes_on_user_id"
   end
 
   create_table "recovery_verifiers", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -268,16 +328,31 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_18_090000) do
     t.string "token_digest", null: false
     t.datetime "expires_at", null: false
     t.datetime "revoked_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
     t.datetime "step_up_verified_at"
     t.string "step_up_method"
     t.boolean "recovery_session", default: false, null: false
     t.string "user_agent"
     t.string "ip_address"
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
     t.uuid "authenticator_id"
     t.index ["authenticator_id"], name: "index_sessions_on_authenticator_id"
+    t.index ["device_id"], name: "index_sessions_on_device_id"
     t.index ["token_digest"], name: "index_sessions_on_token_digest", unique: true
+    t.index ["user_id"], name: "index_sessions_on_user_id"
+  end
+
+  create_table "share_links", id: :string, force: :cascade do |t|
+    t.uuid "owner_id", null: false
+    t.integer "format_version", default: 1, null: false
+    t.datetime "expires_at", null: false
+    t.binary "encrypted_payload"
+    t.binary "encrypted_owner_metadata"
+    t.datetime "revoked_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["expires_at"], name: "index_share_links_on_expires_at"
+    t.index ["owner_id"], name: "index_share_links_on_owner_id"
   end
 
   create_table "shares", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -289,7 +364,10 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_18_090000) do
     t.binary "encrypted_key"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.index ["owner_id"], name: "index_shares_on_owner_id"
+    t.index ["recipient_id"], name: "index_shares_on_recipient_id"
     t.index ["vault_id", "recipient_id"], name: "index_shares_on_vault_id_and_recipient_id", unique: true
+    t.index ["vault_id"], name: "index_shares_on_vault_id"
   end
 
   create_table "sync_events", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -302,19 +380,21 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_18_090000) do
     t.binary "signature"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.index ["device_id"], name: "index_sync_events_on_device_id"
     t.index ["item_id", "revision"], name: "index_sync_events_on_item_id_and_revision", unique: true
     t.index ["vault_id", "sequence"], name: "index_sync_events_on_vault_id_and_sequence", unique: true
+    t.index ["vault_id"], name: "index_sync_events_on_vault_id"
   end
 
   create_table "users", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.string "email", null: false
     t.string "status", default: "active", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
     t.boolean "mfa_enabled", default: false, null: false
     t.text "totp_secret_ciphertext"
     t.integer "totp_last_step"
     t.datetime "totp_confirmed_at"
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
     t.index ["email"], name: "index_users_on_email", unique: true
   end
 
@@ -324,18 +404,47 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_18_090000) do
     t.binary "encrypted_metadata"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.index ["owner_id"], name: "index_vaults_on_owner_id"
   end
 
+  add_foreign_key "audit_events", "devices"
+  add_foreign_key "audit_events", "users"
+  add_foreign_key "authenticators", "users"
+  add_foreign_key "billing_accounts", "users"
+  add_foreign_key "billing_checkouts", "billing_accounts"
+  add_foreign_key "billing_purchases", "users"
+  add_foreign_key "blob_parts", "blobs"
+  add_foreign_key "blobs", "vaults"
   add_foreign_key "device_challenges", "sessions", on_delete: :cascade
   add_foreign_key "device_challenges", "users", on_delete: :cascade
+  add_foreign_key "device_checkpoints", "devices"
+  add_foreign_key "device_checkpoints", "vaults"
   add_foreign_key "devices", "authenticators", on_delete: :nullify
+  add_foreign_key "devices", "users"
   add_foreign_key "families", "users", column: "owner_id"
   add_foreign_key "family_memberships", "families"
   add_foreign_key "family_memberships", "users"
   add_foreign_key "identity_keys", "users"
   add_foreign_key "item_shares", "users", column: "owner_id"
   add_foreign_key "item_shares", "users", column: "recipient_id"
+  add_foreign_key "item_versions", "items"
+  add_foreign_key "items", "vaults"
+  add_foreign_key "key_envelopes", "vaults"
   add_foreign_key "mfa_challenges", "authenticators", on_delete: :nullify
+  add_foreign_key "mfa_challenges", "devices"
+  add_foreign_key "mfa_challenges", "users"
   add_foreign_key "passkey_challenges", "email_verifications", on_delete: :cascade
+  add_foreign_key "recovery_challenges", "users"
+  add_foreign_key "recovery_codes", "users"
+  add_foreign_key "recovery_verifiers", "users"
   add_foreign_key "sessions", "authenticators", on_delete: :nullify
+  add_foreign_key "sessions", "devices"
+  add_foreign_key "sessions", "users"
+  add_foreign_key "share_links", "users", column: "owner_id"
+  add_foreign_key "shares", "users", column: "owner_id"
+  add_foreign_key "shares", "users", column: "recipient_id"
+  add_foreign_key "shares", "vaults"
+  add_foreign_key "sync_events", "devices"
+  add_foreign_key "sync_events", "vaults"
+  add_foreign_key "vaults", "users", column: "owner_id"
 end

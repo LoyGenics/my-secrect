@@ -9,6 +9,10 @@ module Api
         require_step_up!
         Accounts::Delete.call(user: current_user)
         head :no_content
+      rescue Billing::DeletionGuard::ActiveBilling
+        render json: { error: 'active_billing', message: 'Cancel recurring billing before deleting your account.' }, status: :conflict
+      rescue Billing::Config::Unavailable, Stripe::StripeError
+        render json: { error: 'billing_unavailable' }, status: :service_unavailable
       rescue Accounts::Delete::StorageDeletionError
         render json: { error: 'storage_unavailable', message: 'object storage deletion failed; account not deleted, retry' },
                status: :service_unavailable

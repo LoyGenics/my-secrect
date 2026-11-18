@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { VaultItem } from '../../../../packages/core/src/types';
 import CsvImport from './CsvImport';
 import FamilyView from './FamilyView';
+import BillingView from './BillingView';
 import {
   Alert,
   Button,
@@ -142,6 +143,7 @@ export default function SettingsView({
         <p className="ms-text-sm ms-text-muted mb-0 mt-1">{tp(st.summary, itemCount)}</p>
       </div>
 
+      <BillingView apiBaseUrl={apiBaseUrl} />
       <FamilyView apiBaseUrl={apiBaseUrl} />
 
       {/* Preferences: language + finish (UI preferences, stored on this device only). */}

@@ -68,7 +68,7 @@ export default function RestoreBackupPanel({ onRestored, onCancel }: { onRestore
   return (
     <View style={{ marginTop: 20 }}>
       <Text style={{ color: colors.text, fontSize: 15, lineHeight: 22, marginBottom: 14 }}>
-        Restore an encrypted backup (format version 3, or 2 from older versions). Paste the backup file contents below. Nothing existing is overwritten.
+        Paste the contents of your encrypted backup. Then enter its passphrase or recovery key to restore your items.
       </Text>
       <Field label="Backup file contents" testID="restore-json" multiline value={json} onChangeText={(v) => { setJson(v); setError(''); }} autoCapitalize="none" autoCorrect={false} />
       <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>

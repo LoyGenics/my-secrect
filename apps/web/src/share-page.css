@@ -1,0 +1,16 @@
+.share-page{min-height:100dvh;background:#f6f4f1;color:#1e2227;padding:clamp(24px,6vw,64px) 20px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color-scheme:light}
+.share-brand{display:flex;align-items:center;gap:12px;max-width:600px;margin:0 auto 30px;font-size:20px;font-weight:650}
+.share-brand img{width:40px;height:40px;object-fit:contain}
+.share-card{max-width:600px;margin:auto;border-radius:16px;background:#fff;padding:clamp(24px,5vw,40px);overflow-wrap:anywhere}
+.share-card h1{font-size:clamp(26px,5vw,34px);line-height:1.18;letter-spacing:-.025em;margin:0 0 12px;font-weight:650}
+.share-card p{font-size:15px;line-height:1.5;color:#5f656c}
+.share-card .share-caption{margin:0 0 30px}
+.share-card dl{margin:0}.shared-field{padding:18px 0;border-top:1px solid #ebe8e3}
+.shared-field dt{font-size:13px;color:#5f656c;margin-bottom:8px;text-transform:none}.shared-field dd{margin:0;display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;font-size:17px;line-height:1.5}
+.shared-field dd>span{flex:1;min-width:160px;white-space:pre-wrap;word-break:break-word}
+.share-field-actions{display:flex;gap:4px;flex-wrap:wrap}
+.share-field-actions button{cursor:pointer;border:0;border-radius:8px;background:#f6f4f1;min-height:44px;padding:10px 12px;color:#b8430f;font:inherit;font-size:14px;font-weight:600;transition:background .15s ease-out}
+.share-field-actions button:hover{background:#fff0e8}.share-field-actions button:focus-visible{outline:2px solid #b8430f;outline-offset:3px}
+.share-page ::selection{background:#f9d8c7}
+@media(prefers-color-scheme:dark){.share-page{color-scheme:dark;background:#17191c;color:#f4f5f6}.share-card{background:#22262b}.share-card p,.shared-field dt{color:#a0a7ae}.shared-field{border-color:#343941}.share-field-actions button{background:#30353b;color:#ffac82}.share-field-actions button:hover{background:#3c332f}}
+@media(prefers-reduced-motion:reduce){.share-field-actions button{transition:none}}

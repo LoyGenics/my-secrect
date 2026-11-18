@@ -247,12 +247,24 @@ export async function decryptIdentity(encryptedSecretKey: string, registeredPubl
   const secretKey = decodeExact(parsed.secret_key, KEY_BYTES, malformed);
   const innerPublic = decodeExact(parsed.public_key, KEY_BYTES, malformed);
   const registered = decodeExact(registeredPublicKey, KEY_BYTES, malformed);
-  const derived = na.crypto_scalarmult_base(secretKey);
-  if (!bytesEqual(derived, innerPublic) || !bytesEqual(derived, registered)) {
+  // Prove the stored private key belongs to the registered public key using
+  // libsodium authenticated boxes. This also works on native bindings that
+  // expose crypto_box but do not expose crypto_scalarmult_base.
+  const probe = na.crypto_box_keypair();
+  const challenge = na.from_string('my-secrect:identity-key-check:v1');
+  let opened: Uint8Array | undefined;
+  try {
+    if (!bytesEqual(innerPublic, registered)) throw malformed();
+    const nonce = na.randombytes_buf(NONCE_BYTES);
+    const box = na.crypto_box_easy(challenge, nonce, probe.publicKey, secretKey);
+    opened = na.crypto_box_open_easy(box, nonce, registered, probe.privateKey);
+    if (!bytesEqual(opened, challenge)) throw malformed();
+    return { publicKey: innerPublic, secretKey };
+  } catch {
     secretKey.fill(0);
     throw new IdentityError('the sharing identity does not match the public key registered for your account');
-  }
-  return { publicKey: derived, secretKey };
+  } finally { probe.privateKey.fill(0); opened?.fill(0); challenge.fill(0); }
+
 }
 
 // ---------------------------------------------------------------------------

@@ -29,6 +29,7 @@ import {
   buildEncryptedManifest,
   bytesSource,
   verifyManifest,
+  unwrapFileKey,
   webStorageResumeStore,
   type BlobApi,
   type ChunkSource,
@@ -135,6 +136,48 @@ test('stored objects and manifest are ciphertext: no plaintext marker / PNG magi
   }
   const stored = Buffer.from(stack.blobs.get(blobId)!.manifest, 'base64');
   for (const needle of ['holiday', 'image/png', 'file_name', 'wrapped_file_key']) assert.ok(!stored.includes(needle), `manifest leaks ${needle}`);
+});
+
+test('API requests and direct storage transfers disclose no file metadata or decryption keys', async () => {
+  const stack = fakeStack();
+  const calls: unknown[] = [];
+  const api: BlobApi = {
+    createBlobUploadSession: async (id, body) => {
+      calls.push({ id, body });
+      assert.deepEqual(Object.keys(body).sort(), ['blob_id', 'ciphertext_size', 'encrypted_manifest', 'part_count', 'part_size']);
+      return stack.api.createBlobUploadSession(id, body);
+    },
+    completeBlobUpload: async (id, parts) => {
+      calls.push({ id, parts });
+      for (const part of parts) assert.deepEqual(Object.keys(part).sort(), ['ciphertext_sha256_b64', 'ciphertext_size', 'part_number']);
+      return stack.api.completeBlobUpload(id, parts);
+    },
+    createBlobDownloadSession: async (id) => {
+      calls.push({ id });
+      return stack.api.createBlobDownloadSession(id);
+    },
+  };
+  const transfers: Array<{ url: string; headers: Record<string, string>; body: string }> = [];
+  const fetchImpl: FetchLike = async (url, init) => {
+    const headers = Object.fromEntries(new Headers(init?.headers).entries());
+    assert.deepEqual(headers, init?.method === 'PUT' ? { 'content-type': 'application/octet-stream' } : {});
+    transfers.push({ url, headers, body: init?.body ? Buffer.from(init.body as Uint8Array).toString('base64') : '' });
+    return stack.fetchImpl(url, init);
+  };
+  const data = pngLike(CHUNK_SIZE + 128);
+  const prepared = await prepareUpload({ api, vaultId: 'opaque-vault-id', vaultKey, crypto: libsodiumAdapter,
+    data, fileName: 'private-family-photo.png', mimeType: 'image/png' });
+  const fileKey = await unwrapFileKey(prepared.manifest.wrapped_file_key!, vaultKey, libsodiumAdapter);
+  try {
+    await runUpload(api, prepared, keys, { fetchImpl });
+    const got = await downloadFile(api, prepared.blobId, vaultKey, libsodiumAdapter, { fetchImpl });
+    assert.deepEqual(Buffer.from(got.bytes), Buffer.from(data));
+    const wire = JSON.stringify({ calls, transfers });
+    for (const secret of ['private-family-photo.png', 'image/png', toBase64(vaultKey), toBase64(fileKey),
+      Buffer.from(vaultKey).toString('hex'), Buffer.from(fileKey).toString('hex')]) {
+      assert.ok(!wire.includes(secret), 'plaintext metadata and raw keys must stay on the client');
+    }
+  } finally { fileKey.fill(0); }
 });
 
 test('empty file and exact-chunk-multiple file round trip', async () => {

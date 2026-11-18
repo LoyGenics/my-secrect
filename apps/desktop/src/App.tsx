@@ -144,7 +144,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
   const [unlocked, setUnlocked] = useState<boolean>(() => isUnlocked());
   const [items, setItems] = useState<VaultItem[]>(() => (isUnlocked() ? listItems() : []));
   const [trash, setTrash] = useState<VaultItem[]>(() => (isUnlocked() ? listTrash() : []));
-  const [view, setView] = useState<SidebarView>('all');
+  const [view, setView] = useState<SidebarView>(() => new URLSearchParams(window.location.search).has('billing') ? 'settings' : 'all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showPalette, setShowPalette] = useState(false);

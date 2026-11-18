@@ -53,6 +53,10 @@ function standIn(): NativeSodium {
     // the stand-in uses OpenSSL HMAC.
     _unstable_crypto_kdf_hkdf_sha256_extract: (key, salt) => Uint8Array.from(createHmac('sha256', jsi(salt)).update(jsi(key)).digest()),
     to_hex: (b) => real.to_hex(jsi(b)),
+    to_string: (b) => real.to_string(jsi(b)),
+    crypto_box_keypair: () => real.crypto_box_keypair(),
+    crypto_box_easy: (m, n, pk, sk) => real.crypto_box_easy(typeof m === 'string' ? m : jsi(m), jsi(n), jsi(pk), jsi(sk)),
+    crypto_box_open_easy: (c, n, pk, sk) => real.crypto_box_open_easy(jsi(c), jsi(n), jsi(pk), jsi(sk)),
   };
 }
 
@@ -132,4 +136,13 @@ test('random draws are 32 non-zero, distinct values (main self-test rule)', asyn
 test('ready rejects when the native binding is not installed', async () => {
   const broken = { ...standIn(), crypto_aead_xchacha20poly1305_ietf_NPUBBYTES: undefined } as unknown as NativeSodium;
   await assert.rejects(() => createSodium(broken, sha256).ready, /not installed/);
+});
+
+test('native shim supports chunk hashing and non-ASCII share-link payloads', async () => {
+  await shim.ready;
+  const state = shim.crypto_hash_sha256_init();
+  shim.crypto_hash_sha256_update(state, new TextEncoder().encode('abc'));
+  shim.crypto_hash_sha256_update(state, new TextEncoder().encode('def'));
+  assert.equal(toHex(shim.crypto_hash_sha256_final(state)), 'bef57ec7f53a6d40beb640a780a639c83bc29ac8a9816f1fc6c5c6dcd93c4721');
+  assert.equal(shim.to_string(shim.from_string('Mật khẩu 🔑')), 'Mật khẩu 🔑');
 });

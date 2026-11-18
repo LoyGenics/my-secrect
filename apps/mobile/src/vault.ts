@@ -408,6 +408,17 @@ export function exportPlaintext(): string {
 export function lockVault(): void { clearMemory(); }
 export function isUnlocked(): boolean { return vaultKey !== null; }
 function isDeleted(item: VaultItem): boolean { return item.deleted_at != null; }
+/** Isolated, temporary access for the authenticated file pipeline. */
+export async function withVaultKey<T>(fn: (key: Uint8Array, assertUnlocked: () => void) => Promise<T>): Promise<T> {
+  const activeKey = vaultKey;
+  if (!activeKey) throw new Error('vault locked');
+  const copy = activeKey.slice();
+  function assertUnlocked() {
+    if (vaultKey !== activeKey) throw new Error('vault locked');
+  }
+  try { return await fn(copy, assertUnlocked); } finally { copy.fill(0); }
+}
+
 export function listItems(includeDeleted = false): VaultItem[] { return includeDeleted ? [...unlockedItems] : unlockedItems.filter((i) => !isDeleted(i)); }
 export function listTrash(): VaultItem[] { return unlockedItems.filter((i) => isDeleted(i)); }
 

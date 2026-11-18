@@ -1,9 +1,10 @@
 import React from 'react';
 import { Text, View } from 'react-native';
-import { colors } from '../theme';
+import { useMobileTheme } from '../theme';
 import { passwordStrength } from '../utils/password';
 
 export default function StrengthMeter({ password, testID = 'strength-meter' }: { password: string; testID?: string }) {
+  const { colors, styles } = useMobileTheme();
   const { score, label } = passwordStrength(password);
   const color = score <= 2 ? colors.danger : score <= 4 ? colors.warn : colors.ok;
   return (

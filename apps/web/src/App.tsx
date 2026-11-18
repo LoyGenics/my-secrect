@@ -1,3 +1,4 @@
+import SharePage from './SharePage';
 import DesktopApp from '../../desktop/src/App';
 
 // Web mirror of the desktop vault app.
@@ -9,6 +10,8 @@ import DesktopApp from '../../desktop/src/App';
 // panes scroll — never the page.
 
 export default function App() {
+  const shared = window.location.pathname.match(/^\/share\/([A-Za-z0-9_-]{32})\/?$/);
+  if (shared) return <SharePage id={shared[1]} />;
   return (
     <div className="web-shell h-dvh bg-[var(--ms-color-bg-base)]">
       <div className="h-full min-h-0">

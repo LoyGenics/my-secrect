@@ -94,3 +94,8 @@ class Rack::Attack
 
   self.throttled_responder = ->(_req) { [429, { 'Content-Type' => 'application/json' }, [{ error: 'rate_limited' }.to_json]] }
 end
+
+class Rack::Attack
+  throttle('share-links/read/ip', limit: 120, period: 60) { |req| req.ip if req.get? && req.path.start_with?('/api/v1/share-links/') }
+  throttle('share-links/create/ip', limit: 20, period: 60) { |req| req.ip if req.post? && req.path == '/api/v1/share-links' }
+end

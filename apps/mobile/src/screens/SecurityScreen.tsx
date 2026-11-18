@@ -3,7 +3,9 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from 'rea
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import Field from '../components/Field';
-import { colors, styles } from '../theme';
+import { Empty, Select } from '../components/mobile-ui';
+import { illustrations } from '../../../../packages/ui/src/native';
+import { useMobileTheme } from '../theme';
 import { useTranslation } from '../../../../packages/i18n/src/react';
 // NOTE (import depth): from apps/mobile/src/screens/ the repo root is four
 // levels up — '../../../../packages/...' — the same depth TrashScreen uses
@@ -110,6 +112,8 @@ export default function SecurityScreen({ onClose, onSignedOut, onUnauthorized }:
    *  server-side. App clears the token and shows SignIn. */
   onUnauthorized?: () => void;
 }) {
+  const [sectionKey, setSectionKey] = useState('auth');
+  const { colors, styles } = useMobileTheme();
   const { t } = useTranslation();
   const [baseUrl, setBaseUrl] = useState<string | null>(null); // null = not loaded yet
   const [loading, setLoading] = useState(false);
@@ -491,34 +495,48 @@ export default function SecurityScreen({ onClose, onSignedOut, onUnauthorized }:
 
   if (baseUrl === '') {
     return (
-      <ScrollView style={styles.screen} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
-        <Pressable testID="security-back" accessibilityLabel="Back to settings" onPress={onClose} hitSlop={10} style={{ alignSelf: 'flex-start', paddingVertical: 8 }}><Text style={{ color: colors.link, fontSize: 15 }}>‹ Back</Text></Pressable>
-        <Text style={styles.title}>{t('security.title')}</Text>
-        <Text style={[styles.subtitle, { marginTop: 12 }]}>{t('security.notConfigured')}</Text>
-        <Text style={{ color: colors.muted, fontSize: 14, lineHeight: 20, marginTop: 8 }}>{t('security.notConfiguredBody')}</Text>
-        <Pressable testID="security-close" accessibilityLabel={t('security.close')} style={[styles.ghostButton, { marginTop: 20 }]} onPress={onClose}>
-          <Text style={styles.ghostButtonText}>{t('security.close')}</Text>
-        </Pressable>
+      <ScrollView style={styles.screen} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 20, paddingBottom: 40, width: '100%', maxWidth: 720, alignSelf: 'center' }}>
+        <Empty image={illustrations.emptyVault} title={t('mobileUI.securityConnect')} detail={t('mobileUI.securityConnectBody')} />
       </ScrollView>
     );
   }
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
-      <Pressable testID="security-back" accessibilityLabel="Back to settings" onPress={onClose} hitSlop={10} style={{ alignSelf: 'flex-start', paddingVertical: 8 }}><Text style={{ color: colors.link, fontSize: 15 }}>‹ Back</Text></Pressable>
-      <Text style={styles.title}>{t('security.title')}</Text>
-      <Text style={styles.subtitle}>{t('security.subtitle')}</Text>
+    <ScrollView style={styles.screen} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 20, paddingBottom: 40, width: '100%', maxWidth: 720, alignSelf: 'center' }}>
       {notice ? <Text testID="security-notice" style={{ color: colors.link, fontSize: 14, lineHeight: 20, marginTop: 10 }}>{notice}</Text> : null}
       {error ? <Text testID="security-error" style={[styles.error, { marginTop: 10 }]}>{error}</Text> : null}
       {offline ? (
         <View style={{ marginTop: 12 }}>
-          <Text style={{ color: colors.warn, fontSize: 14 }}>{t('security.offline')}</Text>
+          <Text style={{ color: colors.warnText, fontSize: 14 }}>{t('security.offline')}</Text>
           <Pressable testID="security-retry" accessibilityLabel={t('security.retry')} style={[styles.ghostButton, { marginTop: 10 }]} onPress={() => client && void loadAll(client)}>
             <Text style={styles.ghostButtonText}>{t('security.retry')}</Text>
           </Pressable>
         </View>
       ) : null}
 
+      {stepUpOpen ? (
+        <View style={{ backgroundColor: colors.card, borderColor: colors.accent, borderWidth: 1, borderRadius: 12, padding: 16, marginTop: 24 }}>
+          <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700' }}>{t('security.stepUpTitle')}</Text>
+          <Text style={{ color: colors.muted, fontSize: 14, lineHeight: 20, marginTop: 6 }}>{t('security.stepUpBody')}</Text>
+          <View style={{ marginTop: 12 }}>
+            <Field label={t('security.stepUpTotpLabel')} testID="stepup-totp-code" placeholder="123456" value={stepUpCode} onChangeText={setStepUpCode} autoCapitalize="none" autoCorrect={false} keyboardType="number-pad" />
+          </View>
+          {stepUpError ? <Text testID="stepup-error" style={[styles.error, { marginBottom: 10 }]}>{stepUpError}</Text> : null}
+          <View style={{ flexDirection: 'row' }}>
+            <Pressable testID="stepup-confirm" accessibilityLabel={t('security.confirm')} disabled={stepUpBusy} style={[styles.primaryButton, { flex: 1, marginRight: 8 }]} onPress={() => void submitStepUp()}>
+              <Text style={styles.primaryButtonText}>{t('security.confirm')}</Text>
+            </Pressable>
+            <Pressable testID="stepup-cancel" accessibilityLabel={t('security.cancel')} style={[styles.ghostButton, { flex: 1 }]} onPress={() => { setStepUpOpen(false); setStepUpCode(''); setStepUpError(''); pendingStepUpAction.current = null; }}>
+              <Text style={styles.ghostButtonText}>{t('security.cancel')}</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+      <Select testID="security-section" label={t('security.title')} value={sectionKey} choices={[
+        { value: 'auth', label: t('security.authMethods') }, { value: 'devices', label: t('security.devices') },
+        { value: 'sessions', label: t('security.sessions') }, { value: 'recovery', label: t('security.recovery') }, { value: 'activity', label: t('security.activity') },
+      ]} onChange={setSectionKey} />
+      {sectionKey === 'auth' && <>
       {section(t('security.authMethods'))}
       <Text style={[styles.label, { marginTop: 4 }]}>{t('security.passkeys')}</Text>
       {passkeys.length === 0 ? (
@@ -535,8 +553,8 @@ export default function SecurityScreen({ onClose, onSignedOut, onUnauthorized }:
       {/* TODO(i18n): no security.* key was specified for the mobile
           passkey limitation, so it is written here in English. */}
       <View style={{ backgroundColor: colors.warnSoft, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 12, marginTop: 8 }}>
-        <Text style={{ color: colors.warn, fontSize: 13, lineHeight: 18, fontWeight: '600' }}>
-          Add a passkey from Desktop or Web — passkeys cannot be created from this mobile build yet (this app has no WebAuthn ceremony).
+        <Text style={{ color: colors.warnText, fontSize: 13, lineHeight: 18, fontWeight: '600' }}>
+          Add new passkeys from My Secret on desktop or web. You can manage existing passkeys here.
         </Text>
       </View>
 
@@ -551,7 +569,7 @@ export default function SecurityScreen({ onClose, onSignedOut, onUnauthorized }:
         <View style={{ marginTop: 12 }}>
           <Text style={[styles.label]}>{t('security.mfaSecretLabel')}</Text>
           <Text selectable testID="mfa-secret" style={{ color: colors.text, fontSize: 14, fontFamily: 'monospace' }}>{mfaEnroll.secret}</Text>
-          <Text style={{ color: colors.warn, fontSize: 13, lineHeight: 18, marginTop: 6 }}>{t('security.mfaSecretWarning')}</Text>
+          <Text style={{ color: colors.warnText, fontSize: 13, lineHeight: 18, marginTop: 6 }}>{t('security.mfaSecretWarning')}</Text>
           <Pressable testID="mfa-copy-secret" accessibilityLabel={t('common.copy')} style={[styles.ghostButton, { marginTop: 10 }]} onPress={() => void Clipboard.setStringAsync(mfaEnroll.secret)}>
             <Text style={styles.ghostButtonText}>{t('common.copy')}</Text>
           </Pressable>
@@ -579,7 +597,7 @@ export default function SecurityScreen({ onClose, onSignedOut, onUnauthorized }:
       </Pressable>
       {recoveryCodes ? (
         <View style={{ backgroundColor: colors.input, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 12, marginTop: 12 }}>
-          <Text style={{ color: colors.warn, fontSize: 13, lineHeight: 18 }}>{t('security.codesShownOnce')}</Text>
+          <Text style={{ color: colors.warnText, fontSize: 13, lineHeight: 18 }}>{t('security.codesShownOnce')}</Text>
           {recoveryCodes.map((c) => (
             <Text key={c} selectable style={{ color: colors.text, fontSize: 14, fontFamily: 'monospace', marginTop: 6 }}>{c}</Text>
           ))}
@@ -594,6 +612,8 @@ export default function SecurityScreen({ onClose, onSignedOut, onUnauthorized }:
         </View>
       ) : null}
 
+      </>}
+      {sectionKey === 'devices' && <>
       {section(t('security.devices'))}
       {devices.length === 0 ? (
         <Text style={{ color: colors.muted }}>—</Text>
@@ -629,13 +649,15 @@ export default function SecurityScreen({ onClose, onSignedOut, onUnauthorized }:
         </View>
       ))}
 
+      </>}
+      {sectionKey === 'sessions' && <>
       {section(t('security.sessions'))}
       {/* The revocation notice lives in the revoke-others confirmation
           string (security.revokeOthersConfirm): revocation invalidates
           the server session only and does NOT erase secrets already
           downloaded / offline on that device. Shown here as a standing
           note and again in the confirmation dialog. */}
-      <Text style={{ color: colors.warn, fontSize: 13, lineHeight: 18, marginBottom: 10 }}>{t('security.revokeOthersConfirm')}</Text>
+      <Text style={{ color: colors.warnText, fontSize: 13, lineHeight: 18, marginBottom: 10 }}>{t('security.revokeOthersConfirm')}</Text>
       {sessions.length === 0 ? (
         <Text style={{ color: colors.muted }}>—</Text>
       ) : sessions.map((s) => (
@@ -643,7 +665,7 @@ export default function SecurityScreen({ onClose, onSignedOut, onUnauthorized }:
           <Text style={{ color: colors.text, fontSize: 15, fontWeight: '600' }}>{s.device_id ?? s.id}</Text>
           <Text style={{ color: colors.muted, fontSize: 13, marginTop: 4 }}>{s.user_agent ?? ''}</Text>
           <Text style={{ color: colors.muted, fontSize: 13 }}>{s.ip_address ?? ''}{s.created_at ? ` · ${fmtDate(s.created_at)}` : ''}</Text>
-          {s.current ? <Text style={{ color: colors.ok, fontSize: 13, fontWeight: '600', marginTop: 4 }}>{t('security.currentSession')}</Text> : null}
+          {s.current ? <Text style={{ color: colors.okText, fontSize: 13, fontWeight: '600', marginTop: 4 }}>{t('security.currentSession')}</Text> : null}
           {!s.current ? (
             <Pressable testID={`revoke-session-${s.id}`} accessibilityLabel={t('security.revokeSession')} disabled={busy} style={[styles.ghostButton, { marginTop: 10 }]} onPress={() => handleRevokeSession(s)}>
               <Text style={[styles.ghostButtonText, { color: colors.danger }]}>{t('security.revokeSession')}</Text>
@@ -658,13 +680,15 @@ export default function SecurityScreen({ onClose, onSignedOut, onUnauthorized }:
         <Text style={[styles.ghostButtonText, { color: colors.danger }]}>{t('signin.signOut')}</Text>
       </Pressable>
 
+      </>}
+      {sectionKey === 'recovery' && <>
       {section(t('security.recovery'))}
       <Text style={[styles.label, { marginTop: 4 }]}>{t('security.recoverySettings')}</Text>
       <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 18 }}>{t('security.recoveryNote')}</Text>
       <Text style={[styles.label, { marginTop: 16 }]}>{t('security.recoveryVerifier')}</Text>
       {verifierFingerprint ? (
         <View style={{ marginTop: 4 }}>
-          <Text style={{ color: colors.ok, fontSize: 14 }}>{t('security.recoveryVerifierRegistered')}</Text>
+          <Text style={{ color: colors.okText, fontSize: 14 }}>{t('security.recoveryVerifierRegistered')}</Text>
           <Text selectable testID="recovery-verifier-fingerprint" style={{ color: colors.text, fontSize: 14, fontFamily: 'monospace', marginTop: 6 }}>{verifierFingerprint}</Text>
         </View>
       ) : null}
@@ -674,6 +698,8 @@ export default function SecurityScreen({ onClose, onSignedOut, onUnauthorized }:
       </Pressable>
 
 
+      </>}
+      {sectionKey === 'activity' && <>
       {section(t('security.activity'))}
       {activity.length === 0 ? (
         <Text style={{ color: colors.muted }}>{t('security.noActivity')}</Text>
@@ -684,24 +710,9 @@ export default function SecurityScreen({ onClose, onSignedOut, onUnauthorized }:
         </View>
       ))}
 
-      {stepUpOpen ? (
-        <View style={{ backgroundColor: colors.card, borderColor: colors.accent, borderWidth: 1, borderRadius: 12, padding: 16, marginTop: 24 }}>
-          <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700' }}>{t('security.stepUpTitle')}</Text>
-          <Text style={{ color: colors.muted, fontSize: 14, lineHeight: 20, marginTop: 6 }}>{t('security.stepUpBody')}</Text>
-          <View style={{ marginTop: 12 }}>
-            <Field label={t('security.stepUpTotpLabel')} testID="stepup-totp-code" placeholder="123456" value={stepUpCode} onChangeText={setStepUpCode} autoCapitalize="none" autoCorrect={false} keyboardType="number-pad" />
-          </View>
-          {stepUpError ? <Text testID="stepup-error" style={[styles.error, { marginBottom: 10 }]}>{stepUpError}</Text> : null}
-          <View style={{ flexDirection: 'row' }}>
-            <Pressable testID="stepup-confirm" accessibilityLabel={t('security.confirm')} disabled={stepUpBusy} style={[styles.primaryButton, { flex: 1, marginRight: 8 }]} onPress={() => void submitStepUp()}>
-              <Text style={styles.primaryButtonText}>{t('security.confirm')}</Text>
-            </Pressable>
-            <Pressable testID="stepup-cancel" accessibilityLabel={t('security.cancel')} style={[styles.ghostButton, { flex: 1 }]} onPress={() => { setStepUpOpen(false); setStepUpCode(''); setStepUpError(''); pendingStepUpAction.current = null; }}>
-              <Text style={styles.ghostButtonText}>{t('security.cancel')}</Text>
-            </Pressable>
-          </View>
-        </View>
-      ) : null}
+      </>}
+
+
     </ScrollView>
   );
 }

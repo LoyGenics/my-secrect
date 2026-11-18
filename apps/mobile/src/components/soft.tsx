@@ -16,6 +16,7 @@ import {
   type TextInputProps,
   type ViewStyle,
 } from 'react-native';
+import { useMobileTheme } from '../theme';
 import { Icon, type IconName } from '../../../../packages/ui/src/native';
 
 /**
@@ -25,24 +26,13 @@ import { Icon, type IconName } from '../../../../packages/ui/src/native';
  * always carries white text. Motion is skipped under reduced motion.
  */
 
-export const P = {
-  bg: '#F6F4F1',
-  surface: '#FFFFFF',
-  surface2: '#FAF9F7',
-  line: '#EBE8E3',
-  ink: '#1E2227',
-  ink2: '#565C63',
-  ink3: '#8A9097',
-  /** Button fill: white text on it is 4.7:1 (the lighter #FF6A2B is 2.9:1). */
-  brandFill: '#D23F0C',
-  brand: '#FF6A2B',
-  brandSoft: '#FFF0E8',
-  brandText: '#B8430F',
-  danger: '#8A1F23',
-  dangerSoft: '#FFE7E2',
-  warnSoft: '#FFF4D8',
-  warnText: '#6B4A07',
-};
+export function useSoftPalette() {
+  const { colors } = useMobileTheme();
+  return { bg: colors.bg, surface: colors.card, surface2: colors.surface2, line: colors.line,
+    ink: colors.text, ink2: colors.secondary, ink3: colors.muted,
+    brandFill: colors.accent, brand: colors.link, brandSoft: colors.accentSoft, brandText: colors.link,
+    danger: colors.dangerText, dangerSoft: colors.dangerSoft, warnSoft: colors.warnSoft, warnText: colors.warnText };
+}
 
 
 export function useReducedMotion(): boolean {
@@ -64,8 +54,8 @@ export function Float({ children, reduced, style }: { children: ReactNode; reduc
     if (reduced) return undefined;
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(v, { toValue: 1, duration: 3200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        Animated.timing(v, { toValue: 0, duration: 3200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(v, { toValue: 1, duration: 3200, easing: Easing.inOut(Easing.sin), useNativeDriver: true, isInteraction: false }),
+        Animated.timing(v, { toValue: 0, duration: 3200, easing: Easing.inOut(Easing.sin), useNativeDriver: true, isInteraction: false }),
       ]),
     );
     loop.start();
@@ -77,22 +67,14 @@ export function Float({ children, reduced, style }: { children: ReactNode; reduc
 }
 
 /** One entrance per element: fade + rise, staggered by `index`. */
-export function Rise({ index = 0, reduced, children }: { index?: number; reduced: boolean; children: ReactNode }) {
-  const v = useRef(new Animated.Value(reduced ? 1 : 0)).current;
-  useEffect(() => {
-    if (reduced) {
-      v.setValue(1);
-      return;
-    }
-    Animated.timing(v, { toValue: 1, duration: 460, delay: index * 55, easing: Easing.out(Easing.exp), useNativeDriver: true }).start();
-  }, [index, reduced, v]);
-  const translateY = v.interpolate({ inputRange: [0, 1], outputRange: [14, 0] });
-  return <Animated.View style={{ opacity: v, transform: [{ translateY }] }}>{children}</Animated.View>;
+export function Rise({ children }: { index?: number; reduced: boolean; children: ReactNode }) {
+  return <View>{children}</View>;
 }
 
 export function Btn({ label, icon, onPress, disabled, busy, primary, testID }: {
   label: string; icon?: IconName; onPress: () => void; disabled?: boolean; busy?: boolean; primary?: boolean; testID: string;
 }) {
+  const P = useSoftPalette();
   const off = !!disabled || !!busy;
   // A filled button always carries white text.
   const color = primary ? '#FFFFFF' : P.ink;
@@ -105,8 +87,10 @@ export function Btn({ label, icon, onPress, disabled, busy, primary, testID }: {
       disabled={off}
       onPress={onPress}
       style={({ pressed }) => ({
-        height: 52,
-        borderRadius: 26,
+        minHeight: 52,
+        paddingVertical: 13,
+        paddingHorizontal: 16,
+        borderRadius: 12,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
@@ -117,10 +101,10 @@ export function Btn({ label, icon, onPress, disabled, busy, primary, testID }: {
         opacity: disabled && !busy ? 0.55 : 1,
         transform: [{ scale: pressed ? 0.98 : 1 }],
         shadowColor: P.brandFill,
-        shadowOpacity: primary ? 0.3 : 0,
+        shadowOpacity: 0,
         shadowRadius: 14,
         shadowOffset: { width: 0, height: 8 },
-        elevation: primary ? 4 : 0,
+        elevation: 0,
       })}
     >
       {busy ? <ActivityIndicator color={color} /> : icon ? <Icon name={icon} size="lg" color={color} /> : null}
@@ -130,6 +114,7 @@ export function Btn({ label, icon, onPress, disabled, busy, primary, testID }: {
 }
 
 export function TextButton({ label, onPress, disabled, brand, testID }: { label: string; onPress: () => void; disabled?: boolean; brand?: boolean; testID: string }) {
+  const P = useSoftPalette();
   return (
     <Pressable testID={testID} accessibilityRole="button" accessibilityLabel={label} disabled={disabled} onPress={onPress} style={{ minHeight: 44, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.5 : 1 }}>
       <Text style={{ fontSize: 14, fontWeight: '600', color: brand ? P.brandText : P.ink2, textAlign: 'center' }}>{label}</Text>
@@ -140,10 +125,11 @@ export function TextButton({ label, onPress, disabled, brand, testID }: { label:
 
 /** Labelled soft input. */
 export function SoftField({ label, testID, icon, ...props }: Omit<TextInputProps, 'style'> & { label: string; testID: string; icon?: IconName }) {
+  const P = useSoftPalette();
   return (
     <View style={{ gap: 6 }}>
       <Text style={{ fontSize: 13, fontWeight: '600', color: P.ink2 }}>{label}</Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, height: 52, borderRadius: 14, borderWidth: 1, borderColor: P.line, backgroundColor: P.surface2, paddingHorizontal: 14 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 52, paddingVertical: 12, borderRadius: 14, borderWidth: 1, borderColor: P.line, backgroundColor: P.surface2, paddingHorizontal: 14 }}>
         {icon ? <Icon name={icon} size="lg" color={P.ink3} /> : null}
         <TextInput testID={testID} accessibilityLabel={label} placeholderTextColor={P.ink3} style={{ flex: 1, fontSize: 16, color: P.ink }} {...props} />
       </View>
@@ -153,6 +139,7 @@ export function SoftField({ label, testID, icon, ...props }: Omit<TextInputProps
 
 /** Error line. */
 export function SoftAlert({ testID, children }: { testID: string; children: ReactNode }) {
+  const P = useSoftPalette();
   return (
     <Text testID={testID} accessibilityRole="alert" style={{ backgroundColor: P.dangerSoft, color: P.danger, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, lineHeight: 20 }}>{children}</Text>
   );
@@ -163,26 +150,27 @@ export function GhostBrandMark() {
 }
 
 /** Page: brand row, floating clay hero, then a white card holding the content. */
-export function SoftScreen({ art, artSize = 170, title, subtitle, children, footer }: {
+export function SoftScreen({ art, artSize = 112, title, subtitle, children, footer }: {
   art: number; artSize?: number; title: string; subtitle?: string; children: ReactNode; footer?: ReactNode;
 }) {
   const reduced = useReducedMotion();
+  const P = useSoftPalette();
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: P.bg }}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 24, paddingBottom: 40, width: '100%', maxWidth: 560, alignSelf: 'center' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 8 }}>
             <GhostBrandMark />
             <Text style={{ fontSize: 17, fontWeight: '700', color: P.ink }}>My Secret</Text>
           </View>
-          <View style={{ alignItems: 'center', marginTop: 8, marginBottom: -8 }}>
+          <View style={{ alignItems: 'center', marginTop: 24, marginBottom: 20 }}>
             <Float reduced={reduced}>
               <Image source={art} accessibilityIgnoresInvertColors style={{ width: artSize, height: artSize }} resizeMode="contain" />
             </Float>
-            <View style={{ width: artSize * 0.62, height: 14, borderRadius: 60, backgroundColor: 'rgba(30,20,10,0.10)', marginTop: -6 }} />
+
           </View>
-          <View style={{ backgroundColor: P.surface, borderRadius: 28, borderWidth: 1, borderColor: P.line, padding: 22, shadowColor: '#14171C', shadowOpacity: 0.1, shadowRadius: 28, shadowOffset: { width: 0, height: 14 }, elevation: 6 }}>
-            <Text accessibilityRole="header" style={{ fontSize: 24, fontWeight: '800', letterSpacing: -0.4, color: P.ink }}>{title}</Text>
+          <View style={{ backgroundColor: P.surface, borderRadius: 14, padding: 22 }}>
+            <Text accessibilityRole="header" style={{ fontSize: 27, lineHeight: 33, fontWeight: '700', letterSpacing: -0.4, color: P.ink }}>{title}</Text>
             {subtitle ? <Text style={{ fontSize: 14, lineHeight: 20, color: P.ink2, marginTop: 8 }}>{subtitle}</Text> : null}
             <View style={{ marginTop: 18, gap: 14 }}>{children}</View>
           </View>

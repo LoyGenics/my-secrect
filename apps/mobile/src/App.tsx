@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Platform, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import type { VaultItem } from '../../../packages/core/src/types';
@@ -20,31 +20,17 @@ import {
 } from './vault';
 import { useMobileTheme } from './theme';
 import ScreenFrame from './components/ScreenFrame';
-import { Icon, type IconName } from '../../../packages/ui/src/native';
+import MobileNavigator from './MobileNavigator';
+import { clearFilePreviews } from './storage/filePreviews';
+import { removeEncryptedFile } from './storage/localFiles';
+import { isFile } from '../../../packages/core/src/files';
 import { I18nProvider, useTranslation } from '../../../packages/i18n/src/react';
-import { LOCALE_STORAGE_KEY, detectLocale, type Locale } from '../../../packages/i18n/src/index';
+import { LOCALE_STORAGE_KEY, defaultLocale, type Locale } from '../../../packages/i18n/src/index';
 import OnboardingScreen from './screens/OnboardingScreen';
 import LockScreen from './screens/LockScreen';
-import VaultScreen from './screens/VaultScreen';
-import SearchScreen from './screens/SearchScreen';
-import GeneratorScreen from './screens/GeneratorScreen';
-import HealthScreen from './screens/HealthScreen';
-import SettingsScreen, { type AutoLockMinutes } from './screens/SettingsScreen';
-import TrashScreen from './screens/TrashScreen';
-import SecurityScreen from './screens/SecurityScreen';
-import ItemDetailScreen from './screens/ItemDetailScreen';
-import ItemFormScreen from './screens/ItemFormScreen';
+import { type AutoLockMinutes } from './screens/SettingsScreen';
 
-type Tab = 'vault' | 'search' | 'generator' | 'health' | 'settings';
 type Boot = 'loading' | 'signin' | 'onboarding' | 'locked' | 'unlocked';
-
-const TABS: Array<{ key: Tab; label: 'vault' | 'search' | 'generator' | 'watchtower' | 'settings'; icon: IconName }> = [
-  { key: 'vault', label: 'vault', icon: 'items' },
-  { key: 'search', label: 'search', icon: 'search' },
-  { key: 'generator', label: 'generator', icon: 'generate' },
-  { key: 'health', label: 'watchtower', icon: 'health' },
-  { key: 'settings', label: 'settings', icon: 'settings' },
-];
 
 /**
  * Root: restores the language choice (AsyncStorage, same key as web's
@@ -55,8 +41,8 @@ export default function App() {
   const [locale, setLocale] = useState<Locale | null>(null);
   useEffect(() => {
     AsyncStorage.getItem(LOCALE_STORAGE_KEY)
-      .then((v) => setLocale(v === 'en' || v === 'vi' ? v : detectLocale()))
-      .catch(() => setLocale(detectLocale()));
+      .then((v) => setLocale(v === 'en' || v === 'vi' ? v : defaultLocale))
+      .catch(() => setLocale(defaultLocale));
   }, []);
   if (!locale) return null;
   return (
@@ -66,12 +52,6 @@ export default function App() {
   );
 }
 
-/**
- * Mobile shell. Navigation is a small custom state machine (no
- * react-navigation dependency): bottom tabs + full-screen detail/form/
- * trash overlays. Every screen is a real, working screen — see
- * src/screens/. Auto-lock is enforced by an inactivity timer.
- */
 function AppShell() {
   const { colors, styles, scheme } = useMobileTheme();
   const { dict } = useTranslation();
@@ -79,12 +59,6 @@ function AppShell() {
   const [boot, setBoot] = useState<Boot>('loading');
   const [items, setItems] = useState<VaultItem[]>([]);
   const [trash, setTrash] = useState<VaultItem[]>([]);
-  const [tab, setTab] = useState<Tab>('vault');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [showForm, setShowForm] = useState(false);
-  const [editingItem, setEditingItem] = useState<VaultItem | null>(null);
-  const [showTrash, setShowTrash] = useState(false);
-  const [showSecurity, setShowSecurity] = useState(false);
   const [notice, setNotice] = useState('');
   const [autoLock, setAutoLock] = useState<AutoLockMinutes>(5);
   const lastActivity = useRef(Date.now());
@@ -102,6 +76,7 @@ function AppShell() {
 
   useEffect(() => {
     void (async () => {
+      await clearFilePreviews().catch(() => undefined);
       const raw = await AsyncStorage.getItem(API_BASE_URL_KEY);
       const url = (raw ?? '').trim();
       setApiBaseUrl(url);
@@ -118,7 +93,7 @@ function AppShell() {
   }, []);
 
   const doLock = useCallback(() => {
-    lockVault(); setItems([]); setTrash([]); setSelectedId(null); setShowForm(false); setEditingItem(null); setShowTrash(false); setShowSecurity(false); setBoot('locked');
+    lockVault(); void clearFilePreviews().catch(() => undefined); setItems([]); setTrash([]); setBoot('locked');
   }, []);
 
   /** Sign out of the account AND lock the vault. The server session
@@ -156,6 +131,17 @@ function AppShell() {
     setBoot(apiBaseUrl ? 'signin' : 'locked');
   }, [apiBaseUrl, doLock]);
 
+  const handleServerSaved = useCallback(async (next: string) => {
+    if (next === apiBaseUrl) return;
+    setApiBaseUrl(next);
+    setSessionExpired(false);
+    setLocalOnlyBypass(false);
+    if (next) {
+      doLock();
+      setBoot('signin');
+    }
+  }, [apiBaseUrl, doLock]);
+
   const handleSignedIn = useCallback((_email: string, _recoverySession: boolean) => {
     setLocalOnlyBypass(false);
     setSessionExpired(false);
@@ -185,24 +171,23 @@ function AppShell() {
 
   function markActivity() { lastActivity.current = Date.now(); }
   function handleUnlocked() { lastActivity.current = Date.now(); refresh(); setBoot('unlocked'); }
-  function clearSelection() { setSelectedId(null); setShowForm(false); setEditingItem(null); }
 
   async function handleSaveItem(item: VaultItem) {
-    await upsertItem(item); refresh(); setShowForm(false); setEditingItem(null); setSelectedId(item.id);
+    await upsertItem(item); refresh();
   }
   async function handleDelete(id: string) {
     const inTrash = trash.some((t) => t.id === id);
-    if (inTrash) await permanentlyDeleteItem(id); else await deleteItem(id);
-    if (selectedId === id) setSelectedId(null);
+    if (inTrash) {
+      const item = trash.find(item => item.id === id);
+      if (item && isFile(item)) await removeEncryptedFile(String(item.fields.blob_id ?? ''));
+      await permanentlyDeleteItem(id);
+    } else await deleteItem(id);
     refresh();
   }
-  async function handleRestore(id: string) { await restoreItem(id); refresh(); setSelectedId(id); setShowTrash(false); }
+  async function handleRestore(id: string) { await restoreItem(id); refresh(); }
   function handleToggleFavorite(id: string) { toggleFavorite(id); refresh(); }
   async function handleLoadExamples(list: VaultItem[]) { for (const it of list) await upsertItem(it); refresh(); setNotice(dict.mobile.exampleLoaded); }
   async function handleClearExamples(ids: string[]) { for (const id of ids) await permanentlyDeleteItem(id); refresh(); setNotice(dict.mobile.exampleCleared); }
-
-  const selectedItem = [...items, ...trash].find((i) => i.id === selectedId) ?? null;
-  const inTrash = selectedItem ? trash.some((t) => t.id === selectedItem.id) : false;
 
   if (boot === 'loading') {
     return (<View style={[styles.screen, { alignItems: 'center', justifyContent: 'center' }]}><ActivityIndicator size="large" color={colors.accent} /><Text style={{ color: colors.muted, marginTop: 12 }}>{dict.common.loading}</Text><StatusBar style={statusBar} /></View>);
@@ -235,50 +220,11 @@ function AppShell() {
   return (
     <View style={styles.screen} onTouchStart={markActivity}>
       <StatusBar style={statusBar} />
-      <ScreenFrame>
-      {showSecurity ? (
-        <SecurityScreen
-          onClose={() => setShowSecurity(false)}
-          onSignedOut={() => void handleSignedOut()}
-          onUnauthorized={handleUnauthorized}
-        />
-      ) : showTrash ? (
-        <TrashScreen trash={trash} onSelect={(id) => { setSelectedId(id); setShowTrash(false); }} onRestore={(id) => void handleRestore(id)} onPermanentDelete={(id) => void handleDelete(id)} />
-      ) : showForm ? (
-        <ItemFormScreen initial={editingItem ?? undefined} allItems={items} onSave={(item) => void handleSaveItem(item)} onCancel={clearSelection} />
-      ) : selectedItem ? (
-        <ItemDetailScreen item={selectedItem} allItems={items} inTrash={inTrash} onEdit={() => { setEditingItem(selectedItem); setShowForm(true); }} onDelete={() => void handleDelete(selectedItem.id)} onRestore={() => void handleRestore(selectedItem.id)} onToggleFavorite={() => handleToggleFavorite(selectedItem.id)} onClose={clearSelection} onSelectRelated={(id) => setSelectedId(id)} />
-      ) : tab === 'vault' ? (
-        <VaultScreen items={items} trash={trash} onSelect={(id) => setSelectedId(id)} onToggleFavorite={handleToggleFavorite} onNew={() => { setEditingItem(null); setShowForm(true); }} onLoadExamples={(list) => void handleLoadExamples(list)} onClearExamples={(ids) => void handleClearExamples(ids)} />
-      ) : tab === 'search' ? (
-        <SearchScreen items={items} onSelect={(id) => setSelectedId(id)} onToggleFavorite={handleToggleFavorite} />
-      ) : tab === 'generator' ? (
-        <GeneratorScreen />
-      ) : tab === 'health' ? (
-        <HealthScreen items={items} onFix={(item) => { setEditingItem(item); setShowForm(true); }} />
-      ) : (
-        <SettingsScreen autoLock={autoLock} onAutoLockChange={setAutoLock} onLock={doLock} onWiped={() => setBoot('onboarding')} notice={notice} setNotice={setNotice} onViewTrash={() => setShowTrash(true)} onViewSecurity={() => setShowSecurity(true)} />
-      )}
-      {notice && !showForm && !selectedItem && !showTrash && !showSecurity ? (
-        <Pressable testID="app-notice" accessibilityLabel={dict.mobile.dismissNotice} onPress={() => setNotice('')} style={{ backgroundColor: colors.card, borderTopColor: colors.cardBorder, borderTopWidth: 1, padding: 10 }}>
-          <Text style={{ color: colors.secondary, fontSize: 13, textAlign: 'center' }}>{notice}</Text>
-        </Pressable>
-      ) : null}
-      {!showForm && !selectedItem && !showTrash && !showSecurity ? (
-        <View accessibilityRole="tablist" style={{ flexDirection: 'row', borderTopColor: colors.cardBorder, borderTopWidth: 1, backgroundColor: colors.card, paddingBottom: Platform.OS === 'ios' ? 2 : 8, paddingTop: 6 }}>
-          {TABS.map((t) => {
-            const selected = tab === t.key;
-            const label = dict.shell.tabs[t.label];
-            return (
-              <Pressable key={t.key} testID={`tab-${t.key}`} accessibilityLabel={label} accessibilityRole="tab" accessibilityState={{ selected }} onPress={() => { setTab(t.key); clearSelection(); }} style={{ flex: 1, alignItems: 'center', minHeight: 52, justifyContent: 'center', gap: 3 }}>
-                <Icon name={t.icon} size="lg" color={selected ? colors.accent : colors.muted} />
-                <Text style={[styles.legend, { fontSize: 11, color: selected ? colors.text : colors.muted }]}>{label}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      ) : null}
-      </ScreenFrame>
+      <MobileNavigator items={items} trash={trash} autoLock={autoLock} notice={notice} setNotice={setNotice}
+        onSave={handleSaveItem} onDelete={handleDelete} onRestore={handleRestore} onToggleFavorite={handleToggleFavorite}
+        onLoadExamples={list => void handleLoadExamples(list)} onClearExamples={ids => void handleClearExamples(ids)}
+        onAutoLockChange={setAutoLock} onLock={doLock} onWiped={() => setBoot('onboarding')}
+        onSignedOut={() => void handleSignedOut()} onUnauthorized={handleUnauthorized} onServerSaved={handleServerSaved} />
     </View>
   );
 }

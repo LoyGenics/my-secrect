@@ -1,160 +1,88 @@
-# my-secrect — Personal Digital Vault
+# My Secret
 
-> Local-first + End-to-End Encryption + Modular Monolith Backend + Pluggable Storage.
-> **Không phải chỉ là password manager.** Là nền tảng vault cá nhân: mật khẩu, passkeys, ngân hàng, thẻ, SSH keys, API keys, ghi chú, tài liệu, ảnh, video.
+My Secret is a local-first encrypted vault for credentials, secure notes and
+files. The mobile app works with a local vault by default. Set up a server to
+use account security, item sharing and Family.
 
-**Trạng thái (17 Nov 2026): code đã viết xong phần lớn, CHƯA BAO GIỜ build/test/chạy trên máy này.** Không có external security audit, chưa production-ready. Xem `docs/implementation-status.md` để biết từng subsystem đang ở trạng thái nào, và `docs/release-readiness.md` để biết còn thiếu gì mới được gọi là release candidate.
+## What’s available
 
-Repo công khai: https://github.com/LoyGenics/my-secrect (branch `main`).
+| Area | Current behavior |
+| --- | --- |
+| Mobile vault | Search from the app header or Vault, filter by category, create and edit items, generate passwords, review weak and reused passwords, and restore items from Trash. Mobile uses SQLCipher and supports device unlock where available. |
+| Mobile Files | Import documents, photos and videos, create nested folders, rename or move entries, and open files. Imports are encrypted on the device. The current mobile limit is 128 MiB per file. |
+| Share links | Open a credential and choose **Share**. Pick an expiry of 1 hour, 1 day or 7 days. The recipient opens a read-only copy in a browser without an account. Delete a link from the item’s sharing screen to stop future access. |
+| Account sharing | Share individual items with another My Secret account through **Sharing**. This separate flow supports verified recipient keys, read or edit access, and revocation. |
+| Family | Up to six people. Each member keeps a private vault. Share individual items when needed. |
+| Backup and recovery | Export encrypted item backups. Mobile can restore a backup during setup. A saved recovery key can unlock the vault if the passphrase is forgotten. |
+| Desktop and web | Vault management, optional account setup, encrypted backups and server-backed media transfers. The web client excludes plaintext export. |
+| Browser extension and Autofill | Chromium extension and native iOS/Android credential provider code. Native providers require a build with their respective platform integration. |
 
-## Quyết định kiến trúc (đã chốt)
+Mobile file contents stay on the importing device. Item backups include file
+records but do not package their bytes. Save a separate copy of important
+files. Account sign-in does not unlock a local vault or transfer its keys.
 
-| Quyết định | Lựa chọn |
-|---|---|
-| Product model | Personal Digital Vault, không chỉ passwords |
-| Kiểu repo | **Monorepo — 1 repo cho mọi app** (xem `docs/monorepo.md` để biết vì sao) |
-| Kiểu ứng dụng | Local-first, offline-first |
-| Bảo mật | E2EE / Zero-knowledge — server chỉ thấy ciphertext |
-| Backend | Ruby on Rails API, modular monolith |
-| Database server | PostgreSQL (chỉ metadata + ciphertext) |
-| Dữ liệu trên thiết bị | Mục tiêu: Encrypted SQLite (SQLCipher). **Hiện tại: localStorage / AsyncStorage / chrome.storage — chưa mã hóa ở tầng lưu trữ** |
-| Object storage | S3 / R2 / MinIO qua StorageProvider interface |
-| Client | React / React Native, Desktop React + Tauri ưu tiên |
-| Triển khai | Cloud hoặc self-host, cùng một backend |
-| Search | Local, không gửi plaintext query lên server |
-| Export | Bắt buộc từ MVP, định dạng được tài liệu hóa |
-| AI | Không thuộc lõi |
+A share link grants access to anyone who has the complete URL, including its
+fragment. Expiry and deletion stop future retrieval. They cannot recall a
+credential someone has already copied.
 
-## Ranh giới tin cậy
+## Run locally
 
-Server đồng bộ và lưu ciphertext, nhưng **không giữ khóa giải mã** nội dung người dùng.
-Đăng nhập tài khoản (WebAuthn/passkey) **khác** mở khóa vault (Master Passphrase).
-Mất toàn bộ khóa + recovery key + thiết bị tin cậy = mất dữ liệu. Không có cửa hậu.
+Install Node.js 20 or newer and run `npm ci` from the repository root.
 
-**Ba vault local riêng biệt, chưa đồng bộ với nhau:** desktop/web dùng localStorage, mobile dùng AsyncStorage, extension dùng chrome.storage.local. Cả ba dùng chung code crypto nhưng không chung dữ liệu cho tới khi sync được nối vào app (hiện chưa app nào import `SyncClient`).
+| Client | Command |
+| --- | --- |
+| Mobile dev server | `npm run start -w apps/mobile` |
+| iOS native build | `npm run ios -w apps/mobile` |
+| Android native build | `npm run android -w apps/mobile` |
+| Desktop UI | `npm run dev:desktop` |
+| Web vault and link viewer | `npm run dev -w apps/web` |
+| Marketing site | `npm run dev -w apps/landing` |
 
-## Cấu trúc monorepo
+Use a native development build for the mobile app. Its storage, crypto and
+credential provider modules need a native binary. Rebuild after changing native
+dependencies.
 
-```
-my-secrect/
-  apps/
-    api/        # Rails API — modular monolith (auth, sync, blobs, shares, devices)
-    desktop/    # React + Vite + Tailwind, Tauri shell — vault chính
-    mobile/     # Expo React Native — 10 màn hình, cùng crypto với desktop
-    extension/  # Browser extension MV3 — autofill, vault riêng (xem dưới)
-    web/        # Web client — CHỈ là bản mirror của desktop App + banner cảnh báo
-  packages/
-    core/            # Universal Vault Item model (VaultItem, sharing model)
-    schemas/         # Item types, schema version, field validation
-    sync/            # Offline sync: queue, pull/push client, keep-both conflicts
-    crypto-adapters/ # Crypto: libsodium Argon2id + XChaCha20-Poly1305 (chính)
-    storage/         # Chunked encrypted upload/download, manifest, resumable
-    import-export/   # Export mã hóa v1, import CSV Bitwarden/1Password
-    ui/              # My Secret Design System: tokens, Radix components (EN+VI)
-    i18n/            # Từ điển EN + VI, type-checked
-    sdk/             # VaultApiClient (typed sync/blob) — chưa app nào dùng
-  native/
-    crypto-core/               # Rust + libsodium (Argon2id/XChaCha20/secretstream)
-    ios-credential-provider/   # Swift: domain matching + Keychain thật, fill CHƯA xong
-    android-credential-provider/ # Kotlin: domain matching + Keystore thật, fill CHƯA xong
-    ssh-agent/                 # Rust: wire protocol thật, KHÔNG giữ key/không ký
-  specs/   # encryption-format, key-management, sync-protocol, recovery-protocol, threat-model
-  tests/   # crypto-vectors, sync-conflicts, recovery, compatibility, end-to-end, security
-  infra/   # docker (Compose: Caddy + api + worker + Postgres + Redis + MinIO), self-host, cloud
-  docs/    # architecture, implementation-status, security-review, design-system,
-           # product-requirements, release-readiness, deployment, store-prep, privacy, monorepo
-  .github/workflows/  # CI + security scan — đã viết, CHƯA BAO GIỜ chạy
-```
+## Connect a server
 
-### App nào dùng package nào (import tương đối, xem `docs/monorepo.md`)
+The Rails API uses Ruby 3.3 and PostgreSQL. See [the self-hosting guide](infra/docker/README.md)
+for local and hosted setup, including the object store for server-backed media.
+Run the application’s database migrations before starting the API.
 
-| App | Dùng trực tiếp |
-|---|---|
-| desktop | `crypto-adapters`, `core`, `import-export` (+ `ui`/`i18n` đã có sẵn nhưng màn hình chưa migrate sang) |
-| mobile | `crypto-adapters`, `core` (tokens từ `ui` đã có trong `theme.ts`) |
-| extension | `crypto-adapters`, `core` (chỉ background worker giữ key) |
-| web | Không có package riêng — import thẳng `../../desktop/src/App`, thừa hưởng toàn bộ dependency của desktop |
-| api (Rails) | Không dùng package TypeScript nào |
+On mobile, open **Settings → Sync server** and enter the API base URL ending in
+`/api`. The web link viewer defaults to the same origin. When running Vite and
+Rails on separate local ports, set `VITE_API_PROXY_TARGET` when starting Vite,
+then enter the Vite origin as **Web app URL** on mobile. Recipients need a web
+origin they can reach.
 
-Chưa app nào import `sync`, `sdk`, `storage` — sync client, SDK và chunked upload đã viết xong nhưng chưa được nối vào app. `ui`/`i18n` cũng vậy: package đã có, màn hình chưa migrate.
+The API stores encrypted payloads and the metadata needed to operate the
+service. Vault keys remain on the client. The share link decryption key is in
+the URL fragment and does not travel in the API request. See the
+[threat model](specs/threat-model.md), [account sharing protocol](specs/sharing-protocol.md)
+and [share link format](specs/share-links.md). The project has not been
+independently audited. The marketing site can describe plans and pricing, but
+billing and entitlements are not enabled by those pages.
 
-## Những gì ĐÃ xong trong code (chưa chạy/test)
+## Repository map
 
-- **Vault crypto thật:** libsodium Argon2id + XChaCha20-Poly1305 ở desktop/mobile/extension, cùng key hierarchy; Argon2id đã thống nhất 1 profile TS/Rust + shared test vectors.
-- **Passkey/WebAuthn verification đã wire** (`apps/api/app/domains/authentication/passkeys.rb`) + 11 RSpec examples — chưa chạy `rspec` lần nào.
-- **Sync pull đã trả ciphertext**, push có vault lock, blob yêu cầu manifest mã hóa + wrapped File Key.
-- **Extension MV3 autofill thật:** background giữ key trong RAM, domain-check, content script inject on-demand, không host permission. Vault riêng cho tới khi sync xong.
-- **Design system + i18n:** `packages/ui` + `packages/i18n` (EN+VI, light/dark), nhưng màn hình chưa migrate sang.
-- **Import/export:** export mã hóa v1, import CSV Bitwarden/1Password, Markdown notes + autosave + revisions, password history, archive, bulk ops.
-- **Tauri scaffold** (`apps/desktop/src-tauri/`) và **iOS/Android credential provider** đã có code thật (domain matching, Keychain/Keystore) — nhưng fill/signing CHƯA implement, không được bật.
-- **CI workflows** (typecheck, builds, Rust, Rails, gitleaks, CodeQL) — chưa chạy lần nào.
+- `apps/mobile` contains the Expo React Native app and platform integrations.
+- `apps/desktop` contains the React vault UI and Tauri shell.
+- `apps/web` hosts the vault UI and public share link viewer.
+- `apps/extension` contains the Chromium extension.
+- `apps/landing` contains the bilingual marketing site.
+- `apps/api` contains the Rails API and request specs.
+- `packages` contains shared types, crypto adapters, sync, storage, UI and translations.
+- `native` contains the Rust crypto crate and platform credential providers.
 
-## Những gì CHƯA xong (nói thẳng)
+## Checks
 
-- **Không có external security audit.** Không ai được tuyên bố hệ thống này đã audit.
-- **Chưa chạy gì hết:** chưa `npm install`, chưa `bundle install`/`db:migrate`/`rspec`, chưa `cargo test`, chưa `npm test`, chưa `docker compose up`, chưa load extension lên Chrome, chưa chạy Expo — vì không chạy được shell trên Mac từ xa. Lệnh cần chạy ở cuối README.
-- **Không có lockfile:** `package-lock.json` và `apps/api/Gemfile.lock` chưa tồn tại → build không tái lập được; CI sẽ đỏ ở job lockfiles cho tới khi commit chúng.
-- **Server recovery vẫn là stub** (challenge không được lưu/verify, chưa có verify endpoint).
-- **Sharing chưa production-ready:** HPKE key exchange chưa implement; chỉ tạo được proposal PENDING, không share ACTIVE thật.
-- **Chưa có SQLCipher / Keychain / Keystore** — dữ liệu local vẫn nằm ở localStorage/AsyncStorage/chrome.storage.
-- **Chưa có mobile AutoFill thật, chưa có account deletion** (cả hai đều chặn nộp store).
-- **Sync/device signatures chưa bao giờ được tạo hay verify.**
-- **Media vẫn manifest-only:** chưa có file bytes, thumbnail, download, player thật.
-- **Không có production deployment đã validate** — chỉ có Docker Compose self-host + hướng dẫn cloud, chưa chạy.
-
-## Chạy thử / kiểm chứng (chạy trong Terminal trên Mac)
-
-```bash
-cd /Users/loihuynh/Personal/LoyGenics/my-secrect
-
-# 0. Sửa 1 import hỏng trước: apps/mobile/src/App.tsx đang dùng
-#    '../../packages/...' (trỏ nhầm sang apps/packages) — phải là
-#    '../../../packages/...' như apps/mobile/src/vault.ts đã làm đúng.
-
-npm install                                   # tạo package-lock.json (đang thiếu)
-cd apps/api && bundle lock                     # tạo Gemfile.lock (đang thiếu)
-cd /Users/loihuynh/Personal/LoyGenics/my-secrect
-npm test && node --test tests/security/ tests/crypto-vectors/
-node --test packages/schemas/tests/ packages/storage/tests/ packages/sync/tests/
-
-cd apps/desktop && npm install && npm run build
-cd ../web && npm install && npm run build
-cd ../extension && npm install && npm run build   # rồi Load unpacked trong Chrome
-cd ../mobile && npm install && npm run typecheck && npx expo start
-
-cd ../api && cp .env.example .env   # điền secrets thật, set WEBAUTHN_ORIGIN / WEBAUTHN_RP_ID
-bundle install && bundle exec rails db:create db:migrate && bundle exec rspec
-
-cd ../../native/crypto-core && cargo test
-cd ../ssh-agent && cargo test
-
-cd ../../infra/docker && cp .env.example .env   # điền secrets thật, set domain trong Caddyfile
-docker compose up --build -d && docker compose exec api bundle exec rails db:migrate
-curl -fsS http://localhost:3000/health
-
-# Tauri (cần icon trước — src-tauri/icons/ chưa tồn tại):
-cd ../../apps/desktop && npx @tauri-apps/cli icon path/to/icon-1024.png && npx tauri build
+```shell
+npm test
+npm run typecheck -w apps/mobile
+npm run build -w apps/web
+npm run test:crypto-core
 ```
 
-Kết quả kỳ vọng khi xanh: RSpec passkeys 11/11; `cargo test` xanh gồm `argon2id_kek_matches_shared_vectors` và `xchacha_seal_matches_shared_vector`; Node vector/security tests 14/14. Nếu test vector Argon2id fail thì **đừng sửa giá trị hex trong vector** — code/params mới là chỗ sai.
-
-## Lưu ý bảo mật quan trọng
-
-- Không tự viết thuật toán mật mã. Dùng libsodium đã kiểm chứng.
-- Không lưu CVV / PIN ngân hàng / OTP đang dùng trên server (xem `specs/threat-model.md`).
-- Không gửi toàn bộ vault hay khóa giải mã vào content script của extension.
-- Media preview tạo plaintext tạm trong RAM — cần cleanup, không đảm bảo tuyệt đối trên thiết bị đã bị xâm nhập.
-- Thu hồi session từ xa không xóa được secret offline người khác đã tải về — đừng trình bày ngược lại trong UI.
-
-## Tài liệu
-
-- `docs/architecture.md` — kiến trúc như đã xây (audit Phase A)
-- `docs/implementation-status.md` — ledger trạng thái từng subsystem + ranked blockers
-- `docs/security-review.md` — review bảo mật, các lỗi đã sửa / còn lại
-- `docs/monorepo.md` — vì sao giữ monorepo, quy ước thư mục, quy tắc import
-- `docs/design-system.md`, `docs/product-requirements.md`, `docs/deployment.md`, `docs/store-prep.md`, `docs/privacy.md`
-- `specs/` — đặc tả mật mã / sync / recovery / threat model (đọc trước khi viết code xử lý dữ liệu thật)
-
-## Tên dự án
-
-Thư mục hiện tại là `my-secrect` theo đúng tên bạn đưa. Đã có sẵn `my_secret/` (web Next.js + mobile) từ trước trong `LoyGenics/` — dự án này là monorepo mới, không ghi đè lên đó. Nếu bạn muốn đổi thành `my-secret`, nói mình đổi tên thư mục.
+For Rails tests, configure a local test database and run `bundle exec rspec` from
+`apps/api`. The sharing and media integration suites are
+`npm run test:sharing-e2e` and `npm run test:media-e2e`. They use dedicated
+local test environments.

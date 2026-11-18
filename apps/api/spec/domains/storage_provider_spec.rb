@@ -77,9 +77,31 @@ RSpec.describe Blobs::StorageProvider do
       expect(CGI.parse(url.query)['X-Amz-SignedHeaders'].first).to include('host')
     end
 
-    it 'sign the exact Content-Length into an upload URL so storage refuses any other part size' do
+    it 'signs the exact part size and opaque binary Content-Type into upload URLs' do
       url = URI(provider.presigned_put(object_key: 'k', content_length: 1_048_592))
-      expect(CGI.parse(url.query)['X-Amz-SignedHeaders'].first.split(';')).to eq(%w[content-length host])
+      expect(CGI.parse(url.query)['X-Amz-SignedHeaders'].first.split(';')).to eq(%w[content-length content-type host])
+    end
+  end
+
+  describe 'Cloudflare R2' do
+    let(:endpoint) { 'https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com' }
+    let(:provider) do
+      described_class.new(env: full_env.merge('S3_ENDPOINT' => endpoint, 'S3_PUBLIC_ENDPOINT' => endpoint,
+                                             'S3_REGION' => 'auto', 'S3_BUCKET' => 'vault-blobs'))
+    end
+
+    it 'signs PUT and GET against the R2 S3 API with five-minute expiry and opaque object ids' do
+      object_key = 'vaults/11111111-1111-4111-8111-111111111111/blobs/22222222-2222-4222-8222-222222222222/part-00001'
+      [provider.presigned_put(object_key: object_key, content_length: 1_048_592),
+       provider.presigned_get(object_key: object_key)].each do |signed|
+        url = URI(signed)
+        query = CGI.parse(url.query)
+        expect("#{url.scheme}://#{url.host}").to eq(endpoint)
+        expect(url.path).to eq("/vault-blobs/#{object_key}")
+        expect(query['X-Amz-Expires']).to eq(['300'])
+        expect(query['X-Amz-Credential'].first).to match(%r{/auto/s3/aws4_request\z})
+        expect(query.keys.grep(/server-side-encryption|metadata|filename/i)).to be_empty
+      end
     end
   end
 

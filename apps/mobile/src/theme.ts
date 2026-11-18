@@ -2,22 +2,8 @@ import { useMemo } from 'react';
 import { StyleSheet, useColorScheme } from 'react-native';
 import { darkTheme, lightTheme, radii, typography, type ThemeName, type ThemeTokens } from '../../../packages/ui/src/tokens';
 
-/**
- * Mobile theme — the soft, light direction on the shared tokens
- * (packages/ui/src/tokens.ts), no duplicated literals.
- *
- * Mobile imports TOKENS ONLY plus the native entry of the design system
- * (packages/ui/src/native: Lucide icon wrapper, item-type tiles,
- * illustrations) — never the DOM components. Metro watches the repo root.
- *
- * Light is the default and, for now, the only finish on phones: the static
- * `colors` / `styles` exports (used by Lock, Settings, Security, Shares and
- * Sign-in) are light, and `useMobileTheme()` returns the same. The soft dark
- * theme exists in the tokens; wiring it needs those screens (and the shared
- * ItemRow / Field / MarkdownText / StrengthMeter components) to read
- * useMobileTheme() instead of the static exports — see FOLLOW_OS_APPEARANCE.
- * Type stays the platform's system font, in sentence case.
- */
+/** Shared native palette. Every screen follows OS appearance; system typography
+ * and grouped surfaces keep the vault readable on phone and tablet. */
 
 export interface MobileColors {
   bg: string;
@@ -56,9 +42,9 @@ function toMobileColors(theme: ThemeTokens): MobileColors {
     text: theme.text.primary,
     secondary: theme.text.secondary,
     muted: theme.text.muted,
-    faint: theme.text.faint,
-    accent: theme.brand.DEFAULT,
-    onAccent: theme.text.onBrand,
+    faint: theme.text.muted,
+    accent: '#D23F0C',
+    onAccent: '#FFFFFF',
     accentSoft: theme.brand.soft,
     danger: theme.danger.DEFAULT,
     dangerText: theme.danger.softText,
@@ -80,10 +66,10 @@ function toMobileColors(theme: ThemeTokens): MobileColors {
 /** Light colours — the default. */
 export const lightColors: MobileColors = toMobileColors(lightTheme);
 
-/** Soft dark colours (not shown yet; see the header comment). */
+/** Dark colours. */
 export const darkColors: MobileColors = toMobileColors(darkTheme);
 
-/** The static default for screens not yet on useMobileTheme(): light. */
+/** Static light palette for non-rendering consumers. */
 export const colors: MobileColors = lightColors;
 
 /** Resolve colours for a colour scheme; null/undefined falls back to light. */
@@ -97,28 +83,25 @@ export const type = typography;
 /** Small label: sentence case, semibold, quiet ink. */
 const legend = { fontSize: 12, lineHeight: 16, fontWeight: '600' as const };
 
-/** Soft elevation (iOS shadow + Android elevation) for cards. */
-const softShadow = { shadowColor: '#14171c', shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 1 };
-
 export function createStyles(c: MobileColors) {
   return StyleSheet.create({
     screen: { flex: 1, backgroundColor: c.bg },
     container: { flex: 1, padding: 16 },
-    card: { backgroundColor: c.card, borderColor: c.cardBorder, borderWidth: 1, borderRadius: radii.lg, padding: 16, ...softShadow },
-    title: { color: c.text, fontSize: 28, lineHeight: 34, fontWeight: '800', letterSpacing: -0.5 },
+    card: { backgroundColor: c.card, borderColor: c.cardBorder, borderWidth: 1, borderRadius: 14, padding: 16 },
+    title: { color: c.text, fontSize: 30, lineHeight: 36, fontWeight: '700', letterSpacing: -0.5 },
     heading: { color: c.text, fontSize: 20, lineHeight: 26, fontWeight: '700' },
     subtitle: { color: c.muted, fontSize: 15, lineHeight: 22, marginTop: 4 },
     body: { color: c.text, fontSize: 15, lineHeight: 22 },
     small: { color: c.muted, fontSize: 13, lineHeight: 18 },
     label: { ...legend, fontSize: 13, color: c.muted, marginBottom: 6 },
     legend: { ...legend, color: c.muted },
-    input: { backgroundColor: c.input, borderColor: c.cardBorder, borderWidth: 1, borderRadius: radii.md, color: c.text, fontSize: 16, minHeight: 48, paddingHorizontal: 14, paddingVertical: 12 },
+    input: { backgroundColor: c.input, borderColor: c.cardBorder, borderWidth: 1, borderRadius: radii.md, color: c.text, fontSize: 16, minHeight: 50, paddingHorizontal: 14, paddingVertical: 13 },
     inputMultiline: { minHeight: 96, textAlignVertical: 'top' },
-    primaryButton: { backgroundColor: c.accent, borderRadius: radii.full, minHeight: 50, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, paddingHorizontal: 20 },
-    primaryButtonText: { fontSize: 15, fontWeight: '700', color: c.onAccent },
-    ghostButton: { backgroundColor: c.card, borderColor: c.cardBorder, borderWidth: 1, borderRadius: radii.full, minHeight: 48, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, paddingHorizontal: 18 },
+    primaryButton: { backgroundColor: c.accent, borderRadius: 12, minHeight: 50, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, paddingHorizontal: 20 },
+    primaryButtonText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
+    ghostButton: { backgroundColor: c.card, borderColor: c.cardBorder, borderWidth: 1, borderRadius: 12, minHeight: 48, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, paddingHorizontal: 18 },
     ghostButtonText: { fontSize: 15, fontWeight: '600', color: c.text },
-    dangerButton: { backgroundColor: c.danger, borderRadius: radii.full, minHeight: 50, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, paddingHorizontal: 20 },
+    dangerButton: { backgroundColor: c.danger, borderRadius: 12, minHeight: 50, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, paddingHorizontal: 20 },
     dangerButtonText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
     error: { color: c.dangerText, fontSize: 14, lineHeight: 20 },
     chip: { backgroundColor: c.surface2, borderColor: c.cardBorder, borderWidth: 1, borderRadius: radii.full, paddingHorizontal: 10, paddingVertical: 4, marginRight: 6, marginBottom: 6 },
@@ -133,13 +116,8 @@ export type MobileStyles = ReturnType<typeof createStyles>;
 /** The static default styles (light); see useMobileTheme for live styles. */
 export const styles = createStyles(colors);
 
-/**
- * Follow the OS appearance. OFF: phones are light until the screens that
- * still import the static `colors` / `styles` (Lock, Settings, Security,
- * Shares, Sign-in, ItemRow, Field, MarkdownText, StrengthMeter) read
- * useMobileTheme() too — otherwise a dark phone would mix finishes.
- */
-export const FOLLOW_OS_APPEARANCE = false;
+/** Follow the device appearance across the whole mobile app. */
+export const FOLLOW_OS_APPEARANCE = true;
 
 /** Live theme: tokens, colours and styles for the current finish. */
 export function useMobileTheme(): { theme: ThemeTokens; colors: MobileColors; styles: MobileStyles; scheme: ThemeName } {

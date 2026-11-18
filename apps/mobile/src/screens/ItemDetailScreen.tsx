@@ -1,3 +1,4 @@
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, { useEffect, useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
@@ -41,18 +42,19 @@ function FieldRow({ label, value, secret, testID }: { label: string; value: stri
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         <Text selectable style={{ flex: 1, color: colors.text, fontSize: 16 }} numberOfLines={secret && !show ? 1 : undefined}>{display}</Text>
         {secret ? (
-          <Pressable testID={`${testID}-toggle`} accessibilityLabel={format(show ? dict.itemDetail.hide : dict.itemDetail.show, label)} onPress={() => setShow((v) => !v)} hitSlop={10} style={{ padding: 8 }}><Icon name={show ? 'hide' : 'show'} color={colors.muted} /></Pressable>
+          <Pressable testID={`${testID}-toggle`} accessibilityLabel={format(show ? dict.itemDetail.hide : dict.itemDetail.show, label)} onPress={() => setShow((v) => !v)} hitSlop={10} style={{ width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}><Icon name={show ? 'hide' : 'show'} color={colors.muted} /></Pressable>
         ) : null}
-        <Pressable testID={`${testID}-copy`} accessibilityLabel={format(dict.itemDetail.copy, label)} onPress={() => { void Clipboard.setStringAsync(value); }} hitSlop={10} style={{ padding: 8 }}><Icon name="copy" color={colors.muted} /></Pressable>
+        <Pressable testID={`${testID}-copy`} accessibilityLabel={format(dict.itemDetail.copy, label)} onPress={() => { void Clipboard.setStringAsync(value); }} hitSlop={10} style={{ width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}><Icon name="copy" color={colors.muted} /></Pressable>
       </View>
     </View>
   );
 }
 
-export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDelete, onRestore, onToggleFavorite, onClose, onSelectRelated }: {
+export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDelete, onRestore, onToggleFavorite, onClose, onSelectRelated, onShare }: {
   item: VaultItem; allItems: VaultItem[]; inTrash: boolean;
-  onEdit: () => void; onDelete: () => void; onRestore: () => void; onToggleFavorite: () => void; onClose: () => void; onSelectRelated: (id: string) => void;
+  onShare?: () => void; onEdit: () => void; onDelete: () => void; onRestore: () => void; onToggleFavorite: () => void; onClose: () => void; onSelectRelated: (id: string) => void;
 }) {
+  const insets = useSafeAreaInsets();
   const { colors, styles, theme } = useMobileTheme();
   const { dict, locale } = useTranslation();
   const d = dict.itemDetail;
@@ -97,7 +99,7 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
   const when = (iso: string) => formatDate(locale, new Date(iso), { dateStyle: 'medium', timeStyle: 'short' });
   const confirmTrash = () => Alert.alert(m.moveToTrashTitle, m.moveToTrashBody, [{ text: dict.common.cancel, style: 'cancel' }, { text: dict.shell.bulkMoveToTrash, style: 'destructive', onPress: onDelete }]);
   const confirmForever = () => Alert.alert(m.deleteForeverTitle, m.deleteForeverBody, [{ text: dict.common.cancel, style: 'cancel' }, { text: dict.common.delete, style: 'destructive', onPress: onDelete }]);
-  const card = { backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 20 } as const;
+  const card = { backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 14 } as const;
   const sheetAction = (testID: string, label: string, onPress: () => void, tone?: 'danger') => (
     <Pressable key={testID} testID={testID} accessibilityRole="button" accessibilityLabel={label} onPress={() => { setMenuOpen(false); onPress(); }} style={{ minHeight: 52, justifyContent: 'center', paddingHorizontal: 16 }}>
       <Text style={{ color: tone === 'danger' ? colors.dangerText : colors.text, fontSize: 16, fontWeight: '600' }}>{label}</Text>
@@ -105,12 +107,10 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
   );
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 24 }}>
-        <Pressable testID="detail-back" accessibilityLabel={m.backToVault} accessibilityRole="button" onPress={onClose} hitSlop={10} style={{ alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}><Icon name="back" color={colors.accent} /><Text style={{ color: colors.link, fontSize: 16, fontWeight: '600' }}>{dict.common.back}</Text></View>
-        </Pressable>
+      <ScrollView style={{ flex: 1 }} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 20, paddingBottom: 32, width: '100%', maxWidth: 720, alignSelf: 'center' }}>
+
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 4 }}>
-          <TypeModule type={item.type} theme={theme} size={72} />
+          <TypeModule type={item.type} theme={theme} size={56} />
           <View style={{ flex: 1 }}>
             <Text style={[styles.heading, { fontSize: 22, lineHeight: 28 }]}>{item.title}</Text>
             <Text style={{ color: colors.muted, fontSize: 14, marginTop: 4 }}>{typeLabel(dict, item.type)}{item.favorite ? `  · ${d.favorite}` : ''}{inTrash ? `  · ${d.inTrash}` : ''}{archived ? `  · ${d.archived}` : ''}</Text>
@@ -204,8 +204,8 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
         <Text style={{ color: colors.muted, fontSize: 12, marginTop: 16 }}>{format(d.created, when(item.created_at))} · {format(d.updated, when(item.updated_at))}</Text>
       </ScrollView>
 
-      {/* Thumb bar: the main action and the rest behind "•••". A share button goes here when sharing ships. */}
-      <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 12, backgroundColor: colors.bg, borderTopColor: colors.cardBorder, borderTopWidth: 1 }}>
+      {/* Primary actions stay within thumb reach. */}
+      <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 10, paddingBottom: Math.max(insets.bottom, 12), backgroundColor: colors.bg, borderTopColor: colors.cardBorder, borderTopWidth: 1 }}>
         {inTrash ? (
           <Pressable testID="detail-restore" accessibilityRole="button" accessibilityLabel={d.restore} style={[styles.primaryButton, { flex: 1 }]} onPress={onRestore}><Text style={styles.primaryButtonText}>{d.restore}</Text></Pressable>
         ) : (
@@ -214,6 +214,7 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
             <Text style={styles.primaryButtonText}>{copiedKey ? dict.common.copied : secretKey === 'password' || !secretKey ? d.copyPassword : format(d.copy, fieldLabel(secretKey))}</Text>
           </Pressable>
         )}
+        {!inTrash && onShare && !['media', 'document', 'collection'].includes(item.type) && <Pressable testID="detail-share" accessibilityRole="button" accessibilityLabel={dict.mobileUI.share} onPress={onShare} style={[styles.ghostButton, { width: 56, paddingHorizontal: 0 }]}><Icon name="share" color={colors.text} /></Pressable>}
         <Pressable testID="detail-more" accessibilityRole="button" accessibilityLabel={d.more} onPress={() => setMenuOpen(true)} style={[styles.ghostButton, { width: 56, paddingHorizontal: 0 }]}>
           <Icon name="more" color={colors.text} />
         </Pressable>

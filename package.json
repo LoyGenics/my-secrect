@@ -10,7 +10,7 @@
   "scripts": {
     "test": "node --test tests/crypto-vectors/ tests/sync-conflicts/ tests/compatibility/ tests/recovery/ tests/end-to-end/ && npm run test:real",
     "test:mirrors": "node --test tests/crypto-vectors/ tests/sync-conflicts/ tests/compatibility/ tests/recovery/ tests/end-to-end/",
-    "test:real": "tsx --test --test-concurrency=1 packages/storage/tests/upload.real.test.mts packages/import-export/tests/backup-corruption.real.test.ts packages/sync/tests/real-sync-client-import.test.ts packages/sync/tests/sync-client-pull.import.ts packages/sync/tests/sync-client-queue.import.ts packages/core/tests/sharing-proposal.test.mjs packages/crypto-adapters/tests/libsodium-adapter.import.test.mjs packages/crypto-adapters/tests/cross-impl.test.ts packages/crypto-adapters/tests/reference-adapter-guard.test.ts packages/crypto-adapters/tests/self-test.test.ts apps/desktop/portable-restore.test.ts apps/desktop/portable-restore-guards.test.ts apps/desktop/storage-backend.test.ts apps/extension/vault-ext-restore.test.ts apps/mobile/vault-restore.test.ts apps/extension/tests/domain.test.ts packages/sdk/tests/security-verification.test.ts packages/i18n/tests/parity.test.ts packages/ui/tests/tokens-sync.test.ts apps/desktop/form-and-gate.test.ts apps/mobile/tests/vault-store.test.ts apps/mobile/tests/vault-device-unlock.test.ts apps/mobile/tests/libsodium-shim.test.ts",
+    "test:real": "tsx --test --test-concurrency=1 packages/storage/tests/upload.real.test.mts packages/import-export/tests/backup-corruption.real.test.ts packages/sync/tests/real-sync-client-import.test.ts packages/sync/tests/sync-client-pull.import.ts packages/sync/tests/sync-client-queue.import.ts packages/core/tests/sharing-proposal.test.mjs packages/core/tests/share-link.test.ts packages/crypto-adapters/tests/libsodium-adapter.import.test.mjs packages/crypto-adapters/tests/cross-impl.test.ts packages/crypto-adapters/tests/reference-adapter-guard.test.ts packages/crypto-adapters/tests/self-test.test.ts apps/desktop/portable-restore.test.ts apps/desktop/portable-restore-guards.test.ts apps/desktop/storage-backend.test.ts apps/extension/vault-ext-restore.test.ts apps/mobile/vault-restore.test.ts apps/extension/tests/domain.test.ts packages/sdk/tests/security-verification.test.ts packages/i18n/tests/parity.test.ts packages/ui/tests/tokens-sync.test.ts apps/desktop/form-and-gate.test.ts apps/mobile/tests/vault-store.test.ts apps/mobile/tests/vault-device-unlock.test.ts apps/mobile/tests/libsodium-shim.test.ts",
     "test:sync-e2e": "tsx --test --test-concurrency=1 tests/sync-e2e/two-clients.test.ts tests/sync-e2e/conflict-ui.test.ts tests/sync-e2e/account-guards.test.ts",
     "test:media-e2e": "tests/media-e2e/run.sh",
     "test:acceptance": "tsx --test --test-concurrency=1 tests/acceptance/recovery-failures.test.ts tests/acceptance/mirror-replacements.test.ts",
@@ -30,5 +30,9 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "overrides": {
+    "@react-navigation/native": "7.0.14",
+    "@react-navigation/elements": "2.2.5"
   }
 }

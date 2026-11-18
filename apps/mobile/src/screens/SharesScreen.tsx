@@ -2,7 +2,9 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Field from '../components/Field';
-import { colors, styles } from '../theme';
+import { Empty, Select } from '../components/mobile-ui';
+import { illustrations } from '../../../../packages/ui/src/native';
+import { useMobileTheme } from '../theme';
 import { decryptWithVaultKey, encryptWithVaultKey, listItems, upsertItem } from '../vault';
 import { API_BASE_URL_KEY, getApiToken } from './SecurityScreen';
 // From apps/mobile/src/screens/ the repo root is four levels up.
@@ -74,10 +76,10 @@ const pinStorage = {
 };
 
 const box = (bg: string, border: string) => ({ backgroundColor: bg, borderColor: border, borderWidth: 1, borderRadius: 12, padding: 12, marginTop: 10 });
-const cardStyle = { backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 8 };
 const mono = { fontFamily: Platform.select({ ios: 'Courier', default: 'monospace' }), letterSpacing: 1 } as const;
 
 function Button({ label, onPress, primary, disabled, testID }: { label: string; onPress: () => void; primary?: boolean; disabled?: boolean; testID: string }) {
+  const { colors, styles } = useMobileTheme();
   return (
     <Pressable testID={testID} accessibilityLabel={label} disabled={disabled} onPress={onPress}
       style={[primary ? styles.primaryButton : styles.ghostButton, { marginTop: 8, opacity: disabled ? 0.5 : 1 }]}>
@@ -87,6 +89,7 @@ function Button({ label, onPress, primary, disabled, testID }: { label: string; 
 }
 
 function Chip({ label, selected, onPress, testID }: { label: string; selected: boolean; onPress: () => void; testID: string }) {
+  const { colors, styles } = useMobileTheme();
   return (
     <Pressable testID={testID} accessibilityLabel={label} onPress={onPress}
       style={{ backgroundColor: selected ? colors.accent : colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 9, marginRight: 8, marginBottom: 8 }}>
@@ -96,6 +99,9 @@ function Chip({ label, selected, onPress, testID }: { label: string; selected: b
 }
 
 export default function SharesScreen({ onClose }: { onClose: () => void }) {
+  const [section, setSection] = useState('inbox');
+  const { colors, styles } = useMobileTheme();
+  const cardStyle = { backgroundColor: colors.card, borderRadius: 14, padding: 16, marginBottom: 10 };
   const { t } = useTranslation();
   const [phase, setPhase] = useState<'starting' | 'no-server' | 'signed-out' | 'failed' | 'ready'>('starting');
   const [startError, setStartError] = useState<{ kind: ShareErrorKind; detail: string } | null>(null);
@@ -349,14 +355,7 @@ export default function SharesScreen({ onClose }: { onClose: () => void }) {
     </View>
   ) : null;
 
-  const header = (
-    <>
-      <Pressable testID="shares-back" accessibilityLabel="Back to vault" onPress={onClose} hitSlop={10} style={{ alignSelf: 'flex-start', paddingVertical: 8 }}>
-        <Text style={{ color: colors.link, fontSize: 15 }}>‹ Back</Text>
-      </Pressable>
-      <Text style={styles.title}>{t('shares.title')}</Text>
-    </>
-  );
+  const header = null;
 
   if (phase !== 'ready' || !session) {
     const needsStepUp = phase === 'failed' && startError?.kind === 'step_up';
@@ -366,9 +365,9 @@ export default function SharesScreen({ onClose }: { onClose: () => void }) {
     else if (needsStepUp) message = t('shares.stepUpNeeded');
     else if (phase === 'failed') message = t('shares.unavailable', startError?.detail ?? '');
     return (
-      <ScrollView style={styles.screen} contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled">
+      <ScrollView style={styles.screen} contentContainerStyle={{ padding: 20, width: '100%', maxWidth: 720, alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
         {header}
-        <Text testID="shares-status" style={[phase === 'failed' && !needsStepUp ? styles.error : styles.subtitle, { marginTop: 12 }]}>{message}</Text>
+        {phase === 'no-server' || phase === 'signed-out' ? <Empty image={illustrations.emptyVault} title={t('mobileUI.sharingConnect')} detail={t('mobileUI.sharingConnectBody')} /> : <Text testID="shares-status" style={[phase === 'failed' && !needsStepUp ? styles.error : styles.subtitle, { marginTop: 12 }]}>{message}</Text>}
         {error ? <Text testID="shares-error" style={[styles.error, { marginTop: 10 }]}>{error}</Text> : null}
         {needsStepUp && !stepUpFor ? (
           <Button testID="share-stepup-start" primary label={t('shares.verifyItsYou')} onPress={() => setStepUpFor(() => () => setStartAttempt((n) => n + 1))} />
@@ -385,25 +384,28 @@ export default function SharesScreen({ onClose }: { onClose: () => void }) {
   const outgoing = shares.filter((s) => s.role === 'owner');
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+    <ScrollView style={styles.screen} contentContainerStyle={{ padding: 20, paddingBottom: 40, width: '100%', maxWidth: 720, alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
       {header}
-      <Text style={styles.subtitle}>{t('shares.intro')}</Text>
       {notice ? <Text testID="shares-notice" style={{ color: colors.ok, marginTop: 10 }}>{notice}</Text> : null}
       {error ? <Text testID="shares-error" style={[styles.error, { marginTop: 10 }]}>{error}</Text> : null}
 
+      {stepUpPanel}
+      <Select label={t('shares.title')} testID="shares-section" value={section} choices={[
+        { value: 'inbox', label: t('shares.sharedWithMe') }, { value: 'sent', label: t('shares.sharedByMe') },
+        { value: 'new', label: t('shares.shareItem') }, { value: 'identity', label: t('shares.myKey') },
+      ]} onChange={value => { setSection(value); setOpened(null); setDraft(null); }} />
+      {!opened && section === 'identity' && <>
       <View style={[styles.card, { marginTop: 16 }]}>
         <Text style={styles.label}>{t('shares.myKey')}</Text>
         <Text testID="my-fingerprint" style={[{ color: colors.text, fontSize: 18 }, mono]}>{myFingerprint}</Text>
         <Text style={{ color: colors.muted, fontSize: 12, lineHeight: 17, marginTop: 6 }}>{t('shares.myKeyHelp')}</Text>
         {stepUpFor ? null : <Button testID="share-reset-key" label={t('shares.resetKey')} disabled={busy} onPress={confirmResetIdentity} />}
-        {stepUpPanel}
       </View>
+      </>}
 
+      {!opened && section === 'new' && <>
       <Text style={[styles.label, { marginTop: 20 }]}>{t('shares.shareItem')}</Text>
-      <Text style={styles.label}>{t('shares.item')}</Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-        {items.map((i) => <Chip key={i.id} testID={`share-item-${i.id}`} label={i.title} selected={itemId === i.id} onPress={() => setItemId(i.id)} />)}
-      </View>
+      <Select testID="share-item" label={t('shares.item')} value={itemId} choices={items.map(item => ({ value: item.id, label: item.title }))} onChange={setItemId} />
       <Field label={t('shares.recipientEmail')} testID="share-recipient" value={email} autoCapitalize="none" autoCorrect={false} keyboardType="email-address"
         onChangeText={(v) => { setEmail(v); setContact(null); setNotFound(false); }} />
       <Button testID="share-lookup" label={t('shares.lookUp')} disabled={busy || !email.trim()} onPress={lookUp} />
@@ -431,19 +433,12 @@ export default function SharesScreen({ onClose }: { onClose: () => void }) {
           ) : null}
         </View>
       ) : null}
-      <Text style={[styles.label, { marginTop: 14 }]}>{t('shares.permission')}</Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-        <Chip testID="share-permission-read" label={t('shares.permRead')} selected={permission === 'read'} onPress={() => setPermission('read')} />
-        <Chip testID="share-permission-write" label={t('shares.permWrite')} selected={permission === 'write'} onPress={() => setPermission('write')} />
-      </View>
-      <Text style={styles.label}>{t('shares.expiry')}</Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-        {EXPIRIES.map((e) => (
-          <Chip key={e} testID={`share-expiry-${e}`} label={e === 'never' ? t('shares.expiryNever') : t(`shares.expiry${e}`)} selected={expiry === e} onPress={() => setExpiry(e)} />
-        ))}
-      </View>
+      <Select testID="share-permission" label={t('shares.permission')} value={permission} choices={[{ value: 'read', label: t('shares.permRead') }, { value: 'write', label: t('shares.permWrite') }]} onChange={value => setPermission(value as 'read' | 'write')} />
+      <Select testID="share-expiry" label={t('shares.expiry')} value={expiry} choices={EXPIRIES.map(value => ({ value, label: value === 'never' ? t('shares.expiryNever') : t(`shares.expiry${value}`) }))} onChange={value => setExpiry(value as typeof expiry)} />
       <Button testID="create-share-button" primary label={t('shares.share')} disabled={busy || !itemId || contact?.pinState !== 'verified'} onPress={doShare} />
 
+      </>}
+      {!opened && section === 'inbox' && <>
       <Text style={[styles.label, { marginTop: 24 }]}>{t('shares.sharedWithMe')}</Text>
       {incoming.length === 0 ? <Text style={{ color: colors.muted }}>{t('shares.none')}</Text> : incoming.map((share) => {
         const actions = shareActions(share);
@@ -474,6 +469,8 @@ export default function SharesScreen({ onClose }: { onClose: () => void }) {
         );
       })}
 
+      </>}
+      {!opened && section === 'sent' && <>
       <Text style={[styles.label, { marginTop: 24 }]}>{t('shares.sharedByMe')}</Text>
       {outgoing.length === 0 ? <Text style={{ color: colors.muted }}>{t('shares.none')}</Text> : outgoing.map((share) => {
         const actions = shareActions(share);
@@ -490,6 +487,8 @@ export default function SharesScreen({ onClose }: { onClose: () => void }) {
         );
       })}
       <Text style={{ color: colors.faint, fontSize: 12, lineHeight: 17, marginTop: 8 }}>{t('shares.revokeLimit')}</Text>
+
+      </>}
 
       {opened ? (
         <View style={[styles.card, { marginTop: 20 }]}>

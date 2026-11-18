@@ -1,10 +1,11 @@
 import React from 'react';
 import { Text, View } from 'react-native';
-import { colors } from '../theme';
+import { useMobileTheme } from '../theme';
 import { parseMarkdown, type InlineSegment } from '../utils/markdown';
 
 /** Render a secure note's Markdown as native text (no HTML, no WebView). */
 export default function MarkdownText({ source, testID = 'markdown-preview' }: { source: string; testID?: string }) {
+  const { colors, styles } = useMobileTheme();
   const blocks = parseMarkdown(source);
   if (blocks.length === 0) return <Text style={{ color: colors.muted }}>Empty note.</Text>;
   const renderSegments = (segments: InlineSegment[]) =>

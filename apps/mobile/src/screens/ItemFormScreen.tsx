@@ -1,11 +1,13 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import type { ItemType, VaultItem } from '../../../../packages/core/src/types';
 import Field from '../components/Field';
 import StrengthMeter from '../components/StrengthMeter';
 import MarkdownText from '../components/MarkdownText';
 import { useMobileTheme } from '../theme';
-import { Icon, illustrations, typeArt } from '../../../../packages/ui/src/native';
+import { Icon } from '../../../../packages/ui/src/native';
+import { useTranslation } from '../../../../packages/i18n/src/react';
+import { Action, Group, Page, Row, Rule, Select, ToggleRow } from '../components/mobile-ui';
 import { libsodiumAdapter as crypto } from '../../../../packages/crypto-adapters/src/index';
 import { generatePassword } from '../utils/password';
 import { getPasswordHistory, appendPasswordHistory, getNoteRevisions, appendNoteRevision } from '../utils/itemMeta';
@@ -38,11 +40,15 @@ function newItemId(): string {
   return 'item_' + Array.from(b).map((x) => x.toString(16).padStart(2, '0')).join('');
 }
 
-export default function ItemFormScreen({ initial, allItems, onSave, onCancel }: {
+export default function ItemFormScreen({ initial, allItems, onSave, onCancel, onDirtyChange }: {
   initial?: VaultItem; allItems: VaultItem[];
-  onSave: (item: VaultItem) => void; onCancel: () => void;
+  onSave: (item: VaultItem) => void | Promise<void>; onCancel: () => void; onDirtyChange?: (dirty: boolean) => void;
 }) {
   const { colors, styles } = useMobileTheme();
+  const { dict, t } = useTranslation();
+  const [more, setMore] = useState(false);
+  const [relationsOpen, setRelationsOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [type, setType] = useState<ItemType>(initial?.type ?? 'login');
   const [title, setTitle] = useState(initial?.title ?? '');
   const [fields, setFields] = useState<Record<string, string>>(() => {
@@ -65,13 +71,17 @@ export default function ItemFormScreen({ initial, allItems, onSave, onCancel }: 
   const relatable = allItems.filter((i) => i.id !== initial?.id);
   const parentCandidates = allItems.filter((i) => i.type === 'collection' && i.id !== initial?.id);
 
-  function handleSave() {
+  const signature = JSON.stringify({ type, title, fields, tagsText, relationIds, favorite, parentId, customKey, customValue });
+  const baseline = useRef(signature);
+  useEffect(() => { onDirtyChange?.(signature !== baseline.current); }, [signature, onDirtyChange]);
+
+  async function handleSave() {
     if (!title.trim()) { setError('Title is required.'); return; }
     if (type === 'login' && !(fields.username ?? '').trim()) { setError('Username is required for a login.'); return; }
     if (type === 'bank_account' && !(fields.bank_name ?? '').trim()) { setError('Bank name is required.'); return; }
     const now = new Date().toISOString();
     // Trim string fields and drop empties (previously empty strings were stored as fields).
-    const cleaned: Record<string, unknown> = {};
+    const cleaned: Record<string, unknown> = Object.fromEntries(Object.entries(initial?.fields ?? {}).filter(([, value]) => typeof value !== 'string'));
     for (const [k, v] of Object.entries(fields)) {
       const t = v.trim();
       if (t !== '') cleaned[k] = t;
@@ -110,95 +120,48 @@ export default function ItemFormScreen({ initial, allItems, onSave, onCancel }: 
       attachments: initial?.attachments ?? [], favorite,
       created_at: initial?.created_at ?? now, updated_at: now,
     };
-    onSave(item);
+    setSaving(true); setError('');
+    try { await onSave(item); } catch (e) { setError(t('mobileUI.saveFailed')); } finally { setSaving(false); }
   }
-  return (
-    <ScrollView style={styles.screen} contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
-      <Text style={styles.title}>{initial ? 'Edit item' : 'New item'}</Text>
-      <Text style={[styles.label, { marginTop: 16 }]}>Type</Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-        {TYPES.map((t) => (
-          <Pressable key={t.type} testID={`type-${t.type}`} accessibilityLabel={`Type ${t.label}`} accessibilityRole="button" onPress={() => setType(t.type)} style={{ backgroundColor: type === t.type ? colors.accent : colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, marginRight: 6, marginBottom: 6 }}>
-            <Text style={{ color: type === t.type ? colors.onAccent : colors.text, fontSize: 13, fontWeight: '600' }}>{t.label}</Text>
-          </Pressable>
-        ))}
-      </View>
-      <Field label="Title" testID="item-title" placeholder="e.g. Example Mail" value={title} onChangeText={setTitle} autoCapitalize="none" />
-      {FIELDS[type].map((fd) => (
-        <View key={fd.key}>
-          <Field label={fd.label} testID={`field-${fd.key}`} placeholder={fd.placeholder} secureTextEntry={fd.secret} multiline={fd.multiline} value={fields[fd.key] ?? ''} onChangeText={(v) => setF(fd.key, v)} autoCapitalize="none" autoCorrect={false} />
-          {fd.key === 'password' ? (
-            <View>
-              {fields.password ? <StrengthMeter password={fields.password} /> : null}
-              <Pressable testID="generate-password-button" accessibilityLabel="Generate a password" style={[styles.ghostButton, { marginTop: -6, marginBottom: 14 }]} onPress={() => { try { setF('password', generatePassword({ length: 16 })); } catch (e) { setError(e instanceof Error ? e.message : 'Could not generate a password.'); } }}>
-                <Text style={styles.ghostButtonText}>Generate password</Text>
-              </Pressable>
-            </View>
-          ) : null}
-          {type === 'secure_note' && fd.key === 'body' ? (
-            <View style={{ marginBottom: 14 }}>
-              <Pressable testID="preview-markdown-button" accessibilityLabel="Preview note as Markdown" style={[styles.ghostButton, { marginTop: -6 }]} onPress={() => setShowPreview((v) => !v)}>
-                <Text style={styles.ghostButtonText}>{showPreview ? 'Hide preview' : 'Preview Markdown'}</Text>
-              </Pressable>
-              {showPreview ? (
-                <View style={{ backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 12, marginTop: 10 }}>
-                  <MarkdownText source={fields.body ?? ''} />
-                </View>
-              ) : null}
-            </View>
-          ) : null}
+  return <Page>
+    <Group title={dict.itemForm.type}>
+      <View style={{ paddingHorizontal: 16 }}><Select testID="item-type" label={t('mobileUI.itemType')} value={type} choices={TYPES.filter(option => !['media', 'document', 'collection'].includes(option.type) || option.type === initial?.type).map(option => ({ value: option.type, label: (dict.itemTypes as Record<string, string>)[option.type] ?? option.label }))} onChange={value => setType(value as ItemType)} /></View>
+    </Group>
+    <Field label={dict.itemForm.title} testID="item-title" placeholder="e.g. Example Mail" value={title} onChangeText={setTitle} autoCapitalize="sentences" />
+    {FIELDS[type].map(fd => <View key={fd.key}>
+      <Field label={(dict.fields as Record<string, string>)[fd.key] ?? fd.label} testID={`field-${fd.key}`} placeholder={fd.placeholder} secureTextEntry={fd.secret} multiline={fd.multiline} value={fields[fd.key] ?? ''} onChangeText={value => setF(fd.key, value)} autoCapitalize="none" autoCorrect={false} />
+      {fd.key === 'password' && <View style={{ marginBottom: 18 }}>
+        {!!fields.password && <StrengthMeter password={fields.password} />}
+        <Row testID="generate-password-button" label={dict.itemForm.generate} onPress={() => { try { setF('password', generatePassword({ length: 20 })); } catch (e) { setError(e instanceof Error ? e.message : t('mobileUI.saveFailed')); } }} />
+      </View>}
+      {type === 'secure_note' && fd.key === 'body' && <View style={{ marginBottom: 18 }}>
+        <Row testID="preview-markdown-button" label={showPreview ? dict.itemForm.hidePreview : dict.itemForm.preview} onPress={() => setShowPreview(v => !v)} />
+        {showPreview && <View style={{ backgroundColor: colors.card, padding: 16, borderRadius: 12, marginTop: 10 }}><MarkdownText source={fields.body ?? ''} /></View>}
+      </View>}
+    </View>)}
+    {type === 'card' && <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 19, marginBottom: 20 }}>{dict.mobile.cardNote}</Text>}
+    {type === 'collection' && <Group title={dict.itemForm.parentAria}><View style={{ paddingHorizontal: 16 }}><Select testID="item-parent" label={dict.itemForm.parentAria} value={parentId} choices={[{ value: '', label: t('mobileUI.noParent') }, ...parentCandidates.map(item => ({ value: item.id, label: item.title }))]} onChange={setParentId} /></View></Group>}
+    <Group>
+      <ToggleRow testID="item-favorite-toggle" label={dict.itemForm.favorite} value={favorite} onChange={setFavorite} />
+      <Rule /><Row testID="item-more-options" label={t('mobileUI.moreOptions')} onPress={() => setMore(v => !v)} />
+    </Group>
+    {more && <View>
+      <Field label={dict.itemForm.tags} testID="item-tags" placeholder="personal, finance" value={tagsText} onChangeText={setTagsText} autoCapitalize="none" />
+      <Group title={t('mobileUI.customFields')}>
+        <View style={{ padding: 16 }}>
+          {Object.keys(fields).filter(key => !FIELDS[type].some(fd => fd.key === key) && !['parent_id','password_history','revisions','archived'].includes(key)).map(key => <Field key={key} testID={`custom-${key}`} label={key} value={fields[key]} onChangeText={value => setF(key, value)} autoCapitalize="none" />)}
+          <Field label={dict.itemForm.customName} testID="custom-field-name" value={customKey} onChangeText={setCustomKey} autoCapitalize="none" />
+          <Field label={dict.itemForm.customValue} testID="custom-field-value" value={customValue} onChangeText={setCustomValue} autoCapitalize="none" />
+          <Action testID="add-custom-field" label={dict.itemForm.addCustom} secondary disabled={!customKey.trim() || !customValue.trim()} onPress={() => { setF(customKey.trim(), customValue.trim()); setCustomKey(''); setCustomValue(''); }} />
         </View>
-      ))}
-      {type === 'collection' ? (
-        <View style={{ marginBottom: 14 }}>
-          <Text style={styles.label}>Parent collection (optional — nested folders)</Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-            <Pressable testID="parent-none" accessibilityLabel="No parent collection" onPress={() => setParentId('')} style={{ backgroundColor: parentId === '' ? colors.accent : colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, marginRight: 6, marginBottom: 6 }}>
-              <Text style={{ color: parentId === '' ? colors.onAccent : colors.text, fontSize: 13, fontWeight: '600' }}>None — top level</Text>
-            </Pressable>
-            {parentCandidates.map((c) => (
-              <Pressable key={c.id} testID={`parent-${c.id}`} accessibilityLabel={`Parent collection ${c.title}`} onPress={() => setParentId(c.id)} style={{ backgroundColor: parentId === c.id ? colors.accent : colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, marginRight: 6, marginBottom: 6 }}>
-                <Text style={{ color: parentId === c.id ? colors.onAccent : colors.text, fontSize: 13, fontWeight: '600' }}>{c.title}</Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-      ) : null}
-      {type === 'card' ? <Text style={{ color: colors.warn, fontSize: 13, lineHeight: 18, marginBottom: 14 }}>Card metadata only — never enter a CVV or PIN. There is no field for them, by design.</Text> : null}
-      <Field label="Tags (comma separated)" testID="item-tags" placeholder="personal, finance" value={tagsText} onChangeText={setTagsText} autoCapitalize="none" />
-      <Text style={styles.label}>Custom field</Text>
-      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 6 }}>
-        <View style={{ flex: 1 }}><Field label="Field name" testID="custom-field-name" placeholder="e.g. recovery_email" value={customKey} onChangeText={setCustomKey} autoCapitalize="none" /></View>
-        <View style={{ flex: 1 }}><Field label="Value" testID="custom-field-value" placeholder="value" value={customValue} onChangeText={setCustomValue} autoCapitalize="none" /></View>
-      </View>
-      <Pressable testID="add-custom-field" accessibilityLabel="Add custom field" style={[styles.ghostButton, { marginBottom: 14 }]} onPress={() => { if (customKey.trim() && customValue.trim()) { setF(customKey.trim(), customValue.trim()); setCustomKey(''); setCustomValue(''); } }}>
-        <Text style={styles.ghostButtonText}>Add custom field</Text>
-      </Pressable>
-      {relatable.length > 0 ? (
-        <View style={{ marginBottom: 14 }}>
-          <Text style={styles.label}>Related items</Text>
-          {relatable.map((r) => {
-            const on = relationIds.includes(r.id);
-            return (
-              <Pressable key={r.id} testID={`relation-${r.id}`} accessibilityLabel={`Link to ${r.title}`} accessibilityRole="checkbox" accessibilityState={{ checked: on }} onPress={() => setRelationIds((ids) => (on ? ids.filter((x) => x !== r.id) : [...ids, r.id]))} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 6 }}>
-                <View style={{ width: 22, height: 22, borderRadius: 4, borderWidth: 1, borderColor: on ? colors.text : colors.control, backgroundColor: on ? colors.text : colors.input, alignItems: 'center', justifyContent: 'center' }}>{on ? <Icon name="check" size="sm" color={colors.bg} /> : null}</View>
-                <Text style={{ color: colors.text, fontSize: 15, flex: 1 }}>{r.title}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      ) : null}
-      <Pressable testID="item-favorite-toggle" accessibilityLabel={favorite ? 'Remove from favorites' : 'Add to favorites'} accessibilityRole="checkbox" accessibilityState={{ checked: favorite }} onPress={() => setFavorite((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-        <Icon name="favorite" size="lg" color={favorite ? colors.warn : colors.muted} />
-        <Text style={{ color: colors.text, fontSize: 15 }}>Favorite</Text>
-      </Pressable>
-      {error ? <Text testID="form-error" style={[styles.error, { marginBottom: 12 }]}>{error}</Text> : null}
-      <Pressable testID="save-item-button" accessibilityLabel="Save item" accessibilityRole="button" style={styles.primaryButton} onPress={handleSave}>
-        <Text style={styles.primaryButtonText}>Save item</Text>
-      </Pressable>
-      <Pressable testID="cancel-item-button" accessibilityLabel="Cancel" style={[styles.ghostButton, { marginTop: 10 }]} onPress={onCancel}>
-        <Text style={styles.ghostButtonText}>Cancel</Text>
-      </Pressable>
-    </ScrollView>
-  );
+      </Group>
+      {!!relatable.length && <Group title={t('mobileUI.relatedItems')}>
+        <Row testID="item-relations" label={t('mobileUI.relatedItems')} detail={t('mobileUI.itemCount', relationIds.length)} onPress={() => setRelationsOpen(v => !v)} />
+        {relationsOpen && relatable.map(item => <ToggleRow key={item.id} testID={`relation-${item.id}`} label={item.title} value={relationIds.includes(item.id)} onChange={value => setRelationIds(ids => value ? [...ids, item.id] : ids.filter(id => id !== item.id))} />)}
+      </Group>}
+    </View>}
+    {!!error && <Text testID="form-error" accessibilityRole="alert" style={[styles.error, { marginBottom: 16 }]}>{error}</Text>}
+    <Action testID="save-item-button" label={saving ? dict.itemForm.saving : dict.itemForm.save} disabled={saving} onPress={() => void handleSave()} />
+    <View style={{ marginTop: 12 }}><Action testID="cancel-item-button" label={dict.common.cancel} secondary disabled={saving} onPress={onCancel} /></View>
+  </Page>;
 }

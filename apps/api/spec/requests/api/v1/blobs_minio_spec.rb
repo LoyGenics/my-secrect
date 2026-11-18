@@ -48,6 +48,10 @@ RSpec.describe 'Blobs API against real MinIO', type: :request do
     session = open_session(part_count: 3, part_size: 1024, ciphertext_size: 2 * 1024 + 300)
     parts = [SecureRandom.random_bytes(1024), SecureRandom.random_bytes(1024), SecureRandom.random_bytes(300)]
 
+    wrong_type = http_put(session['parts'][0]['url'], parts[0], content_type: 'image/png')
+    expect(wrong_type.code).to eq('403')
+    expect(wrong_type.body).to include('SignatureDoesNotMatch')
+
     oversized = http_put(session['parts'][2]['url'], SecureRandom.random_bytes(301))
     expect(oversized.code).to eq('403')
     expect(oversized.body).to include('SignatureDoesNotMatch')
@@ -105,9 +109,9 @@ RSpec.describe 'Blobs API against real MinIO', type: :request do
     JSON.parse(response.body)
   end
 
-  def http_put(url, body)
+  def http_put(url, body, content_type: 'application/octet-stream')
     uri = URI(url)
-    Net::HTTP.start(uri.host, uri.port) { |h| h.request(Net::HTTP::Put.new(uri, 'Content-Type' => 'application/octet-stream').tap { |r| r.body = body }) }
+    Net::HTTP.start(uri.host, uri.port) { |h| h.request(Net::HTTP::Put.new(uri, 'Content-Type' => content_type).tap { |r| r.body = body }) }
   end
 
   def reports(parts)
