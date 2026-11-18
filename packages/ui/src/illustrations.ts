@@ -14,23 +14,6 @@
  * shown instead under prefers-reduced-motion (see components/Art.tsx).
  */
 import type { ItemTypeKey } from './tokens';
-import onboardingWelcome from '../assets/illustrations/onboarding-welcome.webp';
-import onboardingPassphrase from '../assets/illustrations/onboarding-passphrase.webp';
-import onboardingRecovery from '../assets/illustrations/onboarding-recovery.webp';
-import onboardingDone from '../assets/illustrations/onboarding-done.webp';
-import stateLocked from '../assets/illustrations/state-locked.webp';
-import stateUnlocked from '../assets/illustrations/state-unlocked.webp';
-import stateError from '../assets/illustrations/state-error.webp';
-import stateImport from '../assets/illustrations/state-import.webp';
-import stateHealthGood from '../assets/illustrations/state-health-good.webp';
-import stateHealthWarning from '../assets/illustrations/state-health-warning.webp';
-import stateOffline from '../assets/illustrations/state-offline.webp';
-import stateNotFound from '../assets/illustrations/state-not-found.webp';
-import emptyVault from '../assets/illustrations/empty-vault.webp';
-import emptyTrash from '../assets/illustrations/empty-trash.webp';
-import emptyFavorites from '../assets/illustrations/empty-favorites.webp';
-import emptySearch from '../assets/illustrations/empty-search.webp';
-import emptyArchive from '../assets/illustrations/empty-archive.webp';
 import typeLogin from '../assets/illustrations/type-login.webp';
 import typePasskey from '../assets/illustrations/type-passkey.webp';
 import typeBankAccount from '../assets/illustrations/type-bank-account.webp';
@@ -44,14 +27,6 @@ import typeMedia from '../assets/illustrations/type-media.webp';
 import typeCollection from '../assets/illustrations/type-collection.webp';
 import typeCustom from '../assets/illustrations/type-custom.webp';
 import ghostMark from '../assets/brand/ghost-mark.webp';
-import motionSuccess from '../assets/motion/success.webp';
-import motionSuccessStill from '../assets/motion/success-still.webp';
-import motionWorking from '../assets/motion/working.webp';
-import motionWorkingStill from '../assets/motion/working-still.webp';
-import motionSleepyStar from '../assets/motion/sleepy-star.webp';
-import motionSleepyStarStill from '../assets/motion/sleepy-star-still.webp';
-import motionError from '../assets/motion/error.webp';
-import motionErrorStill from '../assets/motion/error-still.webp';
 import mascotNeutral from '../assets/mascot/ghost-neutral.webp';
 import mascotHappy from '../assets/mascot/ghost-happy.webp';
 import mascotWave from '../assets/mascot/ghost-wave.webp';
@@ -85,36 +60,36 @@ export type ArtSource = string | { animated: string; still: string };
 
 export const illustrations = {
   /** Splash / lock screen hero (shown at >= 1024px beside the device face). */
-  splash: stateLocked,
+  splash: mascotSleepy,
   /** Onboarding steps beside the device face. */
-  deviceHero: onboardingWelcome,
-  passphrase: onboardingPassphrase,
-  recoveryKey: onboardingRecovery,
+  deviceHero: mascotWave,
+  passphrase: mascotThinking,
+  recoveryKey: mascotNeutral,
   /** Success: vault ready. */
-  success: { animated: motionSuccess, still: motionSuccessStill } as ArtSource,
+  success: { animated: ghostMotionJoy, still: ghostMotionJoyStill } as ArtSource,
   /** Busy: vault creation / unlock KDF running. */
-  working: { animated: motionWorking, still: motionWorkingStill } as ArtSource,
-  onboardingDone,
+  working: { animated: ghostMotionLoading, still: ghostMotionLoadingStill } as ArtSource,
+  onboardingDone: mascotProud,
   /** Restore an encrypted backup / backup restored. */
-  restore: stateImport,
-  restored: onboardingDone,
+  restore: mascotNeutral,
+  restored: mascotProud,
   /** Watchtower. */
-  healthClear: stateHealthGood,
-  healthWarning: stateHealthWarning,
+  healthClear: mascotHappy,
+  healthWarning: mascotSurprised,
   /** Error and offline states. */
-  error: { animated: motionError, still: motionErrorStill } as ArtSource,
-  errorStatic: stateError,
-  offline: stateOffline,
-  notFound: stateNotFound,
+  error: mascotError,
+  errorStatic: mascotError,
+  offline: mascotSad,
+  notFound: mascotSearching,
   /** Nothing selected in the detail pane. */
-  selectItem: stateUnlocked,
+  selectItem: mascotNeutral,
   /** Empty states. */
-  emptyVault,
-  emptyTrash,
-  emptyFavorites: { animated: motionSleepyStar, still: motionSleepyStarStill } as ArtSource,
-  emptyFavoritesStatic: emptyFavorites,
-  noResults: emptySearch,
-  emptyArchive,
+  emptyVault: mascotWave,
+  emptyTrash: mascotEmpty,
+  emptyFavorites: { animated: ghostMotionSleepy, still: ghostMotionSleepyStill } as ArtSource,
+  emptyFavoritesStatic: mascotSleepy,
+  noResults: mascotSearching,
+  emptyArchive: mascotNeutral,
 } as const;
 
 export type IllustrationName = keyof typeof illustrations;

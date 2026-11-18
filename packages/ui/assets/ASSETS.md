@@ -24,7 +24,7 @@ Each id was rendered with seeds 9103 and 9207; the seed column is the one kept a
 review (rejected: any with text or symbols such as the `$` coin on `type_bank` 9103,
 cropped parts such as the lanyard on `type_identity` 9103, or clutter).
 
-## Illustrations (`illustrations/`, transparent cutouts, WebP)
+## Illustrations (`illustrations/`, transparent cutouts, WebP) — only the item-type art (`type-*`) is still used; states and empties now use the mascot, see the slot table at the end
 
 | File | Source id | Seed | Size | Slot |
 |---|---|---|---|---|
@@ -69,7 +69,7 @@ clay toy style … solid pastel lavender background"; chosen by the user from 20
 Same pipeline as above (Qwen-Image, Real-ESRGAN, BiRefNet for the cutout); the desktop icons have
 rounded corners applied here, iOS and Android mask the square themselves.
 
-## Motion (`motion/`, animated WebP 256px, 49 frames, 24 fps, loop; `*-still.webp` = frame 1)
+## Motion, first batch (removed 2026-11-18, replaced by `ghost-*` loops below)
 
 Under `prefers-reduced-motion: reduce` the still is shown instead (`components/Art.tsx`).
 
@@ -89,7 +89,7 @@ Not shipped (available in the drop): `feature_*`, other `state_*`/`empty_*`, `sp
 The ghost holding the orange key (concept `07_ghost_key`, seed 8209, cutout trimmed to
 `brand/source/ghost-key-cutout.webp`) is the app mascot. Slots: `mascot`, `mascotMotion`,
 `mascotVector` in `src/illustrations.ts` (web), `mascot` in `src/native/illustrations.ts` (static only).
-Not wired into any screen yet: each image waits for approval, then replaces the old illustration of that state.
+Wired 2026-11-18 (user approved the proposed mapping); the old per-state illustrations and the old success/working/sleepy-star/error clips were removed (still in git history).
 
 ### Expressions (`mascot/ghost-<id>.webp`, transparent, 384px, one common crop so the ghost keeps its size)
 
@@ -153,3 +153,22 @@ One script rebuilds every platform file from `brand/source/ghost-key-cutout.webp
 | iOS / Android (Expo) | `icon.png` 1024 opaque (iOS rounds it), `adaptive-foreground.png` (ghost inside the 66% safe circle), `adaptive-monochrome.png` (Android 13 themed icon), adaptive background `#E9E2FB` |
 | Extension | `icon16/32/48/128.png` |
 Not covered yet: iOS 18 dark/tinted icon variants and Android legacy mipmap sizes (Expo prebuild derives them).
+
+### Slot mapping (web `illustrations`, native uses the static versions)
+
+| Slot | Mascot | Where it shows |
+|---|---|---|
+| splash | sleepy | lock screen (vault is asleep) |
+| deviceHero, emptyVault | wave | onboarding welcome, "No items yet" |
+| passphrase | thinking | choose a passphrase |
+| recoveryKey, restore, selectItem, emptyArchive | neutral | recovery key step, restore backup, nothing selected, archive |
+| success | joy (loop) | vault ready |
+| working | loading (loop) | vault creation / unlock wait |
+| onboardingDone, restored | proud | done, backup restored |
+| healthClear / healthWarning | happy / surprised | watchtower |
+| error, errorStatic | error | failures |
+| offline | sad | offline |
+| notFound, noResults | searching | not found, no search results |
+| emptyTrash | empty | trash empty |
+| emptyFavorites (loop) / emptyFavoritesStatic | sleepy | no favourites |
+Unused for now: `guard`, `working`, `thinking` elsewhere, `hello`/`idle` loops — kept in `mascot` / `mascotMotion` for new screens. `guard` and `working` frown, so avoid them on friendly screens (recovery key looked angry with `guard`).
