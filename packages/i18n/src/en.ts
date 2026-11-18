@@ -176,7 +176,7 @@ export const en = {
       "backupHelp": "Export an encrypted backup to keep a separate copy. Restore a backup during setup on a new or empty vault.",
       "exportBackup": "Copy encrypted backup",
       "backupCopied": "Encrypted backup copied. Keep it somewhere safe.",
-      "serverHelp": "Connect your own My Secret server for account security, sharing and Family. Leave blank to keep this vault on your device.",
+      "serverHelp": "Enter a custom API URL for development. Clear the API URL and save to return to the My Secret service.",
       "serverURL": "Server URL",
       "saveServer": "Save server",
       "saved": "Saved",

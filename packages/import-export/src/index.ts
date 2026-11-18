@@ -747,11 +747,16 @@ export interface CsvDuplicate {
 }
 
 function hostOf(url: string): string {
+  const value = url.trim();
+  if (/^[a-z][a-z\d+.-]*:\/\//i.test(value) && !/^https?:\/\//i.test(value)) return value.toLowerCase();
   try {
-    const u = new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`);
+    const u = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`);
     return u.hostname.toLowerCase();
   } catch {
-    return url.trim().toLowerCase();
+    // React Native's URL has no hostname getter. For ordinary web URLs the
+    // hostname is enough to match logins on different paths of the same site.
+    const host = /^(?:https?:\/\/)?([a-z\d.-]+)(?::\d+)?(?:[/?#]|$)/i.exec(value)?.[1];
+    return (host ?? value).toLowerCase();
   }
 }
 

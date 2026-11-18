@@ -176,7 +176,7 @@ export const vi: Dictionary = {
       "backupHelp": "Xuất bản sao lưu mã hóa. Khôi phục trong bước thiết lập một két mới hoặc trống.",
       "exportBackup": "Sao chép bản sao lưu mã hóa",
       "backupCopied": "Đã sao chép bản sao lưu mã hóa. Hãy lưu ở nơi an toàn.",
-      "serverHelp": "Kết nối máy chủ My Secret của bạn để dùng bảo mật tài khoản, chia sẻ và Gia đình. Để trống để giữ két trên thiết bị.",
+      "serverHelp": "Nhập URL API riêng để phát triển. Xóa URL API rồi lưu để dùng lại dịch vụ My Secret.",
       "serverURL": "Địa chỉ máy chủ",
       "saveServer": "Lưu máy chủ",
       "saved": "Đã lưu",

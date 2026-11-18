@@ -1,34 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import type { VaultItem } from '../../../../packages/core/src/types';
+import { LOGIN_CSV_TEMPLATE, MAX_IMPORT_ITEMS } from '../../../../packages/import-export/src/index';
 import {
-  CSV_SOURCE_NAMES, LOGIN_CSV_TEMPLATE, MAX_IMPORT_ITEMS, detectCsvDuplicates, parseCsvImport,
-} from '../../../../packages/import-export/src/index';
+  AiImportError, buildCsvPreview, fieldText, IMPORT_TEMPLATE_FILENAME, MAX_AI_SOURCE_BYTES, MAX_CSV_BYTES,
+  OPENAI_DATA_POLICY, previewDuplicates, type ImportPreview,
+} from '../../../../packages/import-export/src/itemImport';
 import { useTranslation } from '../../../../packages/i18n/src/react';
 import { format } from '../../../../packages/i18n/src/index';
-import { AiImportError, MAX_AI_SOURCE_BYTES, requestAiPreview } from '../utils/aiImport';
-import { csvDraftToLoginItem } from '../utils/csvImport';
+import { requestAiPreview } from '../utils/aiImport';
+import { isValidBase32Secret } from '../utils/totp';
 import { Alert, Button, Checkbox, Dialog, DialogActions, Field, SegmentedControl, Textarea } from '../theme';
-
-const MAX_CSV_BYTES = 8 * 1024 * 1024;
 
 interface ImportItemsProps {
   existingItems: VaultItem[];
   onImport: (items: VaultItem[]) => Promise<void>;
   aiApiBaseUrl?: string;
   onDownloadTemplate: (filename: string, text: string, type: string) => void;
-}
-
-interface Preview {
-  source: string;
-  items: VaultItem[];
-  skipped: number[];
-  duplicates: Map<string, boolean>;
-  totpOmitted: Set<string>;
-}
-
-function fieldText(item: VaultItem, key: string): string {
-  const value = item.fields[key];
-  return typeof value === 'string' ? value : '';
 }
 
 export default function ImportItems({ existingItems, onImport, aiApiBaseUrl, onDownloadTemplate }: ImportItemsProps) {
@@ -41,7 +28,7 @@ export default function ImportItems({ existingItems, onImport, aiApiBaseUrl, onD
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState('');
-  const [preview, setPreview] = useState<Preview | null>(null);
+  const [preview, setPreview] = useState<(ImportPreview & { duplicates: Map<string, boolean> }) | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const operation = useRef<AbortController | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -66,18 +53,8 @@ export default function ImportItems({ existingItems, onImport, aiApiBaseUrl, onD
     setMode(next);
   }
 
-  function showPreview(data: Omit<Preview, 'duplicates'>) {
-    const logins = data.items.filter((item) => item.type === 'login');
-    const drafts = logins.map((item) => ({
-      title: item.title,
-      username: fieldText(item, 'username'),
-      url: fieldText(item, 'url'),
-      password: '',
-      notes: '',
-    }));
-    const duplicates = new Map(
-      detectCsvDuplicates(drafts, existingItems).map((dupe) => [logins[dupe.draftIndex].id, dupe.fromBatch === true]),
-    );
+  function showPreview(data: ImportPreview) {
+    const duplicates = previewDuplicates(data.items, existingItems);
     setPreview({ ...data, duplicates });
     setSelected(new Set(data.items.filter((item) => !duplicates.has(item.id)).map((item) => item.id)));
     if (data.items.length === 0 && data.skipped.length === 0) setError(c.noItems);
@@ -100,22 +77,12 @@ export default function ImportItems({ existingItems, onImport, aiApiBaseUrl, onD
       }
       const text = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer());
       if (signal.aborted) return;
-      const result = parseCsvImport(text);
-      if (!result.source || result.errors.length > 0) {
-        const issue = result.errors[0];
-        setError(issue === 'too_many_rows' ? format(c.tooManyRows, MAX_IMPORT_ITEMS) : c.csvErrors[issue ?? 'unrecognized']);
+      const result = buildCsvPreview(text, isValidBase32Secret);
+      if ('error' in result) {
+        setError(result.error === 'too_many_rows' ? format(c.tooManyRows, MAX_IMPORT_ITEMS) : c.csvErrors[result.error]);
         return;
       }
-      const items = result.drafts.map(csvDraftToLoginItem);
-      showPreview({
-        source: CSV_SOURCE_NAMES[result.source],
-        items,
-        skipped: result.skipped.map(({ row }) => row),
-        totpOmitted: new Set(items.filter((item, i) => {
-          const totp = result.drafts[i].totp;
-          return totp && !item.fields.totp_secret;
-        }).map((item) => item.id)),
-      });
+      showPreview(result.preview);
     } catch {
       if (!signal.aborted) setError(c.readFailed);
     } finally {
@@ -131,7 +98,7 @@ export default function ImportItems({ existingItems, onImport, aiApiBaseUrl, onD
       const result = await requestAiPreview(aiApiBaseUrl, sourceText, signal);
       if (signal.aborted) return;
       setSourceText('');
-      showPreview({ ...result, source: 'OpenAI' });
+      showPreview(result);
     } catch (err) {
       if (signal.aborted) return;
       const status = err instanceof AiImportError ? err.status : 0;
@@ -173,7 +140,7 @@ export default function ImportItems({ existingItems, onImport, aiApiBaseUrl, onD
             <Button ref={chooseFile} icon="file" loading={reading} disabled={importing} onClick={() => fileInput.current?.click()}>
               {reading ? c.reading : c.choose}
             </Button>
-            <Button icon="export" onClick={() => onDownloadTemplate('my-secret-logins.csv', LOGIN_CSV_TEMPLATE, 'text/csv;charset=utf-8')}>
+            <Button icon="export" onClick={() => onDownloadTemplate(IMPORT_TEMPLATE_FILENAME, LOGIN_CSV_TEMPLATE, 'text/csv;charset=utf-8')}>
               {c.template}
             </Button>
           </div>
@@ -203,7 +170,7 @@ export default function ImportItems({ existingItems, onImport, aiApiBaseUrl, onD
       <Dialog open={consentOpen} onOpenChange={setConsentOpen} title={c.consentTitle} description={c.consentDescription}>
         <p className="ms-text-sm ms-text-secondary">{c.consentData}</p>
         <p className="ms-text-sm ms-text-secondary">{c.consentLiability}</p>
-        <a className="ms-text-sm underline" href="https://developers.openai.com/api/docs/guides/your-data" target="_blank" rel="noreferrer">
+        <a className="ms-text-sm underline" href={OPENAI_DATA_POLICY} target="_blank" rel="noreferrer">
           {c.dataPolicy}
         </a>
         <DialogActions>

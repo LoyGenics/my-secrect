@@ -41,11 +41,25 @@ test('an existing hosted session survives release startup', async () => {
   assert.equal(storage.values.get(LS_API_TOKEN), 'hosted-session');
 });
 
-test('a development build can use a custom server or run locally', async () => {
+test('a development build defaults to the hosted service', async () => {
   const storage = memoryStorage();
-  assert.equal(await loadAccountServer(storage, false), '');
-  await storage.setItem(API_BASE_URL_KEY, 'http://localhost:3221/api/');
+  assert.equal(await loadAccountServer(storage, false), HOSTED_API_BASE_URL);
+  assert.equal(storage.values.get(API_BASE_URL_KEY), HOSTED_API_BASE_URL);
+});
+
+test('a development build with a saved blank URL moves to the hosted service', async () => {
+  const storage = memoryStorage([
+    [API_BASE_URL_KEY, ''],
+    [SHARE_WEB_ORIGIN_KEY, 'https://self-hosted.test'],
+  ]);
+  assert.equal(await loadAccountServer(storage, false), HOSTED_API_BASE_URL);
+  assert.equal(storage.values.has(SHARE_WEB_ORIGIN_KEY), false);
+});
+
+test('a development build keeps its configured custom server', async () => {
+  const storage = memoryStorage([[API_BASE_URL_KEY, 'http://localhost:3221/api/'], [LS_API_TOKEN, 'dev-session']]);
   assert.equal(await loadAccountServer(storage, false), 'http://localhost:3221/api');
+  assert.equal(storage.values.get(LS_API_TOKEN), 'dev-session');
 });
 
 test('the hosted endpoint is not selected if clearing a previous session fails', async () => {

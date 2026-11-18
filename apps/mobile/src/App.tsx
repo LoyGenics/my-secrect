@@ -6,7 +6,7 @@ import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-c
 import type { VaultItem } from '../../../packages/core/src/types';
 import { SecurityApiClient, clearSessionToken, getValidToken } from '../../../packages/sdk/src/security';
 import SignInScreen from './screens/SignInScreen';
-import { loadAccountServer } from './accountServer';
+import { HOSTED_API_BASE_URL, loadAccountServer } from './accountServer';
 
 /** AsyncStorage-backed token store (same LS_API_TOKEN key as
  *  desktop/web — one token store, not one per platform). */
@@ -110,7 +110,7 @@ function AppShell() {
       setApiBaseUrl(url);
       setSignedIn(Boolean(token));
       const next: Boot = exists ? 'locked' : 'onboarding';
-      setBoot(__DEV__ && url && !token ? 'signin' : next);
+      setBoot(__DEV__ && url && url !== HOSTED_API_BASE_URL && !token ? 'signin' : next);
     })().catch(() => { if (active) setBoot('error'); });
     return () => { active = false; };
   }, [bootAttempt]);
@@ -140,7 +140,7 @@ function AppShell() {
     setSignedIn(false);
     setSessionExpired(false);
     doLock();
-    if (__DEV__ && apiBaseUrl) setBoot('signin');
+    if (__DEV__ && apiBaseUrl && apiBaseUrl !== HOSTED_API_BASE_URL) setBoot('signin');
   }, [apiBaseUrl, doLock]);
 
   /** A 401 anywhere means the session is gone server-side: clear

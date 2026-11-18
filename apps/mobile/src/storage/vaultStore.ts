@@ -155,6 +155,22 @@ export class VaultStore {
       return revision;
     });
   }
+  async insertImportedItems(
+    items: readonly { row: Omit<StoredRow, 'revision'>; entry: AutofillEntry | null }[],
+    assertUnlocked: () => void,
+  ): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      assertUnlocked();
+      const autofill = await tx.first('SELECT id FROM device_unlock WHERE id = 1');
+      for (const { row, entry } of items) {
+        assertUnlocked();
+        if (await tx.first('SELECT id FROM rows WHERE id = ?', [row.id])) throw new Error('Imported item already exists');
+        await insertRow(tx, { ...row, revision: 1 });
+        await putIndexEntry(tx, row.id, autofill ? entry : null);
+      }
+      assertUnlocked();
+    });
+  }
   async setDeletedAt(id: string, deletedAt: string | null, entry: AutofillEntry | null): Promise<void> {
     await this.db.transaction(async (tx) => {
       await tx.run('UPDATE rows SET deleted_at = ? WHERE id = ?', [deletedAt, id]);

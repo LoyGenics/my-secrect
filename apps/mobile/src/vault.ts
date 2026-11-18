@@ -434,25 +434,33 @@ export async function readLocalCardCode(id: string): Promise<string> {
   return decodeLocalCardCode(id, plaintext);
 }
 
-export async function upsertItem(item: VaultItem, localCardCode?: string): Promise<void> {
-  const key = vaultKey;
-  if (!key) throw new Error('vault locked');
+async function prepareItemWrite(item: VaultItem, key: Uint8Array) {
   if (!item.id) throw new Error('item id must not be empty');
   if (item.type === 'card' && Object.keys(item.fields).some(isCardVerificationField)) {
     throw new Error('Card verification codes belong in device-local storage');
   }
-  await sodiumReady;
   const now = new Date().toISOString();
   const stored: VaultItem = { ...item, favorite: item.favorite ?? false, deleted_at: null, updated_at: now, created_at: item.created_at || now };
   const itemKey = crypto.randomBytes(32);
-  let row: Omit<StoredRow, 'revision'>;
   try {
     const wrapped = await crypto.wrapKey(key, itemKey);
     const { nonce, ciphertext } = await crypto.encrypt(itemKey, Buffer.from(JSON.stringify(stored), 'utf8'));
-    row = { id: stored.id, nonce: toBase64(nonce), ciphertext: toBase64(ciphertext), wrapped_item_key: toBase64(wrapped.wrapped), wrapped_nonce: toBase64(wrapped.nonce), deleted_at: null };
+    const row: Omit<StoredRow, 'revision'> = {
+      id: stored.id, nonce: toBase64(nonce), ciphertext: toBase64(ciphertext),
+      wrapped_item_key: toBase64(wrapped.wrapped), wrapped_nonce: toBase64(wrapped.nonce), deleted_at: null,
+    };
+    return { stored, row };
   } finally {
     itemKey.fill(0);
   }
+}
+
+export async function upsertItem(item: VaultItem, localCardCode?: string): Promise<void> {
+  const key = vaultKey;
+  if (!key) throw new Error('vault locked');
+  await sodiumReady;
+  if (vaultKey !== key) throw new Error('vault locked');
+  const { stored, row } = await prepareItemWrite(item, key);
   let sealedCode: string | null | undefined;
   if (item.type !== 'card' || localCardCode === '') sealedCode = null;
   else if (localCardCode !== undefined) sealedCode = await encryptWithVaultKey(encodeLocalCardCode(item.id, localCardCode));
@@ -461,6 +469,23 @@ export async function upsertItem(item: VaultItem, localCardCode?: string): Promi
   if (vaultKey !== key) throw new Error('vault locked');
   await store.upsertItemRow(row, indexEntry, sealedCode);
   if (vaultKey === key) unlockedItems = [...unlockedItems.filter((i) => i.id !== stored.id), stored];
+}
+
+/** Encrypt the selected items before starting a single SQLCipher transaction. */
+export async function importItems(items: VaultItem[]): Promise<void> {
+  if (items.length === 0) return;
+  await withVaultKey(async (key, assertUnlocked) => {
+    await sodiumReady;
+    const staged: Array<Awaited<ReturnType<typeof prepareItemWrite>>> = [];
+    for (const item of items) {
+      assertUnlocked();
+      staged.push(await prepareItemWrite(item, key));
+    }
+    const store = await getStore();
+    await store.insertImportedItems(staged.map(({ row, stored }) => ({ row, entry: autofillEntryFor(stored) })), assertUnlocked);
+    assertUnlocked();
+    unlockedItems = [...unlockedItems, ...staged.map(({ stored }) => stored)];
+  });
 }
 
 export async function deleteItem(id: string): Promise<void> {

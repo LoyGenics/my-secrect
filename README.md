@@ -57,11 +57,12 @@ from request logs. CSV import works without this setup.
 Packaged Tauri builds also need the configured API origin in their
 `connect-src` policy and the app origin allowed by Rails CORS.
 
-In a mobile development build, open **Settings → Development server** and
-enter the API base URL ending in `/api`. Release builds use the My Secret
-service at `https://my.msecret.app/api`. The web link viewer defaults to the
-same origin. When running Vite and
-Rails on separate local ports, set `VITE_API_PROXY_TARGET` when starting Vite,
+Mobile builds default to the My Secret service at `https://my.msecret.app/api`.
+To use a different API in a development build, open **Settings → Development
+server** and enter its base URL ending in `/api`. Clear the API URL and save to
+return to the hosted service. The web link viewer defaults to the same origin.
+When running Vite and Rails on separate local ports, set
+`VITE_API_PROXY_TARGET` when starting Vite,
 then enter the Vite origin as **Web app URL** on mobile. Recipients need a web
 origin they can reach.
 

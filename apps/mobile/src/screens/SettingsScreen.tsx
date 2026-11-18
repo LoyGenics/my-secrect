@@ -15,7 +15,7 @@ import { biometryName, deviceUnlockMessage } from './LockScreen';
 import { useTranslation } from '../../../../packages/i18n/src/react';
 import { LS_API_TOKEN, LS_API_TOKEN_EXPIRES_AT, LS_ACCOUNT_EMAIL, SecurityApiClient } from '../../../../packages/sdk/src/security';
 import { getApiToken } from './SecurityScreen';
-import { API_BASE_URL_KEY, SHARE_WEB_ORIGIN_KEY } from '../accountServer';
+import { API_BASE_URL_KEY, HOSTED_API_BASE_URL, SHARE_WEB_ORIGIN_KEY } from '../accountServer';
 import { isStepUpRequired } from '../utils/stepUp';
 import { AppButton, AppPage, BottomSheet, FieldGroup, FormSection, Group, InlineError, PageSection, Rule, SettingsRow } from '../components/mobile-ui';
 import { removeAllEncryptedFiles } from '../storage/localFiles';
@@ -128,23 +128,25 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
   }
 
   const apiConfigured = apiBaseUrl.trim() !== '';
-  const requiresAccountVerification = apiConfigured && (__DEV__ || signedIn);
+  const requiresAccountVerification = apiConfigured && (signedIn || (__DEV__ && apiBaseUrl !== HOSTED_API_BASE_URL));
 
   async function saveApiBaseUrl(v: string) {
     setServerError(''); setServerSaved(false);
     try {
-      const target = webOrigin.trim();
+      const target = v ? webOrigin.trim() : '';
       if (target) {
         const parsed = new URL(target);
         if ((parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname))) || parsed.username || parsed.password) throw new Error('invalid URL');
       }
       if (v) { const parsed = new URL(v); if (!['https:', 'http:'].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error('invalid URL'); }
-      const next = v.replace(/\/+$/, '');
+      const next = v.replace(/\/+$/, '') || HOSTED_API_BASE_URL;
       if (next !== apiBaseUrl) {
         // The bearer session belongs to the previously configured server.
         await AsyncStorage.multiRemove([LS_API_TOKEN, LS_API_TOKEN_EXPIRES_AT, LS_ACCOUNT_EMAIL]);
       }
       await AsyncStorage.multiSet([[API_BASE_URL_KEY, next], [SHARE_WEB_ORIGIN_KEY, target]]);
+      setServerDraft(next);
+      setWebOrigin(target);
       setServerSaved(true);
       await onServerSaved?.(next);
     } catch { setServerError(t('mobileUI.saveFailed')); }
