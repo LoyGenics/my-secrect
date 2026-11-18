@@ -16,7 +16,7 @@ import { useTranslation } from '../../../../packages/i18n/src/react';
 import { LS_API_TOKEN, LS_API_TOKEN_EXPIRES_AT, LS_ACCOUNT_EMAIL, SecurityApiClient } from '../../../../packages/sdk/src/security';
 import { getApiToken } from './SecurityScreen';
 import { API_BASE_URL_KEY, HOSTED_API_BASE_URL, SHARE_WEB_ORIGIN_KEY } from '../accountServer';
-import { isStepUpRequired } from '../utils/stepUp';
+import { isSessionUnauthorized, isStepUpRequired } from '../utils/stepUp';
 import { AppButton, AppPage, BottomSheet, FieldGroup, FormSection, Group, InlineError, PageSection, Rule, SettingsRow } from '../components/mobile-ui';
 import { removeAllEncryptedFiles } from '../storage/localFiles';
 import { GhostBrandMark } from '../components/soft';
@@ -62,10 +62,12 @@ export function AppearanceScreen() {
   );
 }
 
-export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onWiped, setNotice, onViewTrash, onViewArchive, onViewSecurity, onOpen, onAppearance, apiBaseUrl, signedIn, onSignIn, onServerSaved }: {
+export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onWiped, setNotice, onViewTrash, onViewArchive, onViewSecurity, onOpen, onAppearance, onImportItems, apiBaseUrl, onUnauthorized, onServerSaved, onBilling, onAdPrivacy }: {
   autoLock: AutoLockMinutes; onAutoLockChange: (m: AutoLockMinutes) => void; onLock: () => void; onWiped: () => void;
-  setNotice: (s: string) => void; onViewTrash: () => void; onViewArchive?: () => void; onViewSecurity: () => void; onOpen?: (screen: 'Family' | 'Shares') => void; onAppearance?: () => void; onServerSaved?: (url: string) => Promise<void>;
-  apiBaseUrl: string; signedIn: boolean; onSignIn: () => void;
+  setNotice: (s: string) => void; onViewTrash: () => void; onViewArchive?: () => void; onViewSecurity: () => void; onOpen?: (screen: 'Family' | 'Shares') => void; onAppearance?: () => void; onServerSaved: (url: string) => void;
+  apiBaseUrl: string; onUnauthorized: () => void;
+  onImportItems: () => void;
+  onBilling: () => void; onAdPrivacy?: () => void;
 }) {
   const { colors } = useMobileTheme();
   const { t, dict, tp, locale, setLocale } = useTranslation();
@@ -77,7 +79,7 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
   const [serverError, setServerError] = useState('');
   function closePanel() {
     setPanel(null); setNewPass(''); setNewConfirm(''); setChangeError(''); setChangeOk(false);
-    setStepUpAction(null); setStepUpPass(''); setStepUpCode(''); setStepUpError('');
+    cancelVerification();
     setBioPass(''); setBackupCopied(false); setBackupError('');
   }
   const [newPass, setNewPass] = useState('');
@@ -94,6 +96,7 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
   const [stepUpCode, setStepUpCode] = useState('');
   const [stepUpError, setStepUpError] = useState('');
   const [stepUpBusy, setStepUpBusy] = useState(false);
+  const [stepUpEmail, setStepUpEmail] = useState(false);
   // Biometric unlock (specs/mobile-local-store.md §4).
   const [device, setDevice] = useState<DeviceUnlockState | null>(null);
   const [bioPass, setBioPass] = useState('');
@@ -127,9 +130,6 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
     finally { setBioBusy(false); }
   }
 
-  const apiConfigured = apiBaseUrl.trim() !== '';
-  const requiresAccountVerification = apiConfigured && (signedIn || (__DEV__ && apiBaseUrl !== HOSTED_API_BASE_URL));
-
   async function saveApiBaseUrl(v: string) {
     setServerError(''); setServerSaved(false);
     try {
@@ -148,7 +148,7 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
       setServerDraft(next);
       setWebOrigin(target);
       setServerSaved(true);
-      await onServerSaved?.(next);
+      onServerSaved(next);
     } catch { setServerError(t('mobileUI.saveFailed')); }
   }
 
@@ -165,8 +165,8 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
    * Step-up gate for export / change passphrase / wipe.
    * (i) Local: re-enter the master passphrase, verified with
    * verifyPassphrase() — a wrong entry cannot lock the open vault.
-   * (ii) When account verification applies: a TOTP code,
-   * verified with POST /v1/auth/step-up/totp. A 403 step_up_required
+   * (ii) Account verification: an authenticator code or an email code
+   * for email-only accounts. A 403 step_up_required
    * re-prompts with the expired message; any other failure shows the
    * failed message. Nothing proceeds until both pass. The passphrase and
    * code are cleared from state as soon as the action runs.
@@ -176,22 +176,36 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
     setStepUpError(''); setStepUpBusy(true);
     const okPass = await verifyPassphrase(stepUpPass);
     if (!okPass) { setStepUpBusy(false); setStepUpError(t('security.stepUpFailed')); return; }
-    if (requiresAccountVerification) {
-      if (!stepUpCode.trim()) { setStepUpBusy(false); setStepUpError(t('security.stepUpFailed')); return; }
-      try {
-        const c = new SecurityApiClient({ baseUrl: apiBaseUrl.trim(), getToken: getApiToken });
-        await c.stepUpTotp(stepUpCode.trim());
-      } catch (e) {
-        setStepUpBusy(false);
-        setStepUpError(isStepUpRequired(e) ? t('security.stepUpExpired') : t('security.stepUpFailed'));
-        return; // panel stays open: re-prompt, never proceed.
-      }
+    if (!stepUpCode.trim()) { setStepUpBusy(false); setStepUpError(t('security.stepUpFailed')); return; }
+    try {
+      const c = new SecurityApiClient({ baseUrl: apiBaseUrl, getToken: getApiToken });
+      if (stepUpEmail) await c.stepUpEmail(stepUpCode.trim());
+      else await c.stepUpTotp(stepUpCode.trim());
+    } catch (e) {
+      setStepUpBusy(false);
+      if (isSessionUnauthorized(e)) onUnauthorized();
+      else setStepUpError(isStepUpRequired(e) ? t('security.stepUpExpired') : t('security.stepUpFailed'));
+      return;
     }
     const pass = stepUpPass;
-    setStepUpAction(null); setStepUpPass(''); setStepUpCode(''); setStepUpBusy(false);
+    cancelVerification();
+    setStepUpBusy(false);
     if (action === 'export' || action === 'export-file') await doExport(action === 'export-file');
     else if (action === 'change') await doChangePassphrase(pass);
     else await doWipe();
+  }
+
+  async function requestStepUpEmail() {
+    setStepUpBusy(true); setStepUpError('');
+    try {
+      const c = new SecurityApiClient({ baseUrl: apiBaseUrl, getToken: getApiToken });
+      await c.stepUpEmailRequest();
+      setStepUpEmail(true);
+      setStepUpCode('');
+    } catch (e) {
+      if (isSessionUnauthorized(e)) onUnauthorized();
+      else setStepUpError(t('family.verificationHelp'));
+    } finally { setStepUpBusy(false); }
   }
 
   async function doExport(asFile: boolean) {
@@ -234,11 +248,8 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
   const icon = (name: NativeIconName) => <Icon name={name} size="lg" color={colors.secondary} />;
   const autoLockLabel = (minutes: AutoLockMinutes) => minutes === 0 ? dict.settings.never : tp(dict.settings.minutes, minutes);
   const cancelVerification = () => {
-    setStepUpAction(null); setStepUpPass(''); setStepUpCode(''); setStepUpError('');
+    setStepUpAction(null); setStepUpPass(''); setStepUpCode(''); setStepUpError(''); setStepUpEmail(false);
   };
-  let accountStatus = t('mobileUI.localOnly');
-  if (apiConfigured) accountStatus = t(signedIn ? 'mobileUI.accountConnectedLocal' : 'mobileUI.accountSignedOutLocal');
-
   return (
     <>
       <AppPage testID="settings-screen">
@@ -246,7 +257,6 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
           <GhostBrandMark />
           <View style={{ flex: 1 }}>
             <Text style={[textStyle.title, { color: colors.text }]}>My Secret</Text>
-            <Text style={[textStyle.helper, { color: colors.muted }]}>{accountStatus}</Text>
           </View>
         </View>
 
@@ -262,8 +272,9 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
           <Rule leading />
           <SettingsRow testID="settings-passphrase" icon={icon('credentials')} label={t('mobileUI.changePassphrase')} onPress={() => setPanel('change')} navigation />
           <Rule leading />
-          {apiConfigured && !signedIn && <><SettingsRow testID="settings-sign-in" icon={icon('enter')} label={dict.signin.signIn} onPress={onSignIn} navigation /><Rule leading /></>}
           <SettingsRow testID="security-center-button" icon={icon('security')} label={dict.security.title} onPress={onViewSecurity} navigation />
+          <Rule leading />
+          <SettingsRow testID="settings-billing" icon={icon('card')} label={dict.billing.title} onPress={onBilling} navigation />
           {onOpen && <>
             <Rule leading />
             <SettingsRow testID="settings-sharing" icon={icon('share')} label={t('mobileUI.sharing')} onPress={() => onOpen('Shares')} navigation />
@@ -273,16 +284,19 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
         </Group>
 
         <Group title={t('mobileUI.dataBackupSettings')}>
+          <SettingsRow testID="settings-import-items" icon={icon('import')} label={dict.itemImport.title} onPress={onImportItems} navigation />
+          <Rule leading />
           <SettingsRow testID="settings-backup" icon={icon('export')} label={t('mobileUI.backupSettings')} onPress={() => setPanel('backup')} navigation />
         </Group>
 
         <Group title={dict.settings.preferencesTitle}>
           {onAppearance && <><SettingsRow testID="settings-appearance" icon={icon('appearance')} label={dict.theme.label} value={dict.theme[preference]} onPress={onAppearance} navigation /><Rule leading /></>}
           <SettingsRow testID="settings-language" icon={icon('language')} label={dict.language.label} value={locale === 'en' ? 'English' : 'Tiếng Việt'} onPress={() => setPanel('language')} navigation />
+          {onAdPrivacy && <><Rule leading /><SettingsRow testID="settings-ad-privacy" icon={icon('shield')} label={dict.mobileBilling.adPrivacy} onPress={onAdPrivacy} navigation /></>}
         </Group>
 
         <Group title={t('mobileUI.advanced')}>
-          {__DEV__ && <><SettingsRow testID="settings-server" icon={icon('server')} label={t('mobileUI.serverSettings')} value={apiConfigured ? t('mobileUI.connected') : t('mobileUI.notConnected')} onPress={() => { setServerDraft(apiBaseUrl); setPanel('server'); }} navigation /><Rule leading /></>}
+          {__DEV__ && <><SettingsRow testID="settings-server" icon={icon('server')} label={t('mobileUI.serverSettings')} onPress={() => { setServerDraft(apiBaseUrl); setPanel('server'); }} navigation /><Rule leading /></>}
           <SettingsRow testID="settings-about" icon={icon('info')} label={t('mobileUI.about')} onPress={() => setPanel('about')} navigation />
           <Rule leading />
           <SettingsRow testID="settings-delete" icon={icon('trash')} label={t('mobileUI.dangerZone')} destructive onPress={() => setPanel('delete')} navigation />
@@ -296,12 +310,16 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
         testID="settings-panel"
       >
         {stepUpAction ? (
-          <FormSection description={t('security.stepUpBody')}>
+          <FormSection description={t('mobileAuth.vaultStepUpBody')}>
             <FieldGroup>
               <AppTextField label={t('security.stepUpPassphraseLabel')} testID="stepup-passphrase" secureTextEntry revealable value={stepUpPass} onChangeText={setStepUpPass} autoCapitalize="none" autoCorrect={false} />
-              {requiresAccountVerification && <AppTextField label={t('security.stepUpTotpLabel')} testID="stepup-totp-code" value={stepUpCode} onChangeText={setStepUpCode} autoCapitalize="none" autoCorrect={false} keyboardType="number-pad" />}
+              <AppTextField label={stepUpEmail ? dict.signin.emailCodeLabel : t('security.stepUpTotpLabel')}
+                helper={stepUpEmail ? dict.signin.emailCodeHint : undefined} testID={stepUpEmail ? 'stepup-email-code' : 'stepup-totp-code'}
+                value={stepUpCode} onChangeText={setStepUpCode} autoCapitalize="none" autoCorrect={false} keyboardType="number-pad" />
             </FieldGroup>
             {!!stepUpError && <InlineError testID="stepup-error">{stepUpError}</InlineError>}
+            <AppButton testID="stepup-send-email" label={stepUpEmail ? dict.signin.resendCode : dict.family.sendCode}
+              variant="text" disabled={stepUpBusy} onPress={() => void requestStepUpEmail()} />
             <AppButton testID="stepup-confirm" label={t('security.confirm')} loading={stepUpBusy} onPress={() => void submitStepUp()} />
             <AppButton testID="stepup-cancel" variant="secondary" label={dict.common.cancel} disabled={stepUpBusy} onPress={cancelVerification} />
           </FormSection>

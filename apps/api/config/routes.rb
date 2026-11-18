@@ -5,9 +5,11 @@ Rails.application.routes.draw do
     namespace :v1 do
       post 'imports/preview', to: 'import_previews#create'
       get 'billing', to: 'billing#show'
+      get 'billing/access', to: 'billing#access'
       post 'billing/checkout', to: 'billing#checkout'
       post 'billing/portal', to: 'billing#portal'
       post 'billing/refresh', to: 'billing#refresh'
+      post 'billing/stores/refresh', to: 'billing#refresh_store'
       post 'billing/webhooks/stripe', to: 'billing_webhooks#stripe'
       post 'billing/webhooks/revenuecat', to: 'billing_webhooks#revenuecat'
       # Account + device authentication (WebAuthn/passkeys). NOT vault unlock.

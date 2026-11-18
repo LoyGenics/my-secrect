@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import type { VaultItem } from '../../../../packages/core/src/types';
 import { createShareLink, shareLinkSnapshot, shareLinkURL } from '../../../../packages/core/src/share-link';
+import { ApiError } from '../../../../packages/sdk/src/index';
 import { ShareLinksApiClient, type OwnedShareLink } from '../../../../packages/sdk/src/share-links';
 import { useTranslation } from '../../../../packages/i18n/src/react';
 import { AppButton, AppPage, FormSection, Group, IconButton, InlineError, PageSection, Progress, Rule, SelectField, SettingsRow } from '../components/mobile-ui';
@@ -12,7 +13,7 @@ import { getApiToken } from './SecurityScreen';
 import { SHARE_WEB_ORIGIN_KEY } from '../accountServer';
 
 interface LinkView { link: OwnedShareLink; url: string }
-export default function ShareLinkScreen({ item, baseUrl }: { item: VaultItem; baseUrl: string }) {
+export default function ShareLinkScreen({ item, baseUrl, onUnauthorized }: { item: VaultItem; baseUrl: string; onUnauthorized: (itemId: string) => void }) {
   const { t, dict, locale } = useTranslation();
   const [ttl, setTTL] = useState('86400'); const [busy, setBusy] = useState(false);
   const [error, setError] = useState(''); const [api, setApi] = useState<ShareLinksApiClient | null>(null);
@@ -24,6 +25,13 @@ export default function ShareLinkScreen({ item, baseUrl }: { item: VaultItem; ba
     try { return Object.keys(shareLinkSnapshot(item).fields); }
     catch { return null; }
   }, [item]);
+  function handleRequestError(cause: unknown) {
+    if (cause instanceof ApiError && cause.status === 401) {
+      onUnauthorized(item.id);
+    } else {
+      setError(t('mobileUI.linkFailed'));
+    }
+  }
   async function refresh(client: ShareLinksApiClient, webOrigin: string) {
     const result = await client.list(); const found: LinkView[] = [];
     for (const link of result.links) {
@@ -40,17 +48,16 @@ export default function ShareLinkScreen({ item, baseUrl }: { item: VaultItem; ba
     let alive = true;
     setLoading(true); setError('');
     void (async () => {
-      if (!baseUrl) { if (alive) setError(t('mobileUI.linkConfigure')); return; }
-      if (!(await getApiToken())) { if (alive) setError(t('mobileUI.linkConnect')); return; }
+      if (!(await getApiToken())) { if (alive) onUnauthorized(item.id); return; }
       const override = __DEV__ ? (await AsyncStorage.getItem(SHARE_WEB_ORIGIN_KEY))?.trim() : '';
       const webOrigin = override || new URL(baseUrl).origin;
       const client = new ShareLinksApiClient({ baseUrl, getToken: getApiToken });
       if (!alive) return;
       setApi(client); setOrigin(webOrigin);
-      try { await refresh(client, webOrigin); } catch { if (alive) setError(t('mobileUI.linkFailed')); }
-    })().catch(() => { if (alive) setError(t('mobileUI.linkFailed')); }).finally(() => { if (alive) setLoading(false); });
+      await refresh(client, webOrigin);
+    })().catch(cause => { if (alive) handleRequestError(cause); }).finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [baseUrl, item.id, retry]);
+  }, [baseUrl, item.id, onUnauthorized, retry]);
   async function create() {
     if (!api || busy || !fields) return;
     setBusy(true); setError(''); setCopied(false);
@@ -61,12 +68,12 @@ export default function ShareLinkScreen({ item, baseUrl }: { item: VaultItem; ba
       const metadata = await encryptWithVaultKey(JSON.stringify({ kind: 'my-secrect.share-link.owner.v1', id: value.record.id, item_id: item.id, secret: value.secret }));
       await api.create(value.record, metadata);
       setURL(nextURL); await refresh(api, origin);
-    } catch { setError(t('mobileUI.linkFailed')); } finally { setBusy(false); }
+    } catch (cause) { handleRequestError(cause); } finally { setBusy(false); }
   }
   function revoke(id: string) {
     Alert.alert(t('mobileUI.revokeLinkTitle'), t('mobileUI.revokeLinkBody'), [
       { text: dict.common.cancel, style: 'cancel' }, { text: t('mobileUI.revokeLink'), style: 'destructive', onPress: () => {
-        setBusy(true); void api?.revoke(id).then(async () => { setURL(''); await refresh(api, origin); }).catch(() => setError(t('mobileUI.linkFailed'))).finally(() => setBusy(false));
+        setBusy(true); void api?.revoke(id).then(async () => { setURL(''); await refresh(api, origin); }).catch(handleRequestError).finally(() => setBusy(false));
       } },
     ]);
   }

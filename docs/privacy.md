@@ -25,7 +25,9 @@
 - **Data minimisation.** The server stores what sync and sign-in need:
   ciphertext, opaque ids, revisions, timestamps, sizes, the account email,
   passkey public keys, and per-session metadata (below).
-- **No ads, no trackers, no third-party analytics.**
+- **Mobile ads.** Free iOS and Android accounts may see non-personalized
+  AdMob banners on the unlocked vault list. Vault data and keys do not go
+  into ad requests.
 - **No operator recovery.** No master key, no backdoor. Lost passphrase +
   lost recovery key = unrecoverable vault, by design; users must be told so.
 
@@ -43,7 +45,7 @@
 | Request logs | Container stdout (Docker json-file, 5 × 10 MB per container, rotated) | One JSON line per request: method, path (opaque ids only, no query string), status, duration, request id. **No IP, no parameters, no headers, no bodies** | **VERIFIED (run)**: format observed; the log scan found no token, challenge, assertion, ciphertext, signature, passphrase, recovery key, marker or env secret in any container log |
 | Reverse-proxy access logs | None (Caddy access logging is off) | — | **CODE** (`infra/docker/Caddyfile`) |
 | Diagnostics / crash reports | Nowhere | — | **CODE**: no SDK integrated. PLANNED: opt-in only, if ever added |
-| Ads / tracking | Nowhere | — | **CODE**: no ads or analytics SDK in any `package.json`; the web build connects only to its own origin and the S3 endpoint (CSP `connect-src`, **VERIFIED (run)**: 0 violations) |
+| Mobile ads | Google AdMob on configured free mobile builds | Consent check and non-personalized banner requests | **CODE**. Google may process IP address, device information, ad interactions and SDK diagnostics. No vault or email fields are supplied to AdMob. |
 
 ## 3. Data minimisation in practice
 
@@ -61,7 +63,11 @@
 
 ## 4. Telemetry, ads, third parties
 
-- No ads SDKs, no third-party analytics, no tracking. Nothing to opt out of.
+- Google AdMob supplies mobile banners for Free accounts. The app requests
+  non-personalized ads after checking Google UMP consent. The Settings ad
+  privacy entry opens Google's choices when required. Pro removes banners.
+- Apple and Google process mobile purchases. RevenueCat uses the account's
+  opaque ID and store purchase records to verify access.
 - Self-hosted: the operator's own Postgres, Redis and MinIO hold the data;
   Caddy contacts Let's Encrypt for certificates. The operator's **SMTP
   provider** receives the sign-up address and the 6-digit code (one email per
@@ -201,7 +207,8 @@ account stays. The **mobile app has no account-deletion UI** (no
 1. We cannot recover your vault if you lose both your passphrase and your
    recovery key. No one can.
 2. Vault sync sends ciphertext and sync metadata.
-3. No ads, no tracking, no sale of data.
+3. Free mobile accounts may see non-personalized AdMob banners. Explain the
+   provider's data use, consent controls and the ad-free paid option.
 4. You can export your encrypted vault and delete your account in the app
    (desktop/web today; mobile PENDING). Deletion is immediate and permanent on
    the live server; it does not erase the vault on your device.

@@ -7,29 +7,36 @@ export interface BillingPurchase {
   entitled: boolean; expires_at: string | null; cancel_at_period_end: boolean;
   review_required: boolean; verified_at: string;
 }
-export interface BillingState {
+interface BillingSummary {
   tier: 'free' | 'pro'; lifetime: boolean; expires_at: string | null;
-  checkout_blocked: boolean; environment: 'test' | 'live'; portal_available: boolean;
-  stores_ready: boolean; app_user_id: string; purchases: BillingPurchase[];
+  checkout_blocked: boolean; environment: 'test' | 'live'; app_user_id: string; purchases: BillingPurchase[];
+}
+export interface MobileBillingState extends BillingSummary {
+  store_products: Partial<Record<Exclude<BillingProvider, 'stripe'>, Record<string, PurchaseOption>>>;
+}
+export interface BillingState extends BillingSummary {
+  portal_available: boolean; stores_ready: boolean;
   catalog: Array<{ option: PurchaseOption; available: boolean; amount?: number; currency?: string }>;
 }
 
 /** Only account and billing metadata. Never send any vault content or keys. */
 export class BillingApiClient {
   constructor(private readonly config: ApiClientConfig) {}
-  private async request<T>(suffix: string, method = 'GET', body?: unknown): Promise<T> {
+  private async request<T>(suffix: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
     const token = await this.config.getToken();
     const path = `/v1/billing${suffix}`;
     const response = await fetch(`${this.config.baseUrl.replace(/\/+$/, '')}${path}`, {
-      method, cache: 'no-store', headers: {
+      method, signal, cache: 'no-store', headers: {
         'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}),
       }, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-    const result = await response.json();
+    const result = await response.json().catch(() => null);
     if (!response.ok) throw new ApiError(response.status, path, result);
     return result as T;
   }
   get(): Promise<BillingState> { return this.request(''); }
+  access(signal?: AbortSignal): Promise<MobileBillingState> { return this.request('/access', 'GET', undefined, signal); }
+  refreshStore(signal?: AbortSignal): Promise<MobileBillingState> { return this.request('/stores/refresh', 'POST', undefined, signal); }
   refresh(): Promise<BillingState> { return this.request('/refresh', 'POST'); }
   checkout(option: PurchaseOption): Promise<{ url: string }> { return this.request('/checkout', 'POST', { option }); }
   portal(): Promise<{ url: string }> { return this.request('/portal', 'POST'); }

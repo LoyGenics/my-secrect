@@ -281,6 +281,7 @@ export interface SessionResult {
   device_id?: string | null;
   expires_in: number;
   recovery_session?: boolean;
+  account_created?: boolean;
 }
 
 /** Passkey assertion verified, but the account has MFA enabled:

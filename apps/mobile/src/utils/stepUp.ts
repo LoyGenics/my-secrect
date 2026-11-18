@@ -14,7 +14,14 @@
  * The mirror test (apps/mobile/tests/security-step-up.test.mjs) copies
  * this logic in plain Node; if the SDK changes, update that mirror.
  */
+import { isUnauthorized } from '../../../../packages/sdk/src/security';
+
 export { STEP_UP_WINDOW_MS, isStepUpFresh, isStepUpRequired } from '../../../../packages/sdk/src/security';
+
+/** A wrong step-up code can also return 401 without invalidating the session. */
+export function isSessionUnauthorized(error: unknown): boolean {
+  return isUnauthorized(error) && error instanceof Error && !error.message.includes('verification_failed');
+}
 
 /** HTTP status of an SDK error, or null when the request never got one (offline / programming error). */
 export function apiStatus(err: unknown): number | null {

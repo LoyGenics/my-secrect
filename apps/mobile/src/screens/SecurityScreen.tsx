@@ -17,7 +17,7 @@ import { SecurityApiClient, clearSessionToken, getValidToken, isUnauthorized } f
 import { fromBase64Url, sha256, toBase64 } from '../../../../packages/crypto-adapters/src/index';
 import { recoveryVerifierKeyPair } from '../../../../packages/sdk/src/recovery-verifier';
 import { decryptWithVaultKey, encryptWithVaultKey } from '../vault';
-import { apiStatus, isNetworkError, isStepUpFresh, isStepUpRequired } from '../utils/stepUp';
+import { apiStatus, isNetworkError, isSessionUnauthorized, isStepUpFresh, isStepUpRequired } from '../utils/stepUp';
 import { space } from '../ui/tokens';
 
 /**
@@ -153,7 +153,7 @@ export default function SecurityScreen({ baseUrl, onSignedOut, onUnauthorized }:
   );
 
   function describeError(e: unknown): string {
-    if (isUnauthorized(e)) onUnauthorized?.();
+    if (isSessionUnauthorized(e)) onUnauthorized?.();
     if (isNetworkError(e)) return t('security.offline');
     const status = apiStatus(e);
     return status !== null ? `${t('security.error')} (${status})` : t('security.error');

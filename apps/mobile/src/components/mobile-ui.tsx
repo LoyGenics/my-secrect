@@ -62,7 +62,8 @@ export function AppPage({ children, scroll = true, width = 'form', header, foote
         keyboardVerticalOffset={keyboardOffset ?? windowY} style={[local.flex, { paddingTop: safeArea === 'full' ? insets?.top ?? 0 : 0 }]}>
         {header && <View style={[local.column, column, local.pageHeader]}>{header}</View>}
         {scroll
-          ? <ScrollView style={local.flex} keyboardShouldPersistTaps="handled" contentContainerStyle={body}>{children}</ScrollView>
+        ? <ScrollView style={local.flex} keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} contentContainerStyle={body}>{children}</ScrollView>
           : <View style={body}>{children}</View>}
         {footer && <View style={[local.column, column, local.pageFooter, {
           paddingBottom: space[3] + bottom, borderTopColor: colors.border, backgroundColor: colors.canvas,

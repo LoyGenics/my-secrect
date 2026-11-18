@@ -42,7 +42,7 @@ export default function VaultScreen({
   onViewArchive, onViewTrash, filter, onFilterChange, mode = 'vault',
 }: VaultScreenProps) {
   const { styles } = useMobileTheme();
-  const { dict, t, locale } = useTranslation();
+  const { dict, t, tp, locale } = useTranslation();
   const labels = dict.mobileVault;
   const [draft, setDraft] = useState<VaultFilter>();
   const [optionQuery, setOptionQuery] = useState('');
@@ -129,7 +129,7 @@ export default function VaultScreen({
       {[...filter.collectionIds].map((value) => <FilterChip key={`collection-${value}`} label={options.collections.find((item) => item.id === value)?.title ?? labels.collections}
         testID={`vault-remove-collection-${value}`} selected onRemove={() => onFilterChange({ ...filter, collectionIds: toggleFilterValue(filter.collectionIds, value) })} />)}
     </ScrollView>}
-    <Text testID="vault-result-count" accessibilityLiveRegion="polite" style={styles.small}>{t('mobileUI.itemCount', visible.length)}</Text>
+    <Text testID="vault-result-count" accessibilityLiveRegion="polite" style={styles.small}>{tp(labels.itemCount, visible.length)}</Text>
   </View>;
   const emptyTitle = candidates.length ? labels.noMatches : archived ? labels.archivedEmpty : dict.shell.empty.allTitle;
   const emptyDetail = candidates.length ? labels.noMatchesBody : archived ? undefined : dict.mobile.emptyAllBody;
@@ -146,7 +146,7 @@ export default function VaultScreen({
     />
     <BottomSheet visible={draft !== undefined} title={labels.filterTitle} onClose={() => setDraft(undefined)} testID="vault-filter-sheet" scroll={false}
       footer={draft && <>
-        <AppButton testID="vault-filter-apply" label={t('mobileVault.showItems', t('mobileUI.itemCount', pendingCount))} onPress={() => { onFilterChange(draft); setDraft(undefined); }} />
+        <AppButton testID="vault-filter-apply" label={t('mobileVault.showItems', tp(labels.itemCount, pendingCount))} onPress={() => { onFilterChange(draft); setDraft(undefined); }} />
         <AppButton testID="vault-filter-reset" label={labels.reset} variant="text" size="compact" onPress={() => { setDraft(clearVaultFilters(draft)); setOptionQuery(''); }} />
       </>}>
       {options.tagCounts.size + options.collections.length > SEARCHABLE_TAG_LIMIT && <InputControl testID="vault-filter-search"

@@ -43,7 +43,7 @@ RSpec.describe 'Email sign-in without a passkey', type: :request do
       body = sign_in_with_email(key: key)
 
       user = User.find_by!(email: email)
-      expect(body).to include('user_id' => user.id, 'expires_in' => Authentication::SessionTokens::TTL_SECONDS)
+      expect(body).to include('user_id' => user.id, 'expires_in' => Authentication::SessionTokens::TTL_SECONDS, 'account_created' => true)
       expect(user.authenticators).to be_empty
       device = Device.find(body['device_id'])
       expect(device.user_id).to eq(user.id)
@@ -58,6 +58,7 @@ RSpec.describe 'Email sign-in without a passkey', type: :request do
       ticket = registration_ticket_via_api(email)
       email_session(ticket, device: enroll_proof(second, ticket))
       expect(response).to have_http_status(:ok)
+      expect(json_body['account_created']).to be(false)
       expect(User.where(email: email).count).to eq(1)
       expect(User.find_by!(email: email).devices.count).to eq(2)
     end

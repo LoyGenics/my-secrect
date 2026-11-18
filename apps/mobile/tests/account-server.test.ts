@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { LS_ACCOUNT_EMAIL, LS_API_TOKEN, LS_API_TOKEN_EXPIRES_AT } from '../../../packages/sdk/src/security';
-import { API_BASE_URL_KEY, HOSTED_API_BASE_URL, SHARE_WEB_ORIGIN_KEY, loadAccountServer } from '../src/accountServer';
+import { API_BASE_URL_KEY, HOSTED_API_BASE_URL, SHARE_WEB_ORIGIN_KEY, loadAccountServer, resolveVaultEntry } from '../src/accountServer';
 
 function memoryStorage(entries: [string, string][] = []) {
   const values = new Map(entries);
@@ -9,6 +9,7 @@ function memoryStorage(entries: [string, string][] = []) {
     values,
     async getItem(key: string) { return values.get(key) ?? null; },
     async setItem(key: string, value: string) { values.set(key, value); },
+    async removeItem(key: string) { values.delete(key); },
     async multiRemove(keys: readonly string[]) { keys.forEach(key => values.delete(key)); },
   };
 }
@@ -69,4 +70,29 @@ test('the hosted endpoint is not selected if clearing a previous session fails',
     async multiRemove() { throw new Error('storage unavailable'); },
   }, true), /storage unavailable/);
   assert.equal(storage.values.get(API_BASE_URL_KEY), 'https://self-hosted.test/api');
+});
+
+test('a development override can be used before sign-in and clears the previous server session', async () => {
+  const storage = memoryStorage([[API_BASE_URL_KEY, HOSTED_API_BASE_URL], [LS_API_TOKEN, 'hosted-session']]);
+  const devUrl = 'http://localhost:3221/api';
+  assert.equal(await loadAccountServer(storage, false, ` ${devUrl}/ `), devUrl);
+  assert.equal(storage.values.get(API_BASE_URL_KEY), devUrl);
+  assert.equal(storage.values.has(LS_API_TOKEN), false);
+  assert.equal(await loadAccountServer(storage, true, devUrl), HOSTED_API_BASE_URL);
+});
+
+test('vault entry requires a session before checking for a new or existing vault', async () => {
+  const storage = memoryStorage();
+  async function vaultExists() { assert.fail('a signed-out vault must not be opened'); }
+  assert.equal(await resolveVaultEntry(storage, vaultExists), 'signin');
+
+  await storage.setItem(LS_API_TOKEN, 'expired-session');
+  await storage.setItem(LS_API_TOKEN_EXPIRES_AT, '1');
+  assert.equal(await resolveVaultEntry(storage, vaultExists), 'signin');
+  assert.equal(storage.values.has(LS_API_TOKEN), false);
+
+  await storage.setItem(LS_API_TOKEN, 'active-session');
+  await storage.setItem(LS_API_TOKEN_EXPIRES_AT, String(Date.now() + 60_000));
+  assert.equal(await resolveVaultEntry(storage, async () => false), 'onboarding');
+  assert.equal(await resolveVaultEntry(storage, async () => true), 'locked');
 });

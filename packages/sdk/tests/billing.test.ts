@@ -36,3 +36,22 @@ test('checkout sends only a purchase option, authenticated to the configured API
     assert.equal(call?.init?.cache, 'no-store');
   } finally { globalThis.fetch = original; }
 });
+
+test('mobile reads and refreshes server access without sending a purchase claim', async () => {
+  const original = globalThis.fetch;
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (url, init) => {
+    calls.push({ url: String(url), init });
+    return Response.json({ tier: 'pro', app_user_id: 'fixture-account' });
+  }) as typeof fetch;
+  try {
+    const api = new BillingApiClient({ baseUrl: 'https://api.example.test/api', getToken: async () => 'fixture-token' });
+    assert.equal((await api.access()).tier, 'pro');
+    assert.equal((await api.refreshStore()).tier, 'pro');
+    assert.deepEqual(calls.map(({ url, init }) => [url, init?.method, init?.body]), [
+      ['https://api.example.test/api/v1/billing/access', 'GET', undefined],
+      ['https://api.example.test/api/v1/billing/stores/refresh', 'POST', undefined],
+    ]);
+    for (const { init } of calls) assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer fixture-token');
+  } finally { globalThis.fetch = original; }
+});

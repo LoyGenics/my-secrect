@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { FlatList, Keyboard, Linking, Text, View } from 'react-native';
+import { Buffer } from 'buffer';
 import type { VaultItem } from '../../../../packages/core/src/types';
 import { useTranslation } from '../../../../packages/i18n/src/react';
 import { format } from '../../../../packages/i18n/src/index';
 import { MAX_IMPORT_ITEMS } from '../../../../packages/import-export/src/index';
+import { Icon } from '../../../../packages/ui/src/native';
 import {
   AiImportError, buildCsvPreview, fieldText, MAX_AI_SOURCE_BYTES, OPENAI_DATA_POLICY, previewDuplicates, type ImportPreview,
 } from '../../../../packages/import-export/src/itemImport';
@@ -13,7 +15,7 @@ import {
 } from '../components/mobile-ui';
 import { useMobileTheme } from '../theme';
 import { space, textStyle } from '../ui/tokens';
-import { chooseImportCsv, requestAiPreview, shareCsvTemplate } from '../utils/itemImport';
+import { chooseImportCsv, requestAiPreview, saveCsvTemplate } from '../utils/itemImport';
 import { isValidBase32Secret } from '../utils/totp';
 
 type Mode = 'csv' | 'ai';
@@ -22,13 +24,13 @@ type Preview = ImportPreview & { duplicates: Map<string, boolean> };
 
 interface Props {
   items: VaultItem[];
-  apiBaseUrl?: string;
+  apiBaseUrl: string;
   getToken: () => Promise<string | null>;
   onImport: (items: VaultItem[]) => Promise<void>;
-  onSignIn?: () => void;
+  onUnauthorized: () => void;
 }
 
-export default function ImportItemsScreen({ items, apiBaseUrl, getToken, onImport, onSignIn }: Props) {
+export default function ImportItemsScreen({ items, apiBaseUrl, getToken, onImport, onUnauthorized }: Props) {
   const { colors } = useMobileTheme();
   const { dict, tp } = useTranslation();
   const c = dict.itemImport;
@@ -42,7 +44,7 @@ export default function ImportItemsScreen({ items, apiBaseUrl, getToken, onImpor
   const [error, setError] = useState('');
   const [done, setDone] = useState('');
   const pending = useRef<AbortController | null>(null);
-  const sourceTooLarge = new TextEncoder().encode(sourceText).byteLength > MAX_AI_SOURCE_BYTES;
+  const sourceTooLarge = Buffer.byteLength(sourceText, 'utf8') > MAX_AI_SOURCE_BYTES;
   const busy = work !== null;
 
   useEffect(() => () => pending.current?.abort(), []);
@@ -81,7 +83,8 @@ export default function ImportItemsScreen({ items, apiBaseUrl, getToken, onImpor
     } catch (err) {
       if (controller.signal.aborted) return;
       const status = err instanceof AiImportError ? err.status : 0;
-      setError(status === 401 ? c.signIn : status === 429 ? c.rateLimited : status === 503 ? c.aiUnavailable : failure);
+      if (status === 401) onUnauthorized();
+      else setError(status === 429 ? c.rateLimited : status === 503 ? c.aiUnavailable : failure);
     } finally {
       pending.current = null;
       if (!controller.signal.aborted) setWork(null);
@@ -90,9 +93,9 @@ export default function ImportItemsScreen({ items, apiBaseUrl, getToken, onImpor
 
   function pickFile() {
     return run('file', c.readFailed, async (signal) => {
+      clearPreview();
       const file = await chooseImportCsv(signal);
       if (!file || signal.aborted) return;
-      clearPreview();
       if ('tooLarge' in file) {
         setError(c.fileTooLarge);
         return;
@@ -107,7 +110,7 @@ export default function ImportItemsScreen({ items, apiBaseUrl, getToken, onImpor
   }
 
   function approveAiImport() {
-    if (!consentOpen || !apiBaseUrl || !sourceText.trim() || sourceTooLarge) return;
+    if (!consentOpen || !sourceText.trim() || sourceTooLarge) return;
     setConsentOpen(false);
     return run('ai', c.aiFailed, async (signal) => {
       clearPreview();
@@ -140,9 +143,9 @@ export default function ImportItemsScreen({ items, apiBaseUrl, getToken, onImpor
           <AppButton testID="import-choose-csv" label={work === 'file' ? c.reading : c.choose} icon="import"
             onPress={() => void pickFile()} loading={work === 'file'} disabled={busy} />
           <AppButton testID="import-download-template" label={c.template} icon="export" variant="secondary"
-            onPress={() => void run('template', c.templateFailed, shareCsvTemplate)} loading={work === 'template'} disabled={busy} />
+            onPress={() => void run('template', c.templateFailed, saveCsvTemplate)} loading={work === 'template'} disabled={busy} />
         </>
-      ) : apiBaseUrl ? (
+      ) : (
         <>
           <AppTextField testID="import-source-text" label={c.textLabel} helper={c.textHint} error={sourceTooLarge ? c.textTooLarge : undefined}
             value={sourceText} onChangeText={setSourceText} multiline scrollEnabled autoComplete="off" spellCheck={false}
@@ -150,11 +153,6 @@ export default function ImportItemsScreen({ items, apiBaseUrl, getToken, onImpor
           <AppButton testID="import-request-consent" label={work === 'ai' ? c.analyzing : c.analyze}
             onPress={() => { Keyboard.dismiss(); setConsentOpen(true); }}
             loading={work === 'ai'} disabled={busy || sourceTooLarge || !sourceText.trim()} />
-        </>
-      ) : (
-        <>
-          <Text style={[textStyle.helper, { color: colors.secondaryText }]}>{c.signIn}</Text>
-          {onSignIn && <AppButton label={dict.signin.signIn} variant="secondary" onPress={onSignIn} />}
         </>
       )}
       {error && <InlineError testID="import-error">{error}</InlineError>}
@@ -232,7 +230,8 @@ export default function ImportItemsScreen({ items, apiBaseUrl, getToken, onImpor
         <FormSection description={c.consentDescription}>
           <Text style={[textStyle.helper, { color: colors.secondaryText }]}>{c.consentData}</Text>
           <Text style={[textStyle.helper, { color: colors.secondaryText }]}>{c.consentLiability}</Text>
-          <SettingsRow label={c.dataPolicy} icon="external" onPress={() => void Linking.openURL(OPENAI_DATA_POLICY).catch(() => undefined)} />
+          <SettingsRow label={c.dataPolicy} icon={<Icon name="open" color={colors.primaryTextLink} />}
+            onPress={() => void Linking.openURL(OPENAI_DATA_POLICY).catch(() => undefined)} />
         </FormSection>
       </BottomSheet>
     </>

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AppState, StyleSheet, Text, View } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import * as Clipboard from 'expo-clipboard';
-import { cardIssuer, cardLast4 } from '../../../../packages/core/src/card';
+import { cardIssuer, cardLast4, formatCardNumber } from '../../../../packages/core/src/card';
 import type { VaultItem } from '../../../../packages/core/src/types';
 import { format, formatDate, type Dictionary, type Locale } from '../../../../packages/i18n/src/index';
 import { useTranslation } from '../../../../packages/i18n/src/react';
@@ -28,7 +28,7 @@ interface DisplayField {
   display?: string;
   secret?: boolean;
   mask?: string;
-  copyable?: boolean;
+  includeInCopyAll?: boolean;
 }
 
 const FIELD_ORDER: Record<VaultItem['type'], readonly string[]> = {
@@ -78,6 +78,7 @@ function detailFields(item: VaultItem, dict: Dictionary, locale: Locale, localCo
     const label = (dict.fields as Record<string, string>)[key] ?? key;
     let display: string | undefined;
     if (DATE_FIELDS.has(key)) display = dateDisplay(locale, value);
+    if (key === 'card_number') display = formatCardNumber(value, detailString(item, 'brand') || undefined);
     if (key === 'expiry') display = normalizeCardExpiry(value);
     if (key === 'brand' && value === 'other') display = dict.card.otherBrand;
     if (key === 'card_type' && (value === 'debit' || value === 'credit')) display = dict.card[value];
@@ -85,7 +86,7 @@ function detailFields(item: VaultItem, dict: Dictionary, locale: Locale, localCo
       key, label, value, display,
       secret: SENSITIVE_FIELDS.has(key) || key === 'cvv',
       mask: key === 'card_number' && /^\d{4}$/.test(last4) ? `•••• ${last4}` : undefined,
-      copyable: key !== 'cvv',
+      includeInCopyAll: key !== 'cvv',
     });
   }
   const custom = readCustomFields(item)
@@ -110,19 +111,19 @@ function FieldRow({ field, canReveal, copied, onCopy, testID }: {
   const [revealed, setRevealed] = useState(false);
   useEffect(() => { if (!canReveal) setRevealed(false); }, [canReveal]);
   const showing = revealed && canReveal;
-  const { label, value, display, mask = '••••••••', secret, copyable = true } = field;
+  const { label, value, display, mask = '••••••••', secret } = field;
   return (
     <View style={local.field}>
       <Text style={styles.small}>{label}</Text>
       <View style={local.valueRow}>
-        <Text selectable={copyable && (!secret || showing)} style={[styles.body, local.fill]}>
+        <Text selectable={!secret || showing} style={[styles.body, local.fill]}>
           {secret && !showing ? mask : display ?? value}
         </Text>
         {secret && <IconButton testID={`${testID}-toggle`} icon={showing ? 'hide' : 'show'}
           accessibilityLabel={format(showing ? d.hide : d.show, label)} accessibilityState={{ selected: showing }}
           disabled={!canReveal} onPress={() => setRevealed((current) => !current)} />}
-        {copyable && <IconButton testID={`${testID}-copy`} icon={copied ? 'check' : 'copy'}
-          accessibilityLabel={copied ? common.copied : format(d.copy, label)} disabled={!canReveal} onPress={onCopy} />}
+        <IconButton testID={`${testID}-copy`} icon={copied ? 'check' : 'copy'}
+          accessibilityLabel={copied ? common.copied : format(d.copy, label)} disabled={!canReveal} onPress={onCopy} />
       </View>
     </View>
   );
@@ -308,7 +309,7 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
       ) : null}
 
       <Group title={d.fields}>
-        {entries.some(({ copyable }) => copyable !== false) && (
+        {entries.some(({ includeInCopyAll }) => includeInCopyAll !== false) && (
           <>
             <SettingsRow testID="detail-copy-all" label={copied === COPY_ALL ? dict.common.copied : detail.copyAll}
               icon={copied === COPY_ALL ? 'check' : 'copy'} disabled={!canReveal || !!pending}

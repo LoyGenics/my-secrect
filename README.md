@@ -1,8 +1,8 @@
 # My Secret
 
 My Secret is a local-first encrypted vault for credentials, secure notes and
-files. The mobile app opens a local vault by default. Sign in to the hosted
-My Secret service from Settings to use account security, sharing and Family.
+files. On mobile, verify your email to create an account or sign in before
+setting up, restoring or unlocking your vault.
 
 ## What’s available
 
@@ -15,7 +15,7 @@ My Secret service from Settings to use account security, sharing and Family.
 | Family | Up to six people. Each member keeps a private vault. Share individual items when needed. |
 | Backup and recovery | Export encrypted item backups. Mobile can restore a backup during setup. A saved recovery key can unlock the vault if the passphrase is forgotten. |
 | Desktop and web | Vault management, optional account setup, encrypted backups and server-backed media transfers. The web client excludes plaintext export. |
-| Item import | On desktop and web, import login CSVs locally from the My Secret template, 1Password, Bitwarden or Google Password Manager. Signed-in users can also consent to send pasted text to OpenAI and review the resulting drafts before saving. |
+| Item import | On desktop, web and mobile, import login CSVs locally from the My Secret template, 1Password, Bitwarden or Google Password Manager. Signed-in users can also consent to send pasted text to OpenAI and review the resulting drafts before saving. |
 | Browser extension and Autofill | Chromium extension and native iOS/Android credential provider code. Native providers require a build with their respective platform integration. |
 
 Mobile file contents stay on the importing device. Item backups include file
@@ -60,7 +60,10 @@ Packaged Tauri builds also need the configured API origin in their
 Mobile builds default to the My Secret service at `https://my.msecret.app/api`.
 To use a different API in a development build, open **Settings → Development
 server** and enter its base URL ending in `/api`. Clear the API URL and save to
-return to the hosted service. The web link viewer defaults to the same origin.
+return to the hosted service. To use a custom API before signing in for the first
+time, set `EXPO_PUBLIC_ACCOUNT_API_URL` when starting Expo. This URL takes
+precedence over the saved server when the app starts. The web link viewer
+defaults to the same origin.
 When running Vite and Rails on separate local ports, set
 `VITE_API_PROXY_TARGET` when starting Vite,
 then enter the Vite origin as **Web app URL** on mobile. Recipients need a web

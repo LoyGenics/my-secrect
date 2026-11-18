@@ -1,3 +1,5 @@
+import creditCardType from 'credit-card-type';
+
 export const CARD_BRANDS = ['Visa', 'Mastercard', 'American Express', 'JCB', 'UnionPay', 'NAPAS', 'Discover', 'Diners Club', 'Maestro', 'other'] as const;
 export const CARD_TYPES = ['credit', 'debit'] as const;
 
@@ -18,6 +20,25 @@ export function cardNumberDigits(value: string): string {
   return value.replace(/[\s-]/g, '');
 }
 
+export function detectCardBrand(value: string): string | undefined {
+  const digits = cardNumberDigits(value);
+  if (!/^\d{1,19}$/.test(digits)) return;
+  if (digits.startsWith('9704')) return 'NAPAS';
+  const [match, alternative] = creditCardType(digits);
+  if (match?.matchStrength && !alternative && CARD_BRANDS.some((brand) => brand === match.niceType)) {
+    return match.niceType;
+  }
+}
+
+export function formatCardNumber(value: string, brand = detectCardBrand(value)): string {
+  const digits = cardNumberDigits(value);
+  if (!/^\d*$/.test(digits)) return value;
+  if (brand === 'American Express' || brand === 'Diners Club') {
+    return [digits.slice(0, 4), digits.slice(4, 10), digits.slice(10)].filter(Boolean).join(' ');
+  }
+  return digits.match(/\d{1,4}/g)?.join(' ') ?? '';
+}
+
 export function cardLast4(fields: Record<string, unknown>): string {
   const number = typeof fields.card_number === 'string' ? cardNumberDigits(fields.card_number) : '';
   if (number.length >= 4) return number.slice(-4);
@@ -34,8 +55,13 @@ export function prepareCardFields(fields: Record<string, unknown>): void {
   }
   delete fields.bank;
   if (typeof fields.card_number === 'string') {
-    fields.card_number = cardNumberDigits(fields.card_number);
+    const number = cardNumberDigits(fields.card_number);
+    fields.card_number = number;
     fields.last4 = cardLast4(fields);
+    if (!fields.brand) {
+      const brand = detectCardBrand(number);
+      if (brand) fields.brand = brand;
+    }
   }
   if (fields.card_type !== 'credit') {
     delete fields.credit_limit;

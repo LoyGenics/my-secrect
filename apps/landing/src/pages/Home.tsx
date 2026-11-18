@@ -6,6 +6,7 @@ import { ArrowRight, ArrowUpRight, Fingerprint, KeyRound, Laptop, LockKeyhole, M
 import { Faq, Section } from '../components/Chrome';
 import VaultScene from '../components/VaultScene';
 import VaultExplorer from '../components/VaultExplorer';
+import { BlackFridayLink } from './BlackFriday';
 import { Link, copyFor, href, type Lang } from '../lib';
 import { site } from '../site.config';
 
@@ -23,14 +24,15 @@ export default function Home({ lang }: { lang: Lang }) {
     <div className="home">
       <section className="hero" ref={hero}>
         <div className="container hero__grid">
-          <motion.div className="hero__text" initial={reduced ? false : { opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}>
-            <h1>{h.hero.h1.split('\n').map((line, i) => <span key={line} className={i ? 'hero__accent' : undefined}>{line}</span>)}</h1>
+          <div className="hero__text">
+            <h1>{h.hero.h1.split('\n').map((line, i) => <span key={line} className={i ? 'hero__accent' : undefined}>{i > 0 && ' '}{line}</span>)}</h1>
             <p className="hero__sub">{h.hero.sub}</p>
             <div className="actions">
               <a className="btn btn--lg" href={site.appUrl}>{h.hero.primary}<ArrowUpRight size={19} aria-hidden="true" /></a>
               <Link className="hero__secondary" to={href(lang, 'pricing')}>{h.hero.secondary}<ArrowRight size={18} aria-hidden="true" /></Link>
             </div>
-          </motion.div>
+            <BlackFridayLink lang={lang} />
+          </div>
           <motion.div className="hero__visual" style={reduced ? undefined : { y: sceneY, rotate: sceneRotate }}>
             <VaultScene copy={h.scene} />
           </motion.div>

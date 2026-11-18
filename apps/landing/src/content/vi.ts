@@ -8,8 +8,9 @@ export const vi: Copy = {
   lang: 'vi',
   htmlLang: 'vi',
   meta: {
-    home: { title: 'My Secret: két mã hóa cho mọi thứ riêng tư', description: 'Mật khẩu, passkey, thẻ, giấy tờ, ghi chú, khóa SSH và ảnh video riêng tư trong một két, được mã hóa trên thiết bị của bạn trước khi đồng bộ.' },
-    pricing: { title: 'Bảng giá: Miễn phí, Pro và Trọn đời | My Secret', description: `Giá dự kiến: Miễn phí, Pro ${amount(pricing.pro.yearly)} USD mỗi năm hoặc Trọn đời ${amount(pricing.lifetime)} USD một lần. So sánh với 1Password, Bitwarden, Proton Pass và Enpass.` },
+    home: { title: 'My Secret | Quản lý mật khẩu và két số mã hóa', description: 'Lưu mật khẩu, passkey, thẻ, giấy tờ và ảnh riêng tư trong một két số dùng được ngoại tuyến. My Secret mã hóa dữ liệu trên thiết bị trước khi đồng bộ.' },
+    pricing: { title: 'Gói Miễn phí, Pro, Gia đình và Trọn đời | My Secret', description: 'Xem két số miễn phí và các gói dự kiến của My Secret. So sánh khả năng quản lý mật khẩu, dùng ngoại tuyến và lưu tệp mã hóa.' },
+    'black-friday': { title: 'Black Friday 2026 cho người dùng sớm | My Secret', description: 'My Secret đang chuẩn bị ưu đãi Black Friday 2026 cho người dùng sớm. Khám phá két số mã hóa cho mật khẩu, passkey, giấy tờ và ảnh riêng tư.' },
     security: { title: 'Bảo mật: My Secret bảo vệ dữ liệu của bạn thế nào', description: 'Argon2id và XChaCha20-Poly1305, khóa luôn ở trên thiết bị của bạn, máy chủ nhìn thấy gì và những giới hạn chúng tôi chưa giải quyết.' },
     privacy: { title: 'Chính sách quyền riêng tư | My Secret', description: 'My Secret lưu gì, không bao giờ nhận gì, giữ trong bao lâu và cách xóa tài khoản.' },
     terms: { title: 'Điều khoản dịch vụ | My Secret', description: 'Điều khoản sử dụng My Secret, gồm các gói, gói Trọn đời và trách nhiệm của bạn với khóa của mình.' },
@@ -20,12 +21,12 @@ export const vi: Copy = {
   },
   cta: { early: 'Đăng ký dùng sớm', earlySubject: 'Đăng ký dùng sớm My Secret' },
   home: {
-    hero: { h1: 'Riêng tư.\nTrọn vẹn.', sub: 'Két mã hóa cho mật khẩu, thẻ, giấy tờ, ghi chú và ảnh video riêng tư.', primary: 'Mở ứng dụng web', secondary: 'Xem bảng giá' },
+    hero: { h1: 'Két số mã hóa\ncho riêng bạn.', sub: 'My Secret quản lý mật khẩu và passkey, đồng thời bảo vệ thẻ, giấy tờ, ảnh riêng tư và khóa SSH, API trong cùng một két.', primary: 'Mở ứng dụng web', secondary: 'Xem bảng giá' },
     scene: { label: 'Mô hình tương tác của két cá nhân', open: 'Mở két', close: 'Đóng két', pause: 'Tạm dừng chuyển động', play: 'Tiếp tục chuyển động', hint: 'Khám phá bên trong.', unavailable: 'Một góc không gian riêng của bạn.' },
     principles: ['Mã hóa ngay trên thiết bị', 'Ưu tiên ngoại tuyến', 'Khóa luôn thuộc về bạn'],
     family: { h2: 'Gần nhau. Vẫn riêng tư.', sub: 'Một gia đình, tối đa sáu người. Mỗi người có két riêng và tự chọn những gì muốn chia sẻ.', visual: '6 người. 6 két riêng.', points: ['Khóa riêng cho từng thành viên', 'Mời và quản lý gia đình', 'Chia sẻ từng mục với người đã xác minh'], link: 'Khám phá gói Gia đình' },
     keeps: {
-      h2: 'Không chỉ là mật khẩu.', sub: 'Từ tài khoản hằng ngày đến những tệp riêng tư nhất. Mười hai loại thông tin, ở cùng một nơi.', note: 'Mã hóa trước khi rời thiết bị của bạn.',
+      h2: 'Mười hai loại thông tin trong một két', sub: 'Lưu thông tin đăng nhập cùng ghi chú bảo mật, giấy tờ tùy thân và ảnh, video riêng tư. Gom các mục liên quan để dễ tìm ngay cả khi mất mạng.', note: 'Mã hóa trước khi rời thiết bị của bạn.',
       items: ['Tài khoản', 'Passkey', 'Tài khoản ngân hàng', 'Thẻ', 'Giấy tờ tùy thân', 'Khóa SSH', 'Khóa API', 'Ghi chú', 'Tài liệu', 'Ảnh và video', 'Bộ sưu tập', 'Tùy chỉnh'],
     },
     server: {
@@ -67,17 +68,33 @@ export const vi: Copy = {
       ],
     },
   },
+  blackFriday: {
+    link: 'Ưu đãi Black Friday',
+    title: 'Black Friday 2026 cho người dùng sớm',
+    intro: 'My Secret đang chuẩn bị ưu đãi Black Friday cho người dùng sớm. Bạn có thể dùng két số để lưu mật khẩu, passkey, giấy tờ và ảnh riêng tư.',
+    details: 'Giá ưu đãi, các gói áp dụng và thời gian sử dụng ưu đãi sẽ được công bố tại đây sau khi xác nhận.',
+    tryApp: 'Dùng thử My Secret',
+    signupNote: 'Bạn có thể trải nghiệm ứng dụng web ngay. Hướng dẫn nhận ưu đãi sẽ có tại đây khi chương trình mở.',
+    overview: 'Bạn có thể làm gì với My Secret',
+    highlights: [
+      'Lưu mật khẩu, passkey, thẻ, giấy tờ, ảnh riêng tư và khóa SSH, API trong cùng một két.',
+      'Mở két khi ngoại tuyến. Nếu bật đồng bộ, dữ liệu được mã hóa trên thiết bị trước khi gửi đi.',
+      'Xuất bản sao lưu đã mã hóa và dùng khóa khôi phục để mở lại két nếu quên mật khẩu chính.',
+    ],
+    pricing: 'Xem các gói',
+    security: 'Tìm hiểu cách mã hóa',
+  },
   pricing: {
     h1: 'Miễn phí để bắt đầu. Trả theo năm hoặc một lần.',
     sub: 'My Secret đang trong giai đoạn dùng sớm. Đây là mức giá chúng tôi dự định thu, và hiện chưa tính phí gì.',
     plans: [
       {
         id: 'free', name: 'Miễn phí', price: '0 USD', unit: 'mãi mãi', blurb: 'Mọi thứ một người cần.',
-        features: ['Không giới hạn số mục, đủ 12 loại', 'Dùng ngoại tuyến trên thiết bị', 'Sao lưu và xuất dữ liệu đã mã hóa', `Đồng bộ trên ${pricing.free.syncedDevices} thiết bị`, `${pricing.free.fileStorageMB} MB lưu tệp đã mã hóa`, 'Đăng nhập bằng mã email và passkey'],
+        features: ['Không giới hạn số mục, đủ 12 loại', 'Dùng ngoại tuyến trên thiết bị', 'Sao lưu và xuất dữ liệu đã mã hóa', `Đồng bộ trên ${pricing.free.syncedDevices} thiết bị`, `${pricing.free.fileStorageMB} MB lưu tệp đã mã hóa`, 'Đăng nhập bằng mã email và passkey', 'Két trên điện thoại có banner quảng cáo'],
       },
       {
         id: 'pro', name: 'Pro', price: `${amount(pricing.pro.yearly)} USD`, unit: 'mỗi năm', alt: `hoặc ${amount(pricing.pro.monthly)} USD mỗi tháng`, blurb: 'Dành cho người dùng nhiều thiết bị.', featured: true,
-        features: ['Mọi thứ trong gói Miễn phí', 'Không giới hạn thiết bị đồng bộ', `${pricing.pro_limits.fileStorageGB} GB lưu tệp đã mã hóa`, 'Chia sẻ từng mục đã mã hóa'],
+        features: ['Két trên điện thoại không quảng cáo', 'Không giới hạn thiết bị đồng bộ', `${pricing.pro_limits.fileStorageGB} GB lưu tệp đã mã hóa`, 'Chia sẻ từng mục đã mã hóa'],
       },
       {
         id: 'lifetime', name: 'Trọn đời', price: `${amount(pricing.lifetime)} USD`, unit: 'một lần', blurb: 'Trả một lần, không gia hạn.',
@@ -160,7 +177,7 @@ export const vi: Copy = {
   privacy: {
     h1: 'Chính sách quyền riêng tư',
     sections: [
-      { h: 'Chúng tôi là ai', p: ['My Secret do [[COMPANY_NAME]], [[COMPANY_ADDRESS]] vận hành. Chính sách này áp dụng cho các ứng dụng My Secret, tiện ích trình duyệt và trang web này. Bạn có thể liên hệ chúng tôi tại [[PRIVACY_EMAIL]].', 'Tóm lại: két của bạn được mã hóa trên thiết bị, máy chủ chỉ lưu dữ liệu đã mã hóa, và chúng tôi không chạy quảng cáo, công cụ theo dõi hay phân tích của bên thứ ba.'] },
+      { h: 'Chúng tôi là ai', p: ['My Secret do [[COMPANY_NAME]], [[COMPANY_ADDRESS]] vận hành. Chính sách này áp dụng cho các ứng dụng My Secret, tiện ích trình duyệt và trang web này. Bạn có thể liên hệ chúng tôi tại [[PRIVACY_EMAIL]].', 'Két được mã hóa trên thiết bị. Tài khoản miễn phí có thể thấy quảng cáo trên điện thoại. Yêu cầu quảng cáo không chứa nội dung hay khóa của két.'] },
       { h: 'Mã hóa két', p: ['Tính năng đồng bộ gửi các mục, tệp và tên đã mã hóa. Mật khẩu chính, khóa khôi phục và khóa giải mã két được giữ trên thiết bị khi bạn đăng nhập, mở khóa và khôi phục.'] },
       { h: 'Tùy chọn nhập bằng AI', p: ['Sau khi bạn đồng ý, chúng tôi chuyển văn bản bạn đã dán đến API của OpenAI rồi trả về bản xem trước. Chúng tôi không lưu, ghi nhật ký hay công khai văn bản và bản xem trước. Ứng dụng yêu cầu OpenAI tắt lưu phản hồi. Theo mặc định, dữ liệu API không dùng để huấn luyện. Nhật ký chống lạm dụng của OpenAI có thể chứa văn bản và thường được giữ tối đa 30 ngày. Tệp CSV được xử lý trên thiết bị.'] },
       { h: 'Những gì chúng tôi lưu', ul: [
@@ -173,8 +190,8 @@ export const vi: Copy = {
         'Đăng ký: email và bản băm của mã 6 số, cho tới khi được dùng hoặc hết hạn.',
       ] },
       { h: 'Nhật ký máy chủ', p: ['Nhật ký yêu cầu của máy chủ ghi phương thức, đường dẫn với mã không mang ý nghĩa, trạng thái, thời lượng và mã yêu cầu. Chúng không ghi chuỗi truy vấn, nội dung yêu cầu hay địa chỉ IP của máy khách, và máy chủ proxy không lưu nhật ký truy cập.'] },
-      { h: 'Quảng cáo, công cụ theo dõi và phân tích', p: ['Không có. Các ứng dụng và trang web này không tải mã quảng cáo hay phân tích của bên thứ ba. Trang web không đặt cookie và chỉ lưu lựa chọn ngôn ngữ của bạn trong trình duyệt.'] },
-      { h: 'Ai xử lý dữ liệu cho chúng tôi', ul: ['[[EMAIL_PROVIDER]] gửi email đăng ký, nên nhận địa chỉ email và mã của bạn.', '[[PAYMENT_PROVIDER]] sẽ xử lý thanh toán khi các gói trả phí bắt đầu. Chúng tôi không thấy số thẻ của bạn.', 'Các nhà cung cấp lưu trữ và kho đối tượng của chúng tôi giữ dữ liệu đã mã hóa và không đọc được nó.'] },
+      { h: 'Quảng cáo trên điện thoại', p: ['Khi bật quảng cáo, ứng dụng miễn phí trên iOS và Android dùng Google AdMob để hiển thị banner không cá nhân hóa ở danh sách trong két. Google có thể xử lý địa chỉ IP, thông tin thiết bị và ứng dụng, cùng lượt tương tác để phân phối, đo lường và bảo vệ quảng cáo. My Secret không gửi email tài khoản, nội dung hay khóa của két cho Google. Bạn có thể quản lý sự đồng ý trong Cài đặt khi mục quyền riêng tư quảng cáo xuất hiện. Gói trả phí bỏ banner. Trang web này không đặt cookie.'] },
+      { h: 'Ai xử lý dữ liệu cho chúng tôi', ul: ['[[EMAIL_PROVIDER]] gửi email đăng ký, nên nhận địa chỉ email và mã của bạn.', 'Apple hoặc Google xử lý thanh toán trong ứng dụng. RevenueCat dùng mã tài khoản My Secret và bản ghi giao dịch để xác minh gói. [[PAYMENT_PROVIDER]] xử lý thanh toán trên web. Chúng tôi không thấy số thẻ của bạn.', 'Các nhà cung cấp lưu trữ và kho đối tượng của chúng tôi giữ dữ liệu đã mã hóa và không đọc được nó.'] },
       { h: 'Chúng tôi giữ dữ liệu bao lâu', ul: [
         'Dữ liệu két: cho tới khi bạn xóa mục, két hoặc tài khoản.',
         'Bản ghi phiên: cho tới khi bạn xóa tài khoản, và bị xóa [[SESSION_PURGE_DAYS]] ngày sau khi hết hạn hoặc bị thu hồi.',
@@ -200,7 +217,7 @@ export const vi: Copy = {
       { h: 'Tài khoản của bạn', ul: ['Bạn chịu trách nhiệm về địa chỉ email mình dùng và việc giữ an toàn cho thiết bị.', 'Bạn phải dùng email thật và không được dùng tài khoản của người khác.', 'Bạn có thể xóa tài khoản bất cứ lúc nào trong ứng dụng.'] },
       { h: 'Nội dung và khóa của bạn', p: ['Những gì bạn lưu là của bạn. Chúng tôi không đọc được và không đòi quyền gì với chúng, ngoài quyền lưu và truyền dữ liệu đã mã hóa để dịch vụ hoạt động.', 'Bạn chịu trách nhiệm về mật khẩu chính và khóa khôi phục. Chúng tôi không thể khôi phục cả hai. Nếu bạn mất cả hai, dữ liệu sẽ mất vĩnh viễn.'] },
       { h: 'Sử dụng hợp lệ', ul: ['Không vi phạm pháp luật hay dùng My Secret để lưu nội dung bạn không có quyền giữ.', 'Không tấn công, làm quá tải hay dò quét dịch vụ, hoặc tìm cách đọc dữ liệu của người khác.', 'Không bán lại dịch vụ.'] },
-      { h: 'Gói và thanh toán', p: ['Có một gói miễn phí. Các gói trả phí, khi bắt đầu, gồm Pro (theo tháng hoặc năm) và Trọn đời. Giá hiển thị trên trang bảng giá trước khi bạn thanh toán và được thu qua [[PAYMENT_PROVIDER]]. Có thể phát sinh thuế.', 'Pro tự gia hạn mỗi kỳ cho tới khi bạn hủy. Bạn có thể hủy bất cứ lúc nào và vẫn dùng Pro đến hết kỳ đã trả.', 'Trọn đời là một lần thanh toán để dùng tính năng Pro suốt thời gian chúng tôi còn vận hành My Secret. Nó không có nghĩa là suốt đời người mua. Nếu chúng tôi quyết định ngừng vận hành dịch vụ, chúng tôi sẽ báo trước ít nhất 90 ngày và cho bạn thời gian xuất dữ liệu.', 'Có thể hoàn tiền trong vòng [[REFUND_DAYS]] ngày kể từ lần mua đầu tiên. Chúng tôi sẽ báo cho bạn về thay đổi giá trước khi nó áp dụng với bạn.'] },
+      { h: 'Gói và thanh toán', p: ['Két miễn phí trên điện thoại có thể hiển thị quảng cáo. Gói Pro (theo tháng hoặc năm) và Trọn đời bỏ quảng cáo. Giá hiển thị trước khi bạn mua. Apple hoặc Google xử lý giao dịch trong ứng dụng. [[PAYMENT_PROVIDER]] xử lý thanh toán trên web. Có thể phát sinh thuế.', 'Pro tự gia hạn mỗi kỳ cho tới khi bạn hủy qua nhà cung cấp ban đầu. Bạn vẫn dùng được Pro đến hết kỳ đã trả.', 'Trọn đời là một lần thanh toán để dùng tính năng Pro suốt thời gian chúng tôi còn vận hành My Secret. Nó không có nghĩa là suốt đời người mua. Nếu chúng tôi quyết định ngừng vận hành dịch vụ, chúng tôi sẽ báo trước ít nhất 90 ngày và cho bạn thời gian xuất dữ liệu.', 'Bạn có thể yêu cầu hoàn tiền giao dịch trong ứng dụng qua cửa hàng nơi đã mua. Giao dịch trên web có thể được hoàn tiền trong vòng [[REFUND_DAYS]] ngày kể từ lần mua đầu tiên. Chúng tôi sẽ báo cho bạn về thay đổi giá trước khi nó áp dụng với bạn.'] },
       { h: 'Không bảo đảm', p: ['My Secret được cung cấp nguyên trạng, trong giai đoạn dùng sớm, không bảo đảm sẽ không gián đoạn hay không có lỗi. Dịch vụ chưa qua kiểm toán bảo mật độc lập. Hãy giữ một bản xuất đã mã hóa của két.'] },
       { h: 'Giới hạn trách nhiệm', p: ['Trong phạm vi pháp luật cho phép, chúng tôi không chịu trách nhiệm về tổn thất gián tiếp hay hệ quả, hoặc về việc mất dữ liệu mà bạn có thể tránh được bằng bản sao lưu hay khóa khôi phục. Tổng trách nhiệm của chúng tôi cho mọi khiếu nại giới hạn ở số tiền bạn đã trả cho chúng tôi trong 12 tháng trước đó. Không điều gì ở đây giới hạn trách nhiệm mà pháp luật không cho phép giới hạn.'] },
       { h: 'Chấm dứt thỏa thuận', p: ['Bạn có thể dừng bất cứ lúc nào và xóa tài khoản. Chúng tôi có thể tạm ngưng hoặc chấm dứt tài khoản vi phạm các điều khoản này hoặc gây rủi ro cho dịch vụ hay người khác, và sẽ nói lý do khi có thể.'] },
@@ -211,7 +228,7 @@ export const vi: Copy = {
   footer: {
     tagline: 'Mã hóa trên thiết bị của bạn. Lưu trữ dưới dạng dữ liệu đã mã hóa.',
     product: 'Sản phẩm', legal: 'Pháp lý', company: 'Trợ giúp', privacy: 'Chính sách quyền riêng tư', terms: 'Điều khoản dịch vụ',
-    early: 'Phần mềm đang trong giai đoạn dùng sớm.', rights: '© 2026 [[COMPANY_NAME]]', updated: 'Cập nhật lần cuối',
+    early: 'Phần mềm đang trong giai đoạn dùng sớm.', rights: '© 2026 My Secret', updated: 'Cập nhật lần cuối',
   },
   common: { updatedOn: 'Cập nhật lần cuối', sourceFor: 'Nguồn', open: 'Mở' },
 };

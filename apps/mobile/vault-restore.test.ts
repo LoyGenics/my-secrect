@@ -25,6 +25,29 @@ const entry: VaultItem = {
   updated_at: '2026-11-17T00:00:00.000Z',
 };
 
+test('mobile import saves selected items atomically and leaves their contents encrypted', async () => {
+  const vault = await import('./src/vault.ts');
+  const { store } = await openTestStore();
+  vault.setVaultPlatform({ openStore: async () => store, legacy: new MemoryKeyValue(), deviceKey: new SoftwareDeviceKey() });
+  await vault.createVault(PASSPHRASE);
+  const note: VaultItem = { ...entry, id: 'item_import_note', type: 'secure_note', title: 'Imported note', fields: { body: 'synthetic note body' } };
+
+  await assert.rejects(() => vault.importItems([entry, entry]), /already exists/);
+  assert.deepEqual(await store.listRows(), []);
+  assert.deepEqual(vault.listItems(), []);
+
+  await vault.importItems([entry, note]);
+  assert.deepEqual(vault.listItems().map(({ id }) => id), [entry.id, note.id]);
+  const rows = await store.listRows();
+  assert.equal(rows.length, 2);
+  assert.ok(!JSON.stringify(rows).includes('synthetic note body'));
+  vault.lockVault();
+  await assert.rejects(() => vault.importItems([note]), /vault locked/);
+  assert.equal(await vault.unlockVault(PASSPHRASE), true);
+  assert.deepEqual(vault.listItems().map(({ fields }) => fields), [entry.fields, note.fields]);
+  await vault.wipeVault();
+});
+
 test('mobile card CVV is encrypted locally and absent after portable restore', { timeout: 180_000 }, async () => {
   const vault = await import('./src/vault.ts');
   const { store } = await openTestStore();

@@ -3,6 +3,7 @@ import { mobileVaultVi } from './mobile-vault';
 import { mobileEditorVi } from './mobile-editor';
 import { mobileDetailVi } from './mobile-detail';
 import { mobileSecurityVi } from './mobile-security';
+import { mobileBillingVi } from './mobile-billing';
 
 /**
  * Vietnamese dictionary. Must satisfy the `Dictionary` type from `en.ts`
@@ -12,6 +13,7 @@ import { mobileSecurityVi } from './mobile-security';
 import type { Dictionary } from './en';
 
 export const vi: Dictionary = {
+  mobileBilling: mobileBillingVi,
   billing: {
     title: 'Gói và thanh toán', intro: 'Một tài khoản, dùng trên các thiết bị của bạn.', free: 'Miễn phí',
     monthly: 'Hàng tháng', yearly: 'Hàng năm', lifetime: 'Trọn đời', noRenewal: 'Không thu phí định kỳ',
@@ -84,8 +86,6 @@ export const vi: Dictionary = {
     "revokeLinkTitle": "Dừng chia sẻ bản sao này?",
     "revokeLinkBody": "Thao tác này ngăn truy cập mới. Người nhận có thể đã lưu bản sao.",
     "linkFailed": "Không thể tạo link. Kiểm tra kết nối rồi thử lại.",
-    "linkConnect": "Đăng nhập để chia sẻ mục.",
-    "linkConfigure": "Kết nối máy chủ trong Cài đặt để chia sẻ mục.",
     "webAppURL": "Địa chỉ ứng dụng web",
     "linkInvalid": "Không thể mở link này",
     "linkInvalidBody": "Link có thể đã hết hạn hoặc bị xóa. Hãy xin người gửi link mới.",
@@ -167,9 +167,6 @@ export const vi: Dictionary = {
       "language": "Ngôn ngữ",
       "advanced": "Nâng cao",
       "lockNow": "Khóa két",
-      "localOnly": "Trên thiết bị này",
-      "notConnected": "Chưa kết nối",
-      "connected": "Đã kết nối",
       "never": "Không bao giờ",
       "minutes": "{0} phút",
       "autoLock": "Tự khóa",
@@ -199,8 +196,6 @@ export const vi: Dictionary = {
       "settingsSaveFailed": "Không lưu được tùy chọn này. Hãy thử lại.",
       "securityAccountSettings": "Bảo mật và tài khoản",
       "dataBackupSettings": "Dữ liệu và bản sao lưu",
-      "accountConnectedLocal": "Đã đăng nhập · két lưu trên thiết bị",
-      "accountSignedOutLocal": "Chưa đăng nhập · két lưu trên thiết bị",
       "biometricSettings": "Mở khóa bằng sinh trắc học",
       "biometricOn": "Đã bật mở khóa bằng {0}.",
       "biometricOff": "Đã tắt mở khóa bằng {0}.",
@@ -444,13 +439,13 @@ export const vi: Dictionary = {
     issuer: "Ngân hàng phát hành",
     issuerPlaceholder: "Nhập tên ngân hàng phát hành",
     issuerRequired: "Vui lòng nhập tên ngân hàng.",
-    chooseBrand: "Chọn mạng lưới thẻ",
+    chooseBrand: "Tự nhận diện mạng thẻ",
     chooseType: "Chọn loại thẻ",
     credit: "Tín dụng (credit)",
     debit: "Ghi nợ (debit)",
     otherBrand: "Mạng lưới khác",
     existingDigits: "Thẻ đã lưu có 4 số cuối là {0}.",
-    cvvHint: "Không khuyến nghị lưu mã này. Nếu nhập, mã sẽ được mã hóa và chỉ lưu trên thiết bị này.",
+    cvvHint: "Tùy chọn. Mã được mã hóa và chỉ lưu trên thiết bị này. Khi cần, mở chi tiết thẻ để sao chép.",
     invalidNumber: "Nhập từ 12 đến 19 chữ số cho số thẻ.",
     invalidCvv: "Nhập mã bảo mật gồm 3 hoặc 4 chữ số.",
     invalidStatementDay: "Nhập ngày từ 1 đến 31.",
@@ -831,6 +826,7 @@ export const vi: Dictionary = {
     choose: 'Chọn tệp CSV…',
     reading: 'Đang đọc tệp CSV…',
     template: 'Tải mẫu CSV',
+    templateFailed: 'Không thể lưu mẫu CSV. Hãy thử lại.',
     readFailed: 'Không đọc được tệp. Hãy chọn tệp CSV mã hóa UTF-8.',
     fileTooLarge: 'Tệp vượt quá 8 MB. Hãy chia thành các tệp CSV nhỏ hơn.',
     csvErrors: {

@@ -8,6 +8,7 @@ import { illustrations } from '../../../../packages/ui/src/native';
 import { useMobileTheme } from '../theme';
 import { decryptWithVaultKey, encryptWithVaultKey, listItems, upsertItem } from '../vault';
 import { getApiToken } from './SecurityScreen';
+import { isSessionUnauthorized } from '../utils/stepUp';
 // From apps/mobile/src/screens/ the repo root is four levels up.
 import type { VaultItem } from '../../../../packages/core/src/types';
 import { fingerprintOf, type SharePermission } from '../../../../packages/core/src/sharing';
@@ -79,11 +80,11 @@ const pinStorage = {
 const mono = { fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }) } as const;
 type ShareSection = 'overview' | 'inbox' | 'sent' | 'new' | 'identity';
 
-export default function SharesScreen({ baseUrl }: { baseUrl: string; onClose?: () => void }) {
+export default function SharesScreen({ baseUrl, onUnauthorized }: { baseUrl: string; onUnauthorized: () => void }) {
   const [section, setSection] = useState<ShareSection>('overview');
   const { colors } = useMobileTheme();
   const { t, dict, locale } = useTranslation();
-  const [phase, setPhase] = useState<'starting' | 'no-server' | 'signed-out' | 'failed' | 'ready'>('starting');
+  const [phase, setPhase] = useState<'starting' | 'no-server' | 'failed' | 'ready'>('starting');
   const [startError, setStartError] = useState<{ kind: ShareErrorKind; detail: string } | null>(null);
   const [startAttempt, setStartAttempt] = useState(0);
   // Pending action that needs a fresh server step-up (TOTP on mobile).
@@ -111,6 +112,7 @@ export default function SharesScreen({ baseUrl }: { baseUrl: string; onClose?: (
   const [revealed, setRevealed] = useState(false);
 
   const report = useCallback((e: unknown) => {
+    if (isSessionUnauthorized(e)) { onUnauthorized(); return; }
     const c = classifyShareError(e);
     const key = ERROR_KEYS[c.kind];
     setNotice('');
@@ -118,7 +120,7 @@ export default function SharesScreen({ baseUrl }: { baseUrl: string; onClose?: (
     else if (c.kind === 'identity') setError(t('shares.unavailable', c.detail));
     else if (c.kind === 'invalid_content') setError(t('shares.errorInvalidContent', c.detail));
     else setError(t('shares.errorGeneric', c.detail));
-  }, [t]);
+  }, [onUnauthorized, t]);
 
   const sessionOptions = (url: string): SharingSessionOptions => ({
     api: new SharingApiClient({ baseUrl: url, getToken: getApiToken }),
@@ -139,7 +141,9 @@ export default function SharesScreen({ baseUrl }: { baseUrl: string; onClose?: (
     let cancelled = false;
     void (async () => {
       if (!baseUrl) return setPhase('no-server');
-      if (!(await getApiToken())) return setPhase('signed-out');
+      const token = await getApiToken();
+      if (cancelled) return;
+      if (!token) { onUnauthorized(); return; }
       setPhase('starting');
       setStartError(null);
       try {
@@ -153,8 +157,9 @@ export default function SharesScreen({ baseUrl }: { baseUrl: string; onClose?: (
       } catch (e) {
         if (cancelled) return;
         const c = classifyShareError(e);
+        if (c.kind === 'unauthorized') { onUnauthorized(); return; }
         setStartError(c);
-        setPhase(c.kind === 'unauthorized' ? 'signed-out' : 'failed');
+        setPhase('failed');
       }
     })();
     return () => {
@@ -164,7 +169,7 @@ export default function SharesScreen({ baseUrl }: { baseUrl: string; onClose?: (
     };
     // sessionOptions only reads module-level functions and its argument.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseUrl, refresh, startAttempt]);
+  }, [baseUrl, onUnauthorized, refresh, startAttempt]);
 
   /** Server step-up with an authenticator code, then the pending action. */
   const submitStepUp = () => {
@@ -339,14 +344,13 @@ export default function SharesScreen({ baseUrl }: { baseUrl: string; onClose?: (
     const needsStepUp = phase === 'failed' && startError?.kind === 'step_up';
     let message = t('shares.starting');
     if (phase === 'no-server') message = t('shares.notConfigured');
-    else if (phase === 'signed-out') message = t('shares.signedOut');
     else if (needsStepUp) message = t('shares.stepUpNeeded');
     else if (phase === 'failed') message = t('shares.unavailable', startError?.detail ?? '');
     return (
       <AppPage safeArea="bottom" testID="shares-screen">
-        {phase === 'no-server' || phase === 'signed-out' ? (
+        {phase === 'no-server' ? (
           <EmptyState image={illustrations.emptyVault} title={t('mobileUI.sharingConnect')}
-            detail={phase === 'signed-out' ? message : t('mobileUI.sharingConnectBody')} />
+            detail={t('mobileUI.sharingConnectBody')} />
         ) : phase === 'starting' ? (
           <Progress testID="shares-status" label={message} />
         ) : (

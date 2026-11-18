@@ -10,6 +10,7 @@
  */
 export const site = {
   name: 'My Secret',
+  origin: 'https://msecret.app',
   appUrl: 'https://my.msecret.app/',
   /** Last edit of the legal pages. */
   updated: '2026-11-18',

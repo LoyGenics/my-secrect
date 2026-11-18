@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { VaultItem } from '../../../../packages/core/src/types';
-import { cardIssuer, cardLast4, isCardVerificationField } from '../../../../packages/core/src/card';
+import { cardIssuer, cardLast4, formatCardNumber, isCardVerificationField } from '../../../../packages/core/src/card';
 import { readLocalCardCode } from '../vault';
 import { generateTotp, isValidBase32Secret, type TotpResult } from '../utils/totp';
 import { isFavorite, isTrashed } from '../utils/password';
@@ -340,7 +340,8 @@ export default function ItemDetail({
                     ) : sensitive && !isRevealed ? (
                       <span>{key === 'card_number' ? `•••• ${cardLast4(item.fields)}` : MASK}</span>
                     ) : sensitive ? (
-                      <Revealed text={text} />
+                      <Revealed text={item.type === 'card' && key === 'card_number'
+                        ? formatCardNumber(text, fieldString(item, 'brand') || undefined) : text} />
                     ) : (
                       text
                     )}
@@ -356,7 +357,7 @@ export default function ItemDetail({
                         onClick={() => toggleReveal(key)}
                       />
                     )}
-                    {key !== 'cvv' && <IconButton icon="copy" size="sm" label={format(d.copy, label)} onClick={() => copy(`field:${key}`, text)} />}
+                    <IconButton icon="copy" size="sm" label={format(d.copy, label)} onClick={() => copy(`field:${key}`, text)} />
                   </span>
                 </li>
               );

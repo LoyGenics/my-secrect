@@ -17,6 +17,22 @@ module Api
           portal_available: current_user.billing_accounts.where(environment: Billing::Config.environment).where.not(customer_id: nil).exists?)
       end
 
+      def access
+        response.headers['Cache-Control'] = 'no-store'
+        catalogue = current_session.recovery_session? ? {} : Billing::RevenueCat.store_products
+        render json: Billing::Access.summary(user: current_user).merge(
+          app_user_id: current_user.id, environment: Billing::Config.environment,
+          store_products: catalogue)
+      end
+
+      def refresh_store
+        return head :forbidden if current_session.recovery_session?
+        raise Billing::Config::Unavailable unless Billing::RevenueCat.ready?
+
+        current_user.with_lock { Billing::RevenueCat.new.reconcile!(user: current_user) }
+        access
+      end
+
       def checkout
         render json: { url: Billing::Checkout.call(user: current_user, option: params[:option].to_s) }
       rescue ArgumentError

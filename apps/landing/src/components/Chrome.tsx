@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ghostMark } from '../assets';
-import { LANGS, Link, copyFor, fill, href, rememberLang, type Lang, type Page } from '../lib';
+import { LANGS, Link, copyFor, fill, href, type Lang, type Page } from '../lib';
 import { site } from '../site.config';
 
 export function Wordmark({ lang }: { lang: Lang }) {
@@ -18,7 +18,7 @@ function LangSwitch({ lang, page }: { lang: Lang; page: Page }) {
   return (
     <div className="langs" role="group" aria-label={c.nav.language}>
       {LANGS.map((l) => (
-        <Link key={l} to={href(l, page)} className="langs__item" aria-current={l === lang ? 'true' : undefined} lang={l} hrefLang={l} onClick={() => rememberLang(l)}>
+        <Link key={l} to={href(l, page)} className="langs__item" aria-current={l === lang ? 'true' : undefined} lang={l} hrefLang={l}>
           {l.toUpperCase()}
         </Link>
       ))}
@@ -72,6 +72,7 @@ export function Footer({ lang }: { lang: Lang }) {
           <h2 className="footer__h">{f.product}</h2>
           <Link to={href(lang, 'pricing')}>{c.nav.pricing}</Link>
           <Link to={href(lang, 'security')}>{c.nav.security}</Link>
+          <Link to={href(lang, 'black-friday')}>{c.blackFriday.link}</Link>
         </nav>
         <nav aria-label={f.company} className="footer__col">
           <h2 className="footer__h">{f.company}</h2>

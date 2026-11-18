@@ -13,7 +13,7 @@ import {
 import { fromBase64Url, sodiumReady, toBase64 } from '../../../../packages/crypto-adapters/src/index';
 import { legacyRecoveryVerifierKeyPair, recoveryVerifierKeyPair } from '../../../../packages/sdk/src/recovery-verifier';
 import AppTextField from '../components/Field';
-import { AppButton, FieldGroup, InlineError, PageSection } from '../components/mobile-ui';
+import { AppButton, FieldGroup, InlineError } from '../components/mobile-ui';
 import { AuthLayout } from '../components/soft';
 import { useMobileTheme } from '../theme';
 import { radius, space, textStyle } from '../ui/tokens';
@@ -23,8 +23,7 @@ import { apiStatus, isNetworkError } from '../utils/stepUp';
 export interface SignInScreenProps {
   baseUrl: string;
   sessionExpired?: boolean;
-  onSignedIn: (email: string, recoverySession: boolean) => void;
-  onContinueLocalOnly: () => void;
+  onSignedIn: (email: string, recoverySession: boolean, accountCreated: boolean) => void;
 }
 
 const tokenStore = {
@@ -91,7 +90,7 @@ function OtpField({ value, onChange, label, helper, disabled, onSubmit }: {
 }
 
 /** Email verification creates or signs in to the account. Vault unlock is a separate next step. */
-export default function SignInScreen({ baseUrl, sessionExpired, onSignedIn, onContinueLocalOnly }: SignInScreenProps) {
+export default function SignInScreen({ baseUrl, sessionExpired, onSignedIn }: SignInScreenProps) {
   const { dict, t } = useTranslation();
   const { colors } = useMobileTheme();
   const { signin, mobileAuth: auth } = dict;
@@ -111,10 +110,10 @@ export default function SignInScreen({ baseUrl, sessionExpired, onSignedIn, onCo
   const client = useMemo(() => new SecurityApiClient({ baseUrl, getToken: () => getValidToken(tokenStore) }), [baseUrl]);
   const address = email.trim().toLowerCase();
 
-  async function finish(who: string, token: string, expiresIn: number, recoverySession: boolean) {
+  async function finish(who: string, token: string, expiresIn: number, recoverySession: boolean, accountCreated = false) {
     await saveSessionToken(tokenStore, token, expiresIn);
     await AsyncStorage.setItem(LS_ACCOUNT_EMAIL, who).catch(() => undefined);
-    onSignedIn(who, recoverySession);
+    onSignedIn(who, recoverySession, accountCreated);
   }
 
   function failMessage(error: unknown): string {
@@ -204,7 +203,7 @@ export default function SignInScreen({ baseUrl, sessionExpired, onSignedIn, onCo
         setStep('mfa');
         return;
       }
-      await finish(address, result.token, result.expires_in, false);
+      await finish(address, result.token, result.expires_in, false, result.account_created === true);
     } catch (error) {
       if (apiStatus(error) === 401) setCode('');
       setError(failMessage(error));
@@ -311,9 +310,6 @@ export default function SignInScreen({ baseUrl, sessionExpired, onSignedIn, onCo
             <AppButton label={auth.advancedRecovery} variant="text" size="compact" testID="signin-mode-recovery" disabled={Boolean(busy)} onPress={() => { setStep('recovery'); setError(''); setEmailError(''); }} />
           </View>
         </FieldGroup>
-        <PageSection title={auth.localTitle} description={auth.localBody}>
-          <AppButton label={auth.localAction} variant="secondary" testID="signin-local-only" disabled={Boolean(busy)} onPress={onContinueLocalOnly} />
-        </PageSection>
       </>
     );
   } else if (step === 'code') {

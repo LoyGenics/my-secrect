@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ItemType, VaultItem } from '../../../../packages/core/src/types';
-import { CARD_TYPES, cardBrands, cardInputError, cardIssuer, prepareCardFields } from '../../../../packages/core/src/card';
+import { CARD_TYPES, cardBrands, cardInputError, cardIssuer, cardNumberDigits, detectCardBrand, formatCardNumber, prepareCardFields } from '../../../../packages/core/src/card';
 import { loginServiceNames } from '../../../../packages/core/src/login-services';
 import PasswordGenerator from './PasswordGenerator';
 import LoginServiceField from './LoginServiceField';
@@ -87,10 +87,10 @@ const FIELD_DEFS: Record<ItemType, FieldDef[]> = {
     { key: 'notes', type: 'textarea', autoComplete: 'off' },
   ],
   card: [
+    { key: 'card_number' },
     { key: 'brand' },
     { key: 'card_type' },
     { key: 'cardholder' },
-    { key: 'card_number' },
     { key: 'expiry', placeholder: 'expiry' },
     { key: 'cvv' },
     { key: 'credit_limit' },
@@ -167,6 +167,7 @@ function initialFields(item: VaultItem | null | undefined): Record<string, strin
       out[key] = String(value);
     }
   }
+  if (item.type === 'card' && out.brand === detectCardBrand(out.card_number ?? '')) delete out.brand;
   return out;
 }
 
@@ -229,6 +230,20 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
     setFields((prev) => ({ ...prev, [key]: value }));
   };
   const fieldValue = (key: string): string => fields[key] ?? '';
+  const cardBrand = type === 'card' ? fieldValue('brand') || detectCardBrand(fieldValue('card_number')) : undefined;
+
+  function changeCardNumber(input: HTMLInputElement) {
+    const digits = cardNumberDigits(input.value);
+    const brand = fieldValue('brand') || detectCardBrand(digits);
+    const formatted = formatCardNumber(digits, brand);
+    if (input.value !== formatted) {
+      const beforeCaret = input.value.slice(0, input.selectionStart ?? input.value.length);
+      const caret = formatCardNumber(beforeCaret, brand).length;
+      input.value = formatted;
+      input.setSelectionRange(caret, caret);
+    }
+    setField('card_number', digits);
+  }
 
   const totpSecret = fieldValue('totp_secret');
   const totpInvalid = type === 'login' && totpSecret.trim() !== '' && !isValidBase32Secret(totpSecret);
@@ -407,11 +422,12 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
     const inputName = `field-${def.key}`;
     if (type === 'card' && (def.key === 'brand' || def.key === 'card_type')) {
       const brand = def.key === 'brand';
+      const selected = brand ? cardBrand ?? '' : value;
       return (
         <Field key={def.key} id={inputId} label={label(def.key)}>
-          <Select name={inputName} value={value} onChange={(e) => setField(def.key, e.target.value)}>
+          <Select name={inputName} value={selected} onChange={(e) => setField(def.key, e.target.value)}>
             <option value="">{brand ? dict.card.chooseBrand : dict.card.chooseType}</option>
-            {brand ? cardBrands(value).map((network) => (
+            {brand ? cardBrands(selected).map((network) => (
               <option key={network} value={network}>{network === 'other' ? dict.card.otherBrand : network}</option>
             )) : CARD_TYPES.map((kind) => <option key={kind} value={kind}>{dict.card[kind]}</option>)}
           </Select>
@@ -426,8 +442,8 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
         <Field key={def.key} id={inputId} label={fieldLabel} hint={hint} error={cvv && codeReadFailed ? dict.card.codeReadFailed : undefined}>
           <SecureField
             name={inputName}
-            value={cvv ? localCardCode ?? loadedCode : value}
-            onChange={(e) => cvv ? setLocalCardCode(e.target.value) : setField(def.key, e.target.value)}
+            value={cvv ? localCardCode ?? loadedCode : formatCardNumber(value, cardBrand)}
+            onChange={(e) => cvv ? setLocalCardCode(e.target.value) : changeCardNumber(e.currentTarget)}
             inputMode="numeric"
             autoComplete="off"
             maxLength={cvv ? 4 : undefined}

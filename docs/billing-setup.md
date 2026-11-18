@@ -82,9 +82,8 @@ extend the explicit redirect allowlist before enabling them.
 
 ## Enable iOS / Google Play
 
-The backend adapter is implemented, but native purchasing is **not wired into
-the mobile app yet** and no App Store/Play Console/RevenueCat account was
-configured in this task.
+Mobile uses RevenueCat for native purchases and restoration. Live purchases
+require the store catalog, public SDK keys and server configuration below.
 
 1. Create monthly/yearly subscriptions and a non-consumable Lifetime product in
    each store. Configure App Store Server Notifications / Play RTDN in
@@ -97,26 +96,56 @@ configured in this task.
    to `monthly`, `yearly`, `lifetime` in `REVENUECAT_PRODUCTS`, as shown in the
    API `.env.example`. Configure `REVENUECAT_ENTITLEMENT=pro` and
    `REVENUECAT_SECRET_API_KEY`.
+   Set the current offering's standard Monthly, Annual and Lifetime packages
+   to the same mapped product identifiers returned by the native SDK. Start
+   with base prices. The current screen excludes introductory offers and
+   trials until it can display their terms and eligibility.
 3. Configure RevenueCat restore behavior **Keep with original App User ID**.
    Bind Purchases to the signed-in Rails UUID returned as `app_user_id` by
-   `GET /api/v1/billing`; require sign-in before purchasing. Do not allow
+   `GET /api/v1/billing/access`; require sign-in before purchasing. Do not allow
    anonymous purchases or account aliasing. Do not import Stripe purchases into
    RevenueCat for this architecture.
 4. Register `POST /api/v1/billing/webhooks/revenuecat` and set an exact random
    Authorization header stored as `REVENUECAT_WEBHOOK_AUTHORIZATION`. Test and
    live API environments stay separate. Unrecognized accounts are not created
    by webhooks; unsupported transfers return a conflict for investigation.
-5. Wire the native Purchases SDK's offerings, purchase and Restore Purchases
-   controls into a development build. After purchase/restore, call authenticated
-   `POST /api/v1/billing/refresh`. Read backend access; never upload a claimed
-   Pro flag or expiry. Native restore is necessary even though web refresh can
-   re-check purchases already known to RevenueCat.
+5. Set `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` and
+   `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY` to the platform public SDK keys
+   and rebuild the native binaries. Use an isolated RevenueCat project and
+   store sandbox accounts when testing a development API. Mobile reconciles
+   purchases using authenticated `POST /api/v1/billing/stores/refresh`.
+   The rails account receives Pro only from verified provider data.
 6. Verify both store sandboxes for purchase, restore to the same account,
    cancellation, expiry, billing issues, refund and switching accounts.
 
 Store subscriptions remain managed in their original store. Current UI opens
 the store subscription page; Lifetime opens purchase support/history. Cross-device
 access never migrates the recurring charge to another provider.
+
+## Enable free-tier ads
+
+Create separate iOS and Android apps and banner units in AdMob. Configure
+privacy messages in AdMob before enabling live ads. Set these public IDs
+when generating the native projects and bundling the app.
+
+- `EXPO_PUBLIC_ADMOB_IOS_APP_ID` and `EXPO_PUBLIC_ADMOB_IOS_BANNER_ID`
+- `EXPO_PUBLIC_ADMOB_ANDROID_APP_ID` and `EXPO_PUBLIC_ADMOB_ANDROID_BANNER_ID`
+
+Regenerate the native projects from the Expo config and rebuild the binaries
+after changing the app IDs. Development builds use Google's demo banner only
+when `EXPO_PUBLIC_ADMOB_TEST_ADS=1`. They never request live ad units. Release
+builds request ads only with a configured platform app ID and banner unit,
+server-confirmed Free status, and consent eligibility. Ads appear on the
+unlocked Vault tab, and **Settings → Ad privacy choices** opens Google's
+privacy form when required.
+
+Update the published privacy policy, App Store privacy details, Play Data
+Safety and the Play Console's ads declaration before shipping.
+
+The Android ads wrapper is pinned to match Expo 52's Kotlin compiler. Google
+lists June 30, 2027 as the sunset date for its bundled Android v23 SDK.
+Upgrade Expo and the ads wrapper before that date.
+See [Google's Android SDK timetable](https://developers.google.com/admob/android/deprecation).
 
 ## Operational behavior
 
@@ -134,8 +163,8 @@ access never migrates the recurring charge to another provider.
 - `billing_events` retains event identity/type only, never raw payloads or
   payment details. It has no account email or user relation. Define retention
   according to the deployment's operational policy.
-- Current paid/free allowances are unchanged; plan-specific limits and native
-  SDK installation are follow-up work, not deployed behavior.
+- The mobile plan controls advertising. Storage quotas and other allowances
+  follow the existing policy.
 
 Architecture and sources: [billing specification](../specs/billing.md).
 

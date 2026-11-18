@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Keyboard, StyleSheet, Text, View, type TextInput, type TextInputProps } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import type { ItemType, VaultItem } from '../../../../packages/core/src/types';
-import { CARD_TYPES, cardBrands, cardIssuer } from '../../../../packages/core/src/card';
+import { CARD_TYPES, cardBrands, cardIssuer, cardNumberDigits, detectCardBrand, formatCardNumber } from '../../../../packages/core/src/card';
 import { isFileEntry } from '../../../../packages/core/src/files';
 import { loginServiceNames } from '../../../../packages/core/src/login-services';
 import { libsodiumAdapter as crypto } from '../../../../packages/crypto-adapters/src/index';
@@ -57,8 +57,8 @@ const FIELDS: Record<ItemType, InputField[]> = {
     { key: 'currency', advanced: true }, { key: 'branch', advanced: true }, { key: 'notes', multiline: true, advanced: true },
   ],
   card: [
-    { key: 'cardholder' }, { key: 'brand' }, { key: 'card_type' },
-    { key: 'card_number', secret: true, keyboard: 'number-pad' }, { key: 'expiry', placeholder: 'expiry', keyboard: 'number-pad' },
+    { key: 'card_number', secret: true, keyboard: 'number-pad' }, { key: 'brand' }, { key: 'card_type' },
+    { key: 'cardholder' }, { key: 'expiry', placeholder: 'expiry', keyboard: 'number-pad' },
     { key: 'cvv', secret: true, keyboard: 'number-pad' }, { key: 'credit_limit' }, { key: 'statement_day', keyboard: 'number-pad' },
     { key: 'notes', multiline: true, advanced: true },
   ],
@@ -101,13 +101,16 @@ function expiryInput(value: string): string {
 
 export default function ItemFormScreen({ initial, template = 'login', allItems, onSave, onDirtyChange, onTypeChange }: Props) {
   const { colors, styles } = useMobileTheme();
-  const { dict, t } = useTranslation();
+  const { dict, t, tp } = useTranslation();
   const copy = dict.mobileEditor;
   const [type, setType] = useState(initial?.type ?? template);
   const [title, setTitle] = useState(() => initial?.type === 'card' ? cardIssuer(initial.title, initial.fields.bank) : initial?.title ?? '');
   const [fields, setFields] = useState(() => {
     const record = readTemplateFields(initial);
-    if (initial?.type === 'card' && typeof record.expiry === 'string') record.expiry = normalizeCardExpiry(record.expiry) ?? record.expiry;
+    if (initial?.type === 'card') {
+      if (typeof record.expiry === 'string') record.expiry = normalizeCardExpiry(record.expiry) ?? record.expiry;
+      if (typeof record.card_number === 'string' && record.brand === detectCardBrand(record.card_number)) delete record.brand;
+    }
     return record;
   });
   const [customFields, setCustomFields] = useState<CustomEditorField[]>(() => initial ? readCustomFields(initial) : []);
@@ -148,6 +151,7 @@ export default function ItemFormScreen({ initial, template = 'login', allItems, 
   useEffect(() => { onDirtyChange?.(signature !== baseline.current); }, [signature, onDirtyChange]);
 
   const stringField = (key: string) => typeof fields[key] === 'string' ? fields[key] as string : '';
+  const cardBrand = type === 'card' ? stringField('brand') || detectCardBrand(stringField('card_number')) : undefined;
   const localCode = localCardCode ?? loadedCardCode;
   const setF = (key: string, value: string) => {
     setFields((current) => ({ ...current, [key]: value }));
@@ -255,8 +259,9 @@ export default function ItemFormScreen({ initial, template = 'login', allItems, 
       return <EditorDateField key={key} label={label} value={value} testID={testID} error={fieldError} disabled={saving} onChange={(next) => setF(key, next)} />;
     }
     if (key === 'brand') {
-      return <SelectField flush key={key} label={label} value={value} testID={testID} error={fieldError}
-        placeholder={dict.card.chooseBrand} choices={cardBrands(value).map((network) => ({ value: network, label: network === 'other' ? dict.card.otherBrand : network }))}
+      const networks = cardBrands(cardBrand ?? '').map((network) => ({ value: network, label: network === 'other' ? dict.card.otherBrand : network }));
+      return <SelectField flush key={key} label={label} value={cardBrand ?? ''} testID={testID} error={fieldError}
+        choices={[{ value: '', label: dict.card.chooseBrand }, ...networks]}
         disabled={saving} onChange={(next) => setF(key, next)} />;
     }
     if (key === 'card_type') {
@@ -273,14 +278,15 @@ export default function ItemFormScreen({ initial, template = 'login', allItems, 
         placeholder={copy.chooseCurrency} choices={choices} onChange={(next) => setF(key, next)} />;
     }
     const isCredit = type === 'card' && key === 'credit_limit';
-    const helper = key === 'cvv' ? dict.card.cvvHint
+    const helper = key === 'cvv' ? copy.cardCvvHint
       : key === 'card_number' && !value && stringField('last4') ? format(dict.card.existingDigits, stringField('last4'))
       : key === 'private_key_ref' ? copy.sshReferenceHelp
       : key === 'totp_secret' ? copy.twoFactorHelp : undefined;
     const nextKey = key === 'url' && type === 'login' ? 'username'
       : key === 'username' ? 'password' : key === 'bank_name' ? 'holder_name' : key === 'holder_name' ? 'account_number' : undefined;
     return <View key={key} style={local.fieldExtras}>
-      <AppTextField flush ref={(input) => { inputs.current[key] = input; }} label={label} testID={testID} value={value}
+      <AppTextField flush ref={(input) => { inputs.current[key] = input; }} label={label} testID={testID}
+        value={key === 'card_number' ? formatCardNumber(value, cardBrand) : value}
         disabled={saving} error={fieldError} helper={helper} multiline={field.multiline} revealable={field.secret}
         autoComplete="off" autoCorrect={key === 'body' || key === 'notes'} autoCapitalize={field.multiline ? 'sentences' : 'none'}
         returnKeyType={field.multiline ? 'default' : nextKey ? 'next' : 'done'}
@@ -297,7 +303,8 @@ export default function ItemFormScreen({ initial, template = 'login', allItems, 
           if (key === 'cvv') {
             setLocalCardCode(next.replace(/\D/g, ''));
             setIssues(({ cvv: _old, ...current }) => current);
-          } else setF(key, key === 'expiry' ? expiryInput(next) : next);
+          } else if (key === 'card_number') setF(key, cardNumberDigits(next));
+          else setF(key, key === 'expiry' ? expiryInput(next) : next);
         }}
         trailing={key === 'password' ? <IconButton testID="generate-password-button" icon="generate" tone="link" disabled={saving}
           accessibilityLabel={dict.mobileUI.generatePassword} onPress={() => { Keyboard.dismiss(); setGenerate(true); }} />
@@ -374,7 +381,7 @@ export default function ItemFormScreen({ initial, template = 'login', allItems, 
           <ToggleRow testID="item-favorite-toggle" label={dict.itemForm.favorite} value={favorite} onChange={setFavorite} disabled={saving} />
           {allItems.some(({ id }) => id !== initial?.id) && <>
             <Rule />
-            <SettingsRow label={t('mobileUI.relatedItems')} value={t('mobileUI.itemCount', relationIds.length)} testID="item-relations" navigation disabled={saving}
+            <SettingsRow label={t('mobileUI.relatedItems')} value={tp(dict.mobileVault.itemCount, relationIds.length)} testID="item-relations" navigation disabled={saving}
               onPress={() => { setRelationQuery(''); setRelationsOpen(true); }} />
           </>}
           {!closureFields && <>

@@ -40,6 +40,7 @@ export function Legal({ lang, kind }: { lang: Lang; kind: 'privacy' | 'terms' })
 export function Security({ lang }: { lang: Lang }) {
   const c = copyFor(lang);
   const d = c.security;
+  const sections = site.placeholders.SECURITY_EMAIL ? d.sections : d.sections.slice(0, -1);
   return (
     <>
       <Section className="pagehead">
@@ -51,7 +52,7 @@ export function Security({ lang }: { lang: Lang }) {
           <img className="pagehead__art float" src={art.locked} alt="" width={220} height={220} />
         </div>
       </Section>
-      <Section><DocBody sections={d.sections} lang={lang} /></Section>
+      <Section><DocBody sections={sections} lang={lang} /></Section>
     </>
   );
 }

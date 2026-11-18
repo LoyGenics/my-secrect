@@ -1,9 +1,6 @@
 export const mobileAuthEn = {
   continueEmail: 'Continue with email',
-  newAccountHint: 'New here? We’ll create your account when you verify your email. Your vault unlocks separately.',
-  localTitle: 'Use a local vault',
-  localAction: 'Continue on this device',
-  localBody: 'Create or unlock your vault and use it offline. Sign in to use account features such as sharing.',
+  newAccountHint: 'Verify your email to sign in or create an account and continue to your vault.',
   advancedRecovery: 'Account recovery',
   accountRecoveryBody: 'Use your recovery key if you previously set up account recovery. The session lasts 15 minutes and only allows recovery actions.',
   changeEmail: 'Change email',
@@ -13,6 +10,7 @@ export const mobileAuthEn = {
   emailTo: 'Verification email requested for {0}.',
   emailCodeRecoveryHint: 'If your account uses a passkey, the email will tell you how to sign in on desktop or web.',
   accountUnlockedTransition: 'Account verified. Unlock your vault to open the items on this device.',
+  vaultStepUpBody: 'Enter your master passphrase and verify your account. Email-only accounts can request a code by email.',
   createTitle: 'Create your vault',
   reviewKey: 'Check your saved key',
   reviewKeyBody: 'Enter the last four characters from the copy you saved.',
@@ -66,10 +64,7 @@ export const mobileAuthEn = {
 
 export const mobileAuthVi: Record<keyof typeof mobileAuthEn, string> = {
   continueEmail: 'Tiếp tục bằng email',
-  newAccountHint: 'Lần đầu sử dụng? Tài khoản sẽ được tạo khi bạn xác minh email. Bạn sẽ mở khóa kho ở bước riêng.',
-  localTitle: 'Dùng kho trên thiết bị',
-  localAction: 'Tiếp tục trên thiết bị',
-  localBody: 'Tạo hoặc mở khóa kho để dùng ngoại tuyến. Đăng nhập để dùng các tính năng tài khoản như chia sẻ.',
+  newAccountHint: 'Xác minh email để đăng nhập hoặc tạo tài khoản và tiếp tục vào kho.',
   advancedRecovery: 'Khôi phục tài khoản',
   accountRecoveryBody: 'Dùng khóa khôi phục nếu trước đây bạn đã thiết lập khôi phục tài khoản. Phiên kéo dài 15 phút và chỉ dành cho thao tác khôi phục.',
   changeEmail: 'Đổi email',
@@ -79,6 +74,7 @@ export const mobileAuthVi: Record<keyof typeof mobileAuthEn, string> = {
   emailTo: 'Đã yêu cầu email xác minh cho {0}.',
   emailCodeRecoveryHint: 'Nếu tài khoản dùng passkey, email sẽ hướng dẫn bạn đăng nhập trên máy tính hoặc web.',
   accountUnlockedTransition: 'Đã xác minh tài khoản. Hãy mở khóa kho để xem các mục trên thiết bị này.',
+  vaultStepUpBody: 'Nhập mật khẩu chính và xác minh tài khoản. Nếu tài khoản chỉ dùng email, bạn có thể yêu cầu mã qua email.',
   createTitle: 'Tạo kho của bạn',
   reviewKey: 'Kiểm tra khóa đã lưu',
   reviewKeyBody: 'Nhập 4 ký tự cuối từ bản khóa bạn đã lưu.',

@@ -67,8 +67,15 @@ purchase options. Fetch prices from the provider; hide purchasing when not
 configured rather than inventing amounts. Distinguish loading, signed out,
 offline, payment processing, retry and configuration unavailable.
 
-Free/local vault access and encrypted export must remain available when a paid
-purchase expires. Expiration never deletes ciphertext. Paid quotas/features
+On mobile, a verified account can use the vault on Free. During first-time
+setup, offer Free alongside the store's paid plans. Existing paid accounts
+proceed directly to setup. Free mobile accounts may see a non-personalized
+AdMob banner on the unlocked vault list after the consent check. The banner
+disappears with server-verified Pro access from any provider. A billing outage
+does not block the vault or trigger ad requests while the plan is unknown.
+
+Free vault access and encrypted export remain available when a paid purchase
+expires. Expiration never deletes ciphertext. Paid quotas/features
 need a separately approved policy; do not silently reduce existing allowances.
 Account deletion must not leave a Stripe recurring charge running: require
 cancellation first or cancel it with a verified provider operation before
@@ -97,3 +104,5 @@ cancellation and refund tests. Never label unconnected store adapters as live.
 - https://developer.android.com/google/play/billing/backend
 - https://www.revenuecat.com/docs/customers/identifying-customers
 - https://www.revenuecat.com/docs/integrations/webhooks
+- https://developers.google.com/admob/ios/privacy
+- https://developers.google.com/admob/android/privacy

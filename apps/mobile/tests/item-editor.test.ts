@@ -96,12 +96,12 @@ test('template conversion cannot treat a legacy custom key as a built-in credent
   assert.deepEqual(result.losses, ['password']);
 });
 
-test('full number, normalized legacy expiry, and credit terms survive without including the local CVV', () => {
-  const input = { cardholder: 'Ada', card_number: '4242-4242-4242-4242', brand: 'Visa', card_type: 'credit',
+test('full number, detected network, normalized expiry and credit terms survive without including the local CVV', () => {
+  const input = { cardholder: 'Ada', card_number: '4242-4242-4242-4242', card_type: 'credit',
     expiry: '2030-12', statement_day: '15', credit_limit: '1,000 USD' };
   assert.deepEqual(getEditorIssues('card', input, '047'), {});
   const fields = serializeEditorFields('card', { ...input, CVC: '047', cvv: '047' }, [], undefined, updated);
-  assert.deepEqual(fields, { ...input, card_number: '4242424242424242', last4: '4242', expiry: '12/30' });
+  assert.deepEqual(fields, { ...input, card_number: '4242424242424242', brand: 'Visa', last4: '4242', expiry: '12/30' });
   const old = item('card', { cardholder: 'Ada', last4: '4242', bank: 'Example Bank', expiry: '12/30' });
   assert.equal(serializeEditorFields('card', readTemplateFields(old), [], old, updated).last4, '4242');
   assert.deepEqual(incompatibleFieldLabels('secure_note', 'card', readTemplateFields(old), [], old, true), ['cardholder', 'last4', 'bank', 'expiry', 'cvv']);

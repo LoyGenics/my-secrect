@@ -1,29 +1,29 @@
-import { useEffect } from 'react';
 import { Footer, Nav } from './components/Chrome';
 import Home from './pages/Home';
 import Pricing from './pages/Pricing';
+import BlackFriday from './pages/BlackFriday';
 import { Legal, Security, Support } from './pages/Doc';
-import { copyFor, useRoute } from './lib';
+import { copyFor } from './lib';
+import type { Route } from './routes';
 
-export default function App() {
-  const { lang, page } = useRoute();
+export default function App({ route }: { route: Route | null }) {
+  const { lang, page } = route ?? { lang: 'en', page: 'home' };
   const c = copyFor(lang);
-  const meta = c.meta[page];
-  useEffect(() => {
-    document.documentElement.lang = c.htmlLang;
-    document.title = meta.title;
-    document.querySelector('meta[name="description"]')?.setAttribute('content', meta.description);
-  }, [c.htmlLang, meta.title, meta.description]);
-  // Jump to #section links (the router never reloads the page).
-  useEffect(() => {
-    if (location.hash) document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView();
-  }, [page, lang]);
   return (
     <>
       <a className="skip" href="#main">{c.nav.skip}</a>
       <Nav lang={lang} page={page} />
       <main id="main" tabIndex={-1}>
-        {page === 'home' && <Home lang={lang} />}
+        {!route && (
+          <section className="section pagehead">
+            <div className="container">
+              <h1 className="h1">Page not found</h1>
+              <p className="lead"><a className="textlink" href="/">Go to My Secret</a></p>
+            </div>
+          </section>
+        )}
+        {route && page === 'home' && <Home lang={lang} />}
+        {page === 'black-friday' && <BlackFriday lang={lang} />}
         {page === 'pricing' && <Pricing lang={lang} />}
         {page === 'security' && <Security lang={lang} />}
         {page === 'privacy' && <Legal lang={lang} kind="privacy" />}

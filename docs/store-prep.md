@@ -58,8 +58,9 @@
       `docs/privacy.md` and keep them consistent across both stores. Note:
       with a sync account the server DOES collect the email address, and per
       session the IP address and user agent (`sessions` table), plus
-      timestamps and sizes. Vault content is end-to-end encrypted. No ads
-      SDKs, no third-party analytics.
+      timestamps and sizes. Vault content is end-to-end encrypted. Include
+      AdMob's data collection for free mobile banners and RevenueCat's use
+      of account IDs and purchase records.
 - [ ] TODO — App versioning scheme + release tagging (none exists today).
 
 ## 2. iOS App Store
@@ -88,8 +89,9 @@
       recovery-key warning (lost passphrase = unrecoverable — say so).
 - [ ] TODO — Promotional text, support URL, marketing URL (optional).
 - [ ] TODO — App category (Productivity), age rating questionnaire
-      (no user-generated content, no ads — answer honestly).
-- [ ] TODO — Pricing: free / paid / IAP (decide; nothing is implemented).
+      (free mobile builds include ads when configured).
+- [ ] TODO — Configure and verify the in-app purchase products and AdMob
+      banner units described in [billing setup](billing-setup.md).
 
 ### 2.3 Privacy disclosures (App Store)
 - [ ] TODO — App Privacy / privacy nutrition labels. Local-only use collects

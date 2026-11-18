@@ -68,6 +68,8 @@ main:focus { outline: none; }
 .hero__sub { margin-top: 28px; max-width: 36ch; color: var(--color-muted); font-size: 1.125rem; line-height: 1.8; }
 .hero__secondary { display: inline-flex; gap: 12px; align-items: center; font-size: 0.875rem; font-weight: 500; text-decoration: none; }
 .hero__secondary:hover { text-decoration: underline; text-underline-offset: 6px; }
+.campaign-link { margin-top: 24px; }
+.campaign-details .ticks { margin-top: 24px; }
 .hero__visual { min-width: 0; }
 .vault-scene { position: relative; height: 540px; margin: 0; }
 .vault-scene__canvas { position: absolute; inset: 0 0 64px; }
@@ -229,7 +231,9 @@ main:focus { outline: none; }
 }
 @media (max-width: 48rem) {
   .nav__links, .nav__cta { display: none; }
-  .nav__burger { display: grid; }
+  .js .nav__burger { display: grid; }
+  html:not(.js) .nav__row { flex-wrap: wrap; gap: 0 16px; padding-block: 8px; }
+  html:not(.js) .nav__links { order: 1; display: flex; width: 100%; flex-wrap: wrap; }
   .nav__row { min-height: 68px; }
   .nav__end { gap: 10px; }
   .section { padding-block: 48px; }

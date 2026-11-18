@@ -29,6 +29,18 @@ and recovery key = lose the vault. No server copy, no reset.
 Bottom tab bar: Vault / Search / Generate / Health / Settings. Every
 input has a visible label, `accessibilityLabel` and `testID`.
 
+## Import items
+
+In **Settings → Import items**, download the My Secret CSV template through
+the iOS share sheet or the Android folder picker. You can also pick a login
+CSV exported by 1Password, Bitwarden or Google Password Manager. The app
+parses the CSV locally and writes only the selected items to the encrypted vault.
+
+Text import uses the account server after the user explicitly agrees to
+send the pasted text to OpenAI. Rebuild the native app to include the
+`ImportTransport` module. The same server configuration as web enables AI
+preview.
+
 ## Storage
 
 Contract: `specs/mobile-local-store.md`. `vault.db` is SQLite encrypted

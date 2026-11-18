@@ -11,13 +11,13 @@ test('copy all formats bank details with their labels and preserves leading zero
   ]), 'Tên ngân hàng: Ngân hàng mẫu\nTên chủ tài khoản: Nguyễn Văn A\nSố tài khoản: 00123456789');
 });
 
-test('copy all keeps exact copyable values and skips fields with copying disabled', () => {
+test('copy all keeps exact values and skips fields copied individually, such as CVV', () => {
   assert.equal(formatDetailFieldsForClipboard([
     { label: 'Password', value: ' sample password ' },
-    { label: 'CVV', value: '000', copyable: false },
+    { label: 'CVV', value: '000', includeInCopyAll: false },
     { label: 'Notes', value: 'First line\nSecond line' },
   ]), 'Password:  sample password \nNotes:\nFirst line\nSecond line');
-  assert.equal(formatDetailFieldsForClipboard([{ label: 'CVV', value: '000', copyable: false }]), '');
+  assert.equal(formatDetailFieldsForClipboard([{ label: 'CVV', value: '000', includeInCopyAll: false }]), '');
 });
 
 test('login copies the password with username fallback, preserving the original value', () => {

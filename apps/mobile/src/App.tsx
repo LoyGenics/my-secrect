@@ -4,19 +4,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import type { VaultItem } from '../../../packages/core/src/types';
-import { SecurityApiClient, clearSessionToken, getValidToken } from '../../../packages/sdk/src/security';
+import { LS_API_TOKEN_EXPIRES_AT, clearSessionToken } from '../../../packages/sdk/src/security';
 import SignInScreen from './screens/SignInScreen';
-import { HOSTED_API_BASE_URL, loadAccountServer } from './accountServer';
-
-/** AsyncStorage-backed token store (same LS_API_TOKEN key as
- *  desktop/web — one token store, not one per platform). */
-const asyncTokenStore = {
-  getItem: (k: string) => AsyncStorage.getItem(k),
-  setItem: (k: string, v: string) => AsyncStorage.setItem(k, v),
-  removeItem: (k: string) => AsyncStorage.removeItem(k),
-};
+import { loadAccountServer, resolveVaultEntry } from './accountServer';
+import { asyncTokenStore, getApiToken } from './screens/SecurityScreen';
 import {
-  hasVault, lockVault, isUnlocked, listItems, listTrash, upsertItem,
+  hasVault, lockVault, isUnlocked, listItems, listTrash, upsertItem, importItems,
   deleteItem, restoreItem, permanentlyDeleteItem, toggleFavorite,
 } from './vault';
 import { useMobileTheme } from './theme';
@@ -29,9 +22,11 @@ import { I18nProvider, useTranslation } from '../../../packages/i18n/src/react';
 import { LOCALE_STORAGE_KEY, defaultLocale, type Locale } from '../../../packages/i18n/src/index';
 import OnboardingScreen from './screens/OnboardingScreen';
 import LockScreen from './screens/LockScreen';
+import BillingScreen from './screens/BillingScreen';
+import { useMobileBilling } from './useMobileBilling';
 import { AppearanceProvider, useAppPreferences } from './ui/AppearanceProvider';
 
-type Boot = 'loading' | 'error' | 'signin' | 'onboarding' | 'locked' | 'unlocked';
+type Boot = 'loading' | 'error' | 'signin' | 'plans' | 'onboarding' | 'locked' | 'unlocked';
 
 /**
  * Root: restores the language choice (AsyncStorage, same key as web's
@@ -92,11 +87,14 @@ function AppShell() {
   const [trash, setTrash] = useState<VaultItem[]>([]);
   const [notice, setNotice] = useState('');
   const lastActivity = useRef(Date.now());
-  // The hosted account is optional. A local vault opens independently.
   const [apiBaseUrl, setApiBaseUrl] = useState('');
-  const [signedIn, setSignedIn] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [accountJustSignedIn, setAccountJustSignedIn] = useState(false);
+  const [afterPlans, setAfterPlans] = useState<'locked' | 'onboarding'>('onboarding');
+  const [shareAfterSignIn, setShareAfterSignIn] = useState<string>();
+  const hasAccountSession = boot === 'plans' || boot === 'onboarding' || boot === 'locked' || boot === 'unlocked';
+  const sessionGeneration = useRef(0);
+  const currentSession = sessionGeneration.current;
 
   const refresh = useCallback(() => { if (isUnlocked()) { setItems(listItems()); setTrash(listTrash()); } }, []);
 
@@ -104,82 +102,91 @@ function AppShell() {
     let active = true;
     void (async () => {
       await clearFilePreviews().catch(() => undefined);
-      const url = await loadAccountServer(AsyncStorage, !__DEV__).catch(() => '');
-      const [token, exists] = await Promise.all([url ? getValidToken(asyncTokenStore).catch(() => null) : null, hasVault()]);
+      const url = await loadAccountServer(AsyncStorage, !__DEV__, process.env.EXPO_PUBLIC_ACCOUNT_API_URL);
+      const next = await resolveVaultEntry(asyncTokenStore, hasVault);
       if (!active) return;
       setApiBaseUrl(url);
-      setSignedIn(Boolean(token));
-      const next: Boot = exists ? 'locked' : 'onboarding';
-      setBoot(__DEV__ && url && url !== HOSTED_API_BASE_URL && !token ? 'signin' : next);
+      if (next === 'onboarding') setAfterPlans(next);
+      setBoot(next === 'onboarding' ? 'plans' : next);
     })().catch(() => { if (active) setBoot('error'); });
     return () => { active = false; };
   }, [bootAttempt]);
 
-  const doLock = useCallback(() => {
-    lockVault(); void clearFilePreviews().catch(() => undefined); setItems([]); setTrash([]); setBoot('locked');
+  const lockAndClear = useCallback(() => {
+    lockVault();
+    void clearFilePreviews().catch(() => undefined);
+    setItems([]); setTrash([]); setNotice('');
   }, []);
 
-  /** Sign out of the account AND lock the vault. The server session
-   *  is revoked first (revokeCurrentSession); when the server cannot
-   *  confirm — offline, or the session already expired — local
-   *  sign-out still proceeds and the token is cleared regardless.
-   *  Revocation invalidates the server session only; it does NOT
-   *  erase secrets already downloaded or cached offline here. */
-  const handleSignedOut = useCallback(async () => {
-    try {
-      const client = new SecurityApiClient({
-        baseUrl: apiBaseUrl,
-        getToken: () => getValidToken(asyncTokenStore),
-        tokenStore: asyncTokenStore,
-      });
-      await client.revokeCurrentSession();
-    } catch {
-      // Server revocation unconfirmed; local sign-out proceeds.
-    }
-    await clearSessionToken(asyncTokenStore);
-    setSignedIn(false);
-    setSessionExpired(false);
-    doLock();
-    if (__DEV__ && apiBaseUrl && apiBaseUrl !== HOSTED_API_BASE_URL) setBoot('signin');
-  }, [apiBaseUrl, doLock]);
+  const doLock = useCallback(() => {
+    setShareAfterSignIn(undefined);
+    lockAndClear();
+    setBoot(current => current === 'unlocked' ? 'locked' : current);
+  }, [lockAndClear]);
 
-  /** A 401 anywhere means the session is gone server-side: clear
-   *  the token and send the user back to SignIn with an expiry
-   *  note, never silently retrying with the stale token. */
-  const handleUnauthorized = useCallback(() => {
-    void clearSessionToken(asyncTokenStore);
-    setSessionExpired(true);
-    setSignedIn(false);
-    doLock();
-    setBoot(apiBaseUrl ? 'signin' : 'locked');
-  }, [apiBaseUrl, doLock]);
-
-  const handleSignIn = useCallback(() => {
-    if (!apiBaseUrl) return;
-    doLock();
+  const returnToSignIn = useCallback((expired: boolean, shareItemId?: string) => {
+    if (currentSession !== sessionGeneration.current) return false;
+    sessionGeneration.current += 1;
+    lockAndClear();
+    setSessionExpired(expired);
+    setAccountJustSignedIn(false);
+    setShareAfterSignIn(shareItemId);
     setBoot('signin');
-  }, [apiBaseUrl, doLock]);
+    return true;
+  }, [currentSession, lockAndClear]);
 
-  const handleServerSaved = useCallback(async (next: string) => {
+  const handleUnauthorized = useCallback((shareItemId?: string) => {
+    if (returnToSignIn(true, shareItemId)) void clearSessionToken(asyncTokenStore);
+  }, [returnToSignIn]);
+
+  const handleServerSaved = useCallback((next: string) => {
     if (next === apiBaseUrl) return;
     setApiBaseUrl(next);
-    setSessionExpired(false);
-    setSignedIn(false);
-    if (next) {
-      doLock();
-      setBoot('signin');
-    }
-  }, [apiBaseUrl, doLock]);
+    returnToSignIn(false);
+  }, [apiBaseUrl, returnToSignIn]);
 
-  const handleSignedIn = useCallback((_email: string, _recoverySession: boolean) => {
-    setSignedIn(true);
+  const handleSignedIn = useCallback((_email: string, recoverySession: boolean, accountCreated: boolean) => {
     setSessionExpired(false);
-    void (async () => {
-      const exists = await hasVault();
-      setAccountJustSignedIn(exists);
-      setBoot(exists ? 'locked' : 'onboarding');
-    })();
+    setBoot('loading');
+    void resolveVaultEntry(asyncTokenStore, hasVault).then(next => {
+      setAccountJustSignedIn(next === 'locked');
+      if (next === 'signin') { setBoot(next); return; }
+      setAfterPlans(next);
+      setBoot(!recoverySession && (accountCreated || next === 'onboarding') ? 'plans' : next);
+    }).catch(() => setBoot('error'));
   }, []);
+
+  const billing = useMobileBilling(apiBaseUrl, hasAccountSession ? currentSession : null, handleUnauthorized);
+  const continueFromPlans = useCallback(() => {
+    setBoot(current => current === 'plans' ? afterPlans : current);
+  }, [afterPlans]);
+  useEffect(() => {
+    if (boot === 'plans' && billing.access?.tier === 'pro') continueFromPlans();
+  }, [billing.access?.tier, boot, continueFromPlans]);
+
+  useEffect(() => {
+    if (!hasAccountSession) return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    async function checkSession() {
+      const [token, rawExpiry] = await Promise.all([getApiToken(), AsyncStorage.getItem(LS_API_TOKEN_EXPIRES_AT).catch(() => null)]);
+      if (!active) return;
+      clearTimeout(timer);
+      if (!token) {
+        handleUnauthorized();
+        return;
+      }
+      const remaining = Number(rawExpiry) - Date.now();
+      if (rawExpiry && Number.isFinite(remaining)) {
+        timer = setTimeout(() => void checkSession(), Math.min(Math.max(remaining, 0), 2_147_483_647));
+      }
+    }
+    void checkSession();
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'active') void checkSession();
+    });
+    return () => { active = false; clearTimeout(timer); sub.remove(); };
+  }, [hasAccountSession, handleUnauthorized]);
 
   // Auto-lock: any touch resets the inactivity clock; a 10s ticker locks
   // the vault once the chosen idle time has passed.
@@ -201,6 +208,10 @@ function AppShell() {
 
   function markActivity() { lastActivity.current = Date.now(); }
   function handleUnlocked() {
+    if (currentSession !== sessionGeneration.current) {
+      lockVault();
+      return;
+    }
     lastActivity.current = Date.now(); refresh(); setAccountJustSignedIn(false); setBoot('unlocked');
   }
 
@@ -223,7 +234,9 @@ function AppShell() {
 
   if (boot === 'loading') return <BootStatus />;
   if (boot === 'error') return <BootStatus onRetry={() => { setBoot('loading'); setBootAttempt(value => value + 1); }} />;
-  if (boot === 'onboarding') return <OnboardingScreen onDone={handleUnlocked} onRestored={() => setBoot('locked')} />;
+  if (boot === 'plans') return <BillingScreen billing={billing} baseUrl={apiBaseUrl} onContinue={continueFromPlans} />;
+  if (boot === 'onboarding') return <OnboardingScreen onDone={handleUnlocked}
+    onRestored={() => setBoot(current => current === 'onboarding' ? 'locked' : current)} />;
   if (boot === 'locked') return <LockScreen onUnlocked={handleUnlocked} accountJustSignedIn={accountJustSignedIn} />;
   if (boot === 'signin') {
     return (
@@ -231,9 +244,6 @@ function AppShell() {
         baseUrl={apiBaseUrl}
         sessionExpired={sessionExpired}
         onSignedIn={handleSignedIn}
-        onContinueLocalOnly={() => {
-          void hasVault().then(exists => setBoot(exists ? 'locked' : 'onboarding'));
-        }}
       />
     );
   }
@@ -242,10 +252,12 @@ function AppShell() {
     <View style={styles.screen} onTouchStart={markActivity}>
       <MobileNavigator items={items} trash={trash} autoLock={autoLock} notice={notice} setNotice={setNotice}
         onSave={handleSaveItem} onDelete={handleDelete} onRestore={handleRestore} onToggleFavorite={handleToggleFavorite}
+        onImportItems={async (selected) => { await importItems(selected); refresh(); }}
         onLoadExamples={list => void handleLoadExamples(list)} onClearExamples={ids => void handleClearExamples(ids)}
-        onAutoLockChange={setAutoLock} onLock={doLock} onWiped={() => setBoot('onboarding')}
-        apiBaseUrl={apiBaseUrl} signedIn={signedIn} onSignIn={handleSignIn}
-        onSignedOut={() => void handleSignedOut()} onUnauthorized={handleUnauthorized} onServerSaved={handleServerSaved} />
+        onAutoLockChange={setAutoLock} onLock={doLock}
+        onWiped={() => setBoot(current => current === 'unlocked' ? 'onboarding' : current)}
+        apiBaseUrl={apiBaseUrl} billing={billing} initialShareItemId={shareAfterSignIn}
+        onSignedOut={() => returnToSignIn(false)} onUnauthorized={handleUnauthorized} onServerSaved={handleServerSaved} />
     </View>
   );
 }

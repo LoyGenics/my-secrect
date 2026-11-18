@@ -20,7 +20,7 @@ RSpec.describe 'Account billing', type: :request do
     values = { 'BILLING_ENVIRONMENT' => 'test', 'BILLING_WEB_URL' => 'http://localhost:5174',
       'STRIPE_API_KEY' => 'rk_test_fixture', 'STRIPE_WEBHOOK_SECRET' => 'webhook-spec-only',
       'STRIPE_PRICE_MONTHLY' => 'price_monthly', 'STRIPE_PRICE_YEARLY' => 'price_yearly', 'STRIPE_PRICE_LIFETIME' => 'price_lifetime',
-      'REVENUECAT_SECRET_API_KEY' => nil, 'REVENUECAT_PRODUCTS' => nil }
+      'REVENUECAT_SECRET_API_KEY' => nil, 'REVENUECAT_PRODUCTS' => nil, 'REVENUECAT_WEBHOOK_AUTHORIZATION' => nil }
     previous = values.keys.to_h { |key| [key, ENV[key]] }
     values.each { |key, value| value.nil? ? ENV.delete(key) : ENV[key] = value }
     example.run
@@ -60,10 +60,40 @@ RSpec.describe 'Account billing', type: :request do
   it 'requires account authentication for every customer endpoint' do
     get '/api/v1/billing'
     expect(response).to have_http_status(:unauthorized)
-    %w[checkout portal refresh].each do |action|
+    get '/api/v1/billing/access'
+    expect(response).to have_http_status(:unauthorized)
+    %w[checkout portal refresh stores/refresh].each do |action|
       post "/api/v1/billing/#{action}", params: { option: 'monthly' }, as: :json
       expect(response).to have_http_status(:unauthorized)
     end
+  end
+
+  it 'reads mobile access including existing web purchases without reaching Stripe' do
+    purchase
+    expect(gateway).not_to receive(:catalog)
+    get '/api/v1/billing/access', headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(json).to include('tier' => 'pro', 'app_user_id' => user.id, 'store_products' => {})
+    expect(response.headers['Cache-Control']).to include('no-store')
+  end
+
+  it 'refreshes the signed-in account from the store independently of Stripe' do
+    ENV['REVENUECAT_SECRET_API_KEY'] = 'rc-spec-only'
+    ENV['REVENUECAT_WEBHOOK_AUTHORIZATION'] = 'rc-webhook-spec'
+    ENV['REVENUECAT_PRODUCTS'] = { app_store: { ios_monthly: 'monthly' } }.to_json
+    adapter = Billing::RevenueCat.new
+    allow(Billing::RevenueCat).to receive(:new).and_return(adapter)
+    allow(adapter).to receive(:fetch_subscriber).with(user.id).and_return('subscriptions' => {
+      'ios_monthly' => { 'store' => 'app_store', 'store_transaction_id' => 'purchase_1', 'is_sandbox' => true,
+        'expires_date' => 1.month.from_now.iso8601 }
+    })
+    expect(gateway).not_to receive(:catalog)
+
+    post '/api/v1/billing/stores/refresh', headers: headers, params: { user_id: 'other_user', tier: 'pro' }, as: :json
+    expect(response).to have_http_status(:ok)
+    expect(json).to include('tier' => 'pro', 'app_user_id' => user.id, 'store_products' => { 'app_store' => { 'ios_monthly' => 'monthly' } })
+    expect(user.billing_purchases.sole.external_id).to eq('subscription:purchase_1')
+    expect(response.body).not_to include('rc-spec-only', 'rc-webhook-spec')
   end
 
   it 'returns free access and server-owned prices without exposing provider secrets' do

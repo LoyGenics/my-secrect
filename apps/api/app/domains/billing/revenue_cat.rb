@@ -11,6 +11,28 @@ module Billing
         ENV['REVENUECAT_WEBHOOK_AUTHORIZATION'].present?
     end
 
+    def self.store_products
+      return {} unless ready?
+
+      configured_products
+    rescue Config::Unavailable
+      {}
+    end
+
+    def self.configured_products
+      products = JSON.parse(ENV.fetch('REVENUECAT_PRODUCTS'))
+      raise Config::Unavailable, 'invalid_store_billing_configuration' unless products.is_a?(Hash)
+
+      allowed = products.slice(*STORES.values).transform_values do |entries|
+        entries.is_a?(Hash) ? entries.select { |_id, option| %w[monthly yearly lifetime].include?(option) } : {}
+      end
+      raise Config::Unavailable, 'invalid_store_billing_configuration' if allowed.values.all?(&:empty?)
+
+      allowed
+    rescue JSON::ParserError
+      raise Config::Unavailable, 'invalid_store_billing_configuration'
+    end
+
     def fetch_subscriber(user_id)
       raise Config::Unavailable, 'store_billing_not_configured' unless self.class.ready?
       uri = URI("https://api.revenuecat.com/v1/subscribers/#{ERB::Util.url_encode(user_id)}")
@@ -26,8 +48,8 @@ module Billing
     def reconcile!(user:)
       # Caller holds the account lock, including during the provider read, to
       # serialize old deliveries, restore and purchase completion.
+      products = self.class.configured_products
       subscriber = fetch_subscriber(user.id)
-      products = JSON.parse(ENV.fetch('REVENUECAT_PRODUCTS'))
       seen = []
       (subscriber['subscriptions'] || {}).each do |product_id, value|
         provider = STORES[value['store']]

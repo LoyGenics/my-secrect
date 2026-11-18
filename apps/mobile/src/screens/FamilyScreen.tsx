@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import { FamilyApiClient, familyErrorKey, type FamilyState } from '../../../../packages/sdk/src/family';
 import { isStepUpRequired, SecurityApiClient } from '../../../../packages/sdk/src/security';
+import { isSessionUnauthorized } from '../utils/stepUp';
 import { useTranslation } from '../../../../packages/i18n/src/react';
 import { AppButton, AppPage, BottomSheet, EmptyState, FormSection, Group, IconButton, InlineError, Progress, Rule, SettingsRow } from '../components/mobile-ui';
 import { illustrations } from '../../../../packages/ui/src/native';
@@ -9,7 +10,7 @@ import { AppTextField } from '../components/Field';
 import { getApiToken } from './SecurityScreen';
 
 type Action = () => Promise<FamilyState>;
-export default function FamilyScreen({ baseUrl }: { baseUrl: string; onClose?: () => void }) {
+export default function FamilyScreen({ baseUrl, onUnauthorized }: { baseUrl: string; onUnauthorized: () => void }) {
   const { t } = useTranslation();
   const [api, setApi] = useState<FamilyApiClient | null>(null);
   const security = useRef<SecurityApiClient | null>(null);
@@ -25,7 +26,12 @@ export default function FamilyScreen({ baseUrl }: { baseUrl: string; onClose?: (
   async function run(action: Action) {
     setBusy(true); setError('');
     try { const result = await action(); if (alive.current) { setState(result); setEmail(''); } }
-    catch (e) { if (alive.current) { if (isStepUpRequired(e)) setPending(() => action); else setError(t(familyErrorKey(e))); } }
+    catch (e) {
+      if (!alive.current) return;
+      if (isSessionUnauthorized(e)) onUnauthorized();
+      else if (isStepUpRequired(e)) setPending(() => action);
+      else setError(t(familyErrorKey(e)));
+    }
     finally { if (alive.current) setBusy(false); }
   }
   useEffect(() => {
@@ -35,7 +41,7 @@ export default function FamilyScreen({ baseUrl }: { baseUrl: string; onClose?: (
     security.current = new SecurityApiClient({ baseUrl, getToken: getApiToken });
     setApi(client); void run(() => client.get());
     return () => { alive.current = false; security.current = null; };
-  }, [baseUrl]);
+  }, [baseUrl, onUnauthorized]);
   function confirm(label: string, action: Action) {
     Alert.alert(label, t('family.confirmHelp'), [
       { text: t('family.cancel'), style: 'cancel' },
@@ -50,7 +56,10 @@ export default function FamilyScreen({ baseUrl }: { baseUrl: string; onClose?: (
       if (method === 'email') await security.current.stepUpEmail(code);
       else await security.current.stepUpTotp(code);
       setCode(''); setPending(null); await run(action);
-    } catch { setError(t('family.verificationHelp')); }
+    } catch (e) {
+      if (isSessionUnauthorized(e)) onUnauthorized();
+      else setError(t('family.verificationHelp'));
+    }
     finally { if (alive.current) setBusy(false); }
   }
   const family = state?.family;
@@ -113,7 +122,10 @@ export default function FamilyScreen({ baseUrl }: { baseUrl: string; onClose?: (
           {error ? <InlineError>{error}</InlineError> : null}
           <AppButton label={t('family.sendCode')} variant="text" disabled={busy} onPress={() => {
             setBusy(true);
-            void security.current?.stepUpEmailRequest().catch(() => setError(t('family.verificationHelp'))).finally(() => setBusy(false));
+            void security.current?.stepUpEmailRequest().catch(e => {
+              if (isSessionUnauthorized(e)) onUnauthorized();
+              else setError(t('family.verificationHelp'));
+            }).finally(() => setBusy(false));
           }} />
           <AppButton label={t('family.emailCode')} loading={busy} disabled={!code.trim()} onPress={() => void verify('email')} />
           <AppButton label={t('family.totpCode')} variant="secondary" disabled={busy || !code.trim()} onPress={() => void verify('totp')} />

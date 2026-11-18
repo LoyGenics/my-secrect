@@ -3,6 +3,7 @@ import * as Documents from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { requireOptionalNativeModule } from 'expo-modules-core';
+import { Platform } from 'react-native';
 import { LOGIN_CSV_TEMPLATE } from '../../../../packages/import-export/src/index';
 import {
   AiImportError, IMPORT_PREVIEW_MEDIA_TYPE, IMPORT_PREVIEW_PATH, IMPORT_TEMPLATE_FILENAME,
@@ -51,7 +52,16 @@ export async function chooseImportCsv(signal: AbortSignal): Promise<{ text: stri
   }
 }
 
-export async function shareCsvTemplate(): Promise<void> {
+export async function saveCsvTemplate(): Promise<void> {
+  if (Platform.OS === 'android') {
+    const storage = FileSystem.StorageAccessFramework;
+    const access = await storage.requestDirectoryPermissionsAsync();
+    if (!access.granted) return;
+    const filename = IMPORT_TEMPLATE_FILENAME.replace(/\.csv$/, '');
+    const uri = await storage.createFileAsync(access.directoryUri, filename, 'text/csv');
+    await storage.writeAsStringAsync(uri, LOGIN_CSV_TEMPLATE, { encoding: FileSystem.EncodingType.UTF8 });
+    return;
+  }
   const cache = FileSystem.cacheDirectory;
   if (!cache || !await Sharing.isAvailableAsync()) throw new Error('CSV sharing unavailable');
   const uri = cache + IMPORT_TEMPLATE_FILENAME;

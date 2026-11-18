@@ -12,9 +12,9 @@ export function detailString(item: Pick<VaultItem, 'fields'>, key: string): stri
   return typeof value === 'string' ? value : '';
 }
 
-export function formatDetailFieldsForClipboard(fields: readonly { label: string; value: string; copyable?: boolean }[]): string {
+export function formatDetailFieldsForClipboard(fields: readonly { label: string; value: string; includeInCopyAll?: boolean }[]): string {
   return fields
-    .filter(({ value, copyable }) => value && copyable !== false)
+    .filter(({ value, includeInCopyAll }) => value && includeInCopyAll !== false)
     .map(({ label, value }) => `${label}:${value.includes('\n') ? '\n' : ' '}${value}`)
     .join('\n');
 }

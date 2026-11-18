@@ -20,7 +20,7 @@ export default function SearchScreen({ items, onSelect, onToggleFavorite, filter
   archived?: boolean;
 }) {
   const { colors, styles } = useMobileTheme();
-  const { t, dict, locale } = useTranslation();
+  const { t, tp, dict, locale } = useTranslation();
   const [query, setQuery] = useState('');
   const index = useMemo(() => indexVaultSearch(items, archived), [items, archived]);
   const results = useMemo(() => searchVaultIndex(index, items, query, filter, locale), [index, items, query, filter, locale]);
@@ -42,7 +42,7 @@ export default function SearchScreen({ items, onSelect, onToggleFavorite, filter
     />
     {count > 0 && <Text style={styles.small}>{t('mobileVault.searchingWithFilters', count)}</Text>}
     <Text testID="search-result-count" accessibilityLiveRegion="polite" style={styles.small}>
-      {hasQuery ? t('mobileUI.itemCount', results.length) : dict.mobileVault.recentlyUpdated}
+      {hasQuery ? tp(dict.mobileVault.itemCount, results.length) : dict.mobileVault.recentlyUpdated}
     </Text>
   </View>;
   return <AppPage width="list" scroll={false} safeArea="bottom" header={header}>

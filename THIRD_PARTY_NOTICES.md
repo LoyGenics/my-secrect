@@ -14,6 +14,7 @@ the notices required by those licences are reproduced or referenced below.
 | `react-native-svg` (renders Lucide on mobile) | 15.8.0 | MIT | https://github.com/software-mansion/react-native-svg |
 | Barlow Semi Condensed font via `@fontsource/barlow-semi-condensed` (self-hosted) | ^5.3.0 | SIL Open Font License 1.1 (font); MIT (Fontsource packaging) | https://github.com/jpt/barlow · https://fontsource.org |
 | Radix UI primitives (`@radix-ui/react-*`, pre-existing) | see package.json | MIT | https://github.com/radix-ui/primitives |
+| `credit-card-type` (local card network detection) | 10.3.1 | MIT | https://github.com/braintree/credit-card-type |
 
 ISC notice (Lucide): "Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022
 as part of Feather (MIT). All other copyright (c) for Lucide are held by Lucide Contributors

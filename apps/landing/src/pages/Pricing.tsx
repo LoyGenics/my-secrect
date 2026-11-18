@@ -2,6 +2,7 @@ import { Faq, Section, useReveal } from '../components/Chrome';
 import { asOf, competitors, matrix, matrixColumns } from '../site.config';
 import { copyFor, earlyAccessHref, fill, type Lang } from '../lib';
 import { competitorLogos } from '../assets';
+import { BlackFridayLink } from './BlackFriday';
 
 function CompetitorLogo({ name }: { name: keyof typeof competitorLogos }) {
   return <img className="comparison-logo" src={competitorLogos[name]} alt={name} width={144} height={40} />;
@@ -30,6 +31,7 @@ export default function Pricing({ lang }: { lang: Lang }) {
       <Section className="pagehead">
         <h1 className="h1">{p.h1}</h1>
         <p className="lead">{p.sub}</p>
+        <BlackFridayLink lang={lang} />
         <p className="after"><a className="textlink" href="#matrix">{p.matrix.jump}</a></p>
       </Section>
 

@@ -3,6 +3,7 @@ import { mobileVaultEn } from './mobile-vault';
 import { mobileEditorEn } from './mobile-editor';
 import { mobileDetailEn } from './mobile-detail';
 import { mobileSecurityEn } from './mobile-security';
+import { mobileBillingEn } from './mobile-billing';
 
 /**
  * English dictionary — the source of truth for every UI string key.
@@ -12,6 +13,7 @@ import { mobileSecurityEn } from './mobile-security';
  * date/number pattern — those are formatted with `Intl` (see index.ts).
  */
 export const en = {
+  mobileBilling: mobileBillingEn,
   billing: {
     title: 'Plan and billing', intro: 'One account, with access across your devices.', free: 'Free',
     monthly: 'Monthly', yearly: 'Yearly', lifetime: 'Lifetime', noRenewal: 'No recurring charge',
@@ -84,8 +86,6 @@ export const en = {
     "revokeLinkTitle": "Stop sharing this copy?",
     "revokeLinkBody": "This stops future access. People may already have saved a copy.",
     "linkFailed": "Couldn’t create the link. Check your connection and try again.",
-    "linkConnect": "Sign in to share an item.",
-    "linkConfigure": "Connect your server in Settings to share an item.",
     "webAppURL": "Web app URL",
     "linkInvalid": "This link can’t be opened",
     "linkInvalidBody": "It may have expired or been deleted. Ask the sender for a new link.",
@@ -167,9 +167,6 @@ export const en = {
       "language": "Language",
       "advanced": "Advanced",
       "lockNow": "Lock vault",
-      "localOnly": "On this device",
-      "notConnected": "Not connected",
-      "connected": "Connected",
       "never": "Never",
       "minutes": "{0} minutes",
       "autoLock": "Auto-lock",
@@ -199,8 +196,6 @@ export const en = {
       "settingsSaveFailed": "This preference couldn’t be saved. Try again.",
       "securityAccountSettings": "Security & account",
       "dataBackupSettings": "Data & backups",
-      "accountConnectedLocal": "Signed in · vault on this device",
-      "accountSignedOutLocal": "Signed out · vault on this device",
       "biometricSettings": "Biometric unlock",
       "biometricOn": "{0} unlock is on.",
       "biometricOff": "{0} unlock is off.",
@@ -444,13 +439,13 @@ export const en = {
     issuer: "Issuing bank",
     issuerPlaceholder: "Enter the issuing bank",
     issuerRequired: "Enter a bank name.",
-    chooseBrand: "Choose a network",
+    chooseBrand: "Auto-detect network",
     chooseType: "Choose a card type",
     credit: "Credit",
     debit: "Debit",
     otherBrand: "Other network",
     existingDigits: "Existing card ends in {0}.",
-    cvvHint: "Saving this code is not recommended. If entered, it is encrypted and kept on this device only.",
+    cvvHint: "Optional. This code is encrypted and stored on this device. Copy it from the card details when needed.",
     invalidNumber: "Enter 12 to 19 digits for the card number.",
     invalidCvv: "Enter a 3- or 4-digit security code.",
     invalidStatementDay: "Enter a day from 1 to 31.",
@@ -831,6 +826,7 @@ export const en = {
     choose: 'Choose CSV file…',
     reading: 'Reading CSV…',
     template: 'Download CSV template',
+    templateFailed: 'Could not save the CSV template. Try again.',
     readFailed: 'Could not read the file. Choose a UTF-8 CSV.',
     fileTooLarge: 'The file exceeds 8 MB. Split it into smaller CSV files.',
     csvErrors: {

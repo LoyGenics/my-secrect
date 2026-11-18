@@ -54,7 +54,7 @@ module Authentication
 
       token = SessionTokens.issue(user: user, device: session_device, user_agent: user_agent, ip_address: ip_address)
       Audit::Log.call(user: user, device: session_device, event_type: 'sign_in_succeeded', metadata: { method: 'email_code' })
-      { token: token, user_id: user.id, device_id: session_device&.id, expires_in: SessionTokens::TTL_SECONDS }
+      { token: token, user_id: user.id, device_id: session_device&.id, expires_in: SessionTokens::TTL_SECONDS, account_created: created }
     rescue EmailOwnership::VerificationError, ActiveRecord::RecordInvalid, ActiveRecord::RecordNotUnique
       audit_failure(normalized)
       raise EmailOwnership::VerificationError, 'verification failed'

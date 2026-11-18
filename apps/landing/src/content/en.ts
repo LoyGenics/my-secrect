@@ -8,8 +8,9 @@ export const en = {
   lang: 'en',
   htmlLang: 'en',
   meta: {
-    home: { title: 'My Secret: an encrypted vault for everything private', description: 'Passwords, passkeys, cards, IDs, notes, SSH keys and private media in one vault, encrypted on your device before anything syncs.' },
-    pricing: { title: 'Pricing: Free, Pro and Lifetime | My Secret', description: `Planned pricing: Free, $${amount(pricing.pro.yearly)} a year for Pro, or $${amount(pricing.lifetime)} once for Lifetime. Compare with 1Password, Bitwarden, Proton Pass and Enpass.` },
+    home: { title: 'My Secret | Password Manager & Encrypted Vault', description: 'Keep passwords, passkeys, cards, documents and private photos in one local-first vault. My Secret encrypts your data on your device before syncing.' },
+    pricing: { title: 'Free, Pro, Family & Lifetime Plans | My Secret', description: 'Explore My Secret’s free vault and proposed Pro, Family and Lifetime plans. Compare password management, offline access and encrypted file storage.' },
+    'black-friday': { title: 'Black Friday 2026 Early Bird | My Secret', description: 'My Secret is preparing a Black Friday 2026 offer for early adopters. Explore the encrypted vault for passwords, passkeys, documents and private photos.' },
     security: { title: 'Security: how My Secret protects your data', description: 'Argon2id and XChaCha20-Poly1305, keys that stay on your devices, what the server can see, and the limits we have not solved yet.' },
     privacy: { title: 'Privacy policy | My Secret', description: 'What My Secret stores, what it never receives, how long it keeps it and how to delete your account.' },
     terms: { title: 'Terms of service | My Secret', description: 'The terms for using My Secret, including plans, the Lifetime plan and your responsibility for your keys.' },
@@ -20,12 +21,12 @@ export const en = {
   },
   cta: { early: 'Get early access', earlySubject: 'Early access to My Secret' },
   home: {
-    hero: { h1: 'Your life.\nUnder lock.', sub: 'An encrypted vault for passwords, cards, IDs, notes and private media.', primary: 'Open the web app', secondary: 'See pricing' },
+    hero: { h1: 'Your encrypted\npersonal vault.', sub: 'My Secret manages passwords and passkeys and protects your cards, documents, private photos and developer keys in the same vault.', primary: 'Open the web app', secondary: 'See pricing' },
     scene: { label: 'Interactive illustration of a personal vault', open: 'Open the vault', close: 'Close the vault', pause: 'Pause motion', play: 'Resume motion', hint: 'A little look inside.', unavailable: 'A preview of your private space.' },
     principles: ['Encrypted on your device', 'Offline comes first', 'Your keys stay yours'],
     family: { h2: 'Close to them. Private to you.', sub: 'One family, up to six people. Everyone keeps a separate vault and chooses exactly what to share.', visual: '6 people. 6 private vaults.', points: ['Personal keys for every member', 'Invite and manage your family', 'Share individual items with verified contacts'], link: 'Explore Family' },
     keeps: {
-      h2: 'Not just passwords.', sub: 'From your first login to your most personal files. Twelve kinds of private, together.', note: 'Encrypted before it leaves your device.',
+      h2: 'Twelve types of data in one vault', sub: 'Save logins alongside secure notes, identity documents and private media. Keep related items together so you can find them even offline.', note: 'Encrypted before it leaves your device.',
       items: ['Logins', 'Passkeys', 'Bank accounts', 'Cards', 'IDs', 'SSH keys', 'API keys', 'Notes', 'Documents', 'Media', 'Collections', 'Custom'],
     },
     server: {
@@ -67,17 +68,33 @@ export const en = {
       ],
     },
   },
+  blackFriday: {
+    link: 'Black Friday Early Bird',
+    title: 'Black Friday 2026 for early adopters',
+    intro: 'We’re preparing a Black Friday offer for early adopters of My Secret, the personal vault for passwords, passkeys, documents and private photos.',
+    details: 'We’ll publish the offer price, eligible plans and redemption dates here once confirmed.',
+    tryApp: 'Try My Secret early access',
+    signupNote: 'Try the web app now and check this page for redemption instructions when the offer opens.',
+    overview: 'What you can do with My Secret',
+    highlights: [
+      'Save passwords, passkeys, cards, documents, private photos and developer keys in the same vault.',
+      'Open your vault offline. If you choose to sync, data is encrypted on your device before it leaves.',
+      'Export an encrypted backup and use your recovery key to regain access if you forget your master passphrase.',
+    ],
+    pricing: 'Explore the plans',
+    security: 'See how encryption works',
+  },
   pricing: {
     h1: 'Free to start. Pay yearly or once.',
     sub: 'My Secret is in early access. These are the prices we plan to charge, and nothing is billed yet.',
     plans: [
       {
         id: 'free', name: 'Free', price: '$0', unit: 'forever', blurb: 'Everything one person needs.',
-        features: ['Unlimited items, all 12 types', 'Works offline on your device', 'Encrypted backup and export', `Sync across ${pricing.free.syncedDevices} devices`, `${pricing.free.fileStorageMB} MB of encrypted file storage`, 'Email-code and passkey sign-in'],
+        features: ['Unlimited items, all 12 types', 'Works offline on your device', 'Encrypted backup and export', `Sync across ${pricing.free.syncedDevices} devices`, `${pricing.free.fileStorageMB} MB of encrypted file storage`, 'Email-code and passkey sign-in', 'Mobile vault with banner ads'],
       },
       {
         id: 'pro', name: 'Pro', price: `$${amount(pricing.pro.yearly)}`, unit: 'a year', alt: `or $${amount(pricing.pro.monthly)} a month`, blurb: 'For people who live on several devices.', featured: true,
-        features: ['Everything in Free', 'Unlimited synced devices', `${pricing.pro_limits.fileStorageGB} GB of encrypted file storage`, 'Encrypted item sharing'],
+        features: ['Ad-free mobile vault', 'Unlimited synced devices', `${pricing.pro_limits.fileStorageGB} GB of encrypted file storage`, 'Encrypted item sharing'],
       },
       {
         id: 'lifetime', name: 'Lifetime', price: `$${amount(pricing.lifetime)}`, unit: 'once', blurb: 'One payment, no renewals.',
@@ -160,7 +177,7 @@ export const en = {
   privacy: {
     h1: 'Privacy policy',
     sections: [
-      { h: 'Who we are', p: ['My Secret is run by [[COMPANY_NAME]], [[COMPANY_ADDRESS]]. This policy covers the My Secret apps, the browser extension and this website. You can reach us at [[PRIVACY_EMAIL]].', 'In short: your vault is encrypted on your device, the server stores ciphertext, and we do not run ads, trackers or third-party analytics.'] },
+      { h: 'Who we are', p: ['My Secret is run by [[COMPANY_NAME]], [[COMPANY_ADDRESS]]. This policy covers the My Secret apps, the browser extension and this website. You can reach us at [[PRIVACY_EMAIL]].', 'Your vault is encrypted on your device. Free accounts may see ads on mobile, and the app keeps vault content and keys out of ad requests.'] },
       { h: 'Vault encryption', p: ['Vault sync sends encrypted items, files and names. Signing in, unlocking and recovery keep your master passphrase, recovery key and vault decryption keys on your device.'] },
       { h: 'Optional AI import', p: ['After you agree, we forward the text you pasted to the OpenAI API and return a preview. We do not store, log or publish the text or preview. We request that OpenAI does not store the response. OpenAI API data is excluded from training by default. Abuse monitoring logs may include the text and generally retain it for up to 30 days. CSV import is processed on your device.'] },
       { h: 'What we store', ul: [
@@ -173,8 +190,8 @@ export const en = {
         'Sign-up: the email and a digest of the six-digit code, until used or expired.',
       ] },
       { h: 'Logs', p: ['Server request logs record the method, the path with opaque ids, the status, the duration and a request id. They do not record query strings, request bodies or client IP addresses, and the reverse proxy keeps no access log.'] },
-      { h: 'Ads, trackers and analytics', p: ['None. The apps and this website load no advertising or third-party analytics code. This website sets no cookies and stores only your language choice in your browser.'] },
-      { h: 'Who processes data for us', ul: ['[[EMAIL_PROVIDER]] sends the sign-up email, so it receives your address and the code.', '[[PAYMENT_PROVIDER]] will process payments once paid plans start. We do not see your card number.', 'Our hosting and object-storage providers hold encrypted data and cannot read it.'] },
+      { h: 'Mobile ads', p: ['When advertising is enabled, the free iOS and Android apps use Google AdMob for non-personalized banners on the vault list. Google may process data such as your IP address, device and app information, and ad interactions to deliver, measure and protect ads. My Secret does not send Google your account email, vault contents or vault keys. You can manage consent in Settings when ad privacy choices are available. Paid access removes the banners. This website sets no cookies.'] },
+      { h: 'Who processes data for us', ul: ['[[EMAIL_PROVIDER]] sends the sign-up email, so it receives your address and the code.', 'Apple or Google handles in-app payment, and RevenueCat uses a My Secret account ID and purchase records to verify access. [[PAYMENT_PROVIDER]] handles web payments. We do not see your card number.', 'Our hosting and object-storage providers hold encrypted data and cannot read it.'] },
       { h: 'How long we keep data', ul: [
         'Vault data: until you delete the item, the vault or your account.',
         'Session records: until you delete your account, and removed [[SESSION_PURGE_DAYS]] days after they expire or are revoked.',
@@ -200,7 +217,7 @@ export const en = {
       { h: 'Your account', ul: ['You are responsible for the email address you use and for keeping your devices secure.', 'You must give a real email address and may not use another person’s account.', 'You can delete your account at any time in the app.'] },
       { h: 'Your content and your keys', p: ['What you store is yours. We cannot read it and we claim no rights to it, other than the right to store and transmit the encrypted data so the service works.', 'You are responsible for your master passphrase and your recovery key. We cannot recover either. If you lose both, your data is lost for good.'] },
       { h: 'Acceptable use', ul: ['Do not break the law or use My Secret to store content you have no right to hold.', 'Do not attack, overload or probe the service, or try to read other people’s data.', 'Do not resell the service.'] },
-      { h: 'Plans and payment', p: ['A free plan is available. Paid plans, when they start, are Pro (monthly or yearly) and Lifetime. Prices are shown on the pricing page before you pay and are charged through [[PAYMENT_PROVIDER]]. Taxes may apply.', 'Pro renews each period until you cancel. You can cancel at any time and keep Pro until the end of the period you paid for.', 'Lifetime is one payment for Pro features for as long as we operate My Secret. It does not mean the lifetime of the buyer. If we decide to stop operating the service we will give you at least 90 days’ notice and time to export your data.', 'Refunds are available within [[REFUND_DAYS]] days of a first purchase. We will tell you about a price change before it applies to you.'] },
+      { h: 'Plans and payment', p: ['The free mobile vault may show ads. Pro (monthly or yearly) and Lifetime remove them. You see the price before buying. Apple or Google processes mobile purchases, and [[PAYMENT_PROVIDER]] processes web payments. Taxes may apply.', 'Pro renews each period until you cancel with the original provider. You keep Pro through the period you paid for.', 'Lifetime is one payment for Pro features for as long as we operate My Secret. It does not mean the lifetime of the buyer. If we decide to stop operating the service we will give you at least 90 days’ notice and time to export your data.', 'Request refunds for in-app purchases through the original store. For web purchases, refunds are available within [[REFUND_DAYS]] days of a first purchase. We will tell you about a price change before it applies to you.'] },
       { h: 'No warranty', p: ['My Secret is provided as is, during early access, without any warranty that it will be uninterrupted or error free. It has not had an independent security audit. Keep an encrypted export of your vault.'] },
       { h: 'Limit of liability', p: ['To the extent the law allows, we are not liable for indirect or consequential loss, or for loss of data that you could have avoided with a backup or a recovery key. Our total liability for any claim is limited to what you paid us in the 12 months before it. Nothing here limits liability that the law does not let us limit.'] },
       { h: 'Ending the agreement', p: ['You can stop at any time and delete your account. We may suspend or end an account that breaks these terms or puts the service or other people at risk, and will tell you why when we can.'] },
@@ -211,7 +228,7 @@ export const en = {
   footer: {
     tagline: 'Encrypted on your device. Stored as ciphertext.',
     product: 'Product', legal: 'Legal', company: 'Help', privacy: 'Privacy policy', terms: 'Terms of service',
-    early: 'Early access software.', rights: '© 2026 [[COMPANY_NAME]]', updated: 'Last updated',
+    early: 'Early access software.', rights: '© 2026 My Secret', updated: 'Last updated',
   },
   common: { updatedOn: 'Last updated', sourceFor: 'Source', open: 'Open' },
 };

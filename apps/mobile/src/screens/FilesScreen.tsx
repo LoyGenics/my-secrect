@@ -73,7 +73,7 @@ function FileRow({ item, subtitle, onOpen, onActions }: FileRowProps) {
 
 export default function FilesScreen({ items, folderId = '', initialPicker, onSave, onDelete, onOpenFolder, onOpenFile }: Props) {
   const { colors } = useMobileTheme();
-  const { t, dict } = useTranslation();
+  const { t, tp, dict } = useTranslation();
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
@@ -195,7 +195,7 @@ export default function FilesScreen({ items, folderId = '', initialPicker, onSav
         ListEmptyComponent={<EmptyState image={illustrations.emptyVault} title={t('mobileUI.filesEmpty')} detail={t('mobileUI.filesEmptyBody')} />}
         renderItem={({ item }) => {
           const folder = isFileFolder(item);
-          const subtitle = folder ? t('mobileUI.itemCount', childCounts.get(item.id) ?? 0) : fileSize(item.fields.size_bytes);
+          const subtitle = folder ? tp(dict.mobileVault.itemCount, childCounts.get(item.id) ?? 0) : fileSize(item.fields.size_bytes);
           return <FileRow item={item} subtitle={subtitle} onOpen={() => folder ? onOpenFolder(item.id) : onOpenFile(item.id)} onActions={() => { if (!busy) setMenu(item); }} />;
         }}
       />
