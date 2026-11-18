@@ -14,7 +14,7 @@
       "infoPlist": { "NSFaceIDUsageDescription": "Unlock your my-secrect vault with Face ID. Your passphrase is still required the first time after install." }
     },
     "android": {
-      "adaptiveIcon": { "foregroundImage": "./assets/adaptive-foreground.png", "backgroundColor": "#e4cfff" },
+      "adaptiveIcon": { "foregroundImage": "./assets/adaptive-foreground.png", "monochromeImage": "./assets/adaptive-monochrome.png", "backgroundColor": "#E9E2FB" },
       "package": "com.loygenics.mysecrect",
       "versionCode": 1
     },
