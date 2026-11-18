@@ -21,9 +21,13 @@ import {
   Eye,
   EyeOff,
   FileText,
+  File,
+  Film,
   FileUp,
   Fingerprint,
   Folder,
+  FolderPlus,
+  Globe,
   IdCard,
   Image,
   Images,
@@ -65,13 +69,18 @@ import {
   TriangleAlert,
   Undo2,
   Upload,
+  UserRound,
+  Users,
+  ListFilter,
   X,
   type LucideIcon,
 } from 'lucide-react-native';
 import { iconSize, iconStrokeWidth, type IconName, type IconSize } from '../icons';
 
-/** Same semantic map as the web wrapper (components/Icon.tsx); `Record<IconName, …>` keeps them in lockstep. */
-const glyphs: Record<IconName, LucideIcon> = {
+/** Mobile-only commands extend the shared vocabulary without changing web icons. */
+export type NativeIconName = IconName | 'filter' | 'globe' | 'person' | 'members' | 'newFolder' | 'video' | 'genericFile';
+
+const glyphs: Record<NativeIconName, LucideIcon> = {
   items: LayoutList,
   favorite: Star,
   trash: Trash2,
@@ -139,10 +148,17 @@ const glyphs: Record<IconName, LucideIcon> = {
   spinner: LoaderCircle,
   mail: Mail,
   shield: ShieldCheck,
+  filter: ListFilter,
+  globe: Globe,
+  person: UserRound,
+  members: Users,
+  newFolder: FolderPlus,
+  video: Film,
+  genericFile: File,
 };
 
 export interface NativeIconProps {
-  name: IconName;
+  name: NativeIconName;
   size?: IconSize | number;
   /** Ink colour; pass a theme colour (icons are never coloured for decoration). */
   color: string;
@@ -153,8 +169,8 @@ export interface NativeIconProps {
  * react-native-svg). Decorative by default: the pressable that contains it
  * carries the accessibilityLabel.
  */
-export function Icon({ name, size = 'md', color }: NativeIconProps) {
+export function Icon({ name, size = 'lg', color }: NativeIconProps) {
   const Glyph = glyphs[name];
   const px = typeof size === 'number' ? size : iconSize[size];
-  return <Glyph size={px} color={color} strokeWidth={iconStrokeWidth} />;
+  return <Glyph size={px} color={color} strokeWidth={iconStrokeWidth} accessible={false} />;
 }

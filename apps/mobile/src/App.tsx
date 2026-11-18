@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Text, View } from 'react-native';
+import { AppState, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import type { VaultItem } from '../../../packages/core/src/types';
 import { SecurityApiClient, clearSessionToken, getValidToken } from '../../../packages/sdk/src/security';
 import SignInScreen from './screens/SignInScreen';
@@ -19,7 +20,7 @@ import {
   deleteItem, restoreItem, permanentlyDeleteItem, toggleFavorite,
 } from './vault';
 import { useMobileTheme } from './theme';
-import ScreenFrame from './components/ScreenFrame';
+import { AppButton, AppPage, InlineError, Progress } from './components/mobile-ui';
 import MobileNavigator from './MobileNavigator';
 import { clearFilePreviews } from './storage/filePreviews';
 import { removeEncryptedFile } from './storage/localFiles';
@@ -28,9 +29,9 @@ import { I18nProvider, useTranslation } from '../../../packages/i18n/src/react';
 import { LOCALE_STORAGE_KEY, defaultLocale, type Locale } from '../../../packages/i18n/src/index';
 import OnboardingScreen from './screens/OnboardingScreen';
 import LockScreen from './screens/LockScreen';
-import { type AutoLockMinutes } from './screens/SettingsScreen';
+import { AppearanceProvider, useAppPreferences } from './ui/AppearanceProvider';
 
-type Boot = 'loading' | 'signin' | 'onboarding' | 'locked' | 'unlocked';
+type Boot = 'loading' | 'error' | 'signin' | 'onboarding' | 'locked' | 'unlocked';
 
 /**
  * Root: restores the language choice (AsyncStorage, same key as web's
@@ -38,50 +39,81 @@ type Boot = 'loading' | 'signin' | 'onboarding' | 'locked' | 'unlocked';
  * language anywhere (useTranslation().setLocale) persists it.
  */
 export default function App() {
-  const [locale, setLocale] = useState<Locale | null>(null);
-  useEffect(() => {
-    AsyncStorage.getItem(LOCALE_STORAGE_KEY)
-      .then((v) => setLocale(v === 'en' || v === 'vi' ? v : defaultLocale))
-      .catch(() => setLocale(defaultLocale));
-  }, []);
-  if (!locale) return null;
   return (
-    <I18nProvider initialLocale={locale} onLocaleChange={(next) => void AsyncStorage.setItem(LOCALE_STORAGE_KEY, next)}>
-      <AppShell />
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+      <AppearanceProvider>
+        <Start />
+      </AppearanceProvider>
+    </SafeAreaProvider>
+  );
+}
+
+function Start() {
+  const [locale, setLocale] = useState<Locale | null>(null);
+  const { ready, resolvedScheme } = useAppPreferences();
+  const { colors } = useMobileTheme();
+  useEffect(() => {
+    let active = true;
+    AsyncStorage.getItem(LOCALE_STORAGE_KEY)
+      .then((v) => { if (active) setLocale(v === 'en' || v === 'vi' ? v : defaultLocale); })
+      .catch(() => { if (active) setLocale(defaultLocale); });
+    return () => { active = false; };
+  }, []);
+  return (
+    <I18nProvider key={locale ?? 'loading'} initialLocale={locale ?? defaultLocale}
+      onLocaleChange={next => void AsyncStorage.setItem(LOCALE_STORAGE_KEY, next).catch(() => undefined)}>
+      <StatusBar style={resolvedScheme === 'light' ? 'dark' : 'light'} backgroundColor={colors.canvas} />
+      {ready && locale ? <AppShell /> : <BootStatus />}
     </I18nProvider>
   );
 }
 
+function BootStatus({ onRetry }: { onRetry?: () => void }) {
+  const { dict, t } = useTranslation();
+  return (
+    <AppPage testID="app-boot" safeArea="full" scroll={false} contentStyle={{ justifyContent: 'center' }}>
+      {onRetry ? (
+        <>
+          <InlineError>{t('mobileUI.bootError')}</InlineError>
+          <AppButton label={t('security.retry')} variant="secondary" onPress={onRetry} />
+        </>
+      ) : <Progress label={dict.common.loading} />}
+    </AppPage>
+  );
+}
+
 function AppShell() {
-  const { colors, styles, scheme } = useMobileTheme();
+  const { styles } = useMobileTheme();
   const { dict } = useTranslation();
-  const statusBar = scheme === 'light' ? 'dark' : 'light';
+  const { autoLock, setAutoLock } = useAppPreferences();
   const [boot, setBoot] = useState<Boot>('loading');
+  const [bootAttempt, setBootAttempt] = useState(0);
   const [items, setItems] = useState<VaultItem[]>([]);
   const [trash, setTrash] = useState<VaultItem[]>([]);
   const [notice, setNotice] = useState('');
-  const [autoLock, setAutoLock] = useState<AutoLockMinutes>(5);
   const lastActivity = useRef(Date.now());
   // The hosted account is optional. A local vault opens independently.
   const [apiBaseUrl, setApiBaseUrl] = useState('');
   const [signedIn, setSignedIn] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
+  const [accountJustSignedIn, setAccountJustSignedIn] = useState(false);
 
   const refresh = useCallback(() => { if (isUnlocked()) { setItems(listItems()); setTrash(listTrash()); } }, []);
 
   useEffect(() => {
+    let active = true;
     void (async () => {
       await clearFilePreviews().catch(() => undefined);
       const url = await loadAccountServer(AsyncStorage, !__DEV__).catch(() => '');
+      const [token, exists] = await Promise.all([url ? getValidToken(asyncTokenStore).catch(() => null) : null, hasVault()]);
+      if (!active) return;
       setApiBaseUrl(url);
-      const token = url ? await getValidToken(asyncTokenStore) : null;
       setSignedIn(Boolean(token));
-      const exists = await hasVault();
       const next: Boot = exists ? 'locked' : 'onboarding';
       setBoot(__DEV__ && url && !token ? 'signin' : next);
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    })().catch(() => { if (active) setBoot('error'); });
+    return () => { active = false; };
+  }, [bootAttempt]);
 
   const doLock = useCallback(() => {
     lockVault(); void clearFilePreviews().catch(() => undefined); setItems([]); setTrash([]); setBoot('locked');
@@ -144,6 +176,7 @@ function AppShell() {
     setSessionExpired(false);
     void (async () => {
       const exists = await hasVault();
+      setAccountJustSignedIn(exists);
       setBoot(exists ? 'locked' : 'onboarding');
     })();
   }, []);
@@ -167,7 +200,9 @@ function AppShell() {
   }, [boot, autoLock, doLock]);
 
   function markActivity() { lastActivity.current = Date.now(); }
-  function handleUnlocked() { lastActivity.current = Date.now(); refresh(); setBoot('unlocked'); }
+  function handleUnlocked() {
+    lastActivity.current = Date.now(); refresh(); setAccountJustSignedIn(false); setBoot('unlocked');
+  }
 
   async function handleSaveItem(item: VaultItem, localCardCode?: string) {
     await upsertItem(item, localCardCode); refresh();
@@ -186,33 +221,25 @@ function AppShell() {
   async function handleLoadExamples(list: VaultItem[]) { for (const it of list) await upsertItem(it); refresh(); setNotice(dict.mobile.exampleLoaded); }
   async function handleClearExamples(ids: string[]) { for (const id of ids) await permanentlyDeleteItem(id); refresh(); setNotice(dict.mobile.exampleCleared); }
 
-  if (boot === 'loading') {
-    return (<View style={[styles.screen, { alignItems: 'center', justifyContent: 'center' }]}><ActivityIndicator size="large" color={colors.accent} /><Text style={{ color: colors.muted, marginTop: 12 }}>{dict.common.loading}</Text><StatusBar style={statusBar} /></View>);
-  }
-  if (boot === 'onboarding') return (<><StatusBar style={statusBar} /><OnboardingScreen onDone={handleUnlocked} onRestored={() => setBoot('locked')} /></>);
-  if (boot === 'locked') return (<><StatusBar style={statusBar} /><LockScreen onUnlocked={handleUnlocked} /></>);
+  if (boot === 'loading') return <BootStatus />;
+  if (boot === 'error') return <BootStatus onRetry={() => { setBoot('loading'); setBootAttempt(value => value + 1); }} />;
+  if (boot === 'onboarding') return <OnboardingScreen onDone={handleUnlocked} onRestored={() => setBoot('locked')} />;
+  if (boot === 'locked') return <LockScreen onUnlocked={handleUnlocked} accountJustSignedIn={accountJustSignedIn} />;
   if (boot === 'signin') {
     return (
-      <ScreenFrame style={styles.screen}>
-        <StatusBar style={statusBar} />
-        <SignInScreen
-          baseUrl={apiBaseUrl}
-          sessionExpired={sessionExpired}
-          onSignedIn={(email, recoverySession) => handleSignedIn(email, recoverySession)}
-          onContinueLocalOnly={() => {
-            void (async () => {
-              const exists = await hasVault();
-              setBoot(exists ? 'locked' : 'onboarding');
-            })();
-          }}
-        />
-      </ScreenFrame>
+      <SignInScreen
+        baseUrl={apiBaseUrl}
+        sessionExpired={sessionExpired}
+        onSignedIn={handleSignedIn}
+        onContinueLocalOnly={() => {
+          void hasVault().then(exists => setBoot(exists ? 'locked' : 'onboarding'));
+        }}
+      />
     );
   }
 
   return (
     <View style={styles.screen} onTouchStart={markActivity}>
-      <StatusBar style={statusBar} />
       <MobileNavigator items={items} trash={trash} autoLock={autoLock} notice={notice} setNotice={setNotice}
         onSave={handleSaveItem} onDelete={handleDelete} onRestore={handleRestore} onToggleFavorite={handleToggleFavorite}
         onLoadExamples={list => void handleLoadExamples(list)} onClearExamples={ids => void handleClearExamples(ids)}

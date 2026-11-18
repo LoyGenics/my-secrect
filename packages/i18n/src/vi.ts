@@ -1,3 +1,9 @@
+import { mobileAuthVi } from './mobile-auth';
+import { mobileVaultVi } from './mobile-vault';
+import { mobileEditorVi } from './mobile-editor';
+import { mobileDetailVi } from './mobile-detail';
+import { mobileSecurityVi } from './mobile-security';
+
 /**
  * Vietnamese dictionary. Must satisfy the `Dictionary` type from `en.ts`
  * exactly — a missing or extra key is a compile error, so the two
@@ -27,6 +33,21 @@ export const vi: Dictionary = {
     deletionBlocked: 'Hủy gia hạn các gói và hoàn tất hoặc chờ hết hạn phiên thanh toán trước khi xóa tài khoản.',
   },
   mobileUI: {
+    "generateTab": "Tạo mã",
+    "healthTab": "Sức khỏe",
+    "linkRetention": "Bất kỳ ai có liên kết đều có thể xem và giữ bản sao của các trường này.",
+    "linkFields": "Các trường trong bản chia sẻ",
+    "linkFieldsInvalid": "Hãy điền các trường bắt buộc của mục trước khi tạo liên kết.",
+    "sharingOverview": "Tổng quan",
+    "verifyContacts": "Xác minh liên hệ",
+    "sharingSection": "Mục chia sẻ",
+    "filesOnDevice": "Các tệp được mã hóa và lưu trên thiết bị này.",
+    "fileOptionsFor": "Tùy chọn cho {0}",
+    "unnamedFile": "Tệp chưa đặt tên",
+    "unnamedPhoto": "Ảnh",
+    "unnamedVideo": "Video",
+    "fileSources": "Thêm từ thiết bị này",
+    "chooseDocs": "Tài liệu",
     "files": "Tệp",
     "upload": "Tải tệp lên",
     "photos": "Ảnh và video",
@@ -173,8 +194,35 @@ export const vi: Dictionary = {
       "familyPlan": "Gói gia đình",
       "sharing": "Chia sẻ",
       "media": "Ảnh và tài liệu",
-      "typeOptional": "Thông tin tùy chọn"
+      "typeOptional": "Thông tin tùy chọn",
+      "appearanceHelp": "Chế độ hệ thống dùng giao diện của thiết bị.",
+      "settingsSaveFailed": "Không lưu được tùy chọn này. Hãy thử lại.",
+      "securityAccountSettings": "Bảo mật và tài khoản",
+      "dataBackupSettings": "Dữ liệu và bản sao lưu",
+      "accountConnectedLocal": "Đã đăng nhập · két lưu trên thiết bị",
+      "accountSignedOutLocal": "Chưa đăng nhập · két lưu trên thiết bị",
+      "biometricSettings": "Mở khóa bằng sinh trắc học",
+      "biometricOn": "Đã bật mở khóa bằng {0}.",
+      "biometricOff": "Đã tắt mở khóa bằng {0}.",
+      "biometricHint": "Dùng {0} để mở khóa két trên thiết bị này.",
+      "biometricUnavailable": "Hãy thiết lập {0} trong cài đặt thiết bị trước.",
+      "biometricEnable": "Bật mở khóa bằng {0}",
+      "biometricDisable": "Tắt mở khóa bằng {0}",
+      "biometricDisableFailed": "Không thể tắt mở khóa bằng {0}. Hãy thử lại.",
+      "biometricChanged": "Đổi cụm mật khẩu đã tắt mở khóa bằng {0}. Bạn có thể bật lại trong Mở khóa và tự khóa.",
+      "exportBackupFile": "Xuất tệp sao lưu",
+      "backupLocalFiles": "Bản sao lưu chứa các mục trong két. Nội dung tệp và CVV của thẻ được giữ trên thiết bị này.",
+      "generatorType": "Loại mật khẩu tạo ra",
+      "applyPassword": "Dùng cho trường mật khẩu",
+      "clipboardFailed": "Không sao chép được. Hãy thử lại.",
+      "editFormTitle": "Sửa {0}",
+      "bootError": "Không mở được ứng dụng. Hãy thử lại.",
   },
+  mobileAuth: mobileAuthVi,
+  mobileVault: mobileVaultVi,
+  mobileEditor: mobileEditorVi,
+  mobileDetail: mobileDetailVi,
+  mobileSecurity: mobileSecurityVi,
   family: {
     "refresh": "Làm mới",
     "title": "Gia đình",

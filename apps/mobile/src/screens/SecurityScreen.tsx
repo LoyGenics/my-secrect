@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from 'react-native';
+import { Alert, Keyboard, StyleSheet, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
-import Field from '../components/Field';
-import { Empty, Select } from '../components/mobile-ui';
+import { AppTextField } from '../components/Field';
+import { AppButton, AppPage, BottomSheet, EmptyState, FieldGroup, FormSection, Group, IconButton, InlineError, PageSection, Progress, Rule, SegmentedControl, SelectField, SettingsRow } from '../components/mobile-ui';
 import { illustrations } from '../../../../packages/ui/src/native';
 import { useMobileTheme } from '../theme';
 import { useTranslation } from '../../../../packages/i18n/src/react';
@@ -18,6 +18,7 @@ import { fromBase64Url, sha256, toBase64 } from '../../../../packages/crypto-ada
 import { recoveryVerifierKeyPair } from '../../../../packages/sdk/src/recovery-verifier';
 import { decryptWithVaultKey, encryptWithVaultKey } from '../vault';
 import { apiStatus, isNetworkError, isStepUpFresh, isStepUpRequired } from '../utils/stepUp';
+import { space } from '../ui/tokens';
 
 /**
  * Security Center (mobile) — account security ONLY. This screen never
@@ -30,8 +31,8 @@ import { apiStatus, isNetworkError, isStepUpFresh, isStepUpRequired } from '../u
  *   -> not-configured state, never fake data, never a crash.
  * - Offline -> offline state + retry. Server errors -> error + retry.
  * - Passkeys: list + Remove work server-side. ADD does not: React Native
- *   / Expo Go has no WebAuthn browser API, and expo-local-authentication
- *   is NOT WebAuthn — so there is no Add button, only an honest notice
+ *   / Expo Go has no WebAuthn browser API and local biometric prompts do
+ *   not perform WebAuthn — so there is no Add button, only guidance
  *   that a passkey must be added from Desktop or Web. Nothing is faked.
  * - Account MFA codes are typed in by the user and verified server-side;
  *   this screen never generates a TOTP code (utils/totp.ts is for vault
@@ -83,6 +84,9 @@ interface DeviceRow {
 interface ActivityRow { event_type: string; device_id?: string; created_at?: string; }
 
 type MfaState = 'unknown' | 'enabled' | 'disabled';
+type SecuritySection = 'auth' | 'devices' | 'recovery' | 'activity' | 'account';
+const resources = ['passkeys', 'sessions', 'devices', 'activity'] as const;
+type SecurityResource = (typeof resources)[number];
 
 function rows<T>(res: unknown, key: string): T[] {
   if (Array.isArray(res)) return res as T[];
@@ -95,13 +99,13 @@ function rows<T>(res: unknown, key: string): T[] {
 function toHex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
-function fmtDate(raw?: string): string {
+function fmtDate(raw: string | null | undefined, locale: string): string {
   if (!raw) return '';
   const d = new Date(raw);
-  return Number.isNaN(d.getTime()) ? raw : d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? raw : d.toLocaleString(locale);
 }
 
-export default function SecurityScreen({ baseUrl, onClose, onSignedOut, onUnauthorized }: {
+export default function SecurityScreen({ baseUrl, onSignedOut, onUnauthorized }: {
   baseUrl: string;
   onClose: () => void;
   /** App completes sign-out and locks the local vault. */
@@ -110,11 +114,13 @@ export default function SecurityScreen({ baseUrl, onClose, onSignedOut, onUnauth
    *  server-side. App clears the token and shows SignIn. */
   onUnauthorized?: () => void;
 }) {
-  const [sectionKey, setSectionKey] = useState('auth');
+  const [sectionKey, setSectionKey] = useState<SecuritySection>('auth');
+  const [deviceArea, setDeviceArea] = useState<'devices' | 'sessions'>('devices');
   const { colors, styles } = useMobileTheme();
-  const { t } = useTranslation();
+  const { t, dict, locale } = useTranslation();
   const [loading, setLoading] = useState(Boolean(baseUrl));
   const [offline, setOffline] = useState(false);
+  const [failedResources, setFailedResources] = useState<SecurityResource[]>([]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [passkeys, setPasskeys] = useState<PasskeyRow[]>([]);
@@ -129,8 +135,10 @@ export default function SecurityScreen({ baseUrl, onClose, onSignedOut, onUnauth
   const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [actionDeviceId, setActionDeviceId] = useState<string>();
   const [recoveryKeyInput, setRecoveryKeyInput] = useState('');
   const [verifierFingerprint, setVerifierFingerprint] = useState<string | null>(null);
+  const [recoveryKeyError, setRecoveryKeyError] = useState('');
   // Server step-up (10-minute window, see utils/stepUp.ts).
   const [lastStepUpAt, setLastStepUpAt] = useState<number | null>(null);
   const [stepUpOpen, setStepUpOpen] = useState(false);
@@ -145,6 +153,7 @@ export default function SecurityScreen({ baseUrl, onClose, onSignedOut, onUnauth
   );
 
   function describeError(e: unknown): string {
+    if (isUnauthorized(e)) onUnauthorized?.();
     if (isNetworkError(e)) return t('security.offline');
     const status = apiStatus(e);
     return status !== null ? `${t('security.error')} (${status})` : t('security.error');
@@ -161,6 +170,7 @@ export default function SecurityScreen({ baseUrl, onClose, onSignedOut, onUnauth
     const anyOk = results.some((r) => r.status === 'fulfilled');
     const anyNetwork = results.some((r) => r.status === 'rejected' && isNetworkError(r.reason));
     const allUnauthorized = results.every((r) => r.status === 'rejected' && isUnauthorized(r.reason));
+    setFailedResources(resources.filter((_, index) => results[index].status === 'rejected'));
     if (!anyOk && anyNetwork) setOffline(true);
     else if (!anyOk) setError(t('security.error'));
     setLoaded(true); setLoading(false);
@@ -204,8 +214,9 @@ export default function SecurityScreen({ baseUrl, onClose, onSignedOut, onUnauth
   async function submitStepUp() {
     if (!client) return;
     const code = stepUpCode.trim();
-    if (!code) { setStepUpError(t('security.stepUpFailed')); return; }
+    if (!/^\d{6}$/.test(code)) { setStepUpError(dict.mobileSecurity.invalidCode); return; }
     setStepUpBusy(true); setStepUpError('');
+    Keyboard.dismiss();
     try {
       await client.stepUpTotp(code);
       const action = pendingStepUpAction.current;
@@ -352,7 +363,7 @@ export default function SecurityScreen({ baseUrl, onClose, onSignedOut, onUnauth
       if (!updated || deviceLabel(updated) !== name) {
         setError(`${t('security.error')}: ${name}`);
       } else {
-        setRenamingId(null); setRenameValue('');
+        setRenamingId(null); setRenameValue(''); setActionDeviceId(undefined);
       }
     } catch (e) { setError(describeError(e)); }
     finally { setBusy(false); }
@@ -403,6 +414,45 @@ export default function SecurityScreen({ baseUrl, onClose, onSignedOut, onUnauth
     ]);
   }
 
+  function confirmDeleteAccount() {
+    if (busy || !client) return;
+    Alert.alert(dict.securityActions.deleteAccountConfirm, dict.securityActions.deleteAccountBody, [
+      { text: dict.common.cancel, style: 'cancel' },
+      { text: dict.securityActions.deleteAccount, style: 'destructive', onPress: () => void requestDeleteAccount(client) },
+    ]);
+  }
+
+  async function requestDeleteAccount(c: SecurityApiClient) {
+    setError(''); setNotice('');
+    try {
+      await runWithStepUp(async () => {
+        setBusy(true);
+        try {
+          await c.deleteAccount();
+          await clearSessionToken(asyncTokenStore).catch(() => undefined);
+          if (onSignedOut) {
+            Alert.alert(dict.mobileSecurity.deletedTitle, dict.securityActions.accountDeleted, [
+              { text: dict.security.done, onPress: onSignedOut },
+            ], { cancelable: false });
+          } else {
+            setNotice(dict.securityActions.accountDeleted);
+          }
+        } catch (error) {
+          if (isStepUpRequired(error)) throw error;
+          if (apiStatus(error) === 409 && error instanceof Error && error.message.includes('active_billing')) {
+            setError(dict.mobileSecurity.activeBilling);
+          } else {
+            setError(describeError(error));
+          }
+        } finally {
+          setBusy(false);
+        }
+      });
+    } catch (error) {
+      setError(describeError(error));
+    }
+  }
+
   function handleRevokeSession(s: SessionRow) {
     Alert.alert(t('security.revokeSession'), s.device_id ?? s.id, [
       { text: t('security.cancel'), style: 'cancel' },
@@ -439,10 +489,10 @@ export default function SecurityScreen({ baseUrl, onClose, onSignedOut, onUnauth
   // --- Recovery verifier ---------------------------------------------------
   async function handleRegisterVerifier() {
     if (!client) return;
-    setError(''); setNotice('');
+    setError(''); setNotice(''); setRecoveryKeyError('');
     let seed: Uint8Array | null = null;
     try { seed = fromBase64Url(recoveryKeyInput.trim()); } catch { seed = null; }
-    if (!seed || seed.length !== 32) { setError(t('security.error')); return; }
+    if (!seed || seed.length !== 32) { setRecoveryKeyError(dict.mobileSecurity.invalidRecoveryKey); return; }
     setBusy(true);
     try {
       // Ed25519 keypair derived from the 32 recovery-key bytes with domain
@@ -468,238 +518,235 @@ export default function SecurityScreen({ baseUrl, onClose, onSignedOut, onUnauth
     }
   }
 
-  const section = (title: string) => <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700', marginTop: 24, marginBottom: 10 }}>{title}</Text>;
-  const rowCard = { backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 8 } as const;
+  const labels = dict.mobileSecurity;
+  const security = dict.security;
+  const sections: Array<{ value: SecuritySection; label: string }> = [
+    { value: 'auth', label: security.authMethods },
+    { value: 'devices', label: labels.devicesSessions },
+    { value: 'recovery', label: security.recovery },
+    { value: 'activity', label: security.activity },
+    { value: 'account', label: labels.account },
+  ];
+  const actionDevice = devices.find(({ id }) => id === actionDeviceId);
+  const renaming = actionDevice && actionDevice.id === renamingId;
+  const unavailable = failedResources.length === resources.length;
+  const deviceDetail = (device: DeviceRow) => [
+    device.trusted ? security.trusted : security.untrusted,
+    device.last_seen_at && `${security.lastSeen} · ${fmtDate(device.last_seen_at, locale)}`,
+  ].filter(Boolean).join('\n');
+  const sessionDetail = (session: SessionRow) => [
+    session.current && security.currentSession,
+    session.user_agent,
+    session.ip_address,
+    fmtDate(session.created_at, locale),
+  ].filter(Boolean).join('\n');
 
-  if (loading && !loaded) {
-    return (
-      <View style={[styles.screen, { alignItems: 'center', justifyContent: 'center', padding: 24 }]}>
-        <ActivityIndicator size="large" color={colors.accent} />
-        <Text style={{ color: colors.muted, marginTop: 12 }}>{t('security.loading')}</Text>
-      </View>
-    );
+  function closeDeviceActions() {
+    if (busy) return;
+    setActionDeviceId(undefined);
+    setRenamingId(null);
+    setRenameValue('');
   }
 
-  if (baseUrl === '') {
-    return (
-      <ScrollView style={styles.screen} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 20, paddingBottom: 40, width: '100%', maxWidth: 720, alignSelf: 'center' }}>
-        <Empty image={illustrations.emptyVault} title={t('mobileUI.securityConnect')} detail={t('mobileUI.securityConnectBody')} />
-      </ScrollView>
-    );
+  function cancelStepUp() {
+    if (stepUpBusy) return;
+    setStepUpOpen(false);
+    setStepUpCode('');
+    setStepUpError('');
+    pendingStepUpAction.current = null;
+  }
+
+  function copyOneTimeValue(value: string) {
+    void Clipboard.setStringAsync(value)
+      .then(() => setNotice(dict.common.copied))
+      .catch(() => setError(labels.copyFailed));
+  }
+
+  if (!baseUrl) {
+    return <AppPage safeArea="bottom">
+      <EmptyState image={illustrations.emptyVault} title={t('mobileUI.securityConnect')} detail={t('mobileUI.securityConnectBody')} />
+    </AppPage>;
+  }
+
+  if (loading && !loaded) {
+    return <AppPage safeArea="bottom"><Progress label={security.loading} testID="security-loading" /></AppPage>;
   }
 
   return (
-    <ScrollView style={styles.screen} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 20, paddingBottom: 40, width: '100%', maxWidth: 720, alignSelf: 'center' }}>
-      {notice ? <Text testID="security-notice" style={{ color: colors.link, fontSize: 14, lineHeight: 20, marginTop: 10 }}>{notice}</Text> : null}
-      {error ? <Text testID="security-error" style={[styles.error, { marginTop: 10 }]}>{error}</Text> : null}
-      {offline ? (
-        <View style={{ marginTop: 12 }}>
-          <Text style={{ color: colors.warnText, fontSize: 14 }}>{t('security.offline')}</Text>
-          <Pressable testID="security-retry" accessibilityLabel={t('security.retry')} style={[styles.ghostButton, { marginTop: 10 }]} onPress={() => client && void loadAll(client)}>
-            <Text style={styles.ghostButtonText}>{t('security.retry')}</Text>
-          </Pressable>
-        </View>
-      ) : null}
-
-      {stepUpOpen ? (
-        <View style={{ backgroundColor: colors.card, borderColor: colors.accent, borderWidth: 1, borderRadius: 12, padding: 16, marginTop: 24 }}>
-          <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700' }}>{t('security.stepUpTitle')}</Text>
-          <Text style={{ color: colors.muted, fontSize: 14, lineHeight: 20, marginTop: 6 }}>{t('security.stepUpBody')}</Text>
-          <View style={{ marginTop: 12 }}>
-            <Field label={t('security.stepUpTotpLabel')} testID="stepup-totp-code" placeholder="123456" value={stepUpCode} onChangeText={setStepUpCode} autoCapitalize="none" autoCorrect={false} keyboardType="number-pad" />
-          </View>
-          {stepUpError ? <Text testID="stepup-error" style={[styles.error, { marginBottom: 10 }]}>{stepUpError}</Text> : null}
-          <View style={{ flexDirection: 'row' }}>
-            <Pressable testID="stepup-confirm" accessibilityLabel={t('security.confirm')} disabled={stepUpBusy} style={[styles.primaryButton, { flex: 1, marginRight: 8 }]} onPress={() => void submitStepUp()}>
-              <Text style={styles.primaryButtonText}>{t('security.confirm')}</Text>
-            </Pressable>
-            <Pressable testID="stepup-cancel" accessibilityLabel={t('security.cancel')} style={[styles.ghostButton, { flex: 1 }]} onPress={() => { setStepUpOpen(false); setStepUpCode(''); setStepUpError(''); pendingStepUpAction.current = null; }}>
-              <Text style={styles.ghostButtonText}>{t('security.cancel')}</Text>
-            </Pressable>
-          </View>
-        </View>
-      ) : null}
-      <Select testID="security-section" label={t('security.title')} value={sectionKey} choices={[
-        { value: 'auth', label: t('security.authMethods') }, { value: 'devices', label: t('security.devices') },
-        { value: 'sessions', label: t('security.sessions') }, { value: 'recovery', label: t('security.recovery') }, { value: 'activity', label: t('security.activity') },
-      ]} onChange={setSectionKey} />
-      {sectionKey === 'auth' && <>
-      {section(t('security.authMethods'))}
-      <Text style={[styles.label, { marginTop: 4 }]}>{t('security.passkeys')}</Text>
-      {passkeys.length === 0 ? (
-        <Text style={{ color: colors.muted }}>{t('security.noPasskeys')}</Text>
-      ) : passkeys.map((pk) => (
-        <View key={pk.id} style={rowCard}>
-          <Text style={{ color: colors.text, fontSize: 15, fontWeight: '600' }}>{pk.credential_id_prefix}</Text>
-          <Text style={{ color: colors.muted, fontSize: 13, marginTop: 4 }}>{fmtDate(pk.created_at)}</Text>
-          <Pressable testID={`remove-passkey-${pk.id}`} accessibilityLabel={t('security.removePasskey')} disabled={busy} style={[styles.ghostButton, { marginTop: 10 }]} onPress={() => handleRemovePasskey(pk)}>
-            <Text style={[styles.ghostButtonText, { color: colors.danger }]}>{t('security.removePasskey')}</Text>
-          </Pressable>
-        </View>
-      ))}
-      {/* TODO(i18n): no security.* key was specified for the mobile
-          passkey limitation, so it is written here in English. */}
-      <View style={{ backgroundColor: colors.warnSoft, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 12, marginTop: 8 }}>
-        <Text style={{ color: colors.warnText, fontSize: 13, lineHeight: 18, fontWeight: '600' }}>
-          Add new passkeys from My Secret on desktop or web. You can manage existing passkeys here.
-        </Text>
-      </View>
-
-      {section(t('security.mfa'))}
-      {/* MFA status comes from this client only: the backend contract has
-          no MFA-status endpoint, so 'unknown' shows no status claim.
-          Enroll+confirm sets enabled, disable sets disabled, and a 409
-          on enroll is read as already-enabled. */}
-      {mfaState === 'enabled' ? <Text style={{ color: colors.ok }}>{t('security.mfaEnabled')}</Text> : null}
-      {mfaState === 'disabled' ? <Text style={{ color: colors.muted }}>{t('security.mfaDisabled')}</Text> : null}
-      {mfaEnroll ? (
-        <View style={{ marginTop: 12 }}>
-          <Text style={[styles.label]}>{t('security.mfaSecretLabel')}</Text>
-          <Text selectable testID="mfa-secret" style={{ color: colors.text, fontSize: 14, fontFamily: 'monospace' }}>{mfaEnroll.secret}</Text>
-          <Text style={{ color: colors.warnText, fontSize: 13, lineHeight: 18, marginTop: 6 }}>{t('security.mfaSecretWarning')}</Text>
-          <Pressable testID="mfa-copy-secret" accessibilityLabel={t('common.copy')} style={[styles.ghostButton, { marginTop: 10 }]} onPress={() => void Clipboard.setStringAsync(mfaEnroll.secret)}>
-            <Text style={styles.ghostButtonText}>{t('common.copy')}</Text>
-          </Pressable>
-          {mfaEnroll.otpauthUrl ? (
-            <Text selectable style={{ color: colors.muted, fontSize: 12, marginTop: 10 }}>{mfaEnroll.otpauthUrl}</Text>
-          ) : null}
-          <Field label={t('security.mfaCodeLabel')} testID="mfa-confirm-code" placeholder="123456" value={mfaCode} onChangeText={setMfaCode} autoCapitalize="none" autoCorrect={false} keyboardType="number-pad" />
-          <Pressable testID="mfa-confirm-button" accessibilityLabel={t('security.confirmMfa')} disabled={busy} style={styles.primaryButton} onPress={() => void handleConfirmMfa()}>
-            <Text style={styles.primaryButtonText}>{t('security.confirmMfa')}</Text>
-          </Pressable>
-        </View>
-      ) : (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 12 }}>
-          <Pressable testID="mfa-enroll-button" accessibilityLabel={t('security.enrollMfa')} disabled={busy} style={[styles.primaryButton, { flex: 1, marginRight: 8 }]} onPress={() => void handleEnrollMfa()}>
-            <Text style={styles.primaryButtonText}>{t('security.enrollMfa')}</Text>
-          </Pressable>
-          <Pressable testID="mfa-disable-button" accessibilityLabel={t('security.disableMfa')} disabled={busy} style={[styles.ghostButton, { flex: 1 }]} onPress={handleDisableMfa}>
-            <Text style={[styles.ghostButtonText, { color: colors.danger }]}>{t('security.disableMfa')}</Text>
-          </Pressable>
-        </View>
+    <AppPage safeArea="bottom" testID="security-screen">
+      <SelectField testID="security-section" label={labels.area} value={sectionKey} choices={sections}
+        onChange={(value) => setSectionKey(value as SecuritySection)} />
+      {loading && <Progress label={security.loading} testID="security-reloading" />}
+      {!!notice && <Text testID="security-notice" accessibilityLiveRegion="polite" style={[styles.small, local.feedback, { color: colors.successText }]}>{notice}</Text>}
+      {(error && !renaming || offline || failedResources.length > 0) && (
+        <PageSection>
+          {offline ? <InlineError testID="security-offline">{security.offline}</InlineError>
+            : (error && !renaming) ? <InlineError testID="security-error">{error}</InlineError>
+              : <InlineError testID="security-partial-load">{labels.incomplete}</InlineError>}
+          {failedResources.length > 0 && <AppButton testID="security-retry" label={security.retry} variant="secondary"
+            icon="regenerate" loading={loading} onPress={() => client && void loadAll(client)} />}
+        </PageSection>
       )}
-      <Text style={[styles.label, { marginTop: 20 }]}>{t('security.recoveryCodes')}</Text>
-      <Pressable testID="regenerate-codes-button" accessibilityLabel={t('security.regenerateCodes')} disabled={busy} style={styles.ghostButton} onPress={() => void handleRegenerateCodes()}>
-        <Text style={styles.ghostButtonText}>{t('security.regenerateCodes')}</Text>
-      </Pressable>
-      {recoveryCodes ? (
-        <View style={{ backgroundColor: colors.input, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 12, marginTop: 12 }}>
-          <Text style={{ color: colors.warnText, fontSize: 13, lineHeight: 18 }}>{t('security.codesShownOnce')}</Text>
-          {recoveryCodes.map((c) => (
-            <Text key={c} selectable style={{ color: colors.text, fontSize: 14, fontFamily: 'monospace', marginTop: 6 }}>{c}</Text>
+
+      {!unavailable && sectionKey === 'auth' && <>
+        <Group title={security.passkeys} footer={labels.passkeyAvailability}>
+          {passkeys.length === 0 && !failedResources.includes('passkeys') && <SettingsRow label={security.noPasskeys} />}
+          {passkeys.map((passkey, index) => (
+            <React.Fragment key={passkey.id}>
+              {index > 0 && <Rule leading />}
+              <SettingsRow label={passkey.credential_id_prefix} icon="passkey" detail={fmtDate(passkey.created_at, locale)}>
+                <IconButton testID={`remove-passkey-${passkey.id}`} icon="trash" tone="danger" accessibilityLabel={security.removePasskey}
+                  disabled={busy || failedResources.includes('passkeys')} onPress={() => handleRemovePasskey(passkey)} />
+              </SettingsRow>
+            </React.Fragment>
           ))}
-          <View style={{ flexDirection: 'row', marginTop: 12 }}>
-            <Pressable testID="recovery-codes-copy" accessibilityLabel={t('common.copy')} style={[styles.ghostButton, { flex: 1, marginRight: 8 }]} onPress={() => void Clipboard.setStringAsync(recoveryCodes.join('\n'))}>
-              <Text style={styles.ghostButtonText}>{t('common.copy')}</Text>
-            </Pressable>
-            <Pressable testID="recovery-codes-done" accessibilityLabel={t('security.done')} style={[styles.ghostButton, { flex: 1 }]} onPress={() => setRecoveryCodes(null)}>
-              <Text style={styles.ghostButtonText}>{t('security.done')}</Text>
-            </Pressable>
+        </Group>
+
+        <FormSection title={security.mfa}
+          description={mfaState === 'unknown' ? undefined : mfaState === 'enabled' ? security.mfaEnabled : security.mfaDisabled}>
+          {mfaEnroll ? <FieldGroup>
+            <View style={[styles.card, local.secretBlock]}>
+              <Text style={styles.label}>{security.mfaSecretLabel}</Text>
+              <Text selectable testID="mfa-secret" style={[styles.body, local.monospace]}>{mfaEnroll.secret}</Text>
+              <Text style={[styles.small, { color: colors.warningText }]}>{security.mfaSecretWarning}</Text>
+              {mfaEnroll.otpauthUrl ? <Text selectable style={[styles.small, local.monospace]}>{mfaEnroll.otpauthUrl}</Text> : null}
+              <AppButton testID="mfa-copy-secret" label={dict.common.copy} icon="copy" variant="secondary" onPress={() => copyOneTimeValue(mfaEnroll.secret)} />
+            </View>
+            <AppTextField flush label={security.mfaCodeLabel} testID="mfa-confirm-code" value={mfaCode}
+              onChangeText={(value) => setMfaCode(value.replace(/\D/g, ''))} maxLength={6} autoCapitalize="none" autoCorrect={false}
+              keyboardType="number-pad" autoComplete="one-time-code" />
+            <AppButton testID="mfa-confirm-button" label={security.confirmMfa} loading={busy} disabled={mfaCode.length !== 6}
+              onPress={() => void handleConfirmMfa()} />
+          </FieldGroup> : <View style={local.actions}>
+            {mfaState !== 'enabled' && <AppButton testID="mfa-enroll-button" label={security.enrollMfa} icon="shield"
+              loading={busy} onPress={() => void handleEnrollMfa()} />}
+            {mfaState !== 'disabled' && <AppButton testID="mfa-disable-button" label={security.disableMfa}
+              variant="secondary" disabled={busy} onPress={handleDisableMfa} />}
+          </View>}
+        </FormSection>
+      </>}
+
+      {!unavailable && sectionKey === 'devices' && <>
+        <PageSection>
+          <SegmentedControl label={labels.devicesSessions} testID="security-device-area" value={deviceArea}
+            choices={[{ value: 'devices', label: security.devices }, { value: 'sessions', label: security.sessions }]}
+            onChange={(value) => setDeviceArea(value as typeof deviceArea)} />
+        </PageSection>
+        {deviceArea === 'devices' ? <Group>
+          {devices.length === 0 && !failedResources.includes('devices') && <SettingsRow label={labels.noDevices} />}
+          {devices.map((device, index) => (
+            <React.Fragment key={device.id}>
+              {index > 0 && <Rule leading />}
+              <SettingsRow label={deviceLabel(device)} icon="system" detail={deviceDetail(device)}>
+                <IconButton testID={`device-more-${device.id}`} icon="more" accessibilityLabel={t('mobileSecurity.deviceActions', deviceLabel(device))}
+                  disabled={busy || failedResources.includes('devices')} onPress={() => setActionDeviceId(device.id)} />
+              </SettingsRow>
+            </React.Fragment>
+          ))}
+        </Group> : <PageSection description={security.revokeOthersConfirm}>
+          <Group>
+            {sessions.length === 0 && !failedResources.includes('sessions') && <SettingsRow label={labels.noSessions} />}
+            {sessions.map((session, index) => (
+              <React.Fragment key={session.id}>
+                {index > 0 && <Rule leading />}
+                <SettingsRow label={session.device_id ?? session.id} icon="security" detail={sessionDetail(session)}>
+                  {session.current ? undefined : <IconButton testID={`revoke-session-${session.id}`} icon="trash" tone="danger"
+                    accessibilityLabel={security.revokeSession} disabled={busy || failedResources.includes('sessions')} onPress={() => handleRevokeSession(session)} />}
+                </SettingsRow>
+              </React.Fragment>
+            ))}
+          </Group>
+          {sessions.some((session) => !session.current) && !failedResources.includes('sessions') &&
+            <AppButton testID="revoke-others-button" label={security.revokeOthers} variant="destructive" disabled={busy} onPress={handleRevokeOthers} />}
+        </PageSection>}
+      </>}
+
+      {!unavailable && sectionKey === 'recovery' && <>
+        <FormSection title={security.recoveryCodes}>
+          <View style={local.actions}>
+            {recoveryCodes && <View style={[styles.card, local.secretBlock]}>
+              <Text style={[styles.small, { color: colors.warningText }]}>{security.codesShownOnce}</Text>
+              {recoveryCodes.map((code) => <Text key={code} selectable style={[styles.body, local.monospace]}>{code}</Text>)}
+              <AppButton testID="recovery-codes-copy" label={dict.common.copy} icon="copy" variant="secondary"
+                onPress={() => copyOneTimeValue(recoveryCodes.join('\n'))} />
+              <AppButton testID="recovery-codes-done" label={security.done} variant="text" onPress={() => setRecoveryCodes(null)} />
+            </View>}
+            {mfaState !== 'disabled' && <AppButton testID="regenerate-codes-button" label={security.regenerateCodes} icon="regenerate"
+              variant="secondary" disabled={busy} onPress={() => void handleRegenerateCodes()} />}
           </View>
-        </View>
-      ) : null}
-
-      </>}
-      {sectionKey === 'devices' && <>
-      {section(t('security.devices'))}
-      {devices.length === 0 ? (
-        <Text style={{ color: colors.muted }}>—</Text>
-      ) : devices.map((d) => (
-        <View key={d.id} style={rowCard}>
-          <Text style={{ color: colors.text, fontSize: 15, fontWeight: '600' }}>{deviceLabel(d)}</Text>
-          <Text style={{ color: colors.muted, fontSize: 13, marginTop: 4 }}>{d.trusted ? t('security.trusted') : t('security.untrusted')}{d.last_seen_at ? ` · ${t('security.lastSeen')}: ${fmtDate(d.last_seen_at)}` : ''}</Text>
-          {renamingId === d.id ? (
-            <View style={{ marginTop: 10 }}>
-              <Field label={t('security.rename')} testID={`rename-device-${d.id}`} placeholder={deviceLabel(d)} value={renameValue} onChangeText={setRenameValue} autoCapitalize="none" autoCorrect={false} />
-              <View style={{ flexDirection: 'row' }}>
-                <Pressable testID={`save-rename-${d.id}`} accessibilityLabel={t('security.save')} style={[styles.primaryButton, { flex: 1, marginRight: 8 }]} onPress={() => void handleSaveRename(d)}>
-                  <Text style={styles.primaryButtonText}>{t('security.save')}</Text>
-                </Pressable>
-                <Pressable testID={`cancel-rename-${d.id}`} accessibilityLabel={t('security.cancel')} style={[styles.ghostButton, { flex: 1 }]} onPress={() => { setRenamingId(null); setRenameValue(''); }}>
-                  <Text style={styles.ghostButtonText}>{t('security.cancel')}</Text>
-                </Pressable>
-              </View>
-            </View>
-          ) : (
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 10 }}>
-              <Pressable testID={`trust-device-${d.id}`} accessibilityLabel={d.trusted ? t('security.untrust') : t('security.trust')} disabled={busy} style={[styles.ghostButton, { flex: 1, marginRight: 8 }]} onPress={() => void handleTrustDevice(d, !d.trusted)}>
-                <Text style={styles.ghostButtonText}>{d.trusted ? t('security.untrust') : t('security.trust')}</Text>
-              </Pressable>
-              <Pressable testID={`rename-device-button-${d.id}`} accessibilityLabel={t('security.rename')} style={[styles.ghostButton, { flex: 1, marginRight: 8 }]} onPress={() => { setRenamingId(d.id); setRenameValue(deviceLabel(d)); }}>
-                <Text style={styles.ghostButtonText}>{t('security.rename')}</Text>
-              </Pressable>
-              <Pressable testID={`revoke-device-${d.id}`} accessibilityLabel={t('security.revoke')} disabled={busy} style={[styles.ghostButton, { flex: 1, borderColor: colors.danger }]} onPress={() => handleRevokeDevice(d)}>
-                <Text style={[styles.ghostButtonText, { color: colors.danger }]}>{t('security.revoke')}</Text>
-              </Pressable>
-            </View>
-          )}
-        </View>
-      ))}
-
-      </>}
-      {sectionKey === 'sessions' && <>
-      {section(t('security.sessions'))}
-      {/* The revocation notice lives in the revoke-others confirmation
-          string (security.revokeOthersConfirm): revocation invalidates
-          the server session only and does NOT erase secrets already
-          downloaded / offline on that device. Shown here as a standing
-          note and again in the confirmation dialog. */}
-      <Text style={{ color: colors.warnText, fontSize: 13, lineHeight: 18, marginBottom: 10 }}>{t('security.revokeOthersConfirm')}</Text>
-      {sessions.length === 0 ? (
-        <Text style={{ color: colors.muted }}>—</Text>
-      ) : sessions.map((s) => (
-        <View key={s.id} style={rowCard}>
-          <Text style={{ color: colors.text, fontSize: 15, fontWeight: '600' }}>{s.device_id ?? s.id}</Text>
-          <Text style={{ color: colors.muted, fontSize: 13, marginTop: 4 }}>{s.user_agent ?? ''}</Text>
-          <Text style={{ color: colors.muted, fontSize: 13 }}>{s.ip_address ?? ''}{s.created_at ? ` · ${fmtDate(s.created_at)}` : ''}</Text>
-          {s.current ? <Text style={{ color: colors.okText, fontSize: 13, fontWeight: '600', marginTop: 4 }}>{t('security.currentSession')}</Text> : null}
-          {!s.current ? (
-            <Pressable testID={`revoke-session-${s.id}`} accessibilityLabel={t('security.revokeSession')} disabled={busy} style={[styles.ghostButton, { marginTop: 10 }]} onPress={() => handleRevokeSession(s)}>
-              <Text style={[styles.ghostButtonText, { color: colors.danger }]}>{t('security.revokeSession')}</Text>
-            </Pressable>
-          ) : null}
-        </View>
-      ))}
-      <Pressable testID="revoke-others-button" accessibilityLabel={t('security.revokeOthers')} disabled={busy} style={[styles.dangerButton, { marginTop: 4 }]} onPress={handleRevokeOthers}>
-        <Text style={styles.primaryButtonText}>{t('security.revokeOthers')}</Text>
-      </Pressable>
-      <Pressable testID="sign-out-button" accessibilityLabel={t('signin.signOut')} disabled={busy} style={[styles.ghostButton, { marginTop: 12 }]} onPress={handleSignOut}>
-        <Text style={[styles.ghostButtonText, { color: colors.danger }]}>{t('signin.signOut')}</Text>
-      </Pressable>
-
-      </>}
-      {sectionKey === 'recovery' && <>
-      {section(t('security.recovery'))}
-      <Text style={[styles.label, { marginTop: 4 }]}>{t('security.recoverySettings')}</Text>
-      <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 18 }}>{t('security.recoveryNote')}</Text>
-      <Text style={[styles.label, { marginTop: 16 }]}>{t('security.recoveryVerifier')}</Text>
-      {verifierFingerprint ? (
-        <View style={{ marginTop: 4 }}>
-          <Text style={{ color: colors.okText, fontSize: 14 }}>{t('security.recoveryVerifierRegistered')}</Text>
-          <Text selectable testID="recovery-verifier-fingerprint" style={{ color: colors.text, fontSize: 14, fontFamily: 'monospace', marginTop: 6 }}>{verifierFingerprint}</Text>
-        </View>
-      ) : null}
-      <Field label={t('security.recoveryVerifier')} testID="recovery-verifier-key" placeholder="Recovery key (shown once at vault creation)" secureTextEntry value={recoveryKeyInput} onChangeText={setRecoveryKeyInput} autoCapitalize="none" autoCorrect={false} />
-      <Pressable testID="register-verifier-button" accessibilityLabel={t('security.registerRecoveryVerifier')} disabled={busy} style={styles.primaryButton} onPress={() => void handleRegisterVerifier()}>
-        <Text style={styles.primaryButtonText}>{t('security.registerRecoveryVerifier')}</Text>
-      </Pressable>
-
-
-      </>}
-      {sectionKey === 'activity' && <>
-      {section(t('security.activity'))}
-      {activity.length === 0 ? (
-        <Text style={{ color: colors.muted }}>{t('security.noActivity')}</Text>
-      ) : activity.map((a, i) => (
-        <View key={`${a.event_type}-${a.created_at ?? ''}-${i}`} style={rowCard}>
-          <Text style={{ color: colors.text, fontSize: 15, fontWeight: '600' }}>{a.event_type}</Text>
-          <Text style={{ color: colors.muted, fontSize: 13, marginTop: 4 }}>{a.device_id ?? ''}{a.created_at ? ` · ${fmtDate(a.created_at)}` : ''}</Text>
-        </View>
-      ))}
-
+        </FormSection>
+        <FormSection title={security.recoveryVerifier} description={security.recoveryNote}>
+          <FieldGroup>
+            {verifierFingerprint && <Text selectable testID="recovery-verifier-fingerprint" style={[styles.body, local.monospace]}>{verifierFingerprint}</Text>}
+            <AppTextField flush revealable label={labels.recoveryKey} testID="recovery-verifier-key" error={recoveryKeyError || undefined}
+              value={recoveryKeyInput} onChangeText={(value) => { setRecoveryKeyInput(value); setRecoveryKeyError(''); }}
+              autoCapitalize="none" autoCorrect={false} autoComplete="off" />
+            <AppButton testID="register-verifier-button" label={security.registerRecoveryVerifier} icon="shield"
+              disabled={busy || !recoveryKeyInput.trim()} onPress={() => void handleRegisterVerifier()} />
+          </FieldGroup>
+        </FormSection>
       </>}
 
+      {!unavailable && sectionKey === 'activity' && <Group>
+        {activity.length === 0 && !failedResources.includes('activity') && <SettingsRow label={security.noActivity} />}
+        {activity.map((entry, index) => (
+          <React.Fragment key={`${entry.event_type}-${entry.created_at ?? ''}-${index}`}>
+            {index > 0 && <Rule leading />}
+            <SettingsRow label={entry.event_type} icon="health" detail={[entry.device_id, fmtDate(entry.created_at, locale)].filter(Boolean).join('\n')} />
+          </React.Fragment>
+        ))}
+      </Group>}
 
-    </ScrollView>
+      {sectionKey === 'account' && <>
+        <FormSection title={labels.account} description={dict.securityActions.signOutNote}>
+            <AppButton testID="sign-out-button" label={dict.signin.signOut} variant="secondary" disabled={busy} onPress={handleSignOut} />
+        </FormSection>
+        {!unavailable && <FormSection description={dict.securityActions.deleteAccountBody}>
+          <AppButton testID="security-delete-account" label={dict.securityActions.deleteAccount} variant="destructive"
+            icon="trash" loading={busy} onPress={confirmDeleteAccount} />
+        </FormSection>}
+      </>}
+
+      <BottomSheet compact visible={!!actionDevice} title={renaming ? labels.renameDevice : actionDevice ? deviceLabel(actionDevice) : security.devices}
+        testID="security-device-actions" onClose={closeDeviceActions}>
+        {actionDevice && (renaming ? <FieldGroup>
+          <AppTextField flush label={labels.deviceName} testID={`rename-device-${actionDevice.id}`} value={renameValue} onChangeText={setRenameValue}
+            autoCapitalize="sentences" autoCorrect={false} error={error || undefined} returnKeyType="done" onSubmitEditing={() => void handleSaveRename(actionDevice)} />
+          <AppButton testID={`save-rename-${actionDevice.id}`} label={security.save} loading={busy}
+            disabled={!renameValue.trim()} onPress={() => void handleSaveRename(actionDevice)} />
+          <AppButton testID={`cancel-rename-${actionDevice.id}`} label={security.cancel} variant="text" disabled={busy} onPress={closeDeviceActions} />
+        </FieldGroup> : <Group>
+          <SettingsRow testID={`trust-device-${actionDevice.id}`} label={actionDevice.trusted ? security.untrust : security.trust} icon="shield"
+            onPress={() => { closeDeviceActions(); void handleTrustDevice(actionDevice, !actionDevice.trusted); }} />
+          <Rule leading />
+          <SettingsRow testID={`rename-device-button-${actionDevice.id}`} label={labels.renameDevice} icon="edit"
+            onPress={() => { setError(''); setRenamingId(actionDevice.id); setRenameValue(deviceLabel(actionDevice)); }} />
+          <Rule leading />
+          <SettingsRow testID={`revoke-device-${actionDevice.id}`} label={security.revoke} icon="trash" destructive
+            onPress={() => { closeDeviceActions(); handleRevokeDevice(actionDevice); }} />
+        </Group>)}
+      </BottomSheet>
+
+      <BottomSheet visible={stepUpOpen} title={security.stepUpTitle} testID="security-stepup-sheet" onClose={cancelStepUp}
+        footer={<>
+          <AppButton testID="stepup-confirm" label={security.confirm} loading={stepUpBusy} onPress={() => void submitStepUp()} />
+          <AppButton testID="stepup-cancel" label={security.cancel} variant="text" disabled={stepUpBusy} onPress={cancelStepUp} />
+        </>}>
+        <FieldGroup>
+          <Text style={styles.small}>{labels.stepUpBody}</Text>
+          <AppTextField flush label={security.stepUpTotpLabel} testID="stepup-totp-code" value={stepUpCode}
+            onChangeText={(value) => { setStepUpCode(value.replace(/\D/g, '')); setStepUpError(''); }}
+            keyboardType="number-pad" maxLength={6} autoCorrect={false} autoComplete="one-time-code" />
+          {!!stepUpError && <InlineError testID="stepup-error">{stepUpError}</InlineError>}
+        </FieldGroup>
+      </BottomSheet>
+    </AppPage>
   );
 }
+
+const local = StyleSheet.create({
+  feedback: { marginBottom: space[4] },
+  actions: { gap: space[3] },
+  secretBlock: { gap: space[2] },
+  monospace: { fontFamily: 'monospace' },
+});

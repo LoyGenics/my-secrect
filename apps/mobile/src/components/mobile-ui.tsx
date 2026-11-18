@@ -1,160 +1,417 @@
-import React, { useState, type ReactNode } from 'react';
-import { Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View, type PressableProps, type StyleProp, type ViewStyle } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Check, ChevronDown, ChevronRight, Search, X } from 'lucide-react-native';
-import { useMobileTheme } from '../theme';
+import React, { useContext, useRef, useState, type ReactNode } from 'react';
+import {
+  AccessibilityInfo, ActivityIndicator, Alert, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable,
+  ScrollView, StyleSheet, Switch, Text, View, findNodeHandle, useWindowDimensions,
+  type AccessibilityRole, type AccessibilityState, type StyleProp, type ViewStyle,
+} from 'react-native';
+import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { useTranslation } from '../../../../packages/i18n/src/react';
+import { Icon, type NativeIconName } from '../../../../packages/ui/src/native';
+import { useMobileTheme } from '../theme';
+import { AppButton, IconButton } from '../ui/buttons';
+import { useReducedMotion } from '../ui/motion';
+import { getPageGutter, radius, size, space, textStyle } from '../ui/tokens';
 import { InputControl } from './Field';
 
-export function IconButton({ children, style, disabled, accessibilityState, ...props }: Omit<PressableProps, 'style' | 'children'> & {
+export { AppButton, IconButton };
+/** Use the platform dialog for native confirm and cancel semantics. */
+export const Dialog = Alert;
+
+interface AppPageProps {
   children: ReactNode;
+  scroll?: boolean;
+  width?: 'form' | 'list';
+  header?: ReactNode;
+  footer?: ReactNode;
+  safeArea?: 'none' | 'bottom' | 'full';
+  keyboardOffset?: number;
+  contentStyle?: StyleProp<ViewStyle>;
   style?: StyleProp<ViewStyle>;
-}) {
-  const { colors, styles } = useMobileTheme();
+  testID?: string;
+}
+
+export function AppPage({ children, scroll = true, width = 'form', header, footer, safeArea = 'none', keyboardOffset, contentStyle, style, testID }: AppPageProps) {
+  const { colors } = useMobileTheme();
+  const { width: windowWidth } = useWindowDimensions();
+  const insets = useContext(SafeAreaInsetsContext);
+  const frame = useRef<View>(null);
+  const [windowY, setWindowY] = useState(0);
+  const measureWindowY = () => {
+    if (Platform.OS !== 'ios' || keyboardOffset !== undefined) return;
+    const view = frame.current;
+    view?.measureInWindow((_x, y) => {
+      if (frame.current === view && Number.isFinite(y)) setWindowY(Math.max(0, y));
+    });
+  };
+  const gutter = getPageGutter(windowWidth);
+  const bottom = safeArea === 'none' ? 0 : insets?.bottom ?? 0;
+  const column = {
+    maxWidth: width === 'list' ? size.listWidth : size.formWidth,
+    paddingLeft: gutter + (insets?.left ?? 0),
+    paddingRight: gutter + (insets?.right ?? 0),
+  };
+  const body = [
+    local.column, column, !!header && local.afterHeader, contentStyle,
+    scroll && { paddingBottom: space[6] + (footer ? 0 : bottom) },
+    !scroll && local.flex,
+  ];
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ ...accessibilityState, disabled: disabled ?? accessibilityState?.disabled }}
-      disabled={disabled}
-      {...props}
-      style={({ pressed }) => [
-        styles.iconButton,
-        Platform.OS === 'android' && iconButtonStyles.android,
-        style,
-        pressed && { backgroundColor: colors.accentSoft },
-        disabled && { opacity: 0.5 },
-      ]}
-    >
-      {children}
+    <View ref={frame} collapsable={false} onLayout={measureWindowY} style={[local.flex, { backgroundColor: colors.canvas }, style]}>
+      {/* iOS reports the keyboard in window coordinates and the React view in parent coordinates. */}
+      <KeyboardAvoidingView testID={testID} behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={keyboardOffset ?? windowY} style={[local.flex, { paddingTop: safeArea === 'full' ? insets?.top ?? 0 : 0 }]}>
+        {header && <View style={[local.column, column, local.pageHeader]}>{header}</View>}
+        {scroll
+          ? <ScrollView style={local.flex} keyboardShouldPersistTaps="handled" contentContainerStyle={body}>{children}</ScrollView>
+          : <View style={body}>{children}</View>}
+        {footer && <View style={[local.column, column, local.pageFooter, {
+          paddingBottom: space[3] + bottom, borderTopColor: colors.border, backgroundColor: colors.canvas,
+        }]}>{footer}</View>}
+        {!footer && !scroll && bottom > 0 && <View style={{ height: bottom }} />}
+      </KeyboardAvoidingView>
+    </View>
+  );
+}
+
+/** @deprecated Use AppPage, which also supports list widths and sticky actions. */
+export const Page = AppPage;
+
+type SectionProps = { title?: string; description?: string; children: ReactNode; style?: StyleProp<ViewStyle> };
+
+export function PageSection({ title, description, children, style }: SectionProps) {
+  const { styles } = useMobileTheme();
+  return <View style={[local.section, style]}>
+    {title && <Text accessibilityRole="header" style={styles.heading}>{title}</Text>}
+    {description && <Text style={styles.subtitle}>{description}</Text>}
+    {children}
+  </View>;
+}
+
+export function FormSection({ title, description, children, style }: SectionProps) {
+  const { styles } = useMobileTheme();
+  return <View style={[local.formSection, style]}>
+    {title || description ? <View style={local.sectionHeading}>
+      {title && <Text accessibilityRole="header" style={styles.heading}>{title}</Text>}
+      {description && <Text style={styles.subtitle}>{description}</Text>}
+    </View> : null}
+    {children}
+  </View>;
+}
+
+/** Use flush fields inside a FieldGroup. */
+export function FieldGroup({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
+  return <View style={[local.fieldGroup, style]}>{children}</View>;
+}
+
+export function Group({ title, footer, children }: { title?: string; footer?: string; children: ReactNode }) {
+  const { colors, styles } = useMobileTheme();
+  return <View style={local.group}>
+    {title && <Text accessibilityRole="header" style={[styles.label, local.groupLabel]}>{title}</Text>}
+    <View style={[local.groupSurface, { backgroundColor: colors.surface, borderColor: colors.border }]}>{children}</View>
+    {footer && <Text style={[styles.small, local.groupFooter]}>{footer}</Text>}
+  </View>;
+}
+
+interface SettingsRowProps {
+  label: string;
+  detail?: string;
+  value?: string;
+  icon?: ReactNode | NativeIconName;
+  onPress?: () => void;
+  destructive?: boolean;
+  children?: ReactNode;
+  testID?: string;
+  selected?: boolean;
+  disabled?: boolean;
+  expanded?: boolean;
+  navigation?: boolean;
+  leadingSpace?: boolean;
+  accessibilityRole?: AccessibilityRole;
+  accessibilityState?: AccessibilityState;
+}
+
+export function SettingsRow({
+  label, detail, value, icon, onPress, destructive, children, testID, selected, disabled, expanded, navigation, leadingSpace, accessibilityRole = 'button', accessibilityState,
+}: SettingsRowProps) {
+  const { colors } = useMobileTheme();
+  const glyph = typeof icon === 'string' ? <Icon name={icon as NativeIconName} color={colors.primaryTextLink} /> : icon;
+  const isCheckbox = accessibilityRole === 'checkbox';
+  const checked = accessibilityState?.checked ?? selected ?? false;
+  const content = <>
+    {(glyph || leadingSpace) && <View style={local.leadingSlot}>{glyph}</View>}
+    <View style={local.rowText}>
+      <Text style={[textStyle.body, { color: destructive ? colors.dangerText : colors.text }]}>{label}</Text>
+      {detail && <Text style={[textStyle.helper, { color: colors.secondaryText }]}>{detail}</Text>}
+    </View>
+    {value && <Text style={[textStyle.helper, local.rowValue, { color: colors.secondaryText }]}>{value}</Text>}
+    {children ?? (isCheckbox ? <View style={[local.checkbox, {
+      borderColor: checked ? colors.primaryFill : colors.controlBorder,
+      backgroundColor: checked ? colors.primaryFill : colors.surface,
+    }]}>
+      {checked && <Icon name="check" size={size.inlineIcon} color={colors.onPrimary} />}
+    </View> : selected !== undefined ? <View style={local.trailingSlot}>{selected && <Icon name="check" color={colors.primaryTextLink} />}</View>
+      : navigation && <Icon name="forward" size={size.inlineIcon} color={colors.secondaryText} />)}
+  </>;
+  if (!onPress) return <View testID={testID} style={local.row}>{content}</View>;
+  return (
+    <Pressable testID={testID} accessibilityRole={accessibilityRole} accessibilityLabel={label}
+      accessibilityHint={detail} accessibilityValue={value ? { text: value } : undefined}
+      accessibilityState={{ selected: accessibilityRole === 'button' ? selected : undefined, checked: isCheckbox ? checked : undefined,
+        expanded, ...accessibilityState, disabled }}
+      disabled={disabled} onPress={onPress} style={({ pressed }) => [local.row, (pressed || selected) && { backgroundColor: colors.selection }, disabled && local.disabled]}>
+      {content}
     </Pressable>
   );
 }
 
-const iconButtonStyles = StyleSheet.create({ android: { width: 48, height: 48 } });
+/** @deprecated Use SettingsRow and opt in to the navigation chevron. */
+export function Row(props: SettingsRowProps) {
+  const navigation = props.navigation ?? (!!props.onPress && !props.children && props.selected === undefined && props.expanded === undefined && !props.destructive);
+  return <SettingsRow {...props} navigation={navigation} />;
+}
 
-export function Page({ children, scroll = true }: { children: ReactNode; scroll?: boolean }) {
+export function Rule({ leading = false }: { leading?: boolean }) {
   const { colors } = useMobileTheme();
-  const content = { padding: 20, paddingBottom: 36, width: '100%' as const, maxWidth: 720, alignSelf: 'center' as const };
-  return <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-    {scroll ? <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" contentContainerStyle={content}>{children}</ScrollView> : <View style={[content, { flex: 1 }]}>{children}</View>}
-  </KeyboardAvoidingView>;
+  return <View style={{ height: StyleSheet.hairlineWidth, marginLeft: space[4] + (leading ? size.leadingSlot + space[3] : 0), backgroundColor: colors.border }} />;
 }
-export function Group({ title, footer, children }: { title?: string; footer?: string; children: ReactNode }) {
-  const { colors } = useMobileTheme();
-  return <View style={{ marginBottom: 26 }}>{title && <Text style={{ color: colors.muted, fontSize: 13, marginBottom: 9, marginLeft: 14 }}>{title}</Text>}
-    <View style={{ backgroundColor: colors.card, borderRadius: 14, overflow: 'hidden' }}>{children}</View>
-    {footer && <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 19, marginTop: 9, marginHorizontal: 14 }}>{footer}</Text>}
-  </View>;
-}
-export function Row({ label, detail, icon, onPress, destructive, children, testID, selected, expanded }: { label: string; detail?: string; icon?: ReactNode; onPress?: () => void; destructive?: boolean; children?: ReactNode; testID?: string; selected?: boolean; expanded?: boolean }) {
-  const { colors } = useMobileTheme();
-  return <Pressable testID={testID} accessibilityRole={onPress ? 'button' : undefined} accessibilityLabel={label} accessibilityState={{ selected, expanded }} disabled={!onPress} onPress={onPress} style={({ pressed }) => ({ minHeight: 54, paddingHorizontal: 16, paddingVertical: 13, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: selected || pressed ? colors.accentSoft : colors.card })}>
-    {icon}<View style={{ flex: 1, minWidth: 0 }}><Text style={{ color: destructive ? colors.dangerText : colors.text, fontSize: 16 }}>{label}</Text>{detail && <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 19, marginTop: 4 }}>{detail}</Text>}</View>
-    {children ?? (onPress && <ChevronRight size={17} color={colors.muted} />)}
-  </Pressable>;
-}
-export function Rule() { const { colors } = useMobileTheme(); return <View style={{ height: 0.5, marginLeft: 16, backgroundColor: colors.line }} />; }
-export function ToggleRow({ label, value, onChange, testID }: { label: string; value: boolean; onChange: (value: boolean) => void; testID?: string }) {
-  const { colors } = useMobileTheme();
-  return <Row label={label}><Switch testID={testID} accessibilityLabel={label} value={value} onValueChange={onChange} trackColor={{ true: colors.accent }} /></Row>;
-}
-export function Action({ label, onPress, disabled, destructive, secondary, testID, icon }: { label: string; onPress: () => void; disabled?: boolean; destructive?: boolean; secondary?: boolean; testID?: string; icon?: ReactNode }) {
-  const { colors } = useMobileTheme();
-  return <Pressable testID={testID} accessibilityRole="button" accessibilityLabel={label} disabled={disabled} onPress={onPress} style={({ pressed }) => ({ minHeight: 50, padding: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center', gap: 8, flexDirection: 'row', backgroundColor: secondary ? colors.card : destructive ? colors.danger : colors.accent, opacity: disabled ? 0.45 : pressed ? 0.75 : 1 })}>
-    {icon}<Text style={{ color: secondary ? colors.text : colors.onAccent, fontSize: 16, fontWeight: '600', flexShrink: 1, textAlign: 'center' }}>{label}</Text>
-  </Pressable>;
-}
-export function SearchTrigger({ onPress }: { onPress: () => void }) {
-  const { colors } = useMobileTheme(); const { t } = useTranslation();
-  return <Pressable testID="global-search-trigger" accessibilityRole="button" accessibilityLabel={t('mobileUI.searchAll')} onPress={onPress} style={{ minHeight: 46, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, borderRadius: 11, gap: 10, backgroundColor: colors.surface2 }}>
-    <Search size={19} color={colors.muted} /><Text style={{ fontSize: 16, color: colors.muted }}>{t('mobileUI.searchAll')}</Text>
-  </Pressable>;
-}
-export interface Choice { value: string; label: string; detail?: string; icon?: ReactNode }
-export function Select({ value, choices, onChange, label, testID, style, createLabel, placeholder }: {
-  value: string; choices: Choice[]; onChange: (value: string) => void; label: string; testID?: string; style?: StyleProp<ViewStyle>;
-  createLabel?: (name: string) => string; placeholder?: string;
+
+export function ToggleRow({ label, detail, icon, value, onChange, testID, disabled }: {
+  label: string; detail?: string; icon?: SettingsRowProps['icon']; value: boolean; onChange: (value: boolean) => void; testID?: string; disabled?: boolean;
 }) {
+  const { colors } = useMobileTheme();
+  return <SettingsRow label={label} detail={detail} icon={icon}>
+    <Switch testID={testID} accessibilityLabel={label} accessibilityHint={detail} value={value} disabled={disabled} onValueChange={onChange} trackColor={{ true: colors.primaryFill }} />
+  </SettingsRow>;
+}
+
+/** @deprecated Use AppButton with an explicit variant. */
+export function Action({ secondary, destructive, ...props }: Omit<Parameters<typeof AppButton>[0], 'variant'> & { secondary?: boolean; destructive?: boolean }) {
+  return <AppButton {...props} variant={destructive ? 'destructive' : secondary ? 'secondary' : 'primary'} />;
+}
+
+export function SearchTrigger({ onPress, testID = 'global-search-trigger' }: { onPress: () => void; testID?: string }) {
+  const { colors, styles } = useMobileTheme();
+  const { t } = useTranslation();
+  return <Pressable testID={testID} accessibilityRole="button" accessibilityLabel={t('mobileUI.searchAll')} onPress={onPress}
+    style={({ pressed }) => [styles.inputShell, local.selectTrigger, pressed && styles.inputFocused]}>
+    <Icon name="search" color={colors.secondaryText} />
+    <Text style={[textStyle.body, local.flexText, { color: colors.secondaryText }]}>{t('mobileUI.searchAll')}</Text>
+  </Pressable>;
+}
+
+export interface Choice { value: string; label: string; detail?: string; icon?: ReactNode | NativeIconName }
+interface SelectProps {
+  value: string; choices: Choice[]; onChange: (value: string) => void; label: string; testID?: string; style?: StyleProp<ViewStyle>;
+  createLabel?: (name: string) => string; placeholder?: string; disabled?: boolean; compact?: boolean;
+}
+
+export function Select({ value, choices, onChange, label, testID, style, createLabel, placeholder, disabled, compact }: SelectProps) {
   const { colors, styles } = useMobileTheme();
   const { dict, t } = useTranslation();
-  const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const selected = choices.find((choice) => choice.value === value);
+  const glyph = typeof selected?.icon === 'string' ? <Icon name={selected.icon as NativeIconName} color={colors.primaryTextLink} /> : selected?.icon;
   const name = query.trim();
   const matching = name ? choices.filter((choice) => choice.label.toLowerCase().includes(name.toLowerCase())) : choices;
-  const create = createLabel && name && !matching.some((choice) => choice.label.toLowerCase() === name.toLowerCase()) ? createLabel(name) : '';
+  const create = createLabel && name && !choices.some((choice) => choice.label.toLowerCase() === name.toLowerCase()) ? createLabel(name) : '';
   const close = () => setOpen(false);
-
+  const choose = (next: string) => { onChange(next); close(); };
   return (
     <>
-      <Pressable
-        testID={testID}
-        accessibilityRole="button"
-        accessibilityLabel={label}
-        accessibilityValue={{ text: selected?.label }}
-        accessibilityState={{ expanded: open }}
-        onPress={() => { Keyboard.dismiss(); setQuery(''); setOpen(true); }}
-        style={({ pressed }) => [
-          styles.inputShell,
-          { minWidth: 0, gap: 10, paddingHorizontal: 12, paddingVertical: 8 },
-          style,
-          (open || pressed) && styles.inputFocused,
-        ]}
-      >
-        {selected?.icon}
-        <Text style={{ flex: 1, color: colors.text, fontSize: 16, fontWeight: '600' }} numberOfLines={2}>{selected?.label ?? placeholder ?? label}</Text>
-        <ChevronDown size={18} color={open ? colors.focus : colors.secondary} />
+      <Pressable testID={testID} accessibilityRole="button" accessibilityLabel={label}
+        accessibilityValue={selected ? { text: selected.label } : undefined} accessibilityState={{ expanded: open, disabled }}
+        disabled={disabled} onPress={() => { Keyboard.dismiss(); setQuery(''); setOpen(true); }}
+        style={({ pressed }) => [styles.inputShell, local.selectTrigger, style, (open || pressed) && styles.inputFocused, disabled && local.disabled]}>
+        {glyph}
+        <Text style={[textStyle.body, local.flexText, { color: selected ? colors.text : colors.secondaryText }]}>{selected?.label ?? placeholder ?? label}</Text>
+        <Icon name="expand" size={size.inlineIcon} color={colors.secondaryText} />
       </Pressable>
-      <Modal visible={open} transparent animationType="fade" onRequestClose={close}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: '#00000055' }}>
-          <Pressable accessible={false} onPress={close} style={StyleSheet.absoluteFill} />
-          <View accessibilityViewIsModal style={{ maxHeight: '80%', width: '100%', maxWidth: 600, alignSelf: 'center', backgroundColor: colors.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 10, paddingBottom: Math.max(16, insets.bottom), overflow: 'hidden' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 20, paddingRight: 12, paddingBottom: 8 }}>
-              <Text accessibilityRole="header" style={{ flex: 1, color: colors.text, fontWeight: '600', fontSize: 20 }}>{label}</Text>
-              <IconButton accessibilityLabel={dict.common.close} onPress={close}><X size={20} color={colors.secondary} /></IconButton>
-            </View>
-            {(choices.length > 9 || createLabel) && (
-              <InputControl
-                accessibilityLabel={dict.common.search}
-                placeholder={placeholder ?? dict.common.search}
-                value={query}
-                onChangeText={setQuery}
-                autoCorrect={false}
-                leading={<Search size={18} color={colors.muted} />}
-                containerStyle={{ marginHorizontal: 16, marginBottom: 12 }}
-              />
-            )}
-            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 12 }}>
-              {!!create && <Row testID={testID && `${testID}-create`} label={create} onPress={() => { onChange(name); close(); }} />}
-              {matching.length === 0 && !create && <Text style={[styles.small, { padding: 14 }]}>{t('mobileUI.noResults', name)}</Text>}
-              {matching.map((choice) => (
-                <View key={choice.value} style={{ borderRadius: 12, overflow: 'hidden' }}>
-                  <Row
-                    testID={testID && `${testID}-${choice.value}`}
-                    label={choice.label}
-                    detail={choice.detail}
-                    icon={choice.icon}
-                    selected={value === choice.value}
-                    onPress={() => { onChange(choice.value); close(); }}
-                  >
-                    {value === choice.value ? <Check size={20} color={colors.link} /> : <View style={{ width: 20 }} />}
-                  </Row>
-                </View>
-              ))}
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+      <BottomSheet visible={open} title={label} onClose={close} testID={testID && `${testID}-sheet`} compact={compact}>
+        {(choices.length > 9 || createLabel) &&
+          <InputControl accessibilityLabel={dict.common.search} placeholder={placeholder ?? dict.common.search} value={query}
+            onChangeText={setQuery} autoCorrect={false} leading={<Icon name="search" size={size.inlineIcon} color={colors.secondaryText} />}
+            containerStyle={local.sheetSearch} />}
+        {!!create && <SettingsRow testID={testID && `${testID}-create`} label={create} icon="add" onPress={() => choose(name)} />}
+        {matching.length === 0 && !create && <Text style={styles.small}>{t('mobileUI.noResults', name)}</Text>}
+        {matching.map((choice, index) => (
+          <React.Fragment key={choice.value}>
+            {index > 0 && <Rule leading={!!choice.icon} />}
+            <SettingsRow label={choice.label} detail={choice.detail} icon={choice.icon}
+              testID={testID && `${testID}-${choice.value}`} selected={value === choice.value}
+              accessibilityRole="radio" accessibilityState={{ checked: value === choice.value }} onPress={() => choose(choice.value)} />
+          </React.Fragment>
+        ))}
+      </BottomSheet>
     </>
   );
 }
-export function Empty({ image, title, detail, children }: { image?: number; title: string; detail?: string; children?: ReactNode }) {
-  const { colors } = useMobileTheme();
-  return <View style={{ alignItems: 'center', paddingHorizontal: 28, paddingVertical: 48 }}>
-    {image && <Image source={image} style={{ width: 112, height: 112, marginBottom: 18 }} resizeMode="contain" />}
-    <Text style={{ color: colors.text, fontSize: 22, fontWeight: '600', textAlign: 'center' }}>{title}</Text>
-    {detail && <Text style={{ color: colors.muted, fontSize: 15, lineHeight: 22, textAlign: 'center', marginTop: 10, maxWidth: 360 }}>{detail}</Text>}
-    {children && <View style={{ marginTop: 24, alignSelf: 'stretch' }}>{children}</View>}
+
+export function SelectField({ label, error, helper, flush, ...props }: SelectProps & { error?: string; helper?: string; flush?: boolean }) {
+  const { styles } = useMobileTheme();
+  return <View style={flush ? undefined : local.selectField}>
+    <Text style={styles.label}>{label}</Text>
+    <Select {...props} label={label} />
+    {error ? <InlineError>{error}</InlineError> : helper ? <Text style={[styles.small, local.helper]}>{helper}</Text> : null}
   </View>;
 }
+
+export function SegmentedControl({ label, choices, value, onChange, testID, disabled }: {
+  label: string; choices: Choice[]; value: string; onChange: (value: string) => void; testID?: string; disabled?: boolean;
+}) {
+  const { colors, styles } = useMobileTheme();
+  const { fontScale } = useWindowDimensions();
+  const stack = fontScale >= 1.3 || choices.length > 3;
+  return <View>
+    <Text style={styles.label}>{label}</Text>
+    <View testID={testID} accessibilityRole="radiogroup" accessibilityLabel={label} style={[
+      local.segmentGroup, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }, stack && local.segmentStack,
+    ]}>
+      {choices.map((choice) => {
+        const checked = value === choice.value;
+        return <Pressable key={choice.value} testID={testID && `${testID}-${choice.value}`} accessibilityRole="radio"
+          accessibilityLabel={choice.label} accessibilityState={{ checked, disabled }} disabled={disabled} onPress={() => onChange(choice.value)}
+          style={({ pressed }) => [local.segment, !stack && local.flex, { borderColor: checked ? colors.primaryTextLink : 'transparent' },
+            (pressed || checked) && { backgroundColor: colors.selection }, disabled && local.disabled]}>
+          <Text style={[textStyle.item, local.center, { color: colors.text }]}>{choice.label}</Text>
+        </Pressable>;
+      })}
+    </View>
+  </View>;
+}
+
+export function FilterChip({ label, selected, onPress, onRemove, icon, testID, count, disabled }: {
+  label: string; selected?: boolean; onPress?: () => void; onRemove?: () => void; icon?: NativeIconName; testID?: string; count?: number; disabled?: boolean;
+}) {
+  const { colors } = useMobileTheme();
+  const { dict } = useTranslation();
+  return <Pressable testID={testID} accessibilityLabel={label} accessibilityRole="button"
+    accessibilityHint={onRemove ? dict.common.remove : undefined} accessibilityState={{ selected, disabled }} disabled={disabled} onPress={onRemove ?? onPress}
+    style={({ pressed }) => [local.filterChip, { borderColor: colors.controlBorder, backgroundColor: selected || pressed ? colors.selection : colors.surface }, disabled && local.disabled]}>
+    {icon && <Icon name={icon} size={size.inlineIcon} color={colors.primaryTextLink} />}
+    <Text style={[textStyle.helper, local.chipLabel, { color: colors.text }]}>{label}</Text>
+    {!!count && <Text style={[textStyle.caption, local.badge, { backgroundColor: colors.primaryFill, color: colors.onPrimary }]}>{count}</Text>}
+    {onRemove && <Icon name="close" size={size.inlineIcon} color={colors.secondaryText} />}
+  </Pressable>;
+}
+
+export function BottomSheet({ visible, title, onClose, children, footer, testID, scroll = true, compact }: {
+  visible: boolean; title: string; onClose: () => void; children: ReactNode; footer?: ReactNode; testID?: string; scroll?: boolean; compact?: boolean;
+}) {
+  const { colors } = useMobileTheme();
+  const insets = useContext(SafeAreaInsetsContext);
+  const { width } = useWindowDimensions();
+  const gutter = getPageGutter(width);
+  const reduced = useReducedMotion();
+  const heading = useRef<Text>(null);
+  const { dict } = useTranslation();
+  return (
+    <Modal visible={visible} transparent animationType={reduced ? 'none' : 'fade'} onRequestClose={onClose}
+      onShow={() => {
+        const tag = findNodeHandle(heading.current);
+        if (tag != null) AccessibilityInfo.setAccessibilityFocus(tag);
+      }}>
+      <KeyboardAvoidingView style={[local.sheetOverlay, { backgroundColor: colors.scrim }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <Pressable accessible={false} importantForAccessibility="no" onPress={onClose} style={StyleSheet.absoluteFill} />
+        <View testID={testID} accessibilityViewIsModal style={[local.sheet, compact && local.compactSheet, {
+          backgroundColor: colors.surface, paddingBottom: (insets?.bottom ?? 0) + space[3],
+        }]}>
+          <View style={[local.sheetHeader, { paddingHorizontal: gutter }]}>
+            <Text ref={heading} accessibilityRole="header" style={[textStyle.title, local.flexText, { color: colors.text }]}>{title}</Text>
+            <IconButton accessibilityLabel={dict.common.close} icon="close" onPress={onClose} testID={testID && `${testID}-close`} />
+          </View>
+          {scroll ? <ScrollView style={local.sheetBody} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: gutter, paddingBottom: space[2] }}>
+            {children}
+          </ScrollView> : <View style={[local.sheetBody, { paddingHorizontal: gutter }]}>{children}</View>}
+          {footer && <View style={[local.sheetFooter, { paddingHorizontal: gutter, borderTopColor: colors.border }]}>{footer}</View>}
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+export function EmptyState({ image, title, detail, children }: { image?: number; title: string; detail?: string; children?: ReactNode }) {
+  const { colors } = useMobileTheme();
+  return <View style={local.empty}>
+    {image && <Image source={image} style={local.emptyArt} resizeMode="contain" accessible={false} />}
+    <Text accessibilityRole="header" style={[textStyle.title, local.center, { color: colors.text }]}>{title}</Text>
+    {detail && <Text style={[textStyle.helper, local.center, { color: colors.secondaryText }]}>{detail}</Text>}
+    {children && <View style={local.emptyActions}>{children}</View>}
+  </View>;
+}
+
+/** @deprecated Use EmptyState. */
+export const Empty = EmptyState;
+
+export function InlineError({ children, testID }: { children: ReactNode; testID?: string }) {
+  const { styles } = useMobileTheme();
+  return <Text testID={testID} accessibilityRole="alert" accessibilityLiveRegion="polite" style={[styles.error, local.helper]}>{children}</Text>;
+}
+
+export function Progress({ value, label, testID }: { value?: number; label: string; testID?: string }) {
+  const { colors } = useMobileTheme();
+  const percentage = value !== undefined ? Math.round(Math.max(0, Math.min(1, value)) * 100) : undefined;
+  return <View testID={testID} accessibilityRole="progressbar" accessibilityLabel={label}
+    accessibilityValue={percentage === undefined ? undefined : { min: 0, max: 100, now: percentage }} style={local.progress}>
+    <Text style={[textStyle.helper, local.center, { color: colors.secondaryText }]}>{label}</Text>
+    {percentage === undefined ? <ActivityIndicator color={colors.primaryTextLink} />
+      : <View style={[local.progressTrack, { backgroundColor: colors.surfaceMuted }]}>
+        <View style={[local.progressTrack, { backgroundColor: colors.primaryFill, width: `${percentage}%` }]} />
+      </View>}
+  </View>;
+}
+
+export function Toast({ message, dismissLabel, onDismiss, testID }: { message: string; dismissLabel: string; onDismiss: () => void; testID?: string }) {
+  const { colors } = useMobileTheme();
+  return <View testID={testID} style={[local.toast, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+    <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={[textStyle.helper, local.flexText, { color: colors.text }]}>{message}</Text>
+    <IconButton icon="close" accessibilityLabel={dismissLabel} onPress={onDismiss} />
+  </View>;
+}
+
+const local = StyleSheet.create({
+  flex: { flex: 1 },
+  flexText: { flex: 1, minWidth: 0 },
+  center: { textAlign: 'center' },
+  disabled: { opacity: 0.48 },
+  column: { width: '100%', alignSelf: 'center', paddingTop: space[5] },
+  afterHeader: { paddingTop: 0 },
+  pageHeader: { paddingBottom: space[3] },
+  pageFooter: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: space[3] },
+  section: { gap: space[3], marginBottom: space[8] },
+  formSection: { marginBottom: space[6] },
+  sectionHeading: { gap: space[1], marginBottom: space[4] },
+  fieldGroup: { gap: space[4] },
+  group: { marginBottom: space[6] },
+  groupLabel: { marginBottom: space[2] },
+  groupSurface: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.surface, overflow: 'hidden' },
+  groupFooter: { marginTop: space[2] },
+  row: { minHeight: size.settingsRow, paddingHorizontal: space[4], paddingVertical: space[3], flexDirection: 'row', alignItems: 'center', gap: space[3] },
+  rowText: { flex: 1, minWidth: 0, gap: space[1] },
+  rowValue: { maxWidth: '38%', textAlign: 'right' },
+  leadingSlot: { width: size.leadingSlot, alignItems: 'center', flexShrink: 0 },
+  trailingSlot: { width: size.icon, alignItems: 'center', flexShrink: 0 },
+  checkbox: { width: size.icon, height: size.icon, borderRadius: radius.checkbox, borderWidth: 1, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  selectTrigger: { minWidth: 0, gap: space[2], paddingHorizontal: space[3], paddingVertical: space[2] },
+  selectField: { marginBottom: space[4] },
+  helper: { marginTop: space[1] },
+  segmentGroup: { flexDirection: 'row', padding: space[1], gap: space[1], borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.field },
+  segmentStack: { flexDirection: 'column' },
+  segment: { borderWidth: 1, borderRadius: radius.glyph, minHeight: Platform.OS === 'android' ? size.androidTouch : size.touch, justifyContent: 'center', paddingHorizontal: space[2] },
+  filterChip: { minHeight: Platform.OS === 'android' ? size.androidTouch : size.touch, minWidth: size.touch, paddingHorizontal: space[3], paddingVertical: space[1], gap: space[2], flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: radius.full, borderWidth: 1 },
+  chipLabel: { fontWeight: '600', flexShrink: 1 },
+  badge: { textAlign: 'center', minWidth: size.icon, borderRadius: radius.full, paddingHorizontal: space[1] },
+  sheetOverlay: { flex: 1, justifyContent: 'flex-end' },
+  sheet: { maxHeight: '82%', width: '100%', maxWidth: size.visibleSheetWidth, alignSelf: 'center', borderTopLeftRadius: radius.sheet, borderTopRightRadius: radius.sheet, overflow: 'hidden' },
+  compactSheet: { maxHeight: '56%' },
+  sheetHeader: { flexDirection: 'row', alignItems: 'center', paddingTop: space[3], paddingBottom: space[2], gap: space[2] },
+  sheetSearch: { marginBottom: space[3] },
+  sheetBody: { flexGrow: 0, flexShrink: 1 },
+  sheetFooter: { paddingTop: space[3], borderTopWidth: StyleSheet.hairlineWidth, gap: space[3] },
+  empty: { alignItems: 'center', paddingVertical: space[10], gap: space[2] },
+  emptyArt: { width: size.emptyArt, height: size.emptyArt, marginBottom: space[2] },
+  emptyActions: { marginTop: space[3], alignSelf: 'stretch', gap: space[3] },
+  progress: { gap: space[2], paddingVertical: space[2] },
+  progressTrack: { height: space[2], borderRadius: radius.full, overflow: 'hidden' },
+  toast: { flexDirection: 'row', alignItems: 'center', paddingLeft: space[3], borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.surface },
+});

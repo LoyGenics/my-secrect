@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, SafeAreaView, ScrollView, Text, View } from 'react-native';
+import { Alert, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
-import Field from '../components/Field';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+import { AppTextField } from '../components/Field';
+import { Icon, type NativeIconName } from '../../../../packages/ui/src/native';
 import { useMobileTheme } from '../theme';
 import {
   changePassphrase, disableDeviceUnlock, enableDeviceUnlockWithPassphrase, exportEncrypted, getDeviceUnlockState, verifyPassphrase, wipeVault,
@@ -14,34 +17,76 @@ import { LS_API_TOKEN, LS_API_TOKEN_EXPIRES_AT, LS_ACCOUNT_EMAIL, SecurityApiCli
 import { getApiToken } from './SecurityScreen';
 import { API_BASE_URL_KEY, SHARE_WEB_ORIGIN_KEY } from '../accountServer';
 import { isStepUpRequired } from '../utils/stepUp';
-import { Action, Group, Page, Row, Rule, Select } from '../components/mobile-ui';
-import { Archive, ChevronLeft, Fingerprint, Globe, Image, KeyRound, Lock, LogIn, Search, ShieldCheck, Trash2, Users, Share2, X } from 'lucide-react-native';
+import { AppButton, AppPage, BottomSheet, FieldGroup, FormSection, Group, InlineError, PageSection, Rule, SettingsRow } from '../components/mobile-ui';
 import { removeAllEncryptedFiles } from '../storage/localFiles';
 import { GhostBrandMark } from '../components/soft';
+import { useAppPreferences } from '../ui/AppearanceProvider';
+import { AUTO_LOCK_CHOICES, type AutoLockMinutes } from '../ui/preferences';
+import { space, textStyle } from '../ui/tokens';
 
-export type AutoLockMinutes = 1 | 5 | 15 | 0;
+export type { AutoLockMinutes } from '../ui/preferences';
 
-type PendingAction = 'export' | 'change' | 'wipe';
+type PendingAction = 'export' | 'export-file' | 'change' | 'wipe';
 
-export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onWiped, notice, setNotice, onViewTrash, onViewSecurity, onOpen, onSearch, apiBaseUrl, signedIn, onSignIn, onServerSaved }: {
+export function AppearanceScreen() {
+  const { colors } = useMobileTheme();
+  const { dict, t } = useTranslation();
+  const { preference, setPreference, persistenceError } = useAppPreferences();
+  const choices = [
+    { value: 'system', icon: 'system' },
+    { value: 'light', icon: 'light' },
+    { value: 'dark', icon: 'dark' },
+  ] as const;
+  return (
+    <AppPage testID="appearance-screen">
+      <PageSection description={t('mobileUI.appearanceHelp')}>
+        <Group>
+          {choices.map(({ value, icon }, index) => (
+            <React.Fragment key={value}>
+              {index > 0 && <Rule leading />}
+              <SettingsRow
+                testID={`appearance-${value}`}
+                label={dict.theme[value]}
+                icon={<Icon name={icon} color={colors.secondary} size="lg" />}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: preference === value }}
+                selected={preference === value}
+                onPress={() => void setPreference(value)}
+              />
+            </React.Fragment>
+          ))}
+        </Group>
+      </PageSection>
+      {persistenceError && <InlineError testID="appearance-save-error">{t('mobileUI.settingsSaveFailed')}</InlineError>}
+    </AppPage>
+  );
+}
+
+export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onWiped, setNotice, onViewTrash, onViewArchive, onViewSecurity, onOpen, onAppearance, apiBaseUrl, signedIn, onSignIn, onServerSaved }: {
   autoLock: AutoLockMinutes; onAutoLockChange: (m: AutoLockMinutes) => void; onLock: () => void; onWiped: () => void;
-  notice: string; setNotice: (s: string) => void; onViewTrash: () => void; onViewSecurity: () => void; onOpen?: (screen: 'Family' | 'Shares') => void; onSearch?: () => void; onServerSaved?: (url: string) => Promise<void>;
+  setNotice: (s: string) => void; onViewTrash: () => void; onViewArchive?: () => void; onViewSecurity: () => void; onOpen?: (screen: 'Family' | 'Shares') => void; onAppearance?: () => void; onServerSaved?: (url: string) => Promise<void>;
   apiBaseUrl: string; signedIn: boolean; onSignIn: () => void;
 }) {
-  const { colors, styles } = useMobileTheme();
-  const { t, dict, locale, setLocale } = useTranslation();
-  const [panel, setPanel] = useState<'unlock' | 'change' | 'backup' | 'server' | 'delete' | 'about' | null>(null);
+  const { colors } = useMobileTheme();
+  const { t, dict, tp, locale, setLocale } = useTranslation();
+  const { preference, persistenceError } = useAppPreferences();
+  const [panel, setPanel] = useState<'unlock' | 'change' | 'backup' | 'server' | 'delete' | 'about' | 'language' | null>(null);
   const [serverSaved, setServerSaved] = useState(false);
   const [serverDraft, setServerDraft] = useState('');
   const [webOrigin, setWebOrigin] = useState('');
   const [serverError, setServerError] = useState('');
-  function closePanel() { setPanel(null); setNewPass(''); setNewConfirm(''); setStepUpAction(null); setStepUpPass(''); setStepUpCode(''); setStepUpError(''); setBioPass(''); setExported(''); setWipeArmed(false); }
+  function closePanel() {
+    setPanel(null); setNewPass(''); setNewConfirm(''); setChangeError(''); setChangeOk(false);
+    setStepUpAction(null); setStepUpPass(''); setStepUpCode(''); setStepUpError('');
+    setBioPass(''); setBackupCopied(false); setBackupError('');
+  }
   const [newPass, setNewPass] = useState('');
   const [newConfirm, setNewConfirm] = useState('');
   const [changeError, setChangeError] = useState('');
   const [changeOk, setChangeOk] = useState(false);
-  const [wipeArmed, setWipeArmed] = useState(false);
-  const [exported, setExported] = useState('');
+  const [backupCopied, setBackupCopied] = useState(false);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [backupError, setBackupError] = useState('');
   // Step-up state: every sensitive local action (export / change
   // passphrase / wipe) opens this panel first. See submitStepUp().
   const [stepUpAction, setStepUpAction] = useState<PendingAction | null>(null);
@@ -54,7 +99,7 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
   const [bioPass, setBioPass] = useState('');
   const [bioMessage, setBioMessage] = useState('');
   const [bioBusy, setBioBusy] = useState(false);
-  const bioName = biometryName(device?.biometry);
+  const bioName = biometryName(device?.biometry, t);
 
   useEffect(() => {
     void getDeviceUnlockState().then(setDevice);
@@ -64,17 +109,22 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
   /** Turning it on needs the passphrase again: that unlock is what releases the Master Key copy to wrap. */
   async function enableBiometric() {
     setBioMessage(''); setBioBusy(true);
-    const result = await enableDeviceUnlockWithPassphrase(bioPass, `Turn on ${bioName} unlock for my-secrect`);
-    setBioBusy(false); setBioPass('');
-    setDevice(await getDeviceUnlockState());
-    setBioMessage(result.ok ? `${bioName} unlock is on.` : result.code === 'USER_CANCEL' ? `${bioName} unlock was not turned on.` : `${bioName} unlock could not be turned on: ${deviceUnlockMessage(result.code, bioName)}`);
+    try {
+      const result = await enableDeviceUnlockWithPassphrase(bioPass, t('mobileUI.biometricEnable', bioName));
+      setDevice(await getDeviceUnlockState());
+      setBioMessage(result.ok ? t('mobileUI.biometricOn', bioName) : deviceUnlockMessage(result.code, bioName, t));
+    } catch {
+      setBioMessage(t('mobileAuth.bioEnableFailed', bioName));
+    } finally { setBioBusy(false); setBioPass(''); }
   }
   async function disableBiometric() {
     setBioMessage(''); setBioBusy(true);
-    try { await disableDeviceUnlock(); setBioMessage(`${bioName} unlock is off. The device key was deleted.`); }
-    catch { setBioMessage(`${bioName} unlock could not be fully turned off. Try again.`); }
-    setBioBusy(false);
-    setDevice(await getDeviceUnlockState());
+    try {
+      await disableDeviceUnlock();
+      setDevice(await getDeviceUnlockState());
+      setBioMessage(t('mobileUI.biometricOff', bioName));
+    } catch { setBioMessage(t('mobileUI.biometricDisableFailed', bioName)); }
+    finally { setBioBusy(false); }
   }
 
   const apiConfigured = apiBaseUrl.trim() !== '';
@@ -100,11 +150,11 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
     } catch { setServerError(t('mobileUI.saveFailed')); }
   }
 
-  function requestExport() { setChangeError(''); setStepUpError(''); setStepUpAction('export'); }
+  function requestExport(action: 'export' | 'export-file') { setBackupError(''); setStepUpError(''); setStepUpAction(action); }
   function requestChangePassphrase() {
     setChangeError(''); setChangeOk(false);
-    if (newPass.length < 8) { setChangeError('New passphrase must be at least 8 characters.'); return; }
-    if (newPass !== newConfirm) { setChangeError('New passphrases do not match.'); return; }
+    if (newPass.length < 8) { setChangeError(dict.settings.tooShort); return; }
+    if (newPass !== newConfirm) { setChangeError(dict.settings.mismatch); return; }
     setStepUpError(''); setStepUpAction('change');
   }
   function requestWipe() { setStepUpError(''); setStepUpAction('wipe'); }
@@ -137,103 +187,215 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
     }
     const pass = stepUpPass;
     setStepUpAction(null); setStepUpPass(''); setStepUpCode(''); setStepUpBusy(false);
-    if (action === 'export') await doExport();
+    if (action === 'export' || action === 'export-file') await doExport(action === 'export-file');
     else if (action === 'change') await doChangePassphrase(pass);
     else await doWipe();
   }
 
-  async function doExport() {
-    try { const json = await exportEncrypted(); setExported(json); await Clipboard.setStringAsync(json); setNotice('Encrypted backup copied. Keep it somewhere safe.'); }
-    catch { setNotice('Export failed.'); }
+  async function doExport(asFile: boolean) {
+    setBackupBusy(true); setBackupCopied(false);
+    try {
+      const json = await exportEncrypted();
+      if (asFile) {
+        if (!FileSystem.cacheDirectory || !(await Sharing.isAvailableAsync())) throw new Error('sharing unavailable');
+        const uri = `${FileSystem.cacheDirectory}my-secret-backup.json`;
+        await FileSystem.writeAsStringAsync(uri, json, { encoding: FileSystem.EncodingType.UTF8 });
+        await Sharing.shareAsync(uri, { mimeType: 'application/json', UTI: 'public.json' });
+      } else {
+        await Clipboard.setStringAsync(json);
+        setBackupCopied(true);
+        setNotice(t('mobileUI.backupCopied'));
+      }
+    } catch { setBackupError(dict.notices.exportFailed); }
+    finally { setBackupBusy(false); }
   }
   async function doChangePassphrase(verifiedOldPass: string) {
     setChangeError(''); setChangeOk(false);
     const biometricWasOn = device?.enrolled === true;
     try {
       await changePassphrase(verifiedOldPass, newPass); setNewPass(''); setNewConfirm(''); setChangeOk(true);
-      if (biometricWasOn) setBioMessage(`${bioName} unlock was turned off with the passphrase change. Turn it on again below if you want it.`);
-    } catch (e) { setChangeError(e instanceof Error ? e.message : 'Could not change the passphrase.'); }
+      if (biometricWasOn) setBioMessage(t('mobileUI.biometricChanged', bioName));
+    } catch { setChangeError(dict.settings.changeFailed); }
     setDevice(await getDeviceUnlockState());
   }
   async function doWipe() { await wipeVault(); await removeAllEncryptedFiles().catch(() => undefined); onWiped(); }
 
-  const panelTitle = panel === 'unlock' ? t('mobileUI.unlockSettings') : panel === 'change' ? t('mobileUI.changePassphrase') : panel === 'backup' ? t('mobileUI.backupSettings') : panel === 'server' ? t('mobileUI.serverSettings') : panel === 'delete' ? t('mobileUI.dangerZone') : t('mobileUI.about');
-  const icon = (Node: typeof Lock) => <Node size={21} color={colors.secondary} />;
-  const hint = (text: string) => <Text style={{ color: colors.muted, fontSize: 14, lineHeight: 21, marginBottom: 20 }}>{text}</Text>;
-  return <>
-    <Page>
-      <View style={{ flexDirection: 'row', gap: 14, alignItems: 'center', marginBottom: 26, paddingHorizontal: 12 }}>
-        <GhostBrandMark /><View><Text style={{ color: colors.text, fontSize: 20, fontWeight: '600' }}>My Secret</Text><Text style={{ color: colors.muted, fontSize: 13, marginTop: 4 }}>{t('mobileUI.localOnly')}</Text></View>
-      </View>
-      <Group title={t('mobileUI.vaultSettings')}>
-        <Row testID="settings-unlock" icon={icon(Fingerprint)} label={t('mobileUI.unlockSettings')} detail={autoLock === 0 ? t('mobileUI.never') : t('mobileUI.minutes', autoLock)} onPress={() => setPanel('unlock')} /><Rule />
-        <Row testID="settings-passphrase" icon={icon(KeyRound)} label={t('mobileUI.changePassphrase')} onPress={() => setPanel('change')} /><Rule />
-        <Row testID="settings-backup" icon={icon(Archive)} label={t('mobileUI.backupSettings')} onPress={() => setPanel('backup')} /><Rule />
-        <Row testID="view-trash-button" icon={icon(Trash2)} label={dict.shell.trash} onPress={onViewTrash} />
-      </Group>
-      <Group title={t('mobileUI.accountSettings')}>
-        {apiConfigured && !signedIn && <><Row testID="settings-sign-in" icon={icon(LogIn)} label={t('signin.signIn')} onPress={onSignIn} /><Rule /></>}
-        <Row testID="security-center-button" icon={icon(ShieldCheck)} label={t('security.title')} onPress={onViewSecurity} /><Rule />
-        <Row testID="settings-sharing" icon={icon(Share2)} label={t('mobileUI.sharing')} onPress={() => onOpen?.('Shares')} /><Rule />
-        <Row testID="settings-family" icon={icon(Users)} label={t('mobileUI.familyPlan')} onPress={() => onOpen?.('Family')} />
-      </Group>
-      <Group title={dict.settings.preferencesTitle}>
-        <View style={{ paddingHorizontal: 16 }}><Select label={t('mobileUI.language')} testID="settings-language" value={locale} choices={[{ value: 'en', label: 'English' }, { value: 'vi', label: 'Tiếng Việt' }]} onChange={value => setLocale(value as 'en' | 'vi')} /></View><Rule />
-        {__DEV__ && <><Row testID="settings-server" icon={icon(Globe)} label={t('mobileUI.serverSettings')} detail={apiConfigured ? t('mobileUI.connected') : t('mobileUI.notConnected')} onPress={() => { setServerDraft(apiBaseUrl); setPanel('server'); }} /><Rule /></>}
-        <Row testID="settings-about" label={t('mobileUI.about')} onPress={() => setPanel('about')} />
-      </Group>
-      <Group><Row testID="lock-now-button" icon={icon(Lock)} label={t('mobileUI.lockNow')} onPress={onLock} /></Group>
-      <Row testID="settings-delete" label={t('mobileUI.dangerZone')} destructive onPress={() => setPanel('delete')} />
-    </Page>
-    <Modal visible={panel !== null} animationType="slide" presentationStyle="pageSheet" onRequestClose={closePanel} onDismiss={closePanel}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', padding: 12, gap: 8 }}>
-          <Text accessibilityRole="header" style={{ color: colors.text, fontSize: 18, fontWeight: '600', flex: 1, marginLeft: 8 }}>{panelTitle}</Text>
-          {!!onSearch && <Pressable testID="settings-panel-search" accessibilityRole="button" accessibilityLabel={t('mobileUI.searchAll')} onPress={() => { closePanel(); onSearch(); }} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Search size={21} color={colors.link} /></Pressable>}
-          <Pressable testID="settings-panel-close" accessibilityRole="button" accessibilityLabel={dict.common.close} onPress={closePanel} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><X size={22} color={colors.link} /></Pressable>
+  const titles = {
+    unlock: t('mobileUI.unlockSettings'),
+    change: t('mobileUI.changePassphrase'),
+    backup: t('mobileUI.backupSettings'),
+    server: t('mobileUI.serverSettings'),
+    delete: t('mobileUI.dangerZone'),
+    about: t('mobileUI.about'),
+    language: dict.language.label,
+  };
+  const icon = (name: NativeIconName) => <Icon name={name} size="lg" color={colors.secondary} />;
+  const autoLockLabel = (minutes: AutoLockMinutes) => minutes === 0 ? dict.settings.never : tp(dict.settings.minutes, minutes);
+  const cancelVerification = () => {
+    setStepUpAction(null); setStepUpPass(''); setStepUpCode(''); setStepUpError('');
+  };
+  let accountStatus = t('mobileUI.localOnly');
+  if (apiConfigured) accountStatus = t(signedIn ? 'mobileUI.accountConnectedLocal' : 'mobileUI.accountSignedOutLocal');
+
+  return (
+    <>
+      <AppPage testID="settings-screen">
+        <View style={{ flexDirection: 'row', gap: space[4], alignItems: 'center' }}>
+          <GhostBrandMark />
+          <View style={{ flex: 1 }}>
+            <Text style={[textStyle.title, { color: colors.text }]}>My Secret</Text>
+            <Text style={[textStyle.helper, { color: colors.muted }]}>{accountStatus}</Text>
+          </View>
         </View>
-        <Page>
-          {stepUpAction ? <>
-            <Text style={[styles.heading, { marginBottom: 12 }]}>{t('security.stepUpTitle')}</Text>
-            {hint(t('security.stepUpBody'))}
-            <Field label={t('security.stepUpPassphraseLabel')} testID="stepup-passphrase" secureTextEntry value={stepUpPass} onChangeText={setStepUpPass} autoCapitalize="none" autoCorrect={false} />
-            {requiresAccountVerification && <Field label={t('security.stepUpTotpLabel')} testID="stepup-totp-code" value={stepUpCode} onChangeText={setStepUpCode} autoCapitalize="none" autoCorrect={false} keyboardType="number-pad" />}
-            {!!stepUpError && <Text testID="stepup-error" style={[styles.error, { marginBottom: 14 }]}>{stepUpError}</Text>}
-            <Action testID="stepup-confirm" label={stepUpBusy ? dict.common.loading : t('security.confirm')} disabled={stepUpBusy} onPress={() => void submitStepUp()} />
-            <View style={{ marginTop: 12 }}><Action testID="stepup-cancel" secondary label={dict.common.cancel} disabled={stepUpBusy} onPress={() => { setStepUpAction(null); setStepUpPass(''); setStepUpCode(''); setStepUpError(''); }} /></View>
-          </> : panel === 'unlock' ? <>
-            <Group title={t('mobileUI.autoLock')}><View style={{ paddingHorizontal: 16 }}><Select testID="settings-autolock" label={t('mobileUI.autoLock')} value={String(autoLock)} choices={[1,5,15,0].map(minutes => ({ value: String(minutes), label: minutes === 0 ? t('mobileUI.never') : t('mobileUI.minutes', minutes) }))} onChange={value => onAutoLockChange(Number(value) as AutoLockMinutes)} /></View></Group>
-            {hint(device?.enrolled ? `${bioName} unlock is on.` : device?.available ? `Turn on ${bioName} to unlock this vault on this device.` : `${bioName} is not available. Set it up in your device settings first.`)}
-            {device?.enrolled ? <Action testID="disable-biometric-button" secondary label={`Turn off ${bioName}`} disabled={bioBusy} onPress={() => void disableBiometric()} /> : device?.available ? <>
-              <Field label={dict.settings.current} testID="biometric-passphrase" secureTextEntry value={bioPass} onChangeText={setBioPass} autoCapitalize="none" autoCorrect={false} />
-              <Action testID="enable-biometric-settings-button" label={`Turn on ${bioName}`} disabled={bioBusy || !bioPass} onPress={() => void enableBiometric()} />
-            </> : null}
-            {!!bioMessage && <Text testID="biometric-message" style={[styles.body, { marginTop: 16 }]}>{bioMessage}</Text>}
-          </> : panel === 'change' ? <>
-            <Field label={dict.settings.newPassphrase} testID="new-passphrase" secureTextEntry value={newPass} onChangeText={setNewPass} autoCapitalize="none" autoCorrect={false} />
-            <Field label={dict.settings.confirm} testID="confirm-new-passphrase" secureTextEntry value={newConfirm} onChangeText={setNewConfirm} autoCapitalize="none" autoCorrect={false} />
-            {!!changeError && <Text testID="change-passphrase-error" style={[styles.error, { marginBottom: 16 }]}>{changeError}</Text>}
-            {changeOk && hint(t('mobileUI.saved'))}
-            <Action testID="change-passphrase-button" label={dict.settings.change} onPress={requestChangePassphrase} />
-          </> : panel === 'backup' ? <>
-            {hint(t('mobileUI.backupHelp'))}
-            <Action testID="export-encrypted-button" label={t('mobileUI.exportBackup')} onPress={requestExport} />
-            {!!exported && <Text accessibilityLiveRegion="polite" style={{ color: colors.okText, fontSize: 15, marginTop: 20 }}>{t('mobileUI.backupCopied')}</Text>}
-          </> : panel === 'server' ? <>
-            <Field label={t('mobileUI.serverURL')} testID="api-base-url" placeholder="https://vault.example.com/api" value={serverDraft} onChangeText={value => { setServerDraft(value); setServerSaved(false); }} autoCapitalize="none" autoCorrect={false} keyboardType="url" />
-            <Field label={t('mobileUI.webAppURL')} testID="share-web-origin" placeholder="https://vault.example.com" value={webOrigin} onChangeText={setWebOrigin} autoCapitalize="none" autoCorrect={false} keyboardType="url" />
-            {!!serverError && <Text accessibilityRole="alert" style={[styles.error, { marginBottom: 16 }]}>{serverError}</Text>}
-            <Action testID="save-api-server" label={t('mobileUI.saveServer')} onPress={() => void saveApiBaseUrl(serverDraft.trim())} />
-            {serverSaved && <Text accessibilityLiveRegion="polite" style={{ color: colors.okText, marginTop: 16 }}>{t('mobileUI.saved')}</Text>}
-          </> : panel === 'delete' ? <>
-            {hint(t('mobileUI.dangerHelp'))}
-            <Action testID="wipe-vault-button" destructive label={t('mobileUI.dangerZone')} onPress={() => Alert.alert(dict.settings.wipeTitle, dict.settings.wipeBody, [{ text: dict.common.cancel, style: 'cancel' }, { text: dict.common.delete, style: 'destructive', onPress: requestWipe }])} />
-          </> : panel === 'about' ? <>
-            {hint(t('mobileUI.aboutBody'))}
-            <Group><Row label={dict.settings.encryption} detail={dict.settings.encryptionValue} /></Group>
-          </> : null}
-        </Page>
-      </SafeAreaView>
-    </Modal>
-  </>;
+
+        <Group title={t('mobileUI.vaultSettings')}>
+          <SettingsRow testID="lock-now-button" icon={icon('lock')} label={t('mobileUI.lockNow')} onPress={onLock} navigation={false} />
+          {onViewArchive && <><Rule leading /><SettingsRow testID="view-archive-button" icon={icon('archive')} label={dict.shell.archived} onPress={onViewArchive} navigation /></>}
+          <Rule leading />
+          <SettingsRow testID="view-trash-button" icon={icon('trash')} label={dict.shell.trash} onPress={onViewTrash} navigation />
+        </Group>
+
+        <Group title={t('mobileUI.securityAccountSettings')}>
+          <SettingsRow testID="settings-unlock" icon={icon('unlock')} label={t('mobileUI.unlockSettings')} value={autoLockLabel(autoLock)} onPress={() => setPanel('unlock')} navigation />
+          <Rule leading />
+          <SettingsRow testID="settings-passphrase" icon={icon('credentials')} label={t('mobileUI.changePassphrase')} onPress={() => setPanel('change')} navigation />
+          <Rule leading />
+          {apiConfigured && !signedIn && <><SettingsRow testID="settings-sign-in" icon={icon('enter')} label={dict.signin.signIn} onPress={onSignIn} navigation /><Rule leading /></>}
+          <SettingsRow testID="security-center-button" icon={icon('security')} label={dict.security.title} onPress={onViewSecurity} navigation />
+          {onOpen && <>
+            <Rule leading />
+            <SettingsRow testID="settings-sharing" icon={icon('share')} label={t('mobileUI.sharing')} onPress={() => onOpen('Shares')} navigation />
+            <Rule leading />
+            <SettingsRow testID="settings-family" icon={icon('person')} label={t('mobileUI.familyPlan')} onPress={() => onOpen('Family')} navigation />
+          </>}
+        </Group>
+
+        <Group title={t('mobileUI.dataBackupSettings')}>
+          <SettingsRow testID="settings-backup" icon={icon('export')} label={t('mobileUI.backupSettings')} onPress={() => setPanel('backup')} navigation />
+        </Group>
+
+        <Group title={dict.settings.preferencesTitle}>
+          {onAppearance && <><SettingsRow testID="settings-appearance" icon={icon('appearance')} label={dict.theme.label} value={dict.theme[preference]} onPress={onAppearance} navigation /><Rule leading /></>}
+          <SettingsRow testID="settings-language" icon={icon('language')} label={dict.language.label} value={locale === 'en' ? 'English' : 'Tiếng Việt'} onPress={() => setPanel('language')} navigation />
+        </Group>
+
+        <Group title={t('mobileUI.advanced')}>
+          {__DEV__ && <><SettingsRow testID="settings-server" icon={icon('server')} label={t('mobileUI.serverSettings')} value={apiConfigured ? t('mobileUI.connected') : t('mobileUI.notConnected')} onPress={() => { setServerDraft(apiBaseUrl); setPanel('server'); }} navigation /><Rule leading /></>}
+          <SettingsRow testID="settings-about" icon={icon('info')} label={t('mobileUI.about')} onPress={() => setPanel('about')} navigation />
+          <Rule leading />
+          <SettingsRow testID="settings-delete" icon={icon('trash')} label={t('mobileUI.dangerZone')} destructive onPress={() => setPanel('delete')} navigation />
+        </Group>
+      </AppPage>
+
+      <BottomSheet
+        visible={panel !== null}
+        title={stepUpAction ? t('security.stepUpTitle') : panel ? titles[panel] : ''}
+        onClose={stepUpBusy || backupBusy ? () => undefined : closePanel}
+        testID="settings-panel"
+      >
+        {stepUpAction ? (
+          <FormSection description={t('security.stepUpBody')}>
+            <FieldGroup>
+              <AppTextField label={t('security.stepUpPassphraseLabel')} testID="stepup-passphrase" secureTextEntry revealable value={stepUpPass} onChangeText={setStepUpPass} autoCapitalize="none" autoCorrect={false} />
+              {requiresAccountVerification && <AppTextField label={t('security.stepUpTotpLabel')} testID="stepup-totp-code" value={stepUpCode} onChangeText={setStepUpCode} autoCapitalize="none" autoCorrect={false} keyboardType="number-pad" />}
+            </FieldGroup>
+            {!!stepUpError && <InlineError testID="stepup-error">{stepUpError}</InlineError>}
+            <AppButton testID="stepup-confirm" label={t('security.confirm')} loading={stepUpBusy} onPress={() => void submitStepUp()} />
+            <AppButton testID="stepup-cancel" variant="secondary" label={dict.common.cancel} disabled={stepUpBusy} onPress={cancelVerification} />
+          </FormSection>
+        ) : null}
+
+        {!stepUpAction && panel === 'unlock' && (
+          <>
+            <PageSection title={dict.settings.autoLockTitle} description={dict.settings.autoLockBody}>
+              <Group>
+                {AUTO_LOCK_CHOICES.map((minutes, index) => (
+                  <React.Fragment key={minutes}>
+                    {index > 0 && <Rule />}
+                    <SettingsRow
+                      testID={`settings-autolock-${minutes}`}
+                      label={autoLockLabel(minutes)}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: minutes === autoLock }}
+                      selected={minutes === autoLock}
+                      onPress={() => onAutoLockChange(minutes)}
+                    />
+                  </React.Fragment>
+                ))}
+              </Group>
+              {persistenceError && <InlineError testID="autolock-save-error">{t('mobileUI.settingsSaveFailed')}</InlineError>}
+            </PageSection>
+            <FormSection title={t('mobileUI.biometricSettings')} description={t(device?.enrolled ? 'mobileUI.biometricOn' : device?.available ? 'mobileUI.biometricHint' : 'mobileUI.biometricUnavailable', bioName)}>
+              {device?.enrolled ? (
+                <AppButton testID="disable-biometric-button" variant="secondary" label={t('mobileUI.biometricDisable', bioName)} loading={bioBusy} onPress={() => void disableBiometric()} />
+              ) : device?.available ? (
+                <>
+                  <AppTextField label={dict.settings.current} testID="biometric-passphrase" secureTextEntry revealable value={bioPass} onChangeText={setBioPass} autoCapitalize="none" autoCorrect={false} />
+                  <AppButton testID="enable-biometric-settings-button" label={t('mobileUI.biometricEnable', bioName)} disabled={!bioPass} loading={bioBusy} onPress={() => void enableBiometric()} />
+                </>
+              ) : null}
+              {!!bioMessage && <Text testID="biometric-message" accessibilityLiveRegion="polite" style={[textStyle.helper, { color: colors.secondary }]}>{bioMessage}</Text>}
+            </FormSection>
+          </>
+        )}
+
+        {!stepUpAction && panel === 'change' && (
+          <FormSection>
+            <FieldGroup>
+              <AppTextField label={dict.settings.newPassphrase} testID="new-passphrase" secureTextEntry revealable value={newPass} onChangeText={setNewPass} autoCapitalize="none" autoCorrect={false} error={changeError === dict.settings.tooShort ? changeError : undefined} />
+              <AppTextField label={dict.settings.confirm} testID="confirm-new-passphrase" secureTextEntry revealable value={newConfirm} onChangeText={setNewConfirm} autoCapitalize="none" autoCorrect={false} error={changeError === dict.settings.mismatch ? changeError : undefined} />
+            </FieldGroup>
+            {changeError && changeError !== dict.settings.tooShort && changeError !== dict.settings.mismatch ? <InlineError testID="change-passphrase-error">{changeError}</InlineError> : null}
+            {changeOk && <Text accessibilityLiveRegion="polite" style={[textStyle.helper, { color: colors.okText }]}>{t('mobileUI.saved')}</Text>}
+            <AppButton testID="change-passphrase-button" label={dict.settings.change} onPress={requestChangePassphrase} />
+          </FormSection>
+        )}
+
+        {!stepUpAction && panel === 'backup' && (
+          <FormSection description={t('mobileUI.backupHelp')}>
+            <Text style={[textStyle.helper, { color: colors.muted }]}>{t('mobileUI.backupLocalFiles')}</Text>
+            {backupError ? <InlineError testID="backup-export-error">{backupError}</InlineError> : null}
+            <AppButton testID="export-backup-file" label={t('mobileUI.exportBackupFile')} icon="export" loading={backupBusy} onPress={() => requestExport('export-file')} />
+            <AppButton testID="export-encrypted-button" label={t('mobileUI.exportBackup')} variant="secondary" icon="copy" disabled={backupBusy} onPress={() => requestExport('export')} />
+            {backupCopied && <Text accessibilityLiveRegion="polite" style={[textStyle.helper, { color: colors.okText }]}>{t('mobileUI.backupCopied')}</Text>}
+          </FormSection>
+        )}
+
+        {!stepUpAction && panel === 'server' && (
+          <FormSection description={t('mobileUI.serverHelp')}>
+            <FieldGroup>
+              <AppTextField label={t('mobileUI.serverURL')} testID="api-base-url" placeholder="https://vault.example.com/api" value={serverDraft} onChangeText={value => { setServerDraft(value); setServerSaved(false); }} autoCapitalize="none" autoCorrect={false} keyboardType="url" />
+              <AppTextField label={t('mobileUI.webAppURL')} testID="share-web-origin" placeholder="https://vault.example.com" value={webOrigin} onChangeText={setWebOrigin} autoCapitalize="none" autoCorrect={false} keyboardType="url" />
+            </FieldGroup>
+            {serverError ? <InlineError>{serverError}</InlineError> : null}
+            <AppButton testID="save-api-server" label={t('mobileUI.saveServer')} onPress={() => void saveApiBaseUrl(serverDraft.trim())} />
+            {serverSaved && <Text accessibilityLiveRegion="polite" style={[textStyle.helper, { color: colors.okText }]}>{t('mobileUI.saved')}</Text>}
+          </FormSection>
+        )}
+
+        {!stepUpAction && panel === 'delete' && (
+          <FormSection description={t('mobileUI.dangerHelp')}>
+            <AppButton testID="wipe-vault-button" variant="destructive" label={t('mobileUI.dangerZone')} onPress={() => Alert.alert(dict.settings.wipeTitle, dict.settings.wipeBody, [{ text: dict.common.cancel, style: 'cancel' }, { text: dict.common.delete, style: 'destructive', onPress: requestWipe }])} />
+          </FormSection>
+        )}
+
+        {!stepUpAction && panel === 'about' && (
+          <PageSection description={t('mobileUI.aboutBody')}>
+            <Group><SettingsRow label={dict.settings.encryption} value={dict.settings.encryptionValue} /></Group>
+          </PageSection>
+        )}
+
+        {!stepUpAction && panel === 'language' && (
+          <Group>
+            {(['en', 'vi'] as const).map((value, index) => (
+              <React.Fragment key={value}>
+                {index > 0 && <Rule />}
+                <SettingsRow testID={`settings-language-${value}`} label={value === 'en' ? 'English' : 'Tiếng Việt'} accessibilityRole="radio" accessibilityState={{ checked: locale === value }} selected={locale === value} onPress={() => { setLocale(value); closePanel(); }} />
+              </React.Fragment>
+            ))}
+          </Group>
+        )}
+      </BottomSheet>
+    </>
+  );
 }

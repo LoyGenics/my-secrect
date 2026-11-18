@@ -1,3 +1,9 @@
+import { mobileAuthEn } from './mobile-auth';
+import { mobileVaultEn } from './mobile-vault';
+import { mobileEditorEn } from './mobile-editor';
+import { mobileDetailEn } from './mobile-detail';
+import { mobileSecurityEn } from './mobile-security';
+
 /**
  * English dictionary — the source of truth for every UI string key.
  * `vi.ts` must implement exactly this shape (`Dictionary`); TypeScript
@@ -27,6 +33,21 @@ export const en = {
     deletionBlocked: 'Cancel recurring subscriptions and finish or expire pending checkouts before deleting your account.',
   },
   mobileUI: {
+    "generateTab": "Generate",
+    "healthTab": "Health",
+    "linkRetention": "Anyone with the link can view and keep a copy of these fields.",
+    "linkFields": "Fields in the shared copy",
+    "linkFieldsInvalid": "Complete the item’s required fields before creating a link.",
+    "sharingOverview": "Overview",
+    "verifyContacts": "Verify contacts",
+    "sharingSection": "Sharing section",
+    "filesOnDevice": "Files are encrypted and stored on this device.",
+    "fileOptionsFor": "Options for {0}",
+    "unnamedFile": "Untitled file",
+    "unnamedPhoto": "Photo",
+    "unnamedVideo": "Video",
+    "fileSources": "Add from this device",
+    "chooseDocs": "Documents",
     "files": "Files",
     "upload": "Upload files",
     "photos": "Photos & videos",
@@ -173,8 +194,35 @@ export const en = {
       "familyPlan": "Family plan",
       "sharing": "Sharing",
       "media": "Media & documents",
-      "typeOptional": "Optional details"
+      "typeOptional": "Optional details",
+      "appearanceHelp": "System follows your device’s appearance.",
+      "settingsSaveFailed": "This preference couldn’t be saved. Try again.",
+      "securityAccountSettings": "Security & account",
+      "dataBackupSettings": "Data & backups",
+      "accountConnectedLocal": "Signed in · vault on this device",
+      "accountSignedOutLocal": "Signed out · vault on this device",
+      "biometricSettings": "Biometric unlock",
+      "biometricOn": "{0} unlock is on.",
+      "biometricOff": "{0} unlock is off.",
+      "biometricHint": "Use {0} to unlock this vault on this device.",
+      "biometricUnavailable": "Set up {0} in your device settings first.",
+      "biometricEnable": "Turn on {0} unlock",
+      "biometricDisable": "Turn off {0} unlock",
+      "biometricDisableFailed": "Could not turn off {0} unlock. Try again.",
+      "biometricChanged": "Changing your passphrase turned off {0} unlock. You can set it up again in Unlock & auto-lock.",
+      "exportBackupFile": "Export backup file",
+      "backupLocalFiles": "Vault backups contain item records. File contents and device-only card CVV stay on this device.",
+      "generatorType": "Generated value type",
+      "applyPassword": "Apply to password",
+      "clipboardFailed": "Could not copy to the clipboard. Try again.",
+      "editFormTitle": "Edit {0}",
+      "bootError": "Couldn’t open the app. Try again.",
   },
+  mobileAuth: mobileAuthEn,
+  mobileVault: mobileVaultEn,
+  mobileEditor: mobileEditorEn,
+  mobileDetail: mobileDetailEn,
+  mobileSecurity: mobileSecurityEn,
   family: {
     "refresh": "Refresh",
     "title": "Family",

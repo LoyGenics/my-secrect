@@ -1,13 +1,9 @@
-import React from 'react';
-import { Platform, SafeAreaView, StatusBar as RNStatusBar, View, type StyleProp, type ViewStyle } from 'react-native';
+import React, { useContext } from 'react';
+import { View, type StyleProp, type ViewStyle } from 'react-native';
+import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 
-/**
- * Keeps a screen's content out of the status bar, notch and home indicator.
- * iOS: React Native's SafeAreaView (top and bottom insets). Android: the
- * status bar is translucent (expo-status-bar), so the top inset is the
- * status bar height. Wrap each full screen once; do not nest frames.
- */
+/** @deprecated Let AppPage or BottomSheet own the insets. */
 export default function ScreenFrame({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
-  if (Platform.OS === 'ios') return <SafeAreaView style={[{ flex: 1 }, style]}>{children}</SafeAreaView>;
-  return <View style={[{ flex: 1, paddingTop: RNStatusBar.currentHeight ?? 0 }, style]}>{children}</View>;
+  const insets = useContext(SafeAreaInsetsContext);
+  return <View style={[{ flex: 1, paddingTop: insets?.top, paddingBottom: insets?.bottom }, style]}>{children}</View>;
 }

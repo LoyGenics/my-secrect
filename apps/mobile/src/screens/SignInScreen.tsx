@@ -1,452 +1,402 @@
-import React, { useRef, useState, type ReactNode } from 'react';
-import { GhostBrandMark } from '../components/soft';
-import {
-  Image,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { BackHandler, Platform, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import sodium from 'libsodium-wrappers-sumo';
 import { useTranslation } from '../../../../packages/i18n/src/react';
 import {
   LS_ACCOUNT_EMAIL,
   SecurityApiClient,
+  getValidToken,
   isMfaRequiredResult,
   saveSessionToken,
 } from '../../../../packages/sdk/src/security';
-import { Icon, illustrations, type IconName } from '../../../../packages/ui/src/native';
 import { fromBase64Url, sodiumReady, toBase64 } from '../../../../packages/crypto-adapters/src/index';
 import { legacyRecoveryVerifierKeyPair, recoveryVerifierKeyPair } from '../../../../packages/sdk/src/recovery-verifier';
+import AppTextField from '../components/Field';
+import { AppButton, FieldGroup, InlineError, PageSection } from '../components/mobile-ui';
+import { AuthLayout } from '../components/soft';
+import { useMobileTheme } from '../theme';
+import { radius, space, textStyle } from '../ui/tokens';
+import { EMAIL_CODE_LENGTH, isAccountEmail, normalizeMfaRecoveryCode, normalizeOtp } from '../utils/authInput';
 import { apiStatus, isNetworkError } from '../utils/stepUp';
-import { Btn, Float, useSoftPalette, Rise, SoftField, TextButton, useReducedMotion } from '../components/soft';
-
-/**
- * SignInScreen (mobile) — account sign-in WITHOUT WebAuthn, "soft light" finish
- * (docs/mockups/ui-soft-v1.html): warm paper, white card, orange pill action
- * with white text, a floating clay hero, one rise-in per step, six-box code entry.
- *
- * Primary path: a 6-digit code mailed to the account (sign up or sign in, no
- * passkey needed). POST /v1/auth/email/request -> /email/verify (ticket) ->
- * /email/session (spends it). An account that already has a passkey is mailed
- * a notice instead of a code and must sign in from Desktop or Web. The session
- * is UNBOUND: the mobile app has no device key store yet
- * (specs/device-identity.md §8.3), so it reaches account actions only, not
- * vault sync — the screen says so. With MFA the code is followed by a TOTP /
- * recovery code (POST /v1/auth/mfa/verify).
- *
- * Honest limit: React Native has no WebAuthn browser API and
- * expo-local-authentication is NOT WebAuthn, so no passkey ceremony runs here
- * and none is faked.
- *
- * Secondary path: the recovery-key challenge.
- *   POST /v1/recovery/challenges { email, kind: 'recovery_key' } -> challenge
- *   Ed25519 sign it with the verifier keypair derived from the 32 recovery-key
- *   bytes (packages/sdk/src/recovery-verifier.ts; a v0 verifier retries ONCE
- *   with the legacy key), POST /v1/recovery/verify -> a 15-minute RECOVERY
- *   session for account actions. Needs a recovery verifier already registered
- *   (Security Center on Desktop/Web). The key lives in memory only and is
- *   zero-filled after use.
- *
- * Signing in does not unlock the vault: the master passphrase is still
- * required afterwards, as a separate step. Motion is skipped when the OS asks
- * for reduced motion.
- */
 
 export interface SignInScreenProps {
   baseUrl: string;
-  /** True when the previous session expired (401). */
   sessionExpired?: boolean;
   onSignedIn: (email: string, recoverySession: boolean) => void;
   onContinueLocalOnly: () => void;
 }
 
-/** Six-digit code: one real input (autofill, paste) drawn as six boxes. */
-function OtpField({ value, onChange, label, testID, length = 6 }: {
-  value: string; onChange: (v: string) => void; label: string; testID: string; length?: number;
+const tokenStore = {
+  getItem: (key: string) => AsyncStorage.getItem(key),
+  setItem: (key: string, value: string) => AsyncStorage.setItem(key, value),
+  removeItem: (key: string) => AsyncStorage.removeItem(key),
+};
+
+/** A single editable input supports native paste and OTP suggestions. The boxes are decorative. */
+function OtpField({ value, onChange, label, helper, disabled, onSubmit }: {
+  value: string;
+  onChange: (value: string) => void;
+  label: string;
+  helper: string;
+  disabled: boolean;
+  onSubmit: () => void;
 }) {
-  const P = useSoftPalette();
-  const ref = useRef<TextInput>(null);
+  const { colors, scheme } = useMobileTheme();
+  const { width, fontScale } = useWindowDimensions();
   const [focused, setFocused] = useState(false);
+  const gap = width < 360 || fontScale > 1.25 ? space[1] : space[2];
+
   return (
-    <Pressable onPress={() => ref.current?.focus()} style={{ flexDirection: 'row', gap: 8 }}>
-      {Array.from({ length }, (_, i) => {
-        const active = focused && i === Math.min(value.length, length - 1);
-        return (
-          <View
-            key={i}
-            style={{
-              flex: 1,
-              height: 56,
-              borderRadius: 14,
-              borderWidth: active ? 2 : 1,
-              borderColor: active ? P.focus : P.line,
-              backgroundColor: value[i] || active ? P.surface : P.surface2,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Text style={{ fontSize: 22, fontWeight: '700', color: P.ink }}>{value[i] ?? ''}</Text>
-          </View>
-        );
-      })}
-      <TextInput
-        ref={ref}
-        testID={testID}
-        accessibilityLabel={label}
-        value={value}
-        onChangeText={(v) => onChange(v.replace(/[^0-9]/g, '').slice(0, length))}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        keyboardType="number-pad"
-        textContentType="oneTimeCode"
-        autoComplete="sms-otp"
-        maxLength={length}
-        caretHidden
-        style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, opacity: 0.02, fontSize: 16 }}
-      />
-    </Pressable>
+    <View style={{ gap: space[2] }}>
+      <Text style={[textStyle.helper, { color: colors.text, fontWeight: '600' }]}>{label}</Text>
+      <View>
+        <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ flexDirection: 'row', gap }}>
+          {Array.from({ length: EMAIL_CODE_LENGTH }, (_, index) => {
+            const active = focused && index === Math.min(value.length, EMAIL_CODE_LENGTH - 1);
+            return (
+              <View key={index} style={{
+                flex: 1, minWidth: 0, paddingVertical: space[3], alignItems: 'center', justifyContent: 'center',
+                borderRadius: radius.field, borderWidth: active ? 2 : 1,
+                borderColor: active ? colors.focus : colors.controlBorder, backgroundColor: colors.surfaceMuted,
+              }}>
+                <Text style={[textStyle.title, { color: colors.text, fontVariant: ['tabular-nums'] }]}>{value[index] ?? ' '}</Text>
+              </View>
+            );
+          })}
+        </View>
+        <TextInput
+          testID="signin-email-code"
+          accessibilityLabel={label}
+          accessibilityHint={helper}
+          value={value}
+          onChangeText={(text) => onChange(normalizeOtp(text))}
+          editable={!disabled}
+          autoFocus
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          onSubmitEditing={onSubmit}
+          keyboardType="number-pad"
+          keyboardAppearance={scheme}
+          textContentType={Platform.OS === 'ios' ? 'oneTimeCode' : undefined}
+          autoComplete={Platform.OS === 'android' ? 'sms-otp' : undefined}
+          returnKeyType="go"
+          caretHidden
+          style={[StyleSheet.absoluteFill, { opacity: 0.02 }]}
+        />
+      </View>
+      <Text style={[textStyle.helper, { color: colors.secondaryText }]}>{helper}</Text>
+    </View>
   );
 }
 
+/** Email verification creates or signs in to the account. Vault unlock is a separate next step. */
 export default function SignInScreen({ baseUrl, sessionExpired, onSignedIn, onContinueLocalOnly }: SignInScreenProps) {
-  const P = useSoftPalette();
-  const { t } = useTranslation();
-  const reduced = useReducedMotion();
-  const [mode, setMode] = useState<'email' | 'recovery'>('email');
-  // Email path: 'email' -> 'code' (code mailed) -> optional 'mfa'.
-  const [step, setStep] = useState<'email' | 'code' | 'mfa'>('email');
+  const { dict, t } = useTranslation();
+  const { colors } = useMobileTheme();
+  const { signin, mobileAuth: auth } = dict;
+  const recoveryInput = useRef<TextInput>(null);
+  const [step, setStep] = useState<'email' | 'code' | 'mfa' | 'recovery'>('email');
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
+  const [mfaMode, setMfaMode] = useState<'totp' | 'recovery'>('totp');
   const [recoveryKey, setRecoveryKey] = useState('');
   const [mfaToken, setMfaToken] = useState<string | null>(null);
-  // Single-use ticket from /email/verify; memory only, kept while a retry may still use it.
+  // A ticket can be retried after a transport or service failure. Keep it in memory only.
   const [ticket, setTicket] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'submit' | 'resend' | null>(null);
   const [error, setError] = useState('');
-
-  const client = new SecurityApiClient({
-    baseUrl,
-    getToken: async () => {
-      try { return await AsyncStorage.getItem('my-secrect:api-token'); } catch { return null; }
-    },
-  });
-  const asyncStore = {
-    getItem: (k: string) => AsyncStorage.getItem(k),
-    setItem: (k: string, v: string) => AsyncStorage.setItem(k, v),
-    removeItem: (k: string) => AsyncStorage.removeItem(k),
-  };
+  const [emailError, setEmailError] = useState('');
+  const [feedback, setFeedback] = useState('');
+  const client = useMemo(() => new SecurityApiClient({ baseUrl, getToken: () => getValidToken(tokenStore) }), [baseUrl]);
   const address = email.trim().toLowerCase();
 
   async function finish(who: string, token: string, expiresIn: number, recoverySession: boolean) {
-    await saveSessionToken(asyncStore, token, expiresIn);
-    try { await AsyncStorage.setItem(LS_ACCOUNT_EMAIL, who); } catch { /* non-critical */ }
+    await saveSessionToken(tokenStore, token, expiresIn);
+    await AsyncStorage.setItem(LS_ACCOUNT_EMAIL, who).catch(() => undefined);
     onSignedIn(who, recoverySession);
   }
 
-  function failMessage(e: unknown): string {
-    if (isNetworkError(e)) return t('signin.offline');
-    const status = apiStatus(e);
-    if (status === 503) return t('signin.emailUnavailable');
-    if (status === 422) return t('signin.invalidEmail');
-    if (status === 401) return t('signin.emailCodeFailed');
-    return t('signin.unknownError');
+  function failMessage(error: unknown): string {
+    if (isNetworkError(error)) return auth.offline;
+    switch (apiStatus(error)) {
+      case 429: return auth.emailRateLimited;
+      case 503: return signin.emailUnavailable;
+      case 401: return signin.emailCodeFailed;
+      default: return signin.unknownError;
+    }
   }
 
-  function restart(message = '') {
+  const restart = useCallback((message = '') => {
     setStep('email');
     setCode('');
+    setRecoveryKey('');
     setTicket(null);
     setMfaToken(null);
+    setMfaMode('totp');
+    setFeedback('');
+    setEmailError('');
     setError(message);
+  }, []);
+
+  useEffect(() => {
+    const back = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (busy) return true;
+      if (step === 'email') return false;
+      restart();
+      return true;
+    });
+    return () => back.remove();
+  }, [busy, restart, step]);
+
+  function checkAddress() {
+    const valid = isAccountEmail(address);
+    setEmailError(valid ? '' : signin.invalidEmail);
+    return valid;
   }
 
   async function sendCode() {
-    if (!address || !address.includes('@')) {
-      setError(t('signin.invalidEmail'));
-      return;
-    }
-    setBusy(true);
+    if (busy || !checkAddress()) return;
+    const resending = step === 'code';
+    setBusy(resending ? 'resend' : 'submit');
     setError('');
-    setTicket(null);
-    setCode('');
+    setFeedback('');
     try {
       await client.requestEmailCode(address);
+      setTicket(null);
+      setCode('');
+      if (resending) setFeedback(auth.emailSentAgain);
       setStep('code');
-    } catch (e) {
-      setError(failMessage(e));
+    } catch (error) {
+      if (apiStatus(error) === 422 && !resending) setEmailError(signin.invalidEmail);
+      else setError(failMessage(error));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function submitCode() {
-    setBusy(true);
+    if (busy || (!ticket && code.length !== EMAIL_CODE_LENGTH)) return;
+    setBusy('submit');
     setError('');
+    setFeedback('');
     try {
       let current = ticket;
       if (!current) {
-        try {
-          current = (await client.verifyEmailCode(address, code.trim())).registration_ticket;
-          setTicket(current);
-        } finally {
-          setCode('');
-        }
+        current = (await client.verifyEmailCode(address, code)).registration_ticket;
+        setTicket(current);
+        setCode('');
       }
-      let res;
+      let result;
       try {
-        res = await client.emailSessionVerify(address, current);
-      } catch (e) {
-        // Ticket expired or already spent: a new code is needed.
-        if (apiStatus(e) === 401) {
-          restart(t('signin.signupExpired'));
+        result = await client.emailSessionVerify(address, current);
+      } catch (error) {
+        if (apiStatus(error) === 401) {
+          restart(signin.signupExpired);
           return;
         }
-        throw e;
+        throw error;
       }
       setTicket(null);
-      if (isMfaRequiredResult(res)) {
-        setMfaToken(res.mfa_token);
+      if (isMfaRequiredResult(result)) {
+        setMfaToken(result.mfa_token);
+        setMfaMode('totp');
         setStep('mfa');
         return;
       }
-      await finish(address, res.token, res.expires_in, false);
-    } catch (e) {
-      setError(failMessage(e));
+      await finish(address, result.token, result.expires_in, false);
+    } catch (error) {
+      if (apiStatus(error) === 401) setCode('');
+      setError(failMessage(error));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
+  const mfaValid = mfaMode === 'totp' ? code.length === EMAIL_CODE_LENGTH : code.length === 9;
   async function submitMfa() {
-    if (!mfaToken) return;
-    setBusy(true);
+    if (busy || !mfaToken || !mfaValid) return;
+    setBusy('submit');
     setError('');
     try {
-      // The mfa_token is single-use: a failure ends this attempt.
-      const res = await client.mfaVerify(mfaToken, code.trim().toUpperCase());
+      const result = await client.mfaVerify(mfaToken, code);
       setMfaToken(null);
-      await finish(address, res.token, res.expires_in, false);
-    } catch (e) {
-      if (apiStatus(e) === 401) restart(t('signin.mfaExpired'));
-      else setError(failMessage(e));
+      await finish(address, result.token, result.expires_in, false);
+    } catch (error) {
+      if (apiStatus(error) === 401) restart(signin.mfaExpired);
+      else setError(failMessage(error));
     } finally {
       setCode('');
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function submitRecovery() {
-    if (!address || !address.includes('@')) {
-      setError(t('signin.invalidEmail'));
+    if (busy || !checkAddress()) return;
+    let seed: Uint8Array | undefined;
+    try { seed = fromBase64Url(recoveryKey.trim()); } catch { /* Invalid input. */ }
+    if (seed?.length !== 32) {
+      seed?.fill(0);
+      setError(signin.verificationFailed);
       return;
     }
-    let seed: Uint8Array | null = null;
-    try {
-      seed = fromBase64Url(recoveryKey.trim());
-    } catch {
-      seed = null;
-    }
-    if (!seed || seed.length !== 32) {
-      setError(t('signin.verificationFailed'));
-      return;
-    }
-    setBusy(true);
+    setBusy('submit');
     setError('');
     const privateKeys: Uint8Array[] = [];
-    // One full challenge round with one verifier key.
     const attempt = async (privateKey: Uint8Array) => {
       const { challenge_id, challenge } = await client.recoveryChallenge(address, 'recovery_key');
-      const challengeBytes = fromBase64Url(challenge);
-      const signature = sodium.crypto_sign_detached(new Uint8Array(challengeBytes), privateKey);
-      // Only the signature leaves the device — never the recovery key or the private key.
+      const signature = sodium.crypto_sign_detached(fromBase64Url(challenge), privateKey);
       return client.recoveryVerify(challenge_id, address, toBase64(signature));
     };
     try {
       await sodiumReady;
       const current = await recoveryVerifierKeyPair(seed);
       privateKeys.push(current.privateKey);
-      let res;
+      let result;
       try {
-        res = await attempt(current.privateKey);
-      } catch (first) {
-        if (apiStatus(first) !== 401) throw first;
+        result = await attempt(current.privateKey);
+      } catch (error) {
+        if (apiStatus(error) !== 401) throw error;
         const legacy = await legacyRecoveryVerifierKeyPair(seed);
         privateKeys.push(legacy.privateKey);
-        res = await attempt(legacy.privateKey);
+        result = await attempt(legacy.privateKey);
       }
-      await finish(address, res.token, res.expires_in, res.recovery_session === true);
-    } catch (e) {
-      if (isNetworkError(e)) setError(t('signin.offline'));
-      else if (apiStatus(e) === 401) setError(t('signin.verificationFailed'));
-      else setError(t('signin.unknownError'));
+      await finish(address, result.token, result.expires_in, result.recovery_session === true);
+    } catch (error) {
+      setError(apiStatus(error) === 401 ? signin.verificationFailed : failMessage(error));
     } finally {
-      seed?.fill(0);
+      seed.fill(0);
       for (const key of privateKeys) key.fill(0);
       setRecoveryKey('');
-      setBusy(false);
+      setBusy(null);
     }
   }
 
-  const emailInput = (
-    <SoftField
+  const emailField = (
+    <AppTextField
+      flush
       testID="signin-email"
-      label={t('signin.emailLabel')}
-      placeholder={t('signin.emailPlaceholder')}
-      icon="mail"
+      label={signin.emailLabel}
+      placeholder={signin.emailPlaceholder}
+      leadingIcon="mail"
       value={email}
-      onChangeText={setEmail}
+      error={emailError || undefined}
+      disabled={Boolean(busy)}
+      onChangeText={(value) => { setEmail(value); setEmailError(''); }}
+      onSubmitEditing={() => {
+        if (step === 'email') void sendCode();
+        else recoveryInput.current?.focus();
+      }}
+      returnKeyType={step === 'email' ? 'go' : 'next'}
       autoCapitalize="none"
       autoCorrect={false}
       keyboardType="email-address"
       textContentType="emailAddress"
     />
   );
+  const errorMessage = error ? <InlineError testID="signin-error">{error}</InlineError> : null;
+  let title: string = signin.title;
+  let subtitle: string | undefined = auth.newAccountHint;
+  let content: ReactNode;
 
-  const alert = error ? (
-    <Text testID="signin-error" accessibilityRole="alert" style={{ backgroundColor: P.dangerSoft, color: P.danger, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, lineHeight: 20 }}>{error}</Text>
-  ) : null;
-
-  // One keyed block per step so each step rises in once.
-  let body: ReactNode;
-  if (mode === 'recovery') {
-    body = (
-      <View key="recovery" style={{ gap: 14 }}>
-        <Rise index={0} reduced={reduced}>
-          <View style={{ backgroundColor: P.warnSoft, borderRadius: 14, padding: 12, gap: 6 }}>
-            <Text style={{ color: P.warnText, fontSize: 14, fontWeight: '700' }}>{t('signin.recoverySignInTitle')}</Text>
-            <Text style={{ color: P.warnText, fontSize: 13, lineHeight: 18 }}>{t('signin.recoverySignInBody')}</Text>
-            <Text style={{ color: P.warnText, fontSize: 13, lineHeight: 18 }}>{t('signin.verifierRequiredNote')}</Text>
-            <Text style={{ color: P.warnText, fontSize: 13, lineHeight: 18, fontWeight: '700' }}>{t('signin.recoverySessionNote')}</Text>
+  if (step === 'email') {
+    content = (
+      <>
+        {sessionExpired && <Text testID="signin-session-expired" accessibilityRole="alert" style={[textStyle.helper, { color: colors.warningText }]}>{signin.sessionExpired}</Text>}
+        <FieldGroup>
+          {emailField}
+          {errorMessage}
+          <View style={styles.actions}>
+            <AppButton label={auth.continueEmail} icon="mail" testID="signin-submit" loading={busy === 'submit'} onPress={() => void sendCode()} />
+            <AppButton label={auth.advancedRecovery} variant="text" size="compact" testID="signin-mode-recovery" disabled={Boolean(busy)} onPress={() => { setStep('recovery'); setError(''); setEmailError(''); }} />
           </View>
-        </Rise>
-        <Rise index={1} reduced={reduced}>{emailInput}</Rise>
-        <Rise index={2} reduced={reduced}>
-          <SoftField
-            testID="signin-recovery-key"
-            label={t('signin.recoveryKeyLabel')}
-            placeholder={t('signin.recoveryKeyHint')}
-            secureTextEntry
-            value={recoveryKey}
-            onChangeText={setRecoveryKey}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-        </Rise>
-        {alert}
-        <Rise index={3} reduced={reduced}>
-          <Btn testID="signin-submit" primary icon="recovery" label={t('signin.recoverySignInTitle')} busy={busy} onPress={() => void submitRecovery()} />
-        </Rise>
-        <TextButton testID="signin-mode-email" label={t('signin.useEmailCodeInstead')} onPress={() => { setMode('email'); setError(''); }} />
-      </View>
-    );
-  } else if (step === 'email') {
-    body = (
-      <View key="email" style={{ gap: 14 }}>
-        <Rise index={0} reduced={reduced}>{emailInput}</Rise>
-        {alert}
-        <Rise index={1} reduced={reduced}>
-          <Btn testID="signin-submit" primary icon="mail" label={t('signin.sendCodeButton')} busy={busy} disabled={!address} onPress={() => void sendCode()} />
-        </Rise>
-        <TextButton testID="signin-mode-recovery" label={t('signin.useRecoveryKeyInstead')} onPress={() => { setMode('recovery'); setError(''); }} />
-      </View>
+        </FieldGroup>
+        <PageSection title={auth.localTitle} description={auth.localBody}>
+          <AppButton label={auth.localAction} variant="secondary" testID="signin-local-only" disabled={Boolean(busy)} onPress={onContinueLocalOnly} />
+        </PageSection>
+      </>
     );
   } else if (step === 'code') {
-    body = (
-      <View key="code" style={{ gap: 14 }}>
-        <Rise index={0} reduced={reduced}>
-          <Text accessibilityRole="header" style={{ fontSize: 18, fontWeight: '700', color: P.ink }}>{t('signin.emailCodeTitle')}</Text>
-        </Rise>
-        <Rise index={1} reduced={reduced}>
-          <Text style={{ fontSize: 14, lineHeight: 20, color: P.ink2 }}>{t('signin.emailCodeBody')}</Text>
-        </Rise>
-        <Rise index={2} reduced={reduced}>
-          <View style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: P.brandSoft, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 12 }}>
-            <Icon name="mail" size="md" color={P.brandText} />
-            <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: '600', color: P.ink, maxWidth: 240 }}>{address}</Text>
-          </View>
-        </Rise>
-        {!ticket ? (
-          <Rise index={3} reduced={reduced}>
-            <View style={{ gap: 8 }}>
-              <Text style={{ fontSize: 13, fontWeight: '600', color: P.ink2 }}>{t('signin.emailCodeLabel')}</Text>
-              <OtpField testID="signin-email-code" label={t('signin.emailCodeLabel')} value={code} onChange={setCode} />
-              <Text style={{ fontSize: 12.5, color: P.ink3 }}>{t('signin.emailCodeHint')}</Text>
-            </View>
-          </Rise>
-        ) : null}
-        {alert}
-        <Rise index={4} reduced={reduced}>
-          <Btn testID="signin-submit" primary icon="enter" label={t('signin.signIn')} busy={busy} disabled={!ticket && code.length !== 6} onPress={() => void submitCode()} />
-        </Rise>
-        <TextButton testID="signin-resend" brand label={t('signin.resendCode')} disabled={busy} onPress={() => void sendCode()} />
-        <TextButton testID="signin-back" label={t('signin.back')} onPress={() => restart()} />
-      </View>
+    title = signin.emailCodeTitle;
+    subtitle = t('mobileAuth.emailTo', address);
+    content = (
+      <FieldGroup>
+        {!ticket && <OtpField label={signin.emailCodeLabel} helper={signin.emailCodeHint} value={code} onChange={setCode} disabled={Boolean(busy)} onSubmit={() => void submitCode()} />}
+        {errorMessage}
+        {feedback ? <Text accessibilityLiveRegion="polite" style={[textStyle.helper, { color: colors.secondaryText }]}>{feedback}</Text> : null}
+        <View style={styles.actions}>
+          <AppButton label={signin.verifyCode} icon="check" testID="signin-submit" loading={busy === 'submit'} disabled={busy === 'resend' || (!ticket && code.length !== EMAIL_CODE_LENGTH)} onPress={() => void submitCode()} />
+          <AppButton label={signin.resendCode} variant="secondary" testID="signin-resend" loading={busy === 'resend'} disabled={busy === 'submit'} onPress={() => void sendCode()} />
+          <AppButton label={auth.changeEmail} variant="text" testID="signin-back" disabled={Boolean(busy)} onPress={() => restart()} />
+        </View>
+        <Text style={[textStyle.helper, { color: colors.secondaryText }]}>{auth.emailCodeRecoveryHint}</Text>
+      </FieldGroup>
+    );
+  } else if (step === 'mfa') {
+    title = signin.mfaTitle;
+    subtitle = signin.mfaBody;
+    const usingRecovery = mfaMode === 'recovery';
+    content = (
+      <FieldGroup>
+        <AppTextField
+          flush
+          key={mfaMode}
+          label={usingRecovery ? signin.recoveryCodeLabel : signin.mfaCodeLabel}
+          helper={usingRecovery ? signin.recoveryCodeHint : signin.mfaTotpHint}
+          testID="signin-mfa-code"
+          value={code}
+          onChangeText={(value) => setCode(usingRecovery ? normalizeMfaRecoveryCode(value) : normalizeOtp(value))}
+          keyboardType={usingRecovery ? 'ascii-capable' : 'number-pad'}
+          autoCapitalize={usingRecovery ? 'characters' : 'none'}
+          autoComplete="off"
+          autoCorrect={false}
+          autoFocus
+          disabled={Boolean(busy)}
+          returnKeyType="go"
+          onSubmitEditing={() => void submitMfa()}
+        />
+        {errorMessage}
+        <View style={styles.actions}>
+          <AppButton label={signin.verifyCode} icon="check" testID="signin-submit" loading={busy === 'submit'} disabled={!mfaValid} onPress={() => void submitMfa()} />
+          <AppButton label={usingRecovery ? signin.useTotpCode : signin.useRecoveryCode} variant="secondary" testID="signin-mfa-mode" disabled={Boolean(busy)} onPress={() => {
+            setMfaMode(usingRecovery ? 'totp' : 'recovery'); setCode(''); setError('');
+          }} />
+          <AppButton label={signin.back} variant="text" testID="signin-back" disabled={Boolean(busy)} onPress={() => restart()} />
+        </View>
+      </FieldGroup>
     );
   } else {
-    body = (
-      <View key="mfa" style={{ gap: 14 }}>
-        <Rise index={0} reduced={reduced}>
-          <Text accessibilityRole="header" style={{ fontSize: 18, fontWeight: '700', color: P.ink }}>{t('signin.mfaTitle')}</Text>
-        </Rise>
-        <Rise index={1} reduced={reduced}>
-          <Text style={{ fontSize: 14, lineHeight: 20, color: P.ink2 }}>{t('signin.mfaBody')}</Text>
-        </Rise>
-        <Rise index={2} reduced={reduced}>
-          <SoftField
-            testID="signin-mfa-code"
-            label={t('signin.mfaCodeLabel')}
-            value={code}
-            onChangeText={(v) => setCode(v.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 9))}
-            autoCapitalize="characters"
-            autoCorrect={false}
-            placeholder="123456 / XXXX-XXXX"
-            style={{ letterSpacing: 2 }}
-          />
-        </Rise>
-        {alert}
-        <Rise index={3} reduced={reduced}>
-          <Btn testID="signin-submit" primary icon="check" label={t('signin.verifyCode')} busy={busy} disabled={code.trim().length < 6} onPress={() => void submitMfa()} />
-        </Rise>
-        <TextButton testID="signin-back" label={t('signin.back')} onPress={() => restart()} />
-      </View>
+    title = signin.recoverySignInTitle;
+    subtitle = auth.accountRecoveryBody;
+    content = (
+      <FieldGroup>
+        {emailField}
+        <AppTextField
+          flush
+          revealable
+          ref={recoveryInput}
+          testID="signin-recovery-key"
+          label={signin.recoveryKeyLabel}
+          helper={signin.recoveryKeyHint}
+          value={recoveryKey}
+          onChangeText={(value) => { setRecoveryKey(value); setError(''); }}
+          onSubmitEditing={() => void submitRecovery()}
+          returnKeyType="go"
+          autoCapitalize="none"
+          autoComplete="off"
+          autoCorrect={false}
+          disabled={Boolean(busy)}
+        />
+        {errorMessage}
+        <View style={styles.actions}>
+          <AppButton label={signin.recoverySignInTitle} icon="recovery" loading={busy === 'submit'} testID="signin-submit" onPress={() => void submitRecovery()} />
+          <AppButton label={signin.useEmailCodeInstead} variant="text" testID="signin-mode-email" disabled={Boolean(busy)} onPress={() => restart()} />
+        </View>
+      </FieldGroup>
     );
   }
 
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: P.bg }}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 24, paddingBottom: 40, width: '100%', maxWidth: 560, alignSelf: 'center' }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 8 }}>
-            <GhostBrandMark />
-            <Text style={{ fontSize: 17, fontWeight: '700', color: P.ink }}>My Secret</Text>
-          </View>
-
-          <View style={{ alignItems: 'center', marginTop: 24, marginBottom: 20 }}>
-            <Float reduced={reduced}>
-              <Image source={illustrations.deviceHero} accessibilityIgnoresInvertColors style={{ width: 112, height: 112 }} resizeMode="contain" />
-            </Float>
-
-          </View>
-
-          <View style={{ backgroundColor: P.surface, borderRadius: 14, padding: 22 }}>
-            <Text accessibilityRole="header" style={{ fontSize: 27, lineHeight: 33, fontWeight: '700', letterSpacing: -0.4, color: P.ink }}>{t('signin.title')}</Text>
-            {sessionExpired ? (
-              <Text testID="signin-session-expired" style={{ backgroundColor: P.warnSoft, color: P.warnText, borderRadius: 14, padding: 12, fontSize: 14, lineHeight: 20, marginTop: 14 }}>{t('signin.sessionExpired')}</Text>
-            ) : null}
-            <View style={{ marginTop: 18 }}>{body}</View>
-          </View>
-
-          <Pressable testID="signin-local-only" accessibilityRole="button" accessibilityLabel={t('signin.continueLocalOnly')} onPress={onContinueLocalOnly} style={{ minHeight: 44, alignItems: 'center', justifyContent: 'center', marginTop: 8 }}>
-            <Text style={{ fontSize: 14, fontWeight: '600', color: P.ink2 }}>{t('signin.continueLocalOnly')}</Text>
-          </Pressable>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
-  );
+  return <AuthLayout title={title} subtitle={subtitle}>{content}</AuthLayout>;
 }
+
+const styles = StyleSheet.create({ actions: { gap: space[3] } });

@@ -1,58 +1,66 @@
 import React from 'react';
-import { Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { useTranslation } from '../../../../packages/i18n/src/react';
 import { useMobileTheme } from '../theme';
+import { radius, space, textStyle } from '../ui/tokens';
 import { parseMarkdown, type InlineSegment } from '../utils/markdown';
 
-/** Render a secure note's Markdown as native text (no HTML, no WebView). */
+/** Render a secure note's Markdown as native text. */
 export default function MarkdownText({ source, testID = 'markdown-preview' }: { source: string; testID?: string }) {
   const { colors, styles } = useMobileTheme();
+  const { dict: { mobileDetail } } = useTranslation();
   const blocks = parseMarkdown(source);
-  if (blocks.length === 0) return <Text style={{ color: colors.muted }}>Empty note.</Text>;
+  if (blocks.length === 0) return <Text style={styles.small}>{mobileDetail.emptyNote}</Text>;
+
   const renderSegments = (segments: InlineSegment[]) =>
-    segments.map((s, i) => (
-      <Text
-        key={i}
-        style={{
-          fontWeight: s.bold ? '700' : '400',
-          fontStyle: s.italic ? 'italic' : 'normal',
-          fontFamily: s.code ? 'monospace' : undefined,
-          backgroundColor: s.code ? colors.input : undefined,
-        }}
-      >
-        {s.text}
+    segments.map((segment, index) => (
+      <Text key={index} style={[
+        segment.bold && local.bold,
+        segment.italic && local.italic,
+        segment.code && [local.codeText, { backgroundColor: colors.surfaceMuted }],
+      ]}>
+        {segment.text}
       </Text>
     ));
+
   return (
-    <View testID={testID}>
-      {blocks.map((b, i) => {
-        if (b.kind === 'code') {
+    <View testID={testID} style={local.blocks}>
+      {blocks.map((block, index) => {
+        if (block.kind === 'code') {
           return (
-            <View key={i} style={{ backgroundColor: colors.input, borderRadius: 8, padding: 10, marginBottom: 8 }}>
-              <Text style={{ color: colors.text, fontFamily: 'monospace', fontSize: 13 }}>{b.text}</Text>
+            <View key={index} style={[local.code, { backgroundColor: colors.surfaceMuted }]}>
+              <Text style={[styles.small, local.codeText, { color: colors.text }]}>{block.text}</Text>
             </View>
           );
         }
-        if (b.kind === 'h1' || b.kind === 'h2' || b.kind === 'h3') {
+        if (block.kind === 'h1' || block.kind === 'h2' || block.kind === 'h3') {
+          const headingStyle = block.kind === 'h1' ? textStyle.title : block.kind === 'h2' ? textStyle.nav : textStyle.item;
           return (
-            <Text key={i} style={{ color: colors.text, fontSize: b.kind === 'h1' ? 20 : b.kind === 'h2' ? 17 : 15, fontWeight: '700', marginBottom: 6, marginTop: i === 0 ? 0 : 8 }}>
-              {renderSegments(b.segments)}
+            <Text key={index} accessibilityRole="header" style={[headingStyle, { color: colors.text }]}>
+              {renderSegments(block.segments)}
             </Text>
           );
         }
-        if (b.kind === 'li') {
+        if (block.kind === 'li') {
           return (
-            <View key={i} style={{ flexDirection: 'row', marginBottom: 4, paddingLeft: 4 }}>
-              <Text style={{ color: colors.muted, width: 20 }}>{b.ordered ? `${b.index}.` : '•'}</Text>
-              <Text style={{ color: colors.text, fontSize: 15, flex: 1, lineHeight: 21 }}>{renderSegments(b.segments)}</Text>
+            <View key={index} style={local.listRow}>
+              <Text style={[styles.body, { color: colors.secondaryText }]}>{block.ordered ? `${block.index}.` : '•'}</Text>
+              <Text style={[styles.body, local.listText]}>{renderSegments(block.segments)}</Text>
             </View>
           );
         }
-        return (
-          <Text key={i} style={{ color: colors.text, fontSize: 15, lineHeight: 21, marginBottom: 8 }}>
-            {renderSegments(b.segments)}
-          </Text>
-        );
+        return <Text key={index} style={styles.body}>{renderSegments(block.segments)}</Text>;
       })}
     </View>
   );
 }
+
+const local = StyleSheet.create({
+  blocks: { gap: space[2] },
+  bold: { fontWeight: '700' },
+  italic: { fontStyle: 'italic' },
+  code: { padding: space[3], borderRadius: radius.glyph },
+  codeText: { fontFamily: 'monospace' },
+  listRow: { flexDirection: 'row', gap: space[2] },
+  listText: { flex: 1, minWidth: 0 },
+});

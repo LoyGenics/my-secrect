@@ -1,41 +1,64 @@
 import React, { useMemo, useState } from 'react';
-import { FlatList, Text, View } from 'react-native';
-import { Search, X } from 'lucide-react-native';
+import { FlatList, StyleSheet, Text, View } from 'react-native';
 import type { VaultItem } from '../../../../packages/core/src/types';
 import { useTranslation } from '../../../../packages/i18n/src/react';
-import { illustrations } from '../../../../packages/ui/src/native';
+import { Icon, illustrations } from '../../../../packages/ui/src/native';
 import ItemRow from '../components/ItemRow';
-import { Empty, IconButton } from '../components/mobile-ui';
+import { AppButton, AppPage, EmptyState, IconButton } from '../components/mobile-ui';
 import { InputControl } from '../components/Field';
 import { useMobileTheme } from '../theme';
-import { searchLocal } from '../vault';
+import { space } from '../ui/tokens';
+import { activeFilterCount, type VaultFilter } from '../utils/vaultFilter';
+import { indexVaultSearch, searchVaultIndex } from '../utils/vaultSearch';
 
-export default function SearchScreen({ items, onSelect, onToggleFavorite }: { items: VaultItem[]; onSelect: (id: string) => void; onToggleFavorite: (id: string) => void }) {
-  const { colors } = useMobileTheme(); const { t, dict } = useTranslation();
-  const [q, setQ] = useState('');
-  // The live item index is also a dependency: edits and imports refresh results.
-  // Archived items remain searchable; deleted items live in Trash.
-  const results = useMemo(() => q.trim() ? searchLocal(q) : [...items].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 8), [q, items]);
-  return <View style={{ flex: 1, backgroundColor: colors.bg }}>
-    <FlatList data={results} keyExtractor={i => i.id} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={{ padding: 20, paddingTop: 8, paddingBottom: 40, width: '100%', maxWidth: 820, alignSelf: 'center' }}
-      ListHeaderComponent={<View style={{ marginBottom: 18 }}>
-        <InputControl
-          testID="search-input"
-          accessibilityLabel={t('mobileUI.searchAll')}
-          placeholder={dict.search.placeholder}
-          value={q}
-          onChangeText={setQ}
-          autoFocus
-          autoCapitalize="none"
-          autoCorrect={false}
-          returnKeyType="search"
-          leading={<Search size={19} color={colors.muted} />}
-          trailing={!!q && <IconButton accessibilityLabel={dict.common.clear} onPress={() => setQ('')}><X size={18} color={colors.muted} /></IconButton>}
-        />
-        <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 19, marginTop: 12 }}>{q.trim() ? t('mobileUI.itemCount', results.length) : t('mobileUI.recentItems')}</Text>
-      </View>}
-      renderItem={({ item }) => <ItemRow item={item} onPress={() => onSelect(item.id)} onToggleFavorite={() => onToggleFavorite(item.id)} />}
-      ListEmptyComponent={<Empty image={illustrations.noResults} title={q.trim() ? t('mobileUI.noResults', q) : t('mobileUI.searchAll')} detail={t('mobileUI.searchHint')} />}
+export default function SearchScreen({ items, onSelect, onToggleFavorite, filter, onClearFilters, archived = false }: {
+  items: VaultItem[];
+  onSelect: (id: string) => void;
+  onToggleFavorite: (id: string) => void;
+  filter?: VaultFilter;
+  onClearFilters?: () => void;
+  archived?: boolean;
+}) {
+  const { colors, styles } = useMobileTheme();
+  const { t, dict, locale } = useTranslation();
+  const [query, setQuery] = useState('');
+  const index = useMemo(() => indexVaultSearch(items, archived), [items, archived]);
+  const results = useMemo(() => searchVaultIndex(index, items, query, filter, locale), [index, items, query, filter, locale]);
+  const hasQuery = !!query.trim();
+  const count = filter ? activeFilterCount(filter) : 0;
+  const header = <View style={local.header}>
+    <InputControl
+      testID="search-input"
+      accessibilityLabel={t('mobileUI.searchAll')}
+      placeholder={dict.search.placeholder}
+      value={query}
+      onChangeText={setQuery}
+      autoFocus
+      autoCapitalize="none"
+      autoCorrect={false}
+      returnKeyType="search"
+      leading={<Icon name="search" color={colors.secondaryText} />}
+      trailing={!!query && <IconButton testID="search-clear" icon="close" accessibilityLabel={dict.common.clear} onPress={() => setQuery('')} />}
     />
+    {count > 0 && <Text style={styles.small}>{t('mobileVault.searchingWithFilters', count)}</Text>}
+    <Text testID="search-result-count" accessibilityLiveRegion="polite" style={styles.small}>
+      {hasQuery ? t('mobileUI.itemCount', results.length) : dict.mobileVault.recentlyUpdated}
+    </Text>
   </View>;
+  return <AppPage width="list" scroll={false} safeArea="bottom" header={header}>
+    <FlatList data={results} keyExtractor={(item) => item.id} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag"
+      contentContainerStyle={local.results}
+      renderItem={({ item }) => <ItemRow item={item} onPress={() => onSelect(item.id)} onToggleFavorite={() => onToggleFavorite(item.id)} />}
+      ListEmptyComponent={<EmptyState image={illustrations.noResults}
+        title={hasQuery ? t('mobileUI.noResults', query.trim()) : count > 0 ? dict.mobileVault.noMatches : t('mobileUI.searchAll')}
+        detail={count > 0 ? dict.mobileVault.noMatchesBody : t('mobileUI.searchHint')}>
+        {count > 0 && onClearFilters && <AppButton testID="search-clear-filters" label={dict.mobileVault.clear} variant="secondary" onPress={onClearFilters} />}
+      </EmptyState>}
+    />
+  </AppPage>;
 }
+
+const local = StyleSheet.create({
+  header: { gap: space[3] },
+  results: { paddingBottom: space[6] },
+});

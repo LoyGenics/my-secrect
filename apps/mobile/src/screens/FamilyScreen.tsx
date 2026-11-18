@@ -1,19 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Alert } from 'react-native';
 import { FamilyApiClient, familyErrorKey, type FamilyState } from '../../../../packages/sdk/src/family';
 import { isStepUpRequired, SecurityApiClient } from '../../../../packages/sdk/src/security';
 import { useTranslation } from '../../../../packages/i18n/src/react';
-import { useMobileTheme } from '../theme';
-import { Action, Empty, Group, Page, Row, Rule } from '../components/mobile-ui';
+import { AppButton, AppPage, BottomSheet, EmptyState, FormSection, Group, IconButton, InlineError, Progress, Rule, SettingsRow } from '../components/mobile-ui';
 import { illustrations } from '../../../../packages/ui/src/native';
-import Field from '../components/Field';
-import { MoreHorizontal, UserRound } from 'lucide-react-native';
+import { AppTextField } from '../components/Field';
 import { getApiToken } from './SecurityScreen';
 
 type Action = () => Promise<FamilyState>;
-export default function FamilyScreen({ baseUrl, onClose }: { baseUrl: string; onClose: () => void }) {
+export default function FamilyScreen({ baseUrl }: { baseUrl: string; onClose?: () => void }) {
   const { t } = useTranslation();
-  const { colors, styles } = useMobileTheme();
   const [api, setApi] = useState<FamilyApiClient | null>(null);
   const security = useRef<SecurityApiClient | null>(null);
   const alive = useRef(true);
@@ -23,6 +20,8 @@ export default function FamilyScreen({ baseUrl, onClose }: { baseUrl: string; on
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [pending, setPending] = useState<Action | null>(null);
+  const [memberToRemove, setMemberToRemove] = useState<{ id: string; email: string }>();
+  const dismissVerification = () => { setPending(null); setCode(''); setError(''); };
   async function run(action: Action) {
     setBusy(true); setError('');
     try { const result = await action(); if (alive.current) { setState(result); setEmail(''); } }
@@ -54,38 +53,82 @@ export default function FamilyScreen({ baseUrl, onClose }: { baseUrl: string; on
     } catch { setError(t('family.verificationHelp')); }
     finally { if (alive.current) setBusy(false); }
   }
-  const button = (label: string, action: () => void, disabled = false) => <Pressable accessibilityRole="button" accessibilityLabel={label} disabled={busy || disabled} onPress={action} style={[styles.ghostButton, { marginTop: 8, opacity: busy || disabled ? 0.5 : 1 }]}><Text style={styles.ghostButtonText}>{label}</Text></Pressable>;
-  const body = (text: string) => <Text style={{ color: colors.muted, fontSize: 14, lineHeight: 21, marginTop: 12 }}>{text}</Text>;
   const family = state?.family;
+  const invitation = state?.invitation;
   const mine = family?.members.find(member => member.user_id === state?.current_user_id);
-  return <Page>
-    {!api ? <Empty image={illustrations.deviceHero} title={t('mobileUI.familyConnect')} detail={t('mobileUI.familyConnectBody')} /> : <>
-      {!!error && <Text accessibilityRole="alert" style={{ color: colors.dangerText, marginBottom: 18 }}>{error}</Text>}
-      {pending && <Group title={t('family.verify')} footer={t('family.verificationHelp')}><View style={{ padding: 16 }}>
-        <Field testID="family-verification-code" label={t('family.code')} value={code} onChangeText={setCode} keyboardType="number-pad" autoComplete="one-time-code" />
-        {button(t('family.sendCode'), () => { setBusy(true); security.current?.stepUpEmailRequest().catch(() => setError(t('family.verificationHelp'))).finally(() => setBusy(false)); })}
-        {button(t('family.emailCode'), () => void verify('email'), !code.trim())}{button(t('family.totpCode'), () => void verify('totp'), !code.trim())}
-        {button(t('family.cancel'), () => { setPending(null); setCode(''); })}
-      </View></Group>}
-      {!state ? <Action label={busy ? t('family.loading') : t('family.retry')} disabled={busy} secondary onPress={() => void run(() => api.get())} /> : state.invitation ? <Group footer={t('family.existing')}><View style={{ padding: 16 }}>
-        <Text style={{ color: colors.text, fontSize: 17, lineHeight: 25, marginBottom: 16 }}>{t('family.invitation', state.invitation.owner_email)}</Text>
-        <Action label={t('family.accept')} disabled={busy} onPress={() => void run(() => api.accept(state.invitation!.id))} />
-        {button(t('family.decline'), () => confirm(t('family.decline'), () => api.remove(state.invitation!.id)))}
-      </View></Group> : !family ? <Empty title={t('family.empty')}><Action label={t('family.create')} disabled={busy} onPress={() => void run(() => api.create())} /></Empty> : <>
-        <Group title={t('family.seats', family.members.length, family.seats)}>
-          {family.members.map((member, index) => <React.Fragment key={member.id}>{index > 0 && <Rule />}<Row label={member.email} detail={`${t(`family.${member.role}`)} · ${t(`family.${member.status}`)}`} icon={<UserRound size={22} color={colors.muted} />}>
-            {family.role === 'owner' && member.role !== 'owner' ? <Pressable accessibilityRole="button" accessibilityLabel={`${t('family.remove')}: ${member.email}`} disabled={busy} onPress={() => confirm(t('family.remove'), () => api.remove(member.id))} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><MoreHorizontal size={22} color={colors.muted} /></Pressable> : <View />}
-          </Row></React.Fragment>)}
-        </Group>
-        {family.role === 'owner' && <Group title={t('family.invite')} footer={t('family.existing')}><View style={{ padding: 16 }}>
-          <Field testID="family-invite-email" label={t('family.email')} value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" editable={!busy && family.members.length < family.seats} />
-          <Action testID="family-invite" label={t('family.invite')} disabled={busy || !email.trim() || family.members.length >= family.seats} onPress={() => void run(() => api.invite(email))} />
-        </View></Group>}
-        <Group footer={t('family.independent')}>
-          <Row label={family.role === 'owner' ? t('family.dissolve') : t('family.leave')} destructive onPress={busy ? undefined : () => family.role === 'owner' ? confirm(t('family.dissolve'), () => api.dissolve()) : mine && confirm(t('family.leave'), () => api.remove(mine.id))} />
-        </Group>
-      </>}
-      {!!state && <Action label={t('family.refresh')} secondary disabled={busy} onPress={() => void run(() => api.get())} />}
-    </>}
-  </Page>;
+
+  if (!baseUrl) {
+    return <AppPage><EmptyState image={illustrations.deviceHero} title={t('mobileUI.familyConnect')} detail={t('mobileUI.familyConnectBody')} /></AppPage>;
+  }
+  return (
+    <AppPage safeArea="bottom" testID="family-screen">
+      {error && !pending ? <InlineError testID="family-error">{error}</InlineError> : null}
+      {!api || (!state && busy) ? <Progress label={t('family.loading')} /> : !state ? (
+        <AppButton label={t('family.retry')} variant="secondary" onPress={() => void run(() => api.get())} />
+      ) : invitation ? (
+        <FormSection title={t('family.invitation', invitation.owner_email)} description={t('family.existing')}>
+          <AppButton label={t('family.accept')} loading={busy} onPress={() => void run(() => api.accept(invitation.id))} />
+          <AppButton label={t('family.decline')} variant="secondary" disabled={busy} onPress={() => confirm(t('family.decline'), () => api.remove(invitation.id))} />
+        </FormSection>
+      ) : !family ? (
+        <EmptyState title={t('family.empty')}>
+          <AppButton label={t('family.create')} icon="add" loading={busy} onPress={() => void run(() => api.create())} />
+        </EmptyState>
+      ) : (
+        <>
+          <Group title={t('family.seats', family.members.length, family.seats)}>
+            {family.members.map((member, index) => (
+              <React.Fragment key={member.id}>
+                {index > 0 && <Rule leading />}
+                <SettingsRow icon="person" label={member.email} detail={`${t(`family.${member.role}`)} · ${t(`family.${member.status}`)}`}>
+                  {family.role === 'owner' && member.role !== 'owner' && (
+                    <IconButton testID={`family-member-${member.id}-options`} accessibilityLabel={`${t('family.remove')} · ${member.email}`} icon="more" disabled={busy} onPress={() => setMemberToRemove(member)} />
+                  )}
+                </SettingsRow>
+              </React.Fragment>
+            ))}
+          </Group>
+          {family.role === 'owner' && (
+            <FormSection title={t('family.invite')} description={t('family.existing')}>
+              <AppTextField testID="family-invite-email" label={t('family.email')} value={email} onChangeText={setEmail}
+                autoComplete="email" autoCapitalize="none" autoCorrect={false} keyboardType="email-address" disabled={busy || family.members.length >= family.seats} />
+              <AppButton testID="family-invite" label={t('family.invite')} icon="mail" disabled={!email.trim() || family.members.length >= family.seats}
+                loading={busy} onPress={() => void run(() => api.invite(email.trim()))} />
+            </FormSection>
+          )}
+          <Group footer={t('family.independent')}>
+            {family.role === 'owner' ? (
+              <SettingsRow label={t('family.dissolve')} destructive onPress={busy ? undefined : () => confirm(t('family.dissolve'), () => api.dissolve())} />
+            ) : mine && (
+              <SettingsRow label={t('family.leave')} destructive onPress={busy ? undefined : () => confirm(t('family.leave'), () => api.remove(mine.id))} />
+            )}
+          </Group>
+        </>
+      )}
+      {api && state && <AppButton label={t('family.refresh')} variant="text" icon="regenerate" disabled={busy} onPress={() => void run(() => api.get())} />}
+
+      <BottomSheet visible={Boolean(pending)} onClose={dismissVerification} title={t('family.verify')} testID="family-verification">
+        <FormSection description={t('family.verificationHelp')}>
+          <AppTextField testID="family-verification-code" label={t('family.code')} value={code} onChangeText={setCode} keyboardType="number-pad" autoComplete="one-time-code" />
+          {error ? <InlineError>{error}</InlineError> : null}
+          <AppButton label={t('family.sendCode')} variant="text" disabled={busy} onPress={() => {
+            setBusy(true);
+            void security.current?.stepUpEmailRequest().catch(() => setError(t('family.verificationHelp'))).finally(() => setBusy(false));
+          }} />
+          <AppButton label={t('family.emailCode')} loading={busy} disabled={!code.trim()} onPress={() => void verify('email')} />
+          <AppButton label={t('family.totpCode')} variant="secondary" disabled={busy || !code.trim()} onPress={() => void verify('totp')} />
+        </FormSection>
+      </BottomSheet>
+
+      <BottomSheet visible={Boolean(memberToRemove)} onClose={() => setMemberToRemove(undefined)} title={memberToRemove?.email ?? ''} testID="family-member-actions">
+        {api && memberToRemove && (
+          <AppButton label={t('family.remove')} variant="destructive" icon="trash" onPress={() => {
+            const id = memberToRemove.id;
+            setMemberToRemove(undefined);
+            confirm(t('family.remove'), () => api.remove(id));
+          }} />
+        )}
+      </BottomSheet>
+    </AppPage>
+  );
 }

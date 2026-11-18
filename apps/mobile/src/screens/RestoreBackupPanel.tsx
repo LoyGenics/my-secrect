@@ -1,91 +1,174 @@
-import React, { useState } from 'react';
-import { Image, Pressable, Text, View } from 'react-native';
-import Field from '../components/Field';
-import { useMobileTheme } from '../theme';
-import { Icon, illustrations, typeArt } from '../../../../packages/ui/src/native';
-import { restoreEncrypted, getVaultStats, lockVault } from '../vault';
-import { describeRestoreError } from '../../../desktop/src/components/restoreErrors';
+import React, { useEffect, useState } from 'react';
+import { BackHandler, Keyboard, Text, View } from 'react-native';
+import * as Documents from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
+import { isFile } from '../../../../packages/core/src/files';
+import { formatDate, formatNumber } from '../../../../packages/i18n/src/index';
 import { useTranslation } from '../../../../packages/i18n/src/react';
-import type { ItemListCheck } from '../../../../packages/import-export/src/index';
+import { parseEncryptedExportText, type ItemListCheck } from '../../../../packages/import-export/src/index';
+import { describeRestoreError } from '../../../desktop/src/components/restoreErrors';
+import AppTextField from '../components/Field';
+import { AppButton, FieldGroup, InlineError, Progress, SegmentedControl } from '../components/mobile-ui';
+import { useMobileTheme } from '../theme';
+import { space } from '../ui/tokens';
+import { listItems, lockVault, restoreEncrypted } from '../vault';
 
-/**
- * Fresh-device restore for mobile. No document-picker dependency is
- * installed (apps/mobile/package.json), so the backup JSON is pasted into a
- * text field. restoreEncrypted() requires empty storage, decrypts every item
- * before writing, and writes nothing on any failure. After success the vault
- * is locked again so a normal unlock is required.
- */
+interface BackupPreview {
+  name: string;
+  text: string;
+  itemCount: number;
+  version: number;
+  exportedAt: string;
+}
+
 export default function RestoreBackupPanel({ onRestored, onCancel }: { onRestored: () => void; onCancel: () => void }) {
-  const { colors, styles } = useMobileTheme();
-  const [json, setJson] = useState('');
+  const { dict, locale, t, tp } = useTranslation();
+  const { styles } = useMobileTheme();
+  const { restore, mobileAuth: auth } = dict;
+  const [backup, setBackup] = useState<BackupPreview | null>(null);
   const [mode, setMode] = useState<'passphrase' | 'recovery'>('passphrase');
   const [secret, setSecret] = useState('');
   const [error, setError] = useState('');
-  const [count, setCount] = useState<number | null>(null);
-  const [itemList, setItemList] = useState<ItemListCheck | null>(null);
-  const [busy, setBusy] = useState(false);
-  const { dict } = useTranslation();
+  const [result, setResult] = useState<{ count: number; itemList: ItemListCheck; hasFiles: boolean } | null>(null);
+  const [busy, setBusy] = useState<'pick' | 'restore' | null>(null);
 
-  async function submit() {
-    setError('');
-    if (!json.trim()) { setError('Paste the contents of your backup file first.'); return; }
-    if (!secret.trim()) { setError(mode === 'passphrase' ? 'Enter the passphrase for this backup.' : 'Enter the recovery key.'); return; }
-    setBusy(true);
-    let checked: ItemListCheck;
-    try {
-      checked = await restoreEncrypted(json, mode === 'passphrase' ? { passphrase: secret } : { recoveryKey: secret });
-    } catch (e) {
-      setError(describeRestoreError(e).message);
-      setBusy(false);
-      return;
+  useEffect(() => {
+    const back = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (!busy) {
+        if (result) onRestored();
+        else onCancel();
+      }
+      return true;
+    });
+    return () => back.remove();
+  }, [busy, onCancel, onRestored, result]);
+
+  function safeRestoreMessage(error: unknown): string {
+    switch (describeRestoreError(error).kind) {
+      case 'existing-vault': return auth.restoreExisting;
+      case 'wrong-passphrase': return auth.restoreWrongPass;
+      case 'wrong-recovery-key':
+      case 'bad-recovery-key': return auth.restoreWrongRecovery;
+      case 'tampered':
+      case 'duplicate-ids': return auth.restoreTampered;
+      case 'item-list-mismatch': return dict.backup.itemListMismatch;
+      case 'unsupported-version': return auth.restoreUnsupported;
+      case 'not-a-backup': return auth.restoreInvalid;
+      case 'unknown': return auth.restoreFailed;
     }
-    const n = getVaultStats().total;
-    lockVault();
-    setSecret(''); setJson('');
-    setItemList(checked);
-    setCount(n);
-    setBusy(false);
   }
 
-  if (count !== null) {
+  async function selectBackup() {
+    if (busy) return;
+    Keyboard.dismiss();
+    setError('');
+    setBusy('pick');
+    let cachedFile: string | undefined;
+    try {
+      const selected = await Documents.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
+      if (selected.canceled) return;
+      const file = selected.assets[0];
+      if (!file) { setError(restore.readFailed); return; }
+      setBackup(null);
+      setSecret('');
+      if (FileSystem.cacheDirectory && file.uri.startsWith(FileSystem.cacheDirectory)) cachedFile = file.uri;
+      const text = await FileSystem.readAsStringAsync(file.uri);
+      const { data, validation } = parseEncryptedExportText(text);
+      if (!data) {
+        const version = validation.formatVersion;
+        if (version !== undefined && version !== 2 && version !== 3) setError(auth.restoreUnsupported);
+        else setError(validation.duplicateIds.length ? auth.restoreTampered : auth.restoreInvalid);
+        return;
+      }
+      setBackup({ name: file.name, text, itemCount: validation.itemCount, version: data.format_version, exportedAt: data.exported_at });
+    } catch {
+      setError(restore.readFailed);
+    } finally {
+      if (cachedFile) await FileSystem.deleteAsync(cachedFile, { idempotent: true }).catch(() => undefined);
+      setBusy(null);
+    }
+  }
+
+  async function submit() {
+    if (busy) return;
+    if (!backup) { setError(restore.chooseFile); return; }
+    if (!secret.trim()) {
+      setError(mode === 'passphrase' ? restore.enterPassphrase : restore.enterRecovery);
+      return;
+    }
+    Keyboard.dismiss();
+    setBusy('restore');
+    setError('');
+    try {
+      const itemList = await restoreEncrypted(backup.text, mode === 'passphrase' ? { passphrase: secret } : { recoveryKey: secret });
+      const items = listItems();
+      lockVault();
+      setSecret('');
+      setBackup(null);
+      setResult({ count: items.length, itemList, hasFiles: items.some(isFile) });
+    } catch (error) {
+      setError(safeRestoreMessage(error));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (result) {
     return (
-      <View testID="restore-success" style={{ marginTop: 20, alignItems: 'center' }}>
-        <Image source={illustrations.success} style={{ width: 120, height: 120 }} accessibilityIgnoresInvertColors />
-        <Text style={{ color: colors.text, fontSize: 16, textAlign: 'center', marginTop: 8 }}>
-          Backup restored: {count} {count === 1 ? 'item' : 'items'} decrypted and saved. The vault is locked; unlock it normally.
-        </Text>
-        {itemList === 'unverifiable-legacy' ? (
-          <Text testID="restore-item-list-unverified" accessibilityRole="alert" style={[styles.error, { textAlign: 'center', marginTop: 12 }]}>
-            {dict.backup.itemListUnverified}
-          </Text>
-        ) : null}
-        <Pressable testID="restore-continue" accessibilityRole="button" accessibilityLabel="Continue to unlock" style={[styles.primaryButton, { marginTop: 20, alignSelf: 'stretch' }]} onPress={onRestored}>
-          <Text style={styles.primaryButtonText}>Continue to unlock</Text>
-        </Pressable>
+      <View testID="restore-success" style={{ gap: space[4] }}>
+        <Text accessibilityRole="header" style={styles.heading}>{restore.successTitle}</Text>
+        <Text style={styles.body}>{tp(restore.successBody, result.count)}</Text>
+        {result.itemList === 'unverifiable-legacy'
+          ? <InlineError testID="restore-item-list-unverified">{dict.backup.itemListUnverified}</InlineError>
+          : <Text testID="restore-item-list-verified" style={styles.small}>{auth.restoreVerified}</Text>}
+        {result.hasFiles && <Text style={styles.small}>{auth.recordsOnly}</Text>}
+        <AppButton label={restore.continue} icon="unlock" testID="restore-continue" onPress={onRestored} />
       </View>
     );
   }
+
+  const date = backup ? new Date(backup.exportedAt) : null;
+  const formattedDate = date && !Number.isNaN(date.getTime()) ? formatDate(locale, date, { dateStyle: 'medium' }) : null;
+  const choices = [
+    { value: 'passphrase', label: restore.passphrase },
+    { value: 'recovery', label: restore.recoveryKey },
+  ];
+
   return (
-    <View style={{ marginTop: 20 }}>
-      <Text style={{ color: colors.text, fontSize: 15, lineHeight: 22, marginBottom: 14 }}>
-        Paste the contents of your encrypted backup. Then enter its passphrase or recovery key to restore your items.
-      </Text>
-      <Field label="Backup file contents" testID="restore-json" multiline value={json} onChangeText={(v) => { setJson(v); setError(''); }} autoCapitalize="none" autoCorrect={false} />
-      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
-        {(['passphrase', 'recovery'] as const).map((m) => (
-          <Pressable key={m} testID={`restore-mode-${m}`} accessibilityRole="radio" accessibilityState={{ selected: mode === m }} onPress={() => { setMode(m); setSecret(''); setError(''); }} style={[mode === m ? styles.primaryButton : styles.ghostButton, { flex: 1, minHeight: 44 }]}>
-            <Text style={mode === m ? styles.primaryButtonText : styles.ghostButtonText}>{m === 'passphrase' ? 'Passphrase' : 'Recovery key'}</Text>
-          </Pressable>
-        ))}
-      </View>
-      <Field label={mode === 'passphrase' ? 'Backup passphrase' : 'Recovery key'} testID="restore-secret" secureTextEntry value={secret} onChangeText={setSecret} autoCapitalize="none" autoCorrect={false} />
-      {error ? <Text testID="restore-error" accessibilityRole="alert" style={[styles.error, { marginBottom: 12 }]}>{error}</Text> : null}
-      <Pressable testID="restore-submit" accessibilityRole="button" accessibilityLabel="Restore backup" disabled={busy} onPress={() => void submit()} style={[styles.primaryButton, busy ? { opacity: 0.6 } : null]}>
-        <Text style={styles.primaryButtonText}>{busy ? 'Restoring…' : 'Restore backup'}</Text>
-      </Pressable>
-      <Pressable testID="restore-cancel" accessibilityRole="button" accessibilityLabel="Back to create vault" disabled={busy} onPress={onCancel} style={[styles.ghostButton, { marginTop: 12 }]}>
-        <Text style={styles.ghostButtonText}>Back to create vault</Text>
-      </Pressable>
-    </View>
+    <FieldGroup>
+      <AppButton label={busy === 'pick' ? auth.readingFile : backup ? auth.changeBackup : auth.pickBackup}
+        icon="file" variant={backup ? 'secondary' : 'primary'} testID="restore-pick-file"
+        loading={busy === 'pick'} disabled={busy === 'restore'} onPress={() => void selectBackup()} />
+      {backup && (
+        <>
+          <View testID="restore-file-preview" style={[styles.card, { gap: space[1] }]}>
+            <Text style={styles.label}>{auth.previewLabel}</Text>
+            <Text style={styles.body}>{backup.name}</Text>
+            <Text style={styles.small}>{t('mobileAuth.previewCount', formatNumber(locale, backup.itemCount))}</Text>
+            <Text style={styles.small}>{t('mobileAuth.backupVersion', backup.version)}</Text>
+            {formattedDate && <Text style={styles.small}>{t('mobileAuth.previewDate', formattedDate)}</Text>}
+          </View>
+          <Text style={styles.small}>{auth.recordsOnly}</Text>
+          <SegmentedControl label={restore.credentialType} choices={choices} value={mode}
+            testID="restore-mode" disabled={Boolean(busy)} onChange={(value) => {
+              if (busy || (value !== 'passphrase' && value !== 'recovery')) return;
+              setMode(value);
+              setError('');
+              setSecret('');
+            }} />
+          <AppTextField flush revealable label={mode === 'passphrase' ? restore.backupPassphrase : restore.recoveryKey}
+            testID="restore-secret" value={secret} onChangeText={(value) => { setSecret(value); setError(''); }}
+            autoComplete="off" autoCapitalize="none" autoCorrect={false} disabled={Boolean(busy)}
+            returnKeyType="go" onSubmitEditing={() => void submit()} />
+        </>
+      )}
+      {!!error && <InlineError testID="restore-error">{error}</InlineError>}
+      {!!backup && (
+        <AppButton label={busy === 'restore' ? restore.restoring : restore.restore} icon="restore"
+          testID="restore-submit" loading={busy === 'restore'} disabled={busy === 'pick'} onPress={() => void submit()} />
+      )}
+      {busy === 'restore' && <Progress label={restore.restoring} testID="restore-progress" />}
+      <AppButton label={restore.back} variant="text" testID="restore-cancel" disabled={Boolean(busy)} onPress={onCancel} />
+    </FieldGroup>
   );
 }

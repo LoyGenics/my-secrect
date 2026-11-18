@@ -1,25 +1,29 @@
-import React, { useEffect, useState } from 'react';
-import { Alert, Share, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Alert, Share } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
-import { Copy, Share2 } from 'lucide-react-native';
 import type { VaultItem } from '../../../../packages/core/src/types';
-import { createShareLink, shareLinkURL } from '../../../../packages/core/src/share-link';
+import { createShareLink, shareLinkSnapshot, shareLinkURL } from '../../../../packages/core/src/share-link';
 import { ShareLinksApiClient, type OwnedShareLink } from '../../../../packages/sdk/src/share-links';
 import { useTranslation } from '../../../../packages/i18n/src/react';
-import { Action, Group, Page, Row, Rule, Select } from '../components/mobile-ui';
-import { useMobileTheme } from '../theme';
+import { AppButton, AppPage, FormSection, Group, IconButton, InlineError, PageSection, Progress, Rule, SelectField, SettingsRow } from '../components/mobile-ui';
 import { decryptWithVaultKey, encryptWithVaultKey } from '../vault';
 import { getApiToken } from './SecurityScreen';
 import { SHARE_WEB_ORIGIN_KEY } from '../accountServer';
 
 interface LinkView { link: OwnedShareLink; url: string }
 export default function ShareLinkScreen({ item, baseUrl }: { item: VaultItem; baseUrl: string }) {
-  const { t, dict, locale } = useTranslation(); const { colors } = useMobileTheme();
+  const { t, dict, locale } = useTranslation();
   const [ttl, setTTL] = useState('86400'); const [busy, setBusy] = useState(false);
   const [error, setError] = useState(''); const [api, setApi] = useState<ShareLinksApiClient | null>(null);
   const [origin, setOrigin] = useState(''); const [url, setURL] = useState(''); const [copied, setCopied] = useState(false);
   const [links, setLinks] = useState<LinkView[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [retry, setRetry] = useState(0);
+  const fields = useMemo(() => {
+    try { return Object.keys(shareLinkSnapshot(item).fields); }
+    catch { return null; }
+  }, [item]);
   async function refresh(client: ShareLinksApiClient, webOrigin: string) {
     const result = await client.list(); const found: LinkView[] = [];
     for (const link of result.links) {
@@ -34,6 +38,7 @@ export default function ShareLinkScreen({ item, baseUrl }: { item: VaultItem; ba
   }
   useEffect(() => {
     let alive = true;
+    setLoading(true); setError('');
     void (async () => {
       if (!baseUrl) { if (alive) setError(t('mobileUI.linkConfigure')); return; }
       if (!(await getApiToken())) { if (alive) setError(t('mobileUI.linkConnect')); return; }
@@ -43,11 +48,11 @@ export default function ShareLinkScreen({ item, baseUrl }: { item: VaultItem; ba
       if (!alive) return;
       setApi(client); setOrigin(webOrigin);
       try { await refresh(client, webOrigin); } catch { if (alive) setError(t('mobileUI.linkFailed')); }
-    })().catch(() => { if (alive) setError(t('mobileUI.linkFailed')); });
+    })().catch(() => { if (alive) setError(t('mobileUI.linkFailed')); }).finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [baseUrl, item.id]);
+  }, [baseUrl, item.id, retry]);
   async function create() {
-    if (!api || busy) return;
+    if (!api || busy || !fields) return;
     setBusy(true); setError(''); setCopied(false);
     try {
       const value = await createShareLink(item, Number(ttl));
@@ -66,22 +71,60 @@ export default function ShareLinkScreen({ item, baseUrl }: { item: VaultItem; ba
     ]);
   }
   const when = (value: string) => new Date(value).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' });
-  return <Page>
-    <Text style={{ color: colors.text, fontSize: 24, lineHeight: 31, fontWeight: '600', marginBottom: 12 }}>{item.title}</Text>
-    <Text style={{ color: colors.muted, fontSize: 14, lineHeight: 21, marginBottom: 24 }}>{t('mobileUI.linkAnyone')}</Text>
-    {!!error && <Text testID="share-link-error" accessibilityRole="alert" style={{ color: colors.dangerText, fontSize: 14, lineHeight: 21, marginBottom: 18 }}>{error}</Text>}
-    {url ? <View style={{ gap: 12 }}>
-      <Action testID="copy-share-link" label={copied ? dict.common.copied : t('mobileUI.copyLink')} icon={<Copy size={18} color="#FFFFFF" />} onPress={() => void Clipboard.setStringAsync(url).then(() => setCopied(true))} />
-      <Action testID="send-share-link" label={t('mobileUI.sendLink')} secondary icon={<Share2 size={18} color={colors.text} />} onPress={() => void Share.share({ message: url })} />
-      <Row label={t('mobileUI.createLink')} onPress={() => { setURL(''); setCopied(false); }} />
-    </View> : <>
-      <Group title={t('mobileUI.linkExpiry')}><View style={{ paddingHorizontal: 16 }}><Select testID="share-link-expiry" label={t('mobileUI.linkExpiry')} value={ttl} choices={[{ value: '3600', label: t('mobileUI.hour') }, { value: '86400', label: t('mobileUI.day') }, { value: '604800', label: t('mobileUI.week') }]} onChange={setTTL} /></View></Group>
-      <Action testID="create-share-link" label={busy ? t('mobileUI.creatingLink') : t('mobileUI.createLink')} disabled={!api || busy} onPress={() => void create()} />
-    </>}
-    {!!links.length && <View style={{ marginTop: 32 }}><Group title={t('mobileUI.activeLinks')}>
-      {links.map(({ link, url: existing }, index) => <React.Fragment key={link.id}>{index > 0 && <Rule />}<Row testID={`shared-link-${link.id}`} label={t('mobileUI.expiresAt', when(link.expires_at))} onPress={() => { setURL(existing); setCopied(false); }}>
-        <View style={{ flexDirection: 'row' }}><Action testID={`revoke-link-${link.id}`} label={t('mobileUI.revokeLink')} secondary disabled={busy} onPress={() => revoke(link.id)} /></View>
-      </Row></React.Fragment>)}
-    </Group></View>}
-  </Page>;
+  const choices = [
+    { value: '3600', label: t('mobileUI.hour') },
+    { value: '86400', label: t('mobileUI.day') },
+    { value: '604800', label: t('mobileUI.week') },
+  ];
+  const fieldLabel = (name: string) => (dict.fields as Record<string, string>)[name] ?? name;
+
+  return (
+    <AppPage safeArea="bottom" testID="share-link-screen">
+      <PageSection title={item.title} description={t('mobileUI.linkRetention')}>
+        {loading ? <Progress label={dict.common.loading} /> : null}
+        {error ? <InlineError testID="share-link-error">{error}</InlineError> : null}
+        {!loading && error && api && <AppButton label={t('security.retry')} variant="text" onPress={() => setRetry(value => value + 1)} />}
+      </PageSection>
+      {api && !loading && (
+        <>
+          {!fields ? (
+            <InlineError testID="share-link-unsupported">{t('mobileUI.linkFieldsInvalid')}</InlineError>
+          ) : fields.length > 0 && (
+            <Group title={t('mobileUI.linkFields')}>
+              {fields.map((name, index) => (
+                <React.Fragment key={name}>{index > 0 && <Rule />}<SettingsRow label={fieldLabel(name)} /></React.Fragment>
+              ))}
+            </Group>
+          )}
+          {url ? (
+            <FormSection>
+              <AppButton testID="copy-share-link" label={copied ? dict.common.copied : t('mobileUI.copyLink')} icon="copy"
+                onPress={() => void Clipboard.setStringAsync(url).then(() => setCopied(true)).catch(() => setError(t('mobileUI.clipboardFailed')))} />
+              <AppButton testID="send-share-link" label={t('mobileUI.sendLink')} icon="share" variant="secondary"
+                onPress={() => void Share.share({ message: url }).catch(() => setError(t('mobileUI.linkFailed')))} />
+              <AppButton label={t('mobileUI.createLink')} variant="text" onPress={() => { setURL(''); setCopied(false); }} />
+            </FormSection>
+          ) : fields && (
+            <FormSection>
+              <SelectField testID="share-link-expiry" label={t('mobileUI.linkExpiry')} value={ttl} choices={choices} onChange={setTTL} />
+              <AppButton testID="create-share-link" label={t('mobileUI.createLink')} icon="link" loading={busy} onPress={() => void create()} />
+            </FormSection>
+          )}
+          {links.length > 0 && (
+            <Group title={t('mobileUI.activeLinks')}>
+              {links.map(({ link, url: existing }, index) => (
+                <React.Fragment key={link.id}>
+                  {index > 0 && <Rule />}
+                  <SettingsRow testID={`shared-link-${link.id}`} label={t('mobileUI.expiresAt', when(link.expires_at))}
+                    onPress={() => { setURL(existing); setCopied(false); }}>
+                    <IconButton testID={`revoke-link-${link.id}`} accessibilityLabel={t('mobileUI.revokeLink')} icon="trash" tone="danger" disabled={busy} onPress={() => revoke(link.id)} />
+                  </SettingsRow>
+                </React.Fragment>
+              ))}
+            </Group>
+          )}
+        </>
+      )}
+    </AppPage>
+  );
 }

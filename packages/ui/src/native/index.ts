@@ -6,6 +6,6 @@
 export * from '../tokens';
 export * from '../icons';
 export * from '../modules';
-export { Icon, type NativeIconProps } from './Icon';
+export { Icon, type NativeIconName, type NativeIconProps } from './Icon';
 export { TypeModule, type NativeTypeModuleProps } from './TypeModule';
 export { illustrations, mascot, typeArt, type NativeIllustrationName, type NativeMascotName } from './illustrations';

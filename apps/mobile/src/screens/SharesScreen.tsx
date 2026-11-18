@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { Alert, Platform, Text } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Field from '../components/Field';
-import { Empty, Select } from '../components/mobile-ui';
+import { AppTextField } from '../components/Field';
+import { AppButton, AppPage, BottomSheet, EmptyState, FieldGroup, FormSection, Group, InlineError, PageSection, Progress, Rule, SegmentedControl, SelectField, SettingsRow } from '../components/mobile-ui';
+import { textStyle } from '../ui/tokens';
 import { illustrations } from '../../../../packages/ui/src/native';
 import { useMobileTheme } from '../theme';
 import { decryptWithVaultKey, encryptWithVaultKey, listItems, upsertItem } from '../vault';
@@ -75,34 +76,13 @@ const pinStorage = {
   removeItem: (k: string) => AsyncStorage.removeItem(k),
 };
 
-const box = (bg: string, border: string) => ({ backgroundColor: bg, borderColor: border, borderWidth: 1, borderRadius: 12, padding: 12, marginTop: 10 });
-const mono = { fontFamily: Platform.select({ ios: 'Courier', default: 'monospace' }), letterSpacing: 1 } as const;
+const mono = { fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }) } as const;
+type ShareSection = 'overview' | 'inbox' | 'sent' | 'new' | 'identity';
 
-function Button({ label, onPress, primary, disabled, testID }: { label: string; onPress: () => void; primary?: boolean; disabled?: boolean; testID: string }) {
-  const { colors, styles } = useMobileTheme();
-  return (
-    <Pressable testID={testID} accessibilityLabel={label} disabled={disabled} onPress={onPress}
-      style={[primary ? styles.primaryButton : styles.ghostButton, { marginTop: 8, opacity: disabled ? 0.5 : 1 }]}>
-      <Text style={primary ? styles.primaryButtonText : styles.ghostButtonText}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function Chip({ label, selected, onPress, testID }: { label: string; selected: boolean; onPress: () => void; testID: string }) {
-  const { colors, styles } = useMobileTheme();
-  return (
-    <Pressable testID={testID} accessibilityLabel={label} onPress={onPress}
-      style={{ backgroundColor: selected ? colors.accent : colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 9, marginRight: 8, marginBottom: 8 }}>
-      <Text style={{ color: selected ? '#FFF' : colors.text, fontWeight: '600' }}>{label}</Text>
-    </Pressable>
-  );
-}
-
-export default function SharesScreen({ baseUrl, onClose }: { baseUrl: string; onClose: () => void }) {
-  const [section, setSection] = useState('inbox');
-  const { colors, styles } = useMobileTheme();
-  const cardStyle = { backgroundColor: colors.card, borderRadius: 14, padding: 16, marginBottom: 10 };
-  const { t } = useTranslation();
+export default function SharesScreen({ baseUrl }: { baseUrl: string; onClose?: () => void }) {
+  const [section, setSection] = useState<ShareSection>('overview');
+  const { colors } = useMobileTheme();
+  const { t, dict, locale } = useTranslation();
   const [phase, setPhase] = useState<'starting' | 'no-server' | 'signed-out' | 'failed' | 'ready'>('starting');
   const [startError, setStartError] = useState<{ kind: ShareErrorKind; detail: string } | null>(null);
   const [startAttempt, setStartAttempt] = useState(0);
@@ -325,34 +305,35 @@ export default function SharesScreen({ baseUrl, onClose }: { baseUrl: string; on
   const meta = (share: ShareSummary) => [
     share.permission === 'write' ? t('shares.permWrite') : t('shares.permRead'),
     statusLabel(share),
-    share.expires_at ? t('shares.expiresOn', new Date(share.expires_at).toLocaleString()) : t('shares.noExpiry'),
+    share.expires_at ? t('shares.expiresOn', new Date(share.expires_at).toLocaleString(locale)) : t('shares.noExpiry'),
   ].join(' · ');
   /** Verified peers by their PINNED email; anyone else as "the server says". */
   const peerLabel = (peer: PeerView) => (peer.state === 'verified' ? peer.email : t('shares.serverSays', peer.serverEmail));
   const blocked = (peer: PeerView) => peer.state === 'changed' || peer.state === 'relabeled';
 
   const peerWarning = (share: ShareSummary, peer: PeerView) => (
-    <View style={box(colors.dangerSoft, colors.danger)}>
-      <Text style={{ color: colors.text, fontSize: 13, lineHeight: 18 }}>
+    <FormSection>
+      <InlineError>
         {peer.state === 'relabeled'
           ? t('shares.relabeled', peer.serverEmail, peer.pinnedEmail ?? '—')
           : t('shares.keyChanged', peer.pinnedFingerprint ?? '—', peer.pinnedEmail ?? peer.serverEmail)}
-      </Text>
-      <Text style={[{ color: colors.text, marginTop: 6 }, mono]}>{peerFingerprints[share.id]}</Text>
-      <Button testID={`forget-${share.id}`} label={t('shares.forgetAndReverify')} disabled={busy} onPress={() => forgetContact(peer.userId)} />
-    </View>
+      </InlineError>
+      <Text style={[textStyle.body, mono, { color: colors.text }]}>{peerFingerprints[share.id]}</Text>
+      <AppButton testID={`forget-${share.id}`} variant="secondary" label={t('shares.forgetAndReverify')} disabled={busy} onPress={() => forgetContact(peer.userId)} />
+    </FormSection>
   );
 
-  const stepUpPanel = stepUpFor ? (
-    <View style={box(colors.warnSoft, colors.warn)}>
-      <Text style={{ color: colors.text, fontSize: 13, lineHeight: 18, marginBottom: 8 }}>{t('shares.stepUpNeeded')}</Text>
-      <Field label={t('shares.stepUpCode')} testID="share-stepup-code" value={stepUpCode} onChangeText={setStepUpCode} keyboardType="number-pad" autoComplete="one-time-code" />
-      <Button testID="share-stepup-verify" primary label={t('shares.stepUpVerify')} disabled={busy || stepUpCode.trim().length < 6} onPress={submitStepUp} />
-      <Button testID="share-stepup-cancel" label={t('shares.cancel')} onPress={() => { setStepUpFor(null); setStepUpCode(''); }} />
-    </View>
-  ) : null;
-
-  const header = null;
+  const closeStepUp = () => { setStepUpFor(null); setStepUpCode(''); };
+  const stepUpPanel = (
+    <BottomSheet visible={Boolean(stepUpFor)} onClose={closeStepUp} title={t('shares.verifyItsYou')} testID="shares-stepup">
+      <FormSection description={t('shares.stepUpNeeded')}>
+        <AppTextField label={t('shares.stepUpCode')} testID="share-stepup-code" value={stepUpCode} onChangeText={setStepUpCode} keyboardType="number-pad" autoComplete="one-time-code" />
+        {error && <InlineError>{error}</InlineError>}
+        <AppButton testID="share-stepup-verify" label={t('shares.stepUpVerify')} loading={busy} disabled={stepUpCode.trim().length < 6} onPress={submitStepUp} />
+        <AppButton testID="share-stepup-cancel" variant="secondary" label={t('shares.cancel')} disabled={busy} onPress={closeStepUp} />
+      </FormSection>
+    </BottomSheet>
+  );
 
   if (phase !== 'ready' || !session) {
     const needsStepUp = phase === 'failed' && startError?.kind === 'step_up';
@@ -362,170 +343,207 @@ export default function SharesScreen({ baseUrl, onClose }: { baseUrl: string; on
     else if (needsStepUp) message = t('shares.stepUpNeeded');
     else if (phase === 'failed') message = t('shares.unavailable', startError?.detail ?? '');
     return (
-      <ScrollView style={styles.screen} contentContainerStyle={{ padding: 20, width: '100%', maxWidth: 720, alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
-        {header}
-        {phase === 'no-server' || phase === 'signed-out' ? <Empty image={illustrations.emptyVault} title={t('mobileUI.sharingConnect')} detail={phase === 'signed-out' ? message : t('mobileUI.sharingConnectBody')} /> : <Text testID="shares-status" style={[phase === 'failed' && !needsStepUp ? styles.error : styles.subtitle, { marginTop: 12 }]}>{message}</Text>}
-        {error ? <Text testID="shares-error" style={[styles.error, { marginTop: 10 }]}>{error}</Text> : null}
+      <AppPage safeArea="bottom" testID="shares-screen">
+        {phase === 'no-server' || phase === 'signed-out' ? (
+          <EmptyState image={illustrations.emptyVault} title={t('mobileUI.sharingConnect')}
+            detail={phase === 'signed-out' ? message : t('mobileUI.sharingConnectBody')} />
+        ) : phase === 'starting' ? (
+          <Progress testID="shares-status" label={message} />
+        ) : (
+          <InlineError testID="shares-status">{message}</InlineError>
+        )}
+        {error && !stepUpFor && <InlineError testID="shares-error">{error}</InlineError>}
         {needsStepUp && !stepUpFor ? (
-          <Button testID="share-stepup-start" primary label={t('shares.verifyItsYou')} onPress={() => setStepUpFor(() => () => setStartAttempt((n) => n + 1))} />
+          <AppButton testID="share-stepup-start" label={t('shares.verifyItsYou')} onPress={() => setStepUpFor(() => () => setStartAttempt(n => n + 1))} />
         ) : null}
+        {phase === 'failed' && !needsStepUp && !stepUpFor && (
+          <AppButton variant="secondary" label={t('security.retry')} disabled={busy} onPress={() => setStartAttempt(value => value + 1)} />
+        )}
         {phase === 'failed' && startError?.kind === 'identity' && !stepUpFor ? (
-          <Button testID="share-reset-key" label={t('shares.resetKey')} disabled={busy} onPress={confirmResetIdentity} />
+          <AppButton testID="share-reset-key" variant="text" label={t('shares.resetKey')} disabled={busy} onPress={confirmResetIdentity} />
         ) : null}
         {stepUpPanel}
-      </ScrollView>
+      </AppPage>
     );
   }
 
-  const incoming = shares.filter((s) => s.role === 'recipient');
-  const outgoing = shares.filter((s) => s.role === 'owner');
+  const incoming = shares.filter(share => share.role === 'recipient');
+  const outgoing = shares.filter(share => share.role === 'owner');
+  const changeSection = (value: string) => {
+    setSection(value as ShareSection);
+    setOpened(null);
+    setDraft(null);
+    setRevealed(false);
+  };
+  const options: Array<{ value: ShareSection; label: string }> = [
+    { value: 'overview', label: t('mobileUI.sharingOverview') },
+    { value: 'inbox', label: t('shares.sharedWithMe') },
+    { value: 'sent', label: t('shares.sharedByMe') },
+    { value: 'new', label: t('shares.shareItem') },
+    { value: 'identity', label: t('mobileUI.verifyContacts') },
+  ];
+  const shownName = (name: string) => (dict.fields as Record<string, string>)[name] ?? name;
+  const contactVerification = (
+    <FormSection title={t('mobileUI.verifyContacts')}>
+      <AppTextField label={t('shares.recipientEmail')} testID="share-recipient" value={email} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" autoComplete="email"
+        onChangeText={value => { setEmail(value); setContact(null); setNotFound(false); }} />
+      <AppButton testID="share-lookup" variant="secondary" label={t('shares.lookUp')} loading={busy} disabled={!email.trim()} onPress={lookUp} />
+      {notFound && <InlineError>{t('shares.noSuchRecipient')}</InlineError>}
+      {contact && (
+        <>
+          <Text style={[textStyle.helper, { color: colors.muted }]}>{t('shares.serverFingerprint', contact.email)}</Text>
+          <Text testID="recipient-fingerprint" style={[textStyle.body, mono, { color: colors.text }]}>{contact.fingerprint}</Text>
+          {contact.pinState === 'verified' && <Text style={[textStyle.helper, { color: colors.okText }]}>{t('shares.verified')}</Text>}
+          {contact.pinState === 'unverified' && (
+            <>
+              <Text style={[textStyle.helper, { color: colors.muted }]}>{t('shares.verifyInstructions', contact.email)}</Text>
+              <AppButton testID="share-verify" label={t('shares.digitsMatch')} disabled={busy} onPress={() => verifyContact(contact)} />
+            </>
+          )}
+          {(contact.pinState === 'changed' || contact.pinState === 'relabeled') && (
+            <>
+              <InlineError>{contact.pinState === 'relabeled'
+                ? t('shares.relabeled', contact.email, contact.pinnedEmail ?? '—')
+                : t('shares.keyChanged', contact.pinnedFingerprint ?? '—', contact.email)}</InlineError>
+              <AppButton testID="share-forget" variant="secondary" label={t('shares.forgetAndReverify')} disabled={busy} onPress={() => forgetContact(contact.user_id)} />
+            </>
+          )}
+        </>
+      )}
+    </FormSection>
+  );
+
+  function renderShare(share: ShareSummary) {
+    if (!session) return null;
+    const actions = shareActions(share);
+    const peer = session.peerView(share);
+    const recipient = share.role === 'recipient';
+    const removeLabel = recipient ? t(share.status === 'pending' ? 'shares.decline' : 'shares.leave') : t('shares.revoke');
+    return (
+      <FormSection key={share.id}
+        title={t(recipient ? 'shares.from' : 'shares.to', peerLabel(peer))}
+        description={meta(share)}>
+        {actions.canRevoke && blocked(peer) ? peerWarning(share, peer) : null}
+        {recipient && actions.canAccept && peer.state === 'unverified' && (
+          verifyingId === share.id ? (
+            <>
+              <Text style={[textStyle.helper, { color: colors.muted }]}>{t('shares.serverFingerprint', peer.serverEmail)}</Text>
+              <Text style={[textStyle.body, mono, { color: colors.text }]}>{peerFingerprints[share.id]}</Text>
+              <Text style={[textStyle.helper, { color: colors.muted }]}>{t('shares.verifyInstructions', peer.serverEmail)}</Text>
+              <AppButton testID={`verify-owner-confirm-${share.id}`} label={t('shares.digitsMatch')} disabled={busy} onPress={() => verifyOwner(share)} />
+              <AppButton testID={`verify-owner-cancel-${share.id}`} variant="secondary" label={t('shares.cancel')} onPress={() => setVerifyingId(null)} />
+            </>
+          ) : <AppButton testID={`verify-owner-${share.id}`} variant="secondary" label={t('shares.verifyOwner', peer.serverEmail)} onPress={() => setVerifyingId(share.id)} />
+        )}
+        {recipient && actions.canAccept && peer.state === 'verified' && (
+          <AppButton testID={`accept-${share.id}`} label={t('shares.accept')} disabled={busy} onPress={() => accept(share)} />
+        )}
+        {actions.canOpen && peer.state === 'verified' && (
+          <AppButton testID={`open-${share.id}`} variant="secondary" label={t('shares.open')} disabled={busy} onPress={() => open(share)} />
+        )}
+        {!recipient && actions.canEdit && peer.state === 'verified' && (
+          <AppButton testID={`send-latest-${share.id}`} variant="secondary" label={t('shares.sendLatest')} disabled={busy} onPress={() => sendLatest(share)} />
+        )}
+        {actions.canRevoke && (
+          <AppButton testID={`${recipient ? 'leave' : 'revoke-share'}-${share.id}`} variant="text" label={removeLabel}
+            disabled={busy} onPress={() => confirmRevoke(share, recipient ? removeLabel : t('shares.confirmRevoke'))} />
+        )}
+      </FormSection>
+    );
+  }
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={{ padding: 20, paddingBottom: 40, width: '100%', maxWidth: 720, alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
-      {header}
-      {notice ? <Text testID="shares-notice" style={{ color: colors.ok, marginTop: 10 }}>{notice}</Text> : null}
-      {error ? <Text testID="shares-error" style={[styles.error, { marginTop: 10 }]}>{error}</Text> : null}
-
+    <AppPage safeArea="bottom" testID="shares-screen">
+      {notice && <Text testID="shares-notice" accessibilityLiveRegion="polite" style={[textStyle.helper, { color: colors.okText }]}>{notice}</Text>}
+      {error && !stepUpFor && <InlineError testID="shares-error">{error}</InlineError>}
       {stepUpPanel}
-      <Select label={t('shares.title')} testID="shares-section" value={section} choices={[
-        { value: 'inbox', label: t('shares.sharedWithMe') }, { value: 'sent', label: t('shares.sharedByMe') },
-        { value: 'new', label: t('shares.shareItem') }, { value: 'identity', label: t('shares.myKey') },
-      ]} onChange={value => { setSection(value); setOpened(null); setDraft(null); }} />
-      {!opened && section === 'identity' && <>
-      <View style={[styles.card, { marginTop: 16 }]}>
-        <Text style={styles.label}>{t('shares.myKey')}</Text>
-        <Text testID="my-fingerprint" style={[{ color: colors.text, fontSize: 18 }, mono]}>{myFingerprint}</Text>
-        <Text style={{ color: colors.muted, fontSize: 12, lineHeight: 17, marginTop: 6 }}>{t('shares.myKeyHelp')}</Text>
-        {stepUpFor ? null : <Button testID="share-reset-key" label={t('shares.resetKey')} disabled={busy} onPress={confirmResetIdentity} />}
-      </View>
-      </>}
-
-      {!opened && section === 'new' && <>
-      <Text style={[styles.label, { marginTop: 20 }]}>{t('shares.shareItem')}</Text>
-      <Select testID="share-item" label={t('shares.item')} value={itemId} choices={items.map(item => ({ value: item.id, label: item.title }))} onChange={setItemId} />
-      <Field label={t('shares.recipientEmail')} testID="share-recipient" value={email} autoCapitalize="none" autoCorrect={false} keyboardType="email-address"
-        onChangeText={(v) => { setEmail(v); setContact(null); setNotFound(false); }} />
-      <Button testID="share-lookup" label={t('shares.lookUp')} disabled={busy || !email.trim()} onPress={lookUp} />
-      {notFound ? <Text style={{ color: colors.muted, marginTop: 8 }}>{t('shares.noSuchRecipient')}</Text> : null}
-      {contact ? (
-        <View style={box(colors.card, colors.cardBorder)}>
-          <Text style={{ color: colors.muted, fontSize: 12 }}>{t('shares.serverFingerprint', contact.email)}</Text>
-          <Text testID="recipient-fingerprint" style={[{ color: colors.text, fontSize: 16, marginTop: 4 }, mono]}>{contact.fingerprint}</Text>
-          {contact.pinState === 'verified' ? <Text style={{ color: colors.ok, marginTop: 8 }}>{t('shares.verified')}</Text> : null}
-          {contact.pinState === 'unverified' ? (
-            <View style={box(colors.warnSoft, colors.warn)}>
-              <Text style={{ color: colors.text, fontSize: 13, lineHeight: 18 }}>{t('shares.verifyInstructions', contact.email)}</Text>
-              <Button testID="share-verify" primary label={t('shares.digitsMatch')} disabled={busy} onPress={() => verifyContact(contact)} />
-            </View>
-          ) : null}
-          {contact.pinState === 'changed' || contact.pinState === 'relabeled' ? (
-            <View style={box(colors.dangerSoft, colors.danger)}>
-              <Text style={{ color: colors.text, fontSize: 13, lineHeight: 18 }}>
-                {contact.pinState === 'relabeled'
-                  ? t('shares.relabeled', contact.email, contact.pinnedEmail ?? '—')
-                  : t('shares.keyChanged', contact.pinnedFingerprint ?? '—', contact.email)}
-              </Text>
-              <Button testID="share-forget" label={t('shares.forgetAndReverify')} disabled={busy} onPress={() => forgetContact(contact.user_id)} />
-            </View>
-          ) : null}
-        </View>
-      ) : null}
-      <Select testID="share-permission" label={t('shares.permission')} value={permission} choices={[{ value: 'read', label: t('shares.permRead') }, { value: 'write', label: t('shares.permWrite') }]} onChange={value => setPermission(value as 'read' | 'write')} />
-      <Select testID="share-expiry" label={t('shares.expiry')} value={expiry} choices={EXPIRIES.map(value => ({ value, label: value === 'never' ? t('shares.expiryNever') : t(`shares.expiry${value}`) }))} onChange={value => setExpiry(value as typeof expiry)} />
-      <Button testID="create-share-button" primary label={t('shares.share')} disabled={busy || !itemId || contact?.pinState !== 'verified'} onPress={doShare} />
-
-      </>}
-      {!opened && section === 'inbox' && <>
-      <Text style={[styles.label, { marginTop: 24 }]}>{t('shares.sharedWithMe')}</Text>
-      {incoming.length === 0 ? <Text style={{ color: colors.muted }}>{t('shares.none')}</Text> : incoming.map((share) => {
-        const actions = shareActions(share);
-        const peer = session.peerView(share);
-        return (
-          <View key={share.id} style={cardStyle}>
-            <Text style={{ color: colors.text, fontSize: 15, fontWeight: '600' }}>{t('shares.from', peerLabel(peer))}</Text>
-            <Text style={{ color: colors.muted, fontSize: 13, marginTop: 4 }}>{meta(share)}</Text>
-            {actions.canRevoke && blocked(peer) ? peerWarning(share, peer) : null}
-            {actions.canAccept && peer.state === 'unverified' ? (
-              verifyingId === share.id ? (
-                <View style={box(colors.warnSoft, colors.warn)}>
-                  <Text style={{ color: colors.muted, fontSize: 12 }}>{t('shares.serverFingerprint', peer.serverEmail)}</Text>
-                  <Text style={[{ color: colors.text, marginTop: 4 }, mono]}>{peerFingerprints[share.id]}</Text>
-                  <Text style={{ color: colors.text, fontSize: 13, lineHeight: 18, marginTop: 6 }}>{t('shares.verifyInstructions', peer.serverEmail)}</Text>
-                  <Button testID={`verify-owner-confirm-${share.id}`} primary label={t('shares.digitsMatch')} disabled={busy} onPress={() => verifyOwner(share)} />
-                  <Button testID={`verify-owner-cancel-${share.id}`} label={t('shares.cancel')} onPress={() => setVerifyingId(null)} />
-                </View>
-              ) : <Button testID={`verify-owner-${share.id}`} label={t('shares.verifyOwner', peer.serverEmail)} onPress={() => setVerifyingId(share.id)} />
-            ) : null}
-            {actions.canAccept && peer.state === 'verified' ? <Button testID={`accept-${share.id}`} primary label={t('shares.accept')} disabled={busy} onPress={() => accept(share)} /> : null}
-            {actions.canOpen && peer.state === 'verified' ? <Button testID={`open-${share.id}`} label={t('shares.open')} disabled={busy} onPress={() => open(share)} /> : null}
-            {actions.canRevoke ? (
-              <Button testID={`leave-${share.id}`} label={share.status === 'pending' ? t('shares.decline') : t('shares.leave')} disabled={busy}
-                onPress={() => confirmRevoke(share, share.status === 'pending' ? t('shares.decline') : t('shares.leave'))} />
-            ) : null}
-          </View>
-        );
-      })}
-
-      </>}
-      {!opened && section === 'sent' && <>
-      <Text style={[styles.label, { marginTop: 24 }]}>{t('shares.sharedByMe')}</Text>
-      {outgoing.length === 0 ? <Text style={{ color: colors.muted }}>{t('shares.none')}</Text> : outgoing.map((share) => {
-        const actions = shareActions(share);
-        const peer = session.peerView(share);
-        return (
-          <View key={share.id} style={cardStyle}>
-            <Text style={{ color: colors.text, fontSize: 15, fontWeight: '600' }}>{t('shares.to', peerLabel(peer))}</Text>
-            <Text style={{ color: colors.muted, fontSize: 13, marginTop: 4 }}>{meta(share)}</Text>
-            {actions.canRevoke && blocked(peer) ? peerWarning(share, peer) : null}
-            {actions.canOpen && peer.state === 'verified' ? <Button testID={`open-${share.id}`} label={t('shares.open')} disabled={busy} onPress={() => open(share)} /> : null}
-            {actions.canEdit && peer.state === 'verified' ? <Button testID={`send-latest-${share.id}`} label={t('shares.sendLatest')} disabled={busy} onPress={() => sendLatest(share)} /> : null}
-            {actions.canRevoke ? <Button testID={`revoke-share-${share.id}`} label={t('shares.revoke')} disabled={busy} onPress={() => confirmRevoke(share, t('shares.confirmRevoke'))} /> : null}
-          </View>
-        );
-      })}
-      <Text style={{ color: colors.faint, fontSize: 12, lineHeight: 17, marginTop: 8 }}>{t('shares.revokeLimit')}</Text>
-
-      </>}
-
-      {opened ? (
-        <View style={[styles.card, { marginTop: 20 }]}>
-          <Text style={{ color: colors.text, fontSize: 17, fontWeight: '700' }}>{opened.data.item.title}</Text>
-          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>
-            {t('shares.revision', opened.data.revision)} · {opened.data.lastWriter === 'recipient' ? t('shares.lastWriterRecipient') : t('shares.lastWriterOwner')}
-          </Text>
+      <SelectField label={t('mobileUI.sharingSection')} testID="shares-section" value={section} choices={options} onChange={changeSection} compact />
+      {!opened && section === 'overview' && (
+        <Group>
+          <SettingsRow icon="share" label={t('shares.shareItem')} navigation onPress={() => changeSection('new')} />
+          <Rule leading />
+          <SettingsRow icon="import" label={t('shares.sharedWithMe')} value={String(incoming.length)} navigation onPress={() => changeSection('inbox')} />
+          <Rule leading />
+          <SettingsRow icon="export" label={t('shares.sharedByMe')} value={String(outgoing.length)} navigation onPress={() => changeSection('sent')} />
+          <Rule leading />
+          <SettingsRow icon="security" label={t('mobileUI.verifyContacts')} navigation onPress={() => changeSection('identity')} />
+        </Group>
+      )}
+      {!opened && section === 'identity' && (
+        <>
+          <FormSection title={t('shares.myKey')} description={t('shares.myKeyHelp')}>
+            <Text testID="my-fingerprint" selectable style={[textStyle.body, mono, { color: colors.text }]}>{myFingerprint}</Text>
+            <AppButton testID="share-reset-key" variant="secondary" label={t('shares.resetKey')} disabled={busy || Boolean(stepUpFor)} onPress={confirmResetIdentity} />
+          </FormSection>
+          {contactVerification}
+          {contact?.pinState === 'verified' && <AppButton variant="secondary" label={t('shares.shareItem')} onPress={() => changeSection('new')} />}
+        </>
+      )}
+      {!opened && section === 'new' && (
+        <>
+          <SelectField testID="share-item" label={t('shares.item')} value={itemId} choices={items.map(item => ({ value: item.id, label: item.title }))} onChange={setItemId} />
+          {contactVerification}
+          <FormSection>
+            <SegmentedControl testID="share-permission" label={t('shares.permission')} value={permission}
+              choices={[{ value: 'read', label: t('shares.permRead') }, { value: 'write', label: t('shares.permWrite') }]} onChange={value => setPermission(value === 'write' ? 'write' : 'read')} />
+            <SelectField testID="share-expiry" label={t('shares.expiry')} value={expiry}
+              choices={EXPIRIES.map(value => ({ value, label: value === 'never' ? t('shares.expiryNever') : t(`shares.expiry${value}`) }))}
+              onChange={value => setExpiry(value as Expiry)} compact />
+            <AppButton testID="create-share-button" label={t('shares.share')} icon="share" loading={busy} disabled={!itemId || contact?.pinState !== 'verified'} onPress={doShare} />
+          </FormSection>
+        </>
+      )}
+      {!opened && (section === 'inbox' || section === 'sent') && (
+        <PageSection>
+          {(section === 'inbox' ? incoming : outgoing).length
+            ? (section === 'inbox' ? incoming : outgoing).map(renderShare)
+            : <EmptyState title={t('shares.none')} />}
+          {section === 'sent' && <Text style={[textStyle.helper, { color: colors.muted }]}>{t('shares.revokeLimit')}</Text>}
+        </PageSection>
+      )}
+      {opened && (
+        <FormSection title={opened.data.item.title} description={`${t('shares.revision', opened.data.revision)} · ${t(opened.data.lastWriter === 'recipient' ? 'shares.lastWriterRecipient' : 'shares.lastWriterOwner')}`}>
           {draft ? (
-            <View style={{ marginTop: 12 }}>
-              <Field label={t('shares.item')} testID="share-edit-title" value={draft.title} onChangeText={(v) => setDraft({ ...draft, title: v })} />
-              {Object.entries(draft.fields).map(([name, value]) => (
-                <Field key={name} label={name} testID={`share-edit-${name}`} value={value} autoCapitalize="none" autoCorrect={false} secureTextEntry={name === 'card_number' && !revealed}
-                  onChangeText={(v) => setDraft({ ...draft, fields: { ...draft.fields, [name]: v } })} />
-              ))}
-              <Button testID="share-edit-save" primary label={t('shares.saveChanges')} disabled={busy} onPress={saveDraft} />
-              <Button testID="share-edit-cancel" label={t('shares.cancel')} onPress={() => setDraft(null)} />
-            </View>
+            <>
+              <FieldGroup>
+                <AppTextField label={t('shares.item')} testID="share-edit-title" flush value={draft.title} onChangeText={value => setDraft({ ...draft, title: value })} />
+                {Object.entries(draft.fields).map(([name, value]) => {
+                  const secret = /password|secret|card_number|account_number|private_key|^key$/i.test(name);
+                  return (
+                    <AppTextField key={name} label={shownName(name)} testID={`share-edit-${name}`} flush value={value} autoCapitalize="none" autoCorrect={false}
+                      secureTextEntry={secret && !revealed} revealable={secret && !revealed}
+                      onChangeText={next => setDraft({ ...draft, fields: { ...draft.fields, [name]: next } })} />
+                  );
+                })}
+              </FieldGroup>
+              <AppButton testID="share-edit-save" label={t('shares.saveChanges')} loading={busy} onPress={saveDraft} />
+              <AppButton testID="share-edit-cancel" variant="secondary" label={t('shares.cancel')} onPress={() => setDraft(null)} />
+            </>
           ) : (
-            <View style={{ marginTop: 12 }}>
-              {Object.entries(opened.data.item.fields).map(([name, value]) => (
-                <View key={name} style={{ marginBottom: 8 }}>
-                  <Text style={styles.label}>{name}</Text>
-                  <Text style={[{ color: colors.text }, mono]} selectable={revealed}>{revealed ? (typeof value === 'string' ? value : JSON.stringify(value)) : '••••••••'}</Text>
-                </View>
-              ))}
-              <Button testID="share-reveal" label={revealed ? t('shares.hide') : t('shares.reveal')} onPress={() => setRevealed((v) => !v)} />
-              {shareActions(opened.share).canEdit ? (
-                <Button testID="share-edit" label={t('shares.edit')} onPress={() => setDraft({
+            <>
+              <Group>
+                {Object.entries(opened.data.item.fields).map(([name, value], index) => (
+                  <React.Fragment key={name}>
+                    {index > 0 && <Rule />}
+                    <SettingsRow label={shownName(name)} detail={revealed ? (typeof value === 'string' ? value : JSON.stringify(value)) : '••••••••'} />
+                  </React.Fragment>
+                ))}
+              </Group>
+              <AppButton testID="share-reveal" variant="secondary" icon={revealed ? 'hide' : 'show'} label={t(revealed ? 'shares.hide' : 'shares.reveal')} onPress={() => setRevealed(value => !value)} />
+              {shareActions(opened.share).canEdit && (
+                <AppButton testID="share-edit" variant="secondary" label={t('shares.edit')} onPress={() => setDraft({
                   title: opened.data.item.title,
-                  fields: Object.fromEntries(Object.entries(opened.data.item.fields).filter((e): e is [string, string] => typeof e[1] === 'string')),
+                  fields: Object.fromEntries(Object.entries(opened.data.item.fields).filter((entry): entry is [string, string] => typeof entry[1] === 'string')),
                 })} />
-              ) : null}
-              {opened.share.role === 'owner' && opened.data.lastWriter === 'recipient' ? (
-                <Button testID="share-save-to-vault" primary label={t('shares.saveToVault')} disabled={busy} onPress={saveToVault} />
-              ) : null}
-            </View>
+              )}
+              {opened.share.role === 'owner' && opened.data.lastWriter === 'recipient' && (
+                <AppButton testID="share-save-to-vault" label={t('shares.saveToVault')} loading={busy} onPress={saveToVault} />
+              )}
+            </>
           )}
-          <Button testID="share-close" label={t('shares.close')} onPress={() => { setOpened(null); setDraft(null); }} />
-        </View>
-      ) : null}
-    </ScrollView>
+          <AppButton testID="share-close" variant="text" label={t('shares.close')} onPress={() => { setOpened(null); setDraft(null); setRevealed(false); }} />
+        </FormSection>
+      )}
+    </AppPage>
   );
 }

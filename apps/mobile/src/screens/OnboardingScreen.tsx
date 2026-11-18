@@ -1,119 +1,191 @@
-import React, { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { AppState, BackHandler, Keyboard, Platform, Text, View, type TextInput } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import { useTranslation } from '../../../../packages/i18n/src/react';
+import { illustrations } from '../../../../packages/ui/src/native';
+import AppTextField from '../components/Field';
+import { AppButton, FieldGroup, Group, InlineError, SettingsRow } from '../components/mobile-ui';
+import { AuthLayout } from '../components/soft';
+import StrengthMeter from '../components/StrengthMeter';
 import { useMobileTheme } from '../theme';
-import { Icon, illustrations } from '../../../../packages/ui/src/native';
-import { passwordStrength } from '../utils/password';
+import { space, textStyle } from '../ui/tokens';
+import { matchesRecoveryKeyEnding, RECOVERY_REVIEW_LENGTH } from '../utils/authInput';
 import { createVault } from '../vault';
-import { Btn, useSoftPalette, Rise, SoftAlert, SoftField, SoftScreen, useReducedMotion } from '../components/soft';
 import RestoreBackupPanel from './RestoreBackupPanel';
 
-const STEPS = ['Create passphrase', 'Save recovery key', 'Done'];
-
-/** Step 0: create passphrase. Step 1: recovery key shown ONCE. Step 2: done. Soft light finish (components/soft.tsx). */
 export default function OnboardingScreen({ onDone, onRestored }: { onDone: () => void; onRestored?: () => void }) {
-  const P = useSoftPalette();
+  const { dict, t } = useTranslation();
+  const { onboarding, mobileAuth: auth } = dict;
   const { colors, styles } = useMobileTheme();
-  const reduced = useReducedMotion();
+  const confirmation = useRef<TextInput>(null);
   const [restoring, setRestoring] = useState(false);
-  const [step, setStep] = useState(0);
-  const [pass, setPass] = useState('');
+  const [step, setStep] = useState<'create' | 'save' | 'done'>('create');
+  const [passphrase, setPassphrase] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [passphraseError, setPassphraseError] = useState('');
+  const [confirmError, setConfirmError] = useState('');
   const [recoveryKey, setRecoveryKey] = useState('');
+  const [keyVisible, setKeyVisible] = useState(false);
   const [ack, setAck] = useState(false);
+  const [review, setReview] = useState(false);
+  const [ending, setEnding] = useState('');
+  const [reviewError, setReviewError] = useState('');
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => {
+    // Remove the value from the rendered tree while the app is away. The
+    // user can reveal it again on this step when they return.
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') setKeyVisible(false);
+    });
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
+    if (restoring) return;
+    const back = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (busy) return true;
+      if (step !== 'save') return false;
+      if (review) {
+        setReview(false);
+        setEnding('');
+        setReviewError('');
+      }
+      // Leaving this step would discard the only displayed copy of the key.
+      return true;
+    });
+    return () => back.remove();
+  }, [busy, restoring, review, step]);
+
   async function handleCreate() {
+    if (busy) return;
     setError('');
-    if (pass.length < 8) { setError('Passphrase must be at least 8 characters.'); return; }
-    if (pass !== confirm) { setError('Passphrases do not match.'); return; }
+    setPassphraseError(passphrase.length < 8 ? onboarding.tooShort : '');
+    setConfirmError(passphrase !== confirm ? onboarding.mismatch : '');
+    if (passphrase.length < 8 || passphrase !== confirm) return;
     setBusy(true);
+    Keyboard.dismiss();
     try {
-      const { recoveryKey: key } = await createVault(pass);
-      setRecoveryKey(key); setPass(''); setConfirm(''); setStep(1);
-    } catch (e) { setError(e instanceof Error ? e.message : 'Could not create the vault.'); }
-    finally { setBusy(false); }
+      const { recoveryKey } = await createVault(passphrase);
+      setRecoveryKey(recoveryKey);
+      setKeyVisible(AppState.currentState === 'active' || AppState.currentState === null);
+      setPassphrase('');
+      setConfirm('');
+      setStep('save');
+    } catch {
+      setError(onboarding.createFailed);
+    } finally {
+      setBusy(false);
+    }
   }
 
-  // The backup restore panel keeps the app's themed finish.
+  async function copyKey() {
+    try {
+      await Clipboard.setStringAsync(recoveryKey);
+      setCopied(true);
+      setError('');
+    } catch {
+      setError(auth.keyCopyFailed);
+    }
+  }
+
+  function completeReview() {
+    if (!ack || !matchesRecoveryKeyEnding(recoveryKey, ending)) {
+      setReviewError(auth.keyMismatch);
+      return;
+    }
+    Keyboard.dismiss();
+    setRecoveryKey('');
+    setEnding('');
+    setCopied(false);
+    setReview(false);
+    setReviewError('');
+    setStep('done');
+  }
+
   if (restoring && onRestored) {
     return (
-      <SoftScreen art={illustrations.restore} title="Restore your vault" subtitle="Use an encrypted backup and your passphrase or recovery key.">
+      <AuthLayout title={auth.backupTitle} subtitle={dict.restore.lede}>
         <RestoreBackupPanel onRestored={onRestored} onCancel={() => setRestoring(false)} />
-      </SoftScreen>
+      </AuthLayout>
     );
   }
 
-  const { score, label } = passwordStrength(pass);
-  const meterColor = score <= 2 ? '#C9363B' : score <= 4 ? '#B7791F' : '#2F8F5B';
-  const art = step === 0 ? illustrations.passphrase : step === 1 ? illustrations.recoveryKey : illustrations.success;
+  const stepNumber = step === 'create' ? 1 : step === 'save' ? 2 : 3;
+  const title = step === 'create' ? t('mobileAuth.createTitle') : step === 'save' ? (review ? auth.reviewKey : onboarding.steps.save) : onboarding.readyTitle;
+  const subtitle = step === 'create' ? onboarding.lede : step === 'save' ? (review ? auth.reviewKeyBody : onboarding.saveBody) : onboarding.readyBody;
+  const art = step === 'create' ? illustrations.passphrase : step === 'done' ? illustrations.success : undefined;
 
   return (
-    <SoftScreen
-      art={art}
-      title={step === 0 ? "Create your vault" : step === 1 ? "Save your recovery key" : "Your vault is ready"}
-    >
-      <View accessibilityLabel={`Setup step ${step + 1} of 3`} style={{ flexDirection: 'row', gap: 6, marginBottom: 4 }}>
-        {STEPS.map((name, index) => <View key={name} style={{ flex: 1, height: 3, borderRadius: 2, backgroundColor: index <= step ? P.brandFill : P.line }} />)}
-      </View>
+    <AuthLayout title={title} subtitle={subtitle} art={art}>
+      <Text testID="onboarding-step" style={styles.small}>{t('mobileAuth.stepProgress', stepNumber, 3, onboarding.steps[step])}</Text>
 
-      {step === 0 && (
-        <View key="s0" style={{ gap: 14 }}>
-          <Rise index={0} reduced={reduced}>
-            <SoftField label="Master passphrase" testID="master-passphrase" icon="lock" placeholder="At least 8 characters" secureTextEntry value={pass} onChangeText={setPass} autoCapitalize="none" autoCorrect={false} />
-          </Rise>
-          <Rise index={1} reduced={reduced}>
-            <SoftField label="Confirm passphrase" testID="confirm-passphrase" icon="lock" placeholder="Repeat your passphrase" secureTextEntry value={confirm} onChangeText={setConfirm} autoCapitalize="none" autoCorrect={false} />
-          </Rise>
-          <Rise index={2} reduced={reduced}>
-            <View testID="strength-meter" accessibilityLabel={`Password strength: ${pass ? label : 'empty'}`}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                <Text style={{ color: P.ink3, fontSize: 13 }}>Strength</Text>
-                <Text style={{ color: P.ink, fontSize: 13, fontWeight: '600' }}>{pass ? label : '—'}</Text>
-              </View>
-              <View style={{ height: 8, borderRadius: 999, backgroundColor: P.line, marginTop: 6, overflow: 'hidden' }}>
-                <View style={{ height: '100%', width: `${(score / 6) * 100}%`, backgroundColor: meterColor, borderRadius: 999 }} />
-              </View>
-            </View>
-          </Rise>
-          {error ? <SoftAlert testID="onboarding-error">{error}</SoftAlert> : null}
-          <Rise index={3} reduced={reduced}>
-            <Btn testID="create-vault-button" primary icon="shield" label={busy ? 'Creating vault…' : 'Create vault'} busy={busy} onPress={() => void handleCreate()} />
-          </Rise>
-          {onRestored ? (
-            <Btn testID="restore-from-backup-button" icon="restore" label="Restore from backup" disabled={busy} onPress={() => setRestoring(true)} />
-          ) : null}
-        </View>
+      {step === 'create' && (
+        <FieldGroup>
+          <AppTextField flush revealable label={onboarding.passphrase} testID="master-passphrase"
+            leadingIcon="lock" placeholder={onboarding.passphrasePlaceholder} value={passphrase}
+            onChangeText={(value) => { setPassphrase(value); setPassphraseError(''); setConfirmError(''); }}
+            error={passphraseError || undefined} disabled={busy} autoCapitalize="none" autoCorrect={false}
+            autoComplete="off" returnKeyType="next" onSubmitEditing={() => confirmation.current?.focus()} />
+          <StrengthMeter password={passphrase} />
+          <AppTextField flush revealable ref={confirmation} label={onboarding.confirm} testID="confirm-passphrase"
+            placeholder={onboarding.confirmPlaceholder} value={confirm}
+            onChangeText={(value) => { setConfirm(value); setConfirmError(''); }}
+            error={confirmError || undefined} disabled={busy} autoCapitalize="none" autoCorrect={false}
+            autoComplete="off" returnKeyType="go" onSubmitEditing={() => void handleCreate()} />
+          {!!error && <InlineError testID="onboarding-error">{error}</InlineError>}
+          <View style={{ gap: space[3] }}>
+            <AppButton testID="create-vault-button" icon="shield" label={busy ? onboarding.creating : onboarding.createVault}
+              loading={busy} onPress={() => void handleCreate()} />
+            {onRestored && <AppButton testID="restore-from-backup-button" icon="restore" label={onboarding.restoreFromBackup}
+              variant="secondary" disabled={busy} onPress={() => { Keyboard.dismiss(); setRestoring(true); }} />}
+          </View>
+        </FieldGroup>
       )}
 
-      {step === 1 && (
-        <View key="s1" style={{ gap: 14 }}>
-          <Rise index={0} reduced={reduced}>
-            <Text style={{ color: P.ink, fontSize: 15, lineHeight: 22 }}><Text style={{ fontWeight: '700' }}>Save this key somewhere safe.</Text> You’ll need it if you forget your passphrase.</Text>
-          </Rise>
-          <Rise index={1} reduced={reduced}>
-            <View testID="recovery-key" accessibilityLabel="Recovery key" style={{ backgroundColor: P.surface2, borderColor: P.line, borderWidth: 1, borderRadius: 14, padding: 14 }}>
-              <Text selectable style={{ color: P.ink, fontFamily: 'Menlo', fontSize: 14, lineHeight: 20 }}>{recoveryKey}</Text>
-            </View>
-          </Rise>
-          <Btn testID="copy-recovery-key" icon="copy" label={copied ? 'Copied to clipboard' : 'Copy recovery key'} onPress={() => { void Clipboard.setStringAsync(recoveryKey); setCopied(true); }} />
-          <Pressable testID="recovery-ack" accessibilityLabel="I have saved my recovery key somewhere safe" accessibilityRole="checkbox" accessibilityState={{ checked: ack }} onPress={() => setAck((v) => !v)} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, minHeight: 44 }}>
-            <View style={{ width: 24, height: 24, borderRadius: 8, borderWidth: 1.5, borderColor: ack ? P.brandFill : P.ink3, backgroundColor: ack ? P.brandFill : P.surface, alignItems: 'center', justifyContent: 'center' }}>{ack ? <Icon name="check" size="sm" color="#FFFFFF" /> : null}</View>
-            <Text style={{ color: P.ink, fontSize: 15, flex: 1, lineHeight: 22 }}>I have saved my recovery key somewhere safe.</Text>
-          </Pressable>
-          <Btn testID="recovery-done-button" primary icon="check" label="Done" disabled={!ack} onPress={() => setStep(2)} />
-        </View>
+      {step === 'save' && !review && (
+        <FieldGroup>
+          <View testID="recovery-key" style={styles.card}>
+            {keyVisible ? (
+              <Text selectable style={[textStyle.body, {
+                color: colors.text, fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
+              }]}>{recoveryKey}</Text>
+            ) : <Text style={styles.small}>{auth.keyHidden}</Text>}
+          </View>
+          <View style={{ gap: space[3] }}>
+            <AppButton testID="recovery-key-visibility" label={keyVisible ? auth.hideKey : auth.showKey}
+              icon={keyVisible ? 'hide' : 'show'} variant="secondary" onPress={() => setKeyVisible((visible) => !visible)} />
+            <AppButton testID="copy-recovery-key" label={copied ? onboarding.copied : onboarding.copyKey}
+              icon="copy" variant="secondary" onPress={() => void copyKey()} />
+          </View>
+          {!!error && <InlineError testID="onboarding-error">{error}</InlineError>}
+          <Group>
+            <SettingsRow testID="recovery-ack" label={onboarding.ack} accessibilityRole="checkbox"
+              accessibilityState={{ checked: ack }} selected={ack} onPress={() => setAck((checked) => !checked)} />
+          </Group>
+          <AppButton testID="recovery-review-button" label={auth.reviewKey} icon="forward" disabled={!ack}
+            onPress={() => { setKeyVisible(false); setReview(true); }} />
+        </FieldGroup>
       )}
 
-      {step === 2 && (
-        <View key="s2" style={{ gap: 14 }}>
-          <Rise index={1} reduced={reduced}>
-            <Btn testID="open-vault-button" primary icon="unlock" label="Open vault" onPress={onDone} />
-          </Rise>
-        </View>
+      {step === 'save' && review && (
+        <FieldGroup>
+          <AppTextField flush secureTextEntry label={auth.keyEnd} testID="recovery-key-review" value={ending}
+            error={reviewError || undefined} maxLength={RECOVERY_REVIEW_LENGTH}
+            onChangeText={(value) => { setEnding(value); setReviewError(''); }}
+            autoCapitalize="none" autoCorrect={false} autoComplete="off" returnKeyType="done" onSubmitEditing={completeReview} />
+          <View style={{ gap: space[3] }}>
+            <AppButton testID="recovery-done-button" label={onboarding.done} icon="check"
+              disabled={ending.length !== RECOVERY_REVIEW_LENGTH} onPress={completeReview} />
+            <AppButton testID="recovery-review-back" label={auth.showKey} variant="text"
+              onPress={() => { setReview(false); setKeyVisible(true); setEnding(''); setReviewError(''); }} />
+          </View>
+        </FieldGroup>
       )}
-    </SoftScreen>
+
+      {step === 'done' && <AppButton testID="open-vault-button" label={onboarding.openVault} icon="unlock" onPress={onDone} />}
+    </AuthLayout>
   );
 }

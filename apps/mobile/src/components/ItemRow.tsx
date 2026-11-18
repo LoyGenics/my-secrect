@@ -1,77 +1,65 @@
 import React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { VaultItem } from '../../../../packages/core/src/types';
 import { cardIssuer, cardLast4 } from '../../../../packages/core/src/card';
-import { useMobileTheme } from '../theme';
-import { Icon, type IconName } from '../../../../packages/ui/src/native';
-import { Archive, Star } from 'lucide-react-native';
+import { isFileEntry } from '../../../../packages/core/src/files';
+import { Icon } from '../../../../packages/ui/src/native';
+import { moduleIcon } from '../../../../packages/ui/src/modules';
 import { useTranslation } from '../../../../packages/i18n/src/react';
 import type { Dictionary } from '../../../../packages/i18n/src/en';
+import { useMobileTheme } from '../theme';
 import { isArchived } from '../utils/itemMeta';
+import { radius, size, space, textStyle } from '../ui/tokens';
+import { IconButton } from '../ui/buttons';
 
-/** Category keys shown as filter chips on the vault screen (labels come from `dict.categories`). */
-export const CATEGORY_META: Record<string, true> = {
-  credentials: true,
-  finance: true,
-  identity: true,
-  developer: true,
-  notes: true,
-  media: true,
-  documents: true,
-  collections: true,
-};
-export function categoryForType(type: VaultItem['type']): string {
-  if (type === 'login' || type === 'passkey') return 'credentials';
-  if (type === 'bank_account' || type === 'card') return 'finance';
-  if (type === 'identity') return 'identity';
-  if (type === 'ssh_key' || type === 'api_key') return 'developer';
-  if (type === 'secure_note') return 'notes';
-  if (type === 'media') return 'media';
-  if (type === 'document') return 'documents';
-  return 'collections';
-}
-/** Localized item type name (`dict.itemTypes`). */
 export function typeLabel(dict: Dictionary, type: VaultItem['type']): string {
-  return (dict.itemTypes as Record<string, string>)[type] ?? type;
+  return dict.itemTypes[type] ?? type;
 }
 
-const itemIcons: Record<VaultItem['type'], IconName> = {
-  login: 'credentials', passkey: 'passkey', bank_account: 'finance', card: 'card',
-  identity: 'identity', ssh_key: 'developer', api_key: 'apiKey', secure_note: 'notes',
-  document: 'documents', media: 'media', collection: 'collections', custom: 'custom',
-};
-
-export default function ItemRow({ item, selected, onPress, onToggleFavorite }: { item: VaultItem; selected?: boolean; onPress: () => void; onToggleFavorite?: () => void }) {
+export default function ItemRow({ item, selected, onPress, onToggleFavorite }: {
+  item: VaultItem; selected?: boolean; onPress: () => void; onToggleFavorite?: () => void;
+}) {
   const { colors } = useMobileTheme();
   const { dict } = useTranslation();
   const label = typeLabel(dict, item.type);
   const title = item.type === 'card' ? cardIssuer(item.title, item.fields.bank) : item.title;
   const last4 = item.type === 'card' ? cardLast4(item.fields) : '';
+  const favorite = item.favorite === true;
+  const archived = isArchived(item);
   let subtitle = label;
   if (last4) subtitle = `${label} · •••• ${last4}`;
-  else if (typeof item.fields?.username === 'string') subtitle = item.fields.username;
-  else if (typeof item.fields?.bank_name === 'string') subtitle = item.fields.bank_name;
+  else if (item.type === 'login' && typeof item.fields.username === 'string' && item.fields.username) subtitle = item.fields.username;
+  else if (item.type === 'bank_account' && typeof item.fields.bank_name === 'string' && item.fields.bank_name !== title) subtitle = item.fields.bank_name;
+
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: selected ? colors.accentSoft : colors.card, borderBottomWidth: 0.5, borderBottomColor: colors.line }}>
-    <Pressable
-      testID={`item-row-${item.id}`}
-      accessibilityLabel={`${title}, ${label}`}
-      accessibilityRole="button"
-      onPress={onPress}
-      style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 14, minHeight: 72 }}
-    >
-      <View style={{ marginRight: 12 }}>
-        <View style={{ width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface2 }}><Icon name={itemIcons[item.type] || 'custom'} size="lg" color={colors.secondary} /></View>
+    <View style={{ backgroundColor: selected ? colors.selection : colors.surface }}>
+      <View style={local.row}>
+        <Pressable testID={`item-row-${item.id}`} accessibilityLabel={`${title}, ${label}`} accessibilityRole="button"
+          accessibilityState={{ selected }} onPress={onPress}
+          style={({ pressed }) => [local.main, isFileEntry(item) && local.fileRow, pressed && { backgroundColor: colors.selection }]}>
+          <View style={[local.glyph, { backgroundColor: colors.surfaceMuted }]}>
+            <Icon name={moduleIcon[item.type] ?? 'custom'} color={colors.secondaryText} />
+          </View>
+          <View style={local.text}>
+            <Text style={[textStyle.item, { color: colors.text }]}>{title}</Text>
+            <Text style={[textStyle.helper, { color: colors.secondaryText }]}>{subtitle}</Text>
+          </View>
+          {archived && <Icon name="archive" size={size.inlineIcon} color={colors.secondaryText} />}
+        </Pressable>
+        {onToggleFavorite && <IconButton testID={`favorite-${item.id}`} icon="favorite" tone={favorite ? 'link' : 'default'}
+          accessibilityLabel={favorite ? dict.itemList.removeFavorite : dict.itemList.addFavorite} accessibilityState={{ selected: favorite }}
+          style={favorite ? { backgroundColor: colors.selection } : undefined} onPress={onToggleFavorite} />}
       </View>
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }} numberOfLines={1}>{title}</Text>
-        <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }} numberOfLines={1}>{subtitle}</Text>
-      </View>
-      {isArchived(item) && <Archive size={16} color={colors.muted} />}
-    </Pressable>
-      {onToggleFavorite && <Pressable testID={`favorite-${item.id}`} accessibilityLabel={item.favorite ? dict.itemList.removeFavorite : dict.itemList.addFavorite} accessibilityRole="button" accessibilityState={{ selected: !!item.favorite }} onPress={onToggleFavorite} style={{ width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', marginRight: 3 }}>
-        <Star size={20} color={item.favorite ? colors.link : colors.muted} fill={item.favorite ? colors.link : 'transparent'} />
-      </Pressable>}
+      <View style={[local.separator, { backgroundColor: colors.border }]} />
     </View>
   );
 }
+
+const local = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center', paddingRight: space[2] },
+  main: { flex: 1, minWidth: 0, minHeight: size.itemRow, flexDirection: 'row', alignItems: 'center', padding: space[3], gap: space[3], borderRadius: radius.glyph },
+  fileRow: { minHeight: size.fileRow },
+  glyph: { width: space[10], height: space[10], borderRadius: radius.glyph, flexShrink: 0, alignItems: 'center', justifyContent: 'center' },
+  text: { flex: 1, minWidth: 0 },
+  separator: { height: StyleSheet.hairlineWidth, marginLeft: space[3] + space[10] + space[3] },
+});

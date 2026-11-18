@@ -4,6 +4,7 @@ import { useMobileTheme } from '../theme';
 import { passwordStrength } from '../utils/password';
 import { useTranslation } from '../../../../packages/i18n/src/react';
 import { format } from '../../../../packages/i18n/src/index';
+import { radius, space, textStyle } from '../ui/tokens';
 
 export default function StrengthMeter({ password, testID = 'strength-meter' }: { password: string; testID?: string }) {
   const { colors } = useMobileTheme();
@@ -13,13 +14,14 @@ export default function StrengthMeter({ password, testID = 'strength-meter' }: {
   const label = dict.strength.levels[level];
   const color = score <= 2 ? colors.danger : score <= 4 ? colors.warn : colors.ok;
   return (
-    <View testID={testID} accessibilityLabel={format(dict.strength.meter, password ? label : dict.strength.empty)} style={{ marginBottom: 14 }}>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-        <Text style={{ color: colors.muted, fontSize: 13 }}>{dict.onboarding.strength}</Text>
-        <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }}>{password ? label : '—'}</Text>
+    <View accessible testID={testID} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 6, now: score, text: password ? label : dict.strength.empty }}
+      accessibilityLabel={format(dict.strength.meter, password ? label : dict.strength.empty)} style={{ gap: space[2] }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: space[2] }}>
+        <Text style={[textStyle.helper, { color: colors.muted }]}>{dict.onboarding.strength}</Text>
+        {password && <Text style={[textStyle.helper, { color: colors.text, fontWeight: '600' }]}>{label}</Text>}
       </View>
-      <View style={{ height: 8, borderRadius: 999, backgroundColor: colors.input, marginTop: 6, overflow: 'hidden' }}>
-        <View style={{ height: '100%', width: `${(score / 6) * 100}%`, backgroundColor: color, borderRadius: 999 }} />
+      <View style={{ height: space[2], borderRadius: radius.full, backgroundColor: colors.input, overflow: 'hidden' }}>
+        <View style={{ height: '100%', width: `${(score / 6) * 100}%`, backgroundColor: color, borderRadius: radius.full }} />
       </View>
     </View>
   );

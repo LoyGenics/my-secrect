@@ -1,138 +1,91 @@
-import { useMemo } from 'react';
-import { StyleSheet, useColorScheme } from 'react-native';
-import { darkTheme, lightTheme, radii, typography, type ThemeName, type ThemeTokens } from '../../../packages/ui/src/tokens';
+import { StyleSheet } from 'react-native';
+import { darkTheme, lightTheme, type ThemeName, type ThemeTokens } from '../../../packages/ui/src/tokens';
+import { useResolvedAppearance } from './ui/AppearanceProvider';
+import { mobileColorRoles, radius, size, space, textStyle } from './ui/tokens';
 
-/** Shared native palette. Every screen follows OS appearance; system typography
- * and grouped surfaces keep the vault readable on phone and tablet. */
-
-export interface MobileColors {
-  bg: string;
-  card: string;
-  cardBorder: string;
-  input: string;
-  text: string;
-  secondary: string;
-  muted: string;
-  faint: string;
-  accent: string;
-  onAccent: string;
-  accentSoft: string;
-  focus: string;
-  danger: string;
-  dangerText: string;
-  dangerSoft: string;
-  warn: string;
-  warnText: string;
-  warnSoft: string;
-  ok: string;
-  okText: string;
-  okSoft: string;
-  control: string;
-  surface2: string;
-  link: string;
-  line: string;
-  ledOff: string;
-}
-
-function toMobileColors(theme: ThemeTokens): MobileColors {
+function toMobileColors(theme: ThemeTokens) {
+  const roles = mobileColorRoles(theme);
+  // Existing consumers share the same roles while they migrate to semantic names.
   return {
-    bg: theme.background.base,
-    card: theme.background.surface,
-    cardBorder: theme.border.default,
-    input: theme.background.input,
-    text: theme.text.primary,
-    secondary: theme.text.secondary,
-    muted: theme.text.muted,
-    faint: theme.text.muted,
-    accent: '#D23F0C',
-    onAccent: '#FFFFFF',
-    accentSoft: theme.brand.soft,
-    focus: theme.focus.ring,
-    danger: theme.danger.DEFAULT,
-    dangerText: theme.danger.softText,
-    dangerSoft: theme.danger.soft,
+    ...roles,
+    bg: roles.canvas,
+    card: roles.surface,
+    cardBorder: roles.border,
+    input: roles.inputSurface,
+    secondary: roles.secondaryText,
+    muted: roles.mutedText,
+    faint: roles.mutedText,
+    accent: roles.primaryFill,
+    onAccent: roles.onPrimary,
+    accentSoft: roles.selection,
     warn: theme.led.attention,
-    warnText: theme.warning.text,
-    warnSoft: theme.warning.soft,
+    warnText: roles.warningText,
+    warnSoft: roles.warningSoft,
     ok: theme.led.ok,
-    okText: theme.success.text,
-    okSoft: theme.success.soft,
-    control: theme.border.control,
-    surface2: theme.background.surface2,
-    link: theme.text.link,
-    line: theme.border.default,
+    okText: roles.successText,
+    okSoft: roles.successSoft,
+    control: roles.controlBorder,
+    surface2: roles.surfaceMuted,
+    link: roles.primaryTextLink,
+    line: roles.border,
     ledOff: theme.led.off,
   };
 }
 
-/** Light colours — the default. */
-export const lightColors: MobileColors = toMobileColors(lightTheme);
+export type MobileColors = ReturnType<typeof toMobileColors>;
+export const lightColors = toMobileColors(lightTheme);
+export const darkColors = toMobileColors(darkTheme);
+/** @deprecated Use the live mobile theme. */
+export const colors = lightColors;
+export const type = textStyle;
 
-/** Dark colours. */
-export const darkColors: MobileColors = toMobileColors(darkTheme);
-
-/** Static light palette for non-rendering consumers. */
-export const colors: MobileColors = lightColors;
-
-/** Resolve colours for a colour scheme; null/undefined falls back to light. */
-export function getThemeColors(scheme: ThemeName | 'light' | 'dark' | null | undefined): MobileColors {
+export function getThemeColors(scheme: ThemeName | null | undefined): MobileColors {
   return scheme === 'dark' ? darkColors : lightColors;
 }
 
-/** Shared typography roles (five-step scale) for screens that want them. */
-export const type = typography;
-
-/** Small label: sentence case, semibold, quiet ink. */
-const legend = { fontSize: 12, lineHeight: 16, fontWeight: '600' as const };
-
 export function createStyles(c: MobileColors) {
+  const action = { borderRadius: radius.button, minHeight: size.action, alignItems: 'center', justifyContent: 'center',
+    flexDirection: 'row', gap: space[2], paddingHorizontal: space[4], paddingVertical: space[2] } as const;
   return StyleSheet.create({
-    screen: { flex: 1, backgroundColor: c.bg },
-    container: { flex: 1, padding: 16 },
-    card: { backgroundColor: c.card, borderColor: c.cardBorder, borderWidth: 1, borderRadius: 14, padding: 16 },
-    title: { color: c.text, fontSize: 30, lineHeight: 36, fontWeight: '700', letterSpacing: -0.5 },
-    heading: { color: c.text, fontSize: 20, lineHeight: 26, fontWeight: '700' },
-    subtitle: { color: c.muted, fontSize: 15, lineHeight: 22, marginTop: 4 },
-    body: { color: c.text, fontSize: 15, lineHeight: 22 },
-    small: { color: c.muted, fontSize: 13, lineHeight: 18 },
-    label: { ...legend, fontSize: 13, color: c.muted, marginBottom: 6 },
-    legend: { ...legend, color: c.muted },
-    inputShell: { backgroundColor: c.input, borderColor: c.cardBorder, borderWidth: 2, borderRadius: radii.md, minHeight: 50, flexDirection: 'row', alignItems: 'center' },
-    inputFocused: { borderColor: c.focus, backgroundColor: c.card },
-    input: { flex: 1, minWidth: 0, color: c.text, fontSize: 16, paddingHorizontal: 12, paddingVertical: 12 },
-    inputMultiline: { minHeight: 96, textAlignVertical: 'top' },
-    iconButton: { width: 44, height: 44, flexShrink: 0, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-    primaryButton: { backgroundColor: c.accent, borderRadius: 12, minHeight: 50, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, paddingHorizontal: 20 },
-    primaryButtonText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
-    ghostButton: { backgroundColor: c.card, borderColor: c.cardBorder, borderWidth: 1, borderRadius: 12, minHeight: 48, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, paddingHorizontal: 18 },
-    ghostButtonText: { fontSize: 15, fontWeight: '600', color: c.text },
-    dangerButton: { backgroundColor: c.danger, borderRadius: 12, minHeight: 50, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, paddingHorizontal: 20 },
-    dangerButtonText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
-    error: { color: c.dangerText, fontSize: 14, lineHeight: 20 },
-    chip: { backgroundColor: c.surface2, borderColor: c.cardBorder, borderWidth: 1, borderRadius: radii.full, paddingHorizontal: 10, paddingVertical: 4, marginRight: 6, marginBottom: 6 },
-    chipText: { color: c.secondary, fontSize: 12, fontWeight: '600' },
-    led: { width: 8, height: 8, borderRadius: 4 },
-    row: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: c.card, borderRadius: radii.md, padding: 10, marginBottom: 4, minHeight: 64 },
+    screen: { flex: 1, backgroundColor: c.canvas },
+    // Legacy consumers can migrate their wrapper to AppPage without a visual jump.
+    container: { flex: 1, padding: space[4] },
+    card: { backgroundColor: c.surface, borderColor: c.border, borderWidth: 1, borderRadius: radius.surface, padding: space[4] },
+    title: { ...textStyle.display, color: c.text },
+    heading: { ...textStyle.title, color: c.text },
+    subtitle: { ...textStyle.helper, color: c.secondaryText },
+    body: { ...textStyle.body, color: c.text },
+    small: { ...textStyle.helper, color: c.mutedText },
+    label: { ...textStyle.helper, fontWeight: '600', color: c.secondaryText, marginBottom: space[2] },
+    legend: { ...textStyle.caption, fontWeight: '600', color: c.secondaryText },
+    inputShell: { backgroundColor: c.inputSurface, borderColor: c.controlBorder, borderWidth: 1, borderRadius: radius.field, minHeight: size.field, flexDirection: 'row', alignItems: 'center' },
+    inputFocused: { borderColor: c.focus, backgroundColor: c.surface },
+    input: { ...textStyle.body, flex: 1, minWidth: 0, color: c.text, paddingHorizontal: space[3], paddingVertical: space[3] },
+    inputMultiline: { minHeight: space[12] * 2, textAlignVertical: 'top' },
+    iconButton: { width: size.touch, height: size.touch, flexShrink: 0, borderRadius: radius.button, alignItems: 'center', justifyContent: 'center' },
+    primaryButton: { ...action, backgroundColor: c.primaryFill },
+    primaryButtonText: { ...textStyle.item, color: c.onPrimary },
+    ghostButton: { ...action, backgroundColor: c.surface, borderColor: c.controlBorder, borderWidth: 1 },
+    ghostButtonText: { ...textStyle.item, color: c.text },
+    dangerButton: { ...action, backgroundColor: c.danger },
+    dangerButtonText: { ...textStyle.item, color: c.onPrimary },
+    error: { ...textStyle.helper, color: c.dangerText },
+    chip: { backgroundColor: c.surfaceMuted, borderColor: c.border, borderWidth: 1, borderRadius: radius.full, paddingHorizontal: space[3], paddingVertical: space[1], marginRight: space[2], marginBottom: space[2] },
+    chipText: { ...textStyle.caption, color: c.secondaryText, fontWeight: '600' },
+    led: { width: space[2], height: space[2], borderRadius: radius.full },
+    row: { flexDirection: 'row', alignItems: 'center', gap: space[3], backgroundColor: c.surface, borderRadius: radius.surface, padding: space[3], marginBottom: space[1], minHeight: size.settingsRow },
   });
 }
 
 export type MobileStyles = ReturnType<typeof createStyles>;
-
-/** The static default styles (light); see useMobileTheme for live styles. */
+/** @deprecated Use useMobileTheme within components. */
 export const styles = createStyles(colors);
 
-/** Follow the device appearance across the whole mobile app. */
-export const FOLLOW_OS_APPEARANCE = true;
+const mobileThemes = {
+  light: { theme: lightTheme, colors: lightColors, styles, scheme: 'light' },
+  dark: { theme: darkTheme, colors: darkColors, styles: createStyles(darkColors), scheme: 'dark' },
+} as const;
 
-/** Live theme: tokens, colours and styles for the current finish. */
 export function useMobileTheme(): { theme: ThemeTokens; colors: MobileColors; styles: MobileStyles; scheme: ThemeName } {
-  const os = useColorScheme();
-  const scheme: ThemeName = FOLLOW_OS_APPEARANCE && os === 'dark' ? 'dark' : 'light';
-  return useMemo(
-    () =>
-      scheme === 'dark'
-        ? { theme: darkTheme, colors: darkColors, styles: createStyles(darkColors), scheme }
-        : { theme: lightTheme, colors, styles, scheme },
-    [scheme],
-  );
+  return mobileThemes[useResolvedAppearance()];
 }

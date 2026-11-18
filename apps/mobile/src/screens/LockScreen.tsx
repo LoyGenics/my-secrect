@@ -1,135 +1,233 @@
 import React, { useEffect, useState } from 'react';
-import { Text } from 'react-native';
+import { BackHandler, Keyboard, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { createTranslator } from '../../../../packages/i18n/src/index';
+import { useTranslation } from '../../../../packages/i18n/src/react';
 import { illustrations } from '../../../../packages/ui/src/native';
-import { Btn, useSoftPalette, Rise, SoftAlert, SoftField, SoftScreen, TextButton, useReducedMotion } from '../components/soft';
+import type { Biometry } from '../../modules/device-key';
+import AppTextField from '../components/Field';
+import { AppButton, FieldGroup, InlineError, Progress } from '../components/mobile-ui';
+import { AuthLayout } from '../components/soft';
+import { space } from '../ui/tokens';
 import {
   enableDeviceUnlock, getDeviceUnlockState, getStorageError, unlockVault, unlockWithDeviceKey, unlockWithRecoveryKey,
   type DeviceUnlockFailure, type DeviceUnlockState,
 } from '../vault';
-import type { Biometry } from '../../modules/device-key';
 
-export function biometryName(b: Biometry | undefined): string {
-  return b === 'faceId' ? 'Face ID' : b === 'touchId' ? 'Touch ID' : b === 'fingerprint' ? 'fingerprint' : 'biometrics';
+const defaultTranslation = createTranslator('en').t;
+const BIOMETRIC_OFFER_PREFERENCE = 'my-secrect:biometric-enrollment-offer';
+
+export function biometryName(biometry: Biometry | undefined, t = defaultTranslation): string {
+  if (biometry === 'faceId') return 'Face ID';
+  if (biometry === 'touchId') return 'Touch ID';
+  if (biometry === 'fingerprint') return t('mobileAuth.fingerprint');
+  return t('mobileAuth.bioGeneric');
 }
 
-/** What to tell the user after a biometric attempt that did not unlock. Every path ends at the passphrase. */
-export function deviceUnlockMessage(code: DeviceUnlockFailure, name: string): string {
+export function deviceUnlockMessage(code: DeviceUnlockFailure, name: string, t = defaultTranslation): string {
   switch (code) {
-    case 'USER_CANCEL': return 'Biometric unlock cancelled. Enter your passphrase.';
-    case 'AUTH_FAILED': return `${name} was not recognised. Try again or enter your passphrase.`;
-    case 'LOCKOUT': return `${name} is locked after too many attempts. Enter your passphrase.`;
-    case 'NOT_ENROLLED': return `No ${name} is set up on this device. Enter your passphrase.`;
-    case 'NOT_AVAILABLE': return `${name} is not available right now. Enter your passphrase.`;
-    case 'KEY_INVALIDATED': return `Your ${name} settings changed, so ${name} unlock was turned off. Enter your passphrase; you can turn it on again right after.`;
-    case 'CORRUPT': return `${name} unlock data could not be read and was removed. Enter your passphrase; you can turn it on again right after.`;
-    case 'WRONG_PASSPHRASE': return 'Wrong passphrase.';
-    case 'NOT_SET_UP': return `${name} unlock is not set up. Enter your passphrase.`;
-    case 'STORAGE': return 'The vault on this device could not be read. Enter your passphrase.';
+    case 'USER_CANCEL': return t('mobileAuth.bioCancelled');
+    case 'AUTH_FAILED': return t('mobileAuth.bioAuthFailed', name);
+    case 'LOCKOUT': return t('mobileAuth.bioLockout', name);
+    case 'NOT_ENROLLED': return t('mobileAuth.bioNotEnrolled', name);
+    case 'NOT_AVAILABLE': return t('mobileAuth.bioUnavailable', name);
+    case 'KEY_INVALIDATED': return t('mobileAuth.bioInvalidated', name);
+    case 'CORRUPT': return t('mobileAuth.bioCorrupt', name);
+    case 'NOT_SET_UP': return t('mobileAuth.bioNotSetUp', name);
+    case 'WRONG_PASSPHRASE': return t('lock.wrongPassphrase');
+    case 'STORAGE': return t('mobileAuth.vaultStorageError');
   }
 }
 
-/**
- * Lock screen. Passphrase or recovery key always works. Biometric unlock
- * appears only once it was turned on, and it really unwraps the Master
- * Key from a device-protected key (Secure Enclave / Keychain / Android
- * Keystore) — it never just checks presence. Any biometric failure
- * leaves the vault locked and points at the passphrase; there is no
- * other fallback. Right after a passphrase or recovery-key unlock, the
- * screen offers to turn biometric unlock on (contract §4).
- */
-export default function LockScreen({ onUnlocked }: { onUnlocked: () => void }) {
-  const P = useSoftPalette();
-  const reduced = useReducedMotion();
-  const [pass, setPass] = useState('');
-  const [recovery, setRecovery] = useState('');
-  const [useRecovery, setUseRecovery] = useState(false);
+type UnlockMode = 'biometric' | 'passphrase' | 'recovery';
+
+export default function LockScreen({ onUnlocked, accountJustSignedIn = false }: {
+  onUnlocked: () => void;
+  accountJustSignedIn?: boolean;
+}) {
+  const { dict, t } = useTranslation();
+  const { lock, mobileAuth: auth } = dict;
+  const [mode, setMode] = useState<UnlockMode | null>(null);
+  const [secret, setSecret] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [device, setDevice] = useState<DeviceUnlockState | null>(null);
-  const [storageError, setStorageError] = useState<string | null>(null);
+  const [device, setDevice] = useState<DeviceUnlockState>();
+  const [storageError, setStorageError] = useState(false);
+  const [declined, setDeclined] = useState(false);
   const [offer, setOffer] = useState(false);
   const [offerError, setOfferError] = useState('');
 
-  const name = biometryName(device?.biometry);
+  const name = biometryName(device?.biometry, t);
+  const unlockWithBiometrics = t('mobileAuth.bioUnlock', name);
+  const enableBiometrics = t('mobileAuth.bioEnable', name);
+  const biometricAvailable = Boolean(device?.enrolled && device.available);
+  const useRecovery = mode === 'recovery';
+  let subtitle = auth.unlockPassphraseBody;
+  if (accountJustSignedIn) subtitle = auth.accountUnlockedTransition;
+  else if (useRecovery) subtitle = auth.unlockRecoveryBody;
+  else if (biometricAvailable) subtitle = auth.unlockBiometricBody;
 
-  async function refreshDevice(): Promise<DeviceUnlockState> {
-    const state = await getDeviceUnlockState();
-    setDevice(state);
-    setStorageError(getStorageError());
-    return state;
+  useEffect(() => {
+    let active = true;
+    void Promise.all([
+      getDeviceUnlockState().catch(() => undefined),
+      AsyncStorage.getItem(BIOMETRIC_OFFER_PREFERENCE).catch(() => null),
+    ]).then(([state, offerPreference]) => {
+      if (!active) return;
+      setDevice(state);
+      setStorageError(Boolean(getStorageError()));
+      setDeclined(offerPreference === 'declined');
+      setMode(state?.enrolled && state.available ? 'biometric' : 'passphrase');
+    });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    const back = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (busy || offer) return true;
+      if (mode === 'passphrase' && biometricAvailable) setMode('biometric');
+      else if (mode === 'recovery') setMode('passphrase');
+      else return false;
+      setSecret('');
+      setError('');
+      return true;
+    });
+    return () => back.remove();
+  }, [biometricAvailable, busy, mode, offer]);
+
+  function choose(next: UnlockMode) {
+    setMode(next);
+    setSecret('');
+    setError('');
   }
-  useEffect(() => { void refreshDevice(); }, []);
 
-  function finish() { setPass(''); setRecovery(''); setUseRecovery(false); setOffer(false); setOfferError(''); onUnlocked(); }
+  function finish() {
+    setSecret('');
+    setOffer(false);
+    setOfferError('');
+    onUnlocked();
+  }
 
-  async function handleUnlock() {
-    setError(''); setBusy(true);
-    const ok = useRecovery ? (recovery.trim() ? await unlockWithRecoveryKey(recovery.trim()) : false) : pass ? await unlockVault(pass) : false;
-    if (!ok) {
-      setBusy(false);
-      const storage = getStorageError();
-      setStorageError(storage);
-      setError(storage ? 'The vault could not be opened (see above).' : useRecovery ? 'That recovery key did not unlock the vault. Check it and try again.' : 'Wrong passphrase, or no vault exists yet.');
+  async function unlockWithSecret() {
+    if (busy) return;
+    if (!secret || (useRecovery && !secret.trim())) {
+      setError(useRecovery ? dict.restore.enterRecovery : auth.enterPassphrase);
       return;
     }
-    const state = await refreshDevice();
-    setBusy(false);
-    if (!state.enrolled && state.available) { setPass(''); setRecovery(''); setOffer(true); }
-    else finish();
+    setError('');
+    setBusy(true);
+    Keyboard.dismiss();
+    try {
+      const unlocked = useRecovery ? await unlockWithRecoveryKey(secret.trim()) : await unlockVault(secret);
+      if (!unlocked) {
+        const storageFailed = Boolean(getStorageError());
+        setStorageError(storageFailed);
+        if (!storageFailed) setError(useRecovery ? lock.wrongRecovery : lock.wrongPassphrase);
+        return;
+      }
+      const state = await getDeviceUnlockState().catch(() => undefined);
+      setDevice(state);
+      setSecret('');
+      if (!declined && state?.available && !state.enrolled) {
+        setOffer(true);
+      } else {
+        finish();
+      }
+    } catch {
+      setStorageError(true);
+    } finally {
+      setBusy(false);
+    }
   }
 
-  async function handleBiometric() {
-    setError(''); setBusy(true);
-    const result = await unlockWithDeviceKey('Unlock my-secrect');
-    setBusy(false);
-    if (result.ok) { finish(); return; }
-    setError(deviceUnlockMessage(result.code, name));
-    await refreshDevice();
+  async function unlockBiometric() {
+    if (busy) return;
+    setError('');
+    setBusy(true);
+    try {
+      const result = await unlockWithDeviceKey(unlockWithBiometrics);
+      if (result.ok) {
+        finish();
+        return;
+      }
+      choose('passphrase');
+      setError(deviceUnlockMessage(result.code, name, t));
+      const state = await getDeviceUnlockState().catch(() => undefined);
+      setDevice(state);
+    } catch {
+      choose('passphrase');
+      setStorageError(true);
+    } finally {
+      setBusy(false);
+    }
   }
 
-  async function handleEnable() {
-    setOfferError(''); setBusy(true);
-    const result = await enableDeviceUnlock(`Turn on ${name} unlock for my-secrect`);
-    setBusy(false);
-    if (result.ok) finish();
-    else setOfferError(result.code === 'USER_CANCEL' ? `${name} unlock was not turned on.` : `${name} unlock could not be turned on: ${deviceUnlockMessage(result.code, name)}`);
+  async function enable() {
+    if (busy) return;
+    setOfferError('');
+    setBusy(true);
+    try {
+      const result = await enableDeviceUnlock(enableBiometrics);
+      if (result.ok) finish();
+      else setOfferError(result.code === 'USER_CANCEL' ? t('mobileAuth.bioNotEnabled', name) : t('mobileAuth.bioEnableFailed', name));
+    } catch {
+      setOfferError(t('mobileAuth.bioEnableFailed', name));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function skipOffer() {
+    if (busy) return;
+    setDeclined(true);
+    void AsyncStorage.setItem(BIOMETRIC_OFFER_PREFERENCE, 'declined').catch(() => undefined);
+    finish();
   }
 
   if (offer) {
     return (
-      <SoftScreen art={illustrations.splash} title={`Turn on ${name} unlock?`} subtitle={`${name} will unlock this vault on this device. A copy of your Master Key is wrapped by a key that only ${name} on this device can release. Your passphrase keeps working, and is required again if ${name} settings change.`}>
-        {offerError ? <SoftAlert testID="enable-biometric-error">{offerError}</SoftAlert> : null}
-        <Btn testID="enable-biometric-button" primary icon="security" label={`Turn on ${name} unlock`} busy={busy} onPress={() => void handleEnable()} />
-        <Btn testID="skip-biometric-button" label="Not now" disabled={busy} onPress={finish} />
-      </SoftScreen>
+      <AuthLayout title={t('mobileAuth.bioOffer', name)} subtitle={t('mobileAuth.bioBody', name)}>
+        {!!offerError && <InlineError testID="enable-biometric-error">{offerError}</InlineError>}
+        <View style={{ gap: space[3] }}>
+          <AppButton label={enableBiometrics} icon="security" testID="enable-biometric-button" loading={busy} onPress={() => void enable()} />
+          <AppButton label={auth.bioNotNow} variant="secondary" testID="skip-biometric-button" disabled={busy} onPress={skipOffer} />
+        </View>
+      </AuthLayout>
     );
   }
 
   return (
-    <SoftScreen
-      art={illustrations.splash}
-      title="Your vault is locked"
-    >
-      {storageError ? (
-        <SoftAlert testID="storage-error">
-          Couldn’t open the vault. Restart the app to try again.
-        </SoftAlert>
-      ) : null}
-      <Rise index={0} reduced={reduced}>
-        {useRecovery ? (
-          <SoftField label="Recovery key" testID="recovery-key-input" icon="recovery" placeholder="Paste your recovery key" value={recovery} onChangeText={setRecovery} autoCapitalize="none" autoCorrect={false} />
-        ) : (
-          <SoftField label="Master passphrase" testID="master-passphrase" icon="lock" placeholder="Master passphrase" secureTextEntry value={pass} onChangeText={setPass} autoCapitalize="none" autoCorrect={false} />
-        )}
-      </Rise>
-      {error ? <SoftAlert testID="lock-error">{error}</SoftAlert> : null}
-      <Rise index={1} reduced={reduced}>
-        <Btn testID="unlock-button" primary icon="unlock" label={busy ? 'Unlocking…' : useRecovery ? 'Unlock with recovery key' : 'Unlock'} busy={busy} onPress={() => void handleUnlock()} />
-      </Rise>
-      {device?.enrolled && !useRecovery ? (
-        <Btn testID="biometric-button" icon="security" label={`Unlock with ${name}`} disabled={busy} onPress={() => void handleBiometric()} />
-      ) : null}
-      <TextButton testID="toggle-recovery" brand label={useRecovery ? 'Use passphrase instead…' : 'Unlock with a recovery key…'} onPress={() => { setUseRecovery((v) => !v); setError(''); }} />
-    </SoftScreen>
+    <AuthLayout title={lock.status} subtitle={subtitle} art={illustrations.splash}>
+      {storageError && <InlineError testID="storage-error">{auth.vaultStorageError}</InlineError>}
+      {mode === null && <Progress testID="unlock-loading" label={dict.common.loading} />}
+      {mode === 'biometric' && (
+        <View style={{ gap: space[3] }}>
+          <AppButton label={unlockWithBiometrics} icon="security" testID="biometric-button" loading={busy} onPress={() => void unlockBiometric()} />
+          <AppButton label={lock.usePassphrase} variant="secondary" testID="unlock-passphrase-option" disabled={busy}
+            onPress={() => choose('passphrase')} />
+          <AppButton label={lock.useRecoveryKey} variant="text" testID="toggle-recovery" disabled={busy}
+            onPress={() => choose('recovery')} />
+        </View>
+      )}
+      {(mode === 'passphrase' || mode === 'recovery') && (
+        <FieldGroup>
+          <AppTextField key={mode} flush revealable label={useRecovery ? lock.recoveryKey : lock.passphrase}
+            testID={useRecovery ? 'recovery-key-input' : 'master-passphrase'}
+            leadingIcon={useRecovery ? 'recovery' : 'lock'} placeholder={useRecovery ? lock.recoveryPlaceholder : lock.passphrase}
+            value={secret} onChangeText={(value) => { setSecret(value); setError(''); }}
+            disabled={busy} autoCapitalize="none" autoCorrect={false} autoComplete="off" returnKeyType="go"
+            onSubmitEditing={() => void unlockWithSecret()} />
+          {!!error && <InlineError testID="lock-error">{error}</InlineError>}
+          <View style={{ gap: space[3] }}>
+            <AppButton label={busy ? lock.working : useRecovery ? lock.unlockWithRecovery : lock.unlock} icon="unlock"
+              testID="unlock-button" loading={busy} onPress={() => void unlockWithSecret()} />
+            {biometricAvailable && !useRecovery && <AppButton label={unlockWithBiometrics} icon="security"
+              variant="secondary" testID="biometric-button" disabled={busy} onPress={() => choose('biometric')} />}
+            <AppButton label={useRecovery ? lock.usePassphrase : lock.useRecoveryKey} variant="text" testID="toggle-recovery"
+              disabled={busy} onPress={() => choose(useRecovery ? 'passphrase' : 'recovery')} />
+          </View>
+        </FieldGroup>
+      )}
+    </AuthLayout>
   );
 }
