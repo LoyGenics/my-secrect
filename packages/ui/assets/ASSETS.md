@@ -57,6 +57,17 @@ cropped parts such as the lanyard on `type_identity` 9103, or clutter).
 | type-collection.webp | type_collection | 9103 | 256 | `typeArt.collection` |
 | type-custom.webp | type_custom | 9103 | 256 | `typeArt.custom` |
 
+## Brand (`brand/`, app icons)
+
+| File | Source | Seed | Use |
+|---|---|---|---|
+| brand/ghost-mark.webp (256) | logo concept `07_ghost_key` (`hd/07_ghost_key_s8209_00001.webp`) | 8209 | `brandMark` (sidebar, lock card); also the source of the favicons (`apps/{desktop,web}/public/favicon.png`), the Tauri icons (`apps/desktop/src-tauri/icons/`) and the mobile icon, adaptive foreground and splash (`apps/mobile/assets/`, from the `cutouts_hd` transparent version) |
+
+Prompt: "A tiny friendly white ghost holding a small orange key. Mobile app icon design, soft 3D
+clay toy style … solid pastel lavender background"; chosen by the user from 20 concepts × 2 seeds.
+Same pipeline as above (Qwen-Image, Real-ESRGAN, BiRefNet for the cutout); the desktop icons have
+rounded corners applied here, iOS and Android mask the square themselves.
+
 ## Motion (`motion/`, animated WebP 256px, 49 frames, 24 fps, loop; `*-still.webp` = frame 1)
 
 Under `prefers-reduced-motion: reduce` the still is shown instead (`components/Art.tsx`).

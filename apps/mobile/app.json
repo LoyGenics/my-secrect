@@ -5,14 +5,16 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "scheme": "my-secrect",
-    "userInterfaceStyle": "dark",
-    "splash": { "backgroundColor": "#0B0F14" },
+    "userInterfaceStyle": "light",
+    "icon": "./assets/icon.png",
+    "splash": { "image": "./assets/splash.png", "resizeMode": "contain", "backgroundColor": "#f6f4f1" },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.loygenics.my-secrect",
       "infoPlist": { "NSFaceIDUsageDescription": "Unlock your my-secrect vault with Face ID. Your passphrase is still required the first time after install." }
     },
     "android": {
+      "adaptiveIcon": { "foregroundImage": "./assets/adaptive-foreground.png", "backgroundColor": "#e4cfff" },
       "package": "com.loygenics.mysecrect",
       "versionCode": 1
     },

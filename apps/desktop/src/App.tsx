@@ -883,7 +883,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
         )}
         <section className={opts.wide ? 'ms-device ms-device--wide' : 'ms-device'} aria-labelledby="device-wordmark">
           <div className="ms-device__head">
-            {brandMark.src && <img src={brandMark.src} alt="" width={40} height={40} />}
+            {brandMark.src && <img className="ms-brand-img" src={brandMark.src} alt="" width={40} height={40} />}
             <h1 id="device-wordmark" className="ms-device__wordmark">{dict.common.appName}</h1>
             <LedStrip state={opts.led} />
           </div>

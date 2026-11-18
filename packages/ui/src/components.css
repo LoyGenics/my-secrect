@@ -835,6 +835,7 @@ select.ms-input { padding-right: 32px; cursor: pointer; }
   background: var(--ms-color-bg-surface2);
 }
 .ms-rail__brand { display: flex; align-items: center; gap: 10px; padding: 20px 20px 14px; }
+.ms-brand-img { flex: none; border-radius: 11px; }
 .ms-brand-mark {
   display: grid;
   place-items: center;
@@ -1209,8 +1210,9 @@ select.ms-input { padding-right: 32px; cursor: pointer; }
   font-weight: 800;
   letter-spacing: -0.02em;
   margin: 0;
+  flex: 1;
 }
-.ms-device__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ms-device__head { display: flex; align-items: center; gap: 12px; }
 .ms-device__lede { margin: 10px 0 0; color: var(--ms-color-text-muted); font-size: var(--ms-text-sm); line-height: var(--ms-leading-sm); }
 .ms-device__body { margin-top: 22px; display: grid; gap: 14px; }
 .ms-device__foot { margin: 20px 0 0; padding-top: 14px; border-top: 1px solid var(--ms-color-border-default); font-size: var(--ms-text-sm); line-height: var(--ms-leading-sm); color: var(--ms-color-text-muted); }

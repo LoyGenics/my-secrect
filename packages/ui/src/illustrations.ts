@@ -43,6 +43,7 @@ import typeDocument from '../assets/illustrations/type-document.webp';
 import typeMedia from '../assets/illustrations/type-media.webp';
 import typeCollection from '../assets/illustrations/type-collection.webp';
 import typeCustom from '../assets/illustrations/type-custom.webp';
+import ghostMark from '../assets/brand/ghost-mark.webp';
 import motionSuccess from '../assets/motion/success.webp';
 import motionSuccessStill from '../assets/motion/success-still.webp';
 import motionWorking from '../assets/motion/working.webp';
@@ -108,7 +109,9 @@ export const typeArt: Partial<Record<ItemTypeKey, string>> = {
 };
 
 /**
- * Brand mark slot (rail header, device face). Undefined until the chosen
- * logo lands; consumers show the orange brand mark meanwhile.
+ * Brand mark (rail header, lock card): the ghost holding an orange key, chosen
+ * from the logo concepts (07_ghost_key, seed 8209) — a full-bleed lavender
+ * square, so consumers round its corners (`.ms-brand-img`). Provenance:
+ * packages/ui/assets/ASSETS.md.
  */
-export const brandMark: { src?: string } = {};
+export const brandMark: { src?: string } = { src: ghostMark };

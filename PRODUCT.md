@@ -45,7 +45,7 @@ An all-in-one vault, not just a password manager: logins, passkeys, cards, banki
 ## Evidence on Hand
 
 - Example data: 12 fake items, one per type (Load example data). No real testimonials, customers, audits, store ratings or press exist; none may be invented.
-- No logo or brand mark exists yet.
+- Logo: the ghost holding an orange key (concept 07_ghost_key, seed 8209), on a lavender square. Source: the logo concept set; provenance in packages/ui/assets/ASSETS.md.
 
 ## Product Principles
 

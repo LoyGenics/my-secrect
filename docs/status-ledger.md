@@ -62,7 +62,7 @@ On main cb1bca6: npm run test:acceptance 45 pass / 3 todo; npm run test:acceptan
 Covered: A, B, D, E, I, K, M. Partial: C, F, H. Pending: G, J, L. Open defects: H1/H2 device revocation (re-check on main), H3 pull 401 not handled, H4 local-only choice not sticky, C1 different vault key pushes unreadable items (high), K3 rollback (high, needs v2 AD + signed events), K2 backup item omission undetected, E1 relations rewritten on save.
 
 ## In progress
-- No agents running. Waiting on the user: logo choice (app icon slot empty; expo prebuild warns "No icon").
+- Logo chosen by the user: 07_ghost_key (seed 8209); wired on feat/ui-soften (brand mark, favicons, Tauri and mobile icons).
 
 ## Open (not assigned yet)
 - Mobile UI: "+ New" and detail "Back" sit under the status bar on iOS and Android (reported by three agents).

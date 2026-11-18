@@ -152,7 +152,7 @@ export default function Sidebar({
     <nav className={cn('ms-rail', inDrawer && 'ms-rail--drawer')} aria-label={s.navLabel}>
       <div className="ms-rail__brand">
         {brandMark.src ? (
-          <img src={brandMark.src} alt="" width={34} height={34} />
+          <img className="ms-brand-img" src={brandMark.src} alt="" width={34} height={34} />
         ) : (
           <span className="ms-brand-mark" aria-hidden="true">{dict.common.appName.charAt(0)}</span>
         )}
