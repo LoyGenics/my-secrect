@@ -19,6 +19,7 @@ Re-run 2026-11-18 04:05 on main a7a777c (after desktop storage + sync integrity)
 
 ## Generated imagery (2026-11-18, Colab A100, runtime deleted after download)
 - Kept: 20 logo/icon concepts × 2 (user to choose), 49 cute soft-3D illustrations × 2, 8 animated loops (opaque + transparent WebP). Unpacked outside the repo at ../my-secrect-assets-inbox; models Qwen-Image + Wan 2.2 TI2V-5B (Apache-2.0), Real-ESRGAN x4plus (BSD-3), BiRefNet (MIT).
+- Mascot set (2026-11-18, branch feat/ghost-mascot, not pushed): 14 expressions x 2 seeds (Qwen-Image-Edit 2511), 5 loops + alternates (Wan 2.2), hand-drawn SVGs, full app-icon set. Colab A100 runtime deleted after download. Not wired into screens until each image is approved. Details: packages/ui/assets/ASSETS.md.
 - Discarded: the first grey "product shot" set (dull, and a "Braun" style cue printed that trademark on some renders).
 
 

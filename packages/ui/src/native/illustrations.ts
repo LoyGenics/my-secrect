@@ -40,3 +40,22 @@ export const typeArt = {
   collection: require('../../assets/illustrations/type-collection.webp'),
   custom: require('../../assets/illustrations/type-custom.webp'),
 } as const;
+
+/** Mascot expressions (same files as web, static; see illustrations.ts). */
+export const mascot = {
+  neutral: require('../../assets/mascot/ghost-neutral.webp'),
+  happy: require('../../assets/mascot/ghost-happy.webp'),
+  wave: require('../../assets/mascot/ghost-wave.webp'),
+  sleepy: require('../../assets/mascot/ghost-sleepy.webp'),
+  surprised: require('../../assets/mascot/ghost-surprised.webp'),
+  sad: require('../../assets/mascot/ghost-sad.webp'),
+  proud: require('../../assets/mascot/ghost-proud.webp'),
+  searching: require('../../assets/mascot/ghost-searching.webp'),
+  working: require('../../assets/mascot/ghost-working.webp'),
+  success: require('../../assets/mascot/ghost-success.webp'),
+  error: require('../../assets/mascot/ghost-error.webp'),
+  thinking: require('../../assets/mascot/ghost-thinking.webp'),
+  empty: require('../../assets/mascot/ghost-empty.webp'),
+  guard: require('../../assets/mascot/ghost-guard.webp'),
+} as const;
+export type NativeMascotName = keyof typeof mascot;

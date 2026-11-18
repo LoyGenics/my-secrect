@@ -10,7 +10,8 @@ and libraries: `THIRD_PARTY_NOTICES.md` (repo root).
 |---|---|---|
 | Illustrations | Qwen-Image (`qwen_image_fp8_e4m3fn.safetensors`), ComfyUI on Google Colab | Apache-2.0 |
 | Upscale | Real-ESRGAN x4plus | BSD-3-Clause |
-| Cutouts (transparent) | BiRefNet | MIT |
+| Cutouts (transparent) | BiRefNet (first batch), flat-colour keying for the mascot (`mascot/pipeline/keyout.py`) | MIT / own code |
+| Mascot expressions | Qwen-Image-Edit 2511 (`qwen_image_edit_2511_fp8mixed`, `qwen_2.5_vl_7b_fp8_scaled`, `qwen_image_vae`), ComfyUI on Colab A100, the ghost master as reference image | Apache-2.0 |
 | Motion | Wan 2.2 TI2V-5B (`wan2.2_ti2v_5B_fp16`, `umt5_xxl_fp8_e4m3fn_scaled`, `wan2.2_vae`), image-to-video from the illustration named as start image | Apache-2.0 |
 | App sizes | ImageMagick (trim, resize, coalesce) + `cwebp` (q82, alpha q85) | Apache-2.0 / BSD-3-Clause (tools only, nothing bundled) |
 
@@ -82,3 +83,73 @@ Under `prefers-reduced-motion: reduce` the still is shown instead (`components/A
 Not shipped (available in the drop): `feature_*`, other `state_*`/`empty_*`, `splash_tall` /
 `splash_wide`, motion `unlock_safe_open`, `splash_wave`, `sync_heart_pulse`,
 `offline_cloud_float`. Brand mark: not delivered yet (`brandMark` slot is empty).
+
+## Mascot (`mascot/`, `motion/ghost-*`, `brand/ghost*.svg`)
+
+The ghost holding the orange key (concept `07_ghost_key`, seed 8209, cutout trimmed to
+`brand/source/ghost-key-cutout.webp`) is the app mascot. Slots: `mascot`, `mascotMotion`,
+`mascotVector` in `src/illustrations.ts` (web), `mascot` in `src/native/illustrations.ts` (static only).
+Not wired into any screen yet: each image waits for approval, then replaces the old illustration of that state.
+
+### Expressions (`mascot/ghost-<id>.webp`, transparent, 384px, one common crop so the ghost keeps its size)
+
+Method: Qwen-Image-Edit, the ghost master (1024px, flat mint background `#cfeee2`) as the only reference,
+25 steps, cfg 4, euler/simple, seeds 1101 and 2202 per id (both reviewed, one kept). Prompt =
+"Keep exactly the same white soft-clay ghost character, the same orange clay key, the same matte soft 3D clay toy
+style, the same lighting, the same flat plain mint background and the same camera framing and size. Change only the
+expression and pose: <description>. The ghost has simple oval dark eyes and a tiny mouth, no other face details.
+No text, no letters, no numbers, no symbols." Descriptions and negative prompt: `mascot/pipeline/colab-expressions.py`.
+Rejected for cutout artefacts, not for the picture: BiRefNet left grey blobs on 7 of 28, so the mint is keyed out
+instead (the `empty` box keeps the BiRefNet cutout because of its floor shadow).
+
+| File | Seed | Meaning |
+|---|---|---|
+| ghost-neutral | 1101 | default, calm smile |
+| ghost-happy | 1101 | delighted |
+| ghost-wave | 2202 | greeting, onboarding welcome |
+| ghost-sleepy | 2202 | idle, nothing here yet |
+| ghost-surprised | 2202 | unexpected prompt, new device |
+| ghost-sad | 2202 | failed, lost |
+| ghost-proud | 1101 | done well, backup complete |
+| ghost-searching | 1101 | looking, no search results |
+| ghost-working | 1101 | busy, determined |
+| ghost-success | 1101 | celebrate (key raised, confetti) |
+| ghost-error | 1101 | worried, something went wrong |
+| ghost-thinking | 1101 | choosing, passphrase hint |
+| ghost-empty | 2202 | peeks into an empty box |
+| ghost-guard | 1101 | protecting the key, security |
+
+### Loops (`motion/ghost-<id>.webp` + `-still.webp`, 256px, 12 fps, 48 frames, loop)
+
+Wan 2.2 TI2V-5B image-to-video from the edited expression (704px, 49 frames, 30 steps, cfg 5, uni_pc, shift 8),
+then keyed on the mint, temporal median on the alpha (removes one-frame glitches), cropped to the clip's own
+box, every second frame, and played forward then backward so the loop has no seam. The still is frame 1,
+shown under `prefers-reduced-motion` (`components/Art.tsx`). Prompts: `mascot/pipeline/colab-motion.py`.
+
+| File | Start image | Seed | Use |
+|---|---|---|---|
+| ghost-hello | wave | 6602 | greeting |
+| ghost-sleepy | original (surprised face) | 5501 | idle, empty favourites |
+| ghost-joy | happy | 5501 | success |
+| ghost-loading | neutral (prompt "loader") | 6602 | loading, unlock / KDF wait |
+| ghost-idle | neutral | 6602 | ambient blink |
+
+Discarded: first `joy` (the key flew out of its hands), first `loading` (almost still), `idle` seed 5501 (face turned into a yawn).
+
+### Vectors (`brand/ghost.svg`, `ghost-mono.svg`, `ghost-favicon.svg`)
+
+Drawn by hand (ComfyUI cannot produce true vectors of a clay render): `ghost.svg` flat colour for print/large,
+`ghost-mono.svg` one colour (`currentColor`, knock-outs for eyes, mouth and key), `ghost-favicon.svg` bold tile for 16-64 px.
+
+### App icons (`brand/build-icons.sh`, run from anywhere; needs ImageMagick 7, rsvg-convert, iconutil)
+
+One script rebuilds every platform file from `brand/source/ghost-key-cutout.webp` + `ghost-favicon.svg`
+(sizes 16-64 use the flat vector, larger sizes the 3D render):
+
+| Platform | Files |
+|---|---|
+| Web (`apps/{desktop,web}/public`) | `favicon.svg`, `favicon.ico` (16/32/48), `favicon.png` 128, `apple-touch-icon.png` 180 (opaque), `icon-192/512.png`, `icon-maskable-512.png` (ghost inside the 80% safe zone) |
+| macOS / Windows / Linux (Tauri) | `icon.icns` (Big Sur grid: 824px tile, drop shadow, 16-1024 incl. @2x), `icon.ico` (16/24/32/48/64/128/256), `32x32`, `128x128`, `128x128@2x`, `icon.png` 512 |
+| iOS / Android (Expo) | `icon.png` 1024 opaque (iOS rounds it), `adaptive-foreground.png` (ghost inside the 66% safe circle), `adaptive-monochrome.png` (Android 13 themed icon), adaptive background `#E9E2FB` |
+| Extension | `icon16/32/48/128.png` |
+Not covered yet: iOS 18 dark/tinted icon variants and Android legacy mipmap sizes (Expo prebuild derives them).
