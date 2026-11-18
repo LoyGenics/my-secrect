@@ -550,7 +550,7 @@ export default function SharesView(props: SharesViewProps) {
               {Object.entries(draft.fields).map(([name, value]) => (
                 <div key={name}>
                   <label className="label" htmlFor={`share-field-${name}`}>{name}</label>
-                  <input id={`share-field-${name}`} className="input" value={value} autoComplete="off"
+                  <input id={`share-field-${name}`} className="input" type={name === 'card_number' && !revealed ? 'password' : 'text'} value={value} autoComplete="off"
                     onChange={(e) => setDraft({ ...draft, fields: { ...draft.fields, [name]: e.target.value } })} />
                 </div>
               ))}

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Pressable, Text, View } from 'react-native';
 import type { VaultItem } from '../../../../packages/core/src/types';
+import { cardIssuer, cardLast4 } from '../../../../packages/core/src/card';
 import { useMobileTheme } from '../theme';
 import { Icon, type IconName } from '../../../../packages/ui/src/native';
 import { Archive, Star } from 'lucide-react-native';
@@ -44,12 +45,17 @@ export default function ItemRow({ item, selected, onPress, onToggleFavorite }: {
   const { colors } = useMobileTheme();
   const { dict } = useTranslation();
   const label = typeLabel(dict, item.type);
-  const subtitle = typeof item.fields?.username === 'string' ? (item.fields.username as string) : typeof item.fields?.bank_name === 'string' ? (item.fields.bank_name as string) : label;
+  const title = item.type === 'card' ? cardIssuer(item.title, item.fields.bank) : item.title;
+  const last4 = item.type === 'card' ? cardLast4(item.fields) : '';
+  let subtitle = label;
+  if (last4) subtitle = `${label} · •••• ${last4}`;
+  else if (typeof item.fields?.username === 'string') subtitle = item.fields.username;
+  else if (typeof item.fields?.bank_name === 'string') subtitle = item.fields.bank_name;
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: selected ? colors.accentSoft : colors.card, borderBottomWidth: 0.5, borderBottomColor: colors.line }}>
     <Pressable
       testID={`item-row-${item.id}`}
-      accessibilityLabel={`${item.title}, ${label}`}
+      accessibilityLabel={`${title}, ${label}`}
       accessibilityRole="button"
       onPress={onPress}
       style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 14, minHeight: 72 }}
@@ -58,7 +64,7 @@ export default function ItemRow({ item, selected, onPress, onToggleFavorite }: {
         <View style={{ width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface2 }}><Icon name={itemIcons[item.type] || 'custom'} size="lg" color={colors.secondary} /></View>
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
-        <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }} numberOfLines={1}>{item.title}</Text>
+        <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }} numberOfLines={1}>{title}</Text>
         <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }} numberOfLines={1}>{subtitle}</Text>
       </View>
       {isArchived(item) && <Archive size={16} color={colors.muted} />}

@@ -25,6 +25,39 @@ const entry: VaultItem = {
   updated_at: '2026-11-17T00:00:00.000Z',
 };
 
+test('mobile card CVV is encrypted locally and absent after portable restore', { timeout: 180_000 }, async () => {
+  const vault = await import('./src/vault.ts');
+  const { store } = await openTestStore();
+  vault.setVaultPlatform({ openStore: async () => store, legacy: new MemoryKeyValue(), deviceKey: new SoftwareDeviceKey() });
+  const { recoveryKey } = await vault.createVault(PASSPHRASE);
+  const card: VaultItem = {
+    ...entry,
+    type: 'card',
+    fields: { cardholder: 'Example person', card_number: '4242424242424242', last4: '4242' },
+  };
+  await vault.upsertItem(card, '047');
+  const ciphertext = await store.getLocalCardCode(card.id);
+  assert.ok(ciphertext && ciphertext !== '047');
+  assert.equal(await vault.readLocalCardCode(card.id), '047');
+  vault.lockVault();
+  await assert.rejects(() => vault.readLocalCardCode(card.id), /vault locked/);
+  assert.equal(await vault.unlockVault(PASSPHRASE), true);
+  await vault.upsertItem({ ...card, favorite: true });
+  assert.equal(await vault.readLocalCardCode(card.id), '047');
+  assert.deepEqual(JSON.parse(vault.exportPlaintext()).items[0].fields, card.fields);
+  const backup = await vault.exportEncrypted();
+  await vault.upsertItem(card, '');
+  assert.equal(await vault.readLocalCardCode(card.id), '');
+  await vault.upsertItem(card, '047');
+  await vault.permanentlyDeleteItem(card.id);
+  assert.equal(await store.getLocalCardCode(card.id), null);
+  await vault.wipeVault();
+  await vault.restoreEncrypted(backup, { recoveryKey });
+  assert.deepEqual(vault.listItems()[0].fields, card.fields);
+  assert.equal(await vault.readLocalCardCode(card.id), '');
+  await vault.wipeVault();
+});
+
 test('mobile: v3 backup restores with recovery key; tampered ciphertext or item list rejected', { timeout: 180_000 }, async () => {
   const vault = await import('./src/vault.ts');
   const { store, raw } = await openTestStore();

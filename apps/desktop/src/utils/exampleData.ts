@@ -69,7 +69,7 @@ export function buildExampleItems(): VaultItem[] {
       brand: 'Visa',
       expiry: '12/30',
       bank: 'Example Bank',
-      notes: 'EXAMPLE DATA — fake card metadata. No CVV is ever stored.',
+      notes: 'EXAMPLE DATA — fake card metadata.',
     }),
     base('example-identity', 'identity', 'Example Passport', {
       full_name: 'Example Person',

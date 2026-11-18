@@ -1,9 +1,11 @@
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useIsFocused } from '@react-navigation/native';
 import React, { useEffect, useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import * as Clipboard from 'expo-clipboard';
 import type { VaultItem } from '../../../../packages/core/src/types';
+import { cardIssuer, cardLast4 } from '../../../../packages/core/src/card';
 import { useMobileTheme } from '../theme';
 import { Icon, TypeModule } from '../../../../packages/ui/src/native';
 import { useTranslation } from '../../../../packages/i18n/src/react';
@@ -14,6 +16,7 @@ import { IconButton } from '../components/mobile-ui';
 import ScreenFrame from '../components/ScreenFrame';
 import { generateTotp } from '../utils/totp';
 import { getPasswordHistory, getNoteRevisions, isArchived } from '../utils/itemMeta';
+import { readLocalCardCode } from '../vault';
 
 /** Fields that hold the secret, in the order "Copy password" prefers. */
 const SECRET_KEYS = ['password', 'key', 'account_number', 'document_number', 'private_key_ref'];
@@ -32,20 +35,20 @@ function Ring({ value, color, track }: { value: number; color: string; track: st
   );
 }
 
-function FieldRow({ label, value, secret, testID }: { label: string; value: string; secret?: boolean; testID: string }) {
+function FieldRow({ label, value, secret, mask, copyable = true, testID }: { label: string; value: string; secret?: boolean; mask?: string; copyable?: boolean; testID: string }) {
   const { colors } = useMobileTheme();
   const { dict } = useTranslation();
   const [show, setShow] = useState(false);
-  const display = secret && !show ? '•'.repeat(Math.min(12, Math.max(4, value.length))) : value;
+  const display = secret && !show ? mask ?? '•'.repeat(Math.min(12, Math.max(4, value.length))) : value;
   return (
     <View style={{ paddingVertical: 12, paddingHorizontal: 16, borderTopColor: colors.cardBorder, borderTopWidth: 1 }}>
       <Text style={{ color: colors.muted, fontSize: 13, marginBottom: 4 }}>{label}</Text>
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        <Text selectable style={{ flex: 1, color: colors.text, fontSize: 16 }} numberOfLines={secret && !show ? 1 : undefined}>{display}</Text>
+        <Text selectable={copyable} style={{ flex: 1, color: colors.text, fontSize: 16 }} numberOfLines={secret && !show ? 1 : undefined}>{display}</Text>
         {secret ? (
           <IconButton testID={`${testID}-toggle`} accessibilityLabel={format(show ? dict.itemDetail.hide : dict.itemDetail.show, label)} onPress={() => setShow((v) => !v)}><Icon name={show ? 'hide' : 'show'} size="lg" color={colors.secondary} /></IconButton>
         ) : null}
-        <IconButton testID={`${testID}-copy`} accessibilityLabel={format(dict.itemDetail.copy, label)} onPress={() => { void Clipboard.setStringAsync(value); }}><Icon name="copy" size="lg" color={colors.secondary} /></IconButton>
+        {copyable && <IconButton testID={`${testID}-copy`} accessibilityLabel={format(dict.itemDetail.copy, label)} onPress={() => { void Clipboard.setStringAsync(value); }}><Icon name="copy" size="lg" color={colors.secondary} /></IconButton>}
       </View>
     </View>
   );
@@ -61,11 +64,25 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
   const d = dict.itemDetail;
   const m = dict.mobile;
   const f = item.fields as Record<string, unknown>;
+  const displayTitle = item.type === 'card' ? cardIssuer(item.title, f.bank) : item.title;
   const str = (k: string) => (typeof f[k] === 'string' ? (f[k] as string) : '');
   const [totp, setTotp] = useState('');
   const [totpLeft, setTotpLeft] = useState(30);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const focused = useIsFocused();
+  const [localCode, setLocalCode] = useState('');
+  const cardId = item.type === 'card' ? item.id : undefined;
+  useEffect(() => {
+    setLocalCode('');
+    if (!focused || !cardId) return;
+    let active = true;
+    void readLocalCardCode(cardId).then(
+      (code) => { if (active) setLocalCode(code); },
+      () => { if (active) setLocalCode(''); },
+    );
+    return () => { active = false; };
+  }, [cardId, focused]);
   useEffect(() => {
     const secret = str('totp_secret'); if (!secret) return;
     const tick = () => { const r = generateTotp(secret); setTotp(r.code); setTotpLeft(r.secondsRemaining); };
@@ -85,16 +102,30 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
   const children = item.type === 'collection' ? allItems.filter((c) => typeof c.fields?.parent_id === 'string' && c.fields.parent_id === item.id) : [];
   const fieldLabel = (key: string) => (dict.fields as Record<string, string>)[key] ?? key.replace(/_/g, ' ');
   const entries: Array<[string, string, boolean, string]> = []; // [label, value, secret, key]
-  const add = (key: string, secret = false) => { const v = str(key); if (v) entries.push([fieldLabel(key), v, secret, key]); };
+  const add = (key: string, secret = false, value = str(key)) => { if (value) entries.push([fieldLabel(key), value, secret, key]); };
   if (item.type === 'login' || item.type === 'passkey') ['username', 'password', 'url', 'credential_id', 'rp_id', 'notes'].forEach((k) => add(k, k === 'password'));
   if (item.type === 'bank_account') ['bank_name', 'account_number', 'currency', 'holder_name', 'branch', 'notes'].forEach((k) => add(k, k === 'account_number'));
-  if (item.type === 'card') ['cardholder', 'last4', 'brand', 'expiry', 'bank', 'notes'].forEach((k) => add(k));
+  if (item.type === 'card') {
+    const kind = str('card_type');
+    add('brand', false, str('brand') === 'other' ? dict.card.otherBrand : str('brand'));
+    add('card_type', false, kind === 'credit' || kind === 'debit' ? dict.card[kind] : kind);
+    add('cardholder');
+    if (!str('card_number')) add('last4');
+    else if (focused) add('card_number', true);
+    add('expiry');
+    if (focused) add('cvv', true, localCode);
+    if (kind === 'credit') {
+      add('credit_limit');
+      add('statement_day');
+    }
+    add('notes');
+  }
   if (item.type === 'identity') ['full_name', 'document_number', 'issued_date', 'expiry_date', 'notes'].forEach((k) => add(k, k === 'document_number'));
   if (item.type === 'ssh_key') ['public_key', 'private_key_ref', 'comment', 'notes'].forEach((k) => add(k, k === 'private_key_ref'));
   if (item.type === 'api_key') ['service', 'key', 'scopes', 'expires_at', 'notes'].forEach((k) => add(k, k === 'key'));
   if (item.type === 'secure_note') add('body');
   if (item.type === 'document' || item.type === 'media') { ['blob_id', 'mime_type'].forEach((k) => add(k)); if (item.type === 'media') ['width', 'height', 'duration_s'].forEach((k) => add(k)); add('notes'); }
-  if (item.type === 'collection' || item.type === 'custom') { add('description'); for (const [k, v] of Object.entries(f)) if (typeof v === 'string' && v && k !== 'description') entries.push([k, v, false, k]); }
+  if (item.type === 'collection' || item.type === 'custom') { add('description'); for (const [k, v] of Object.entries(f)) if (typeof v === 'string' && v && k !== 'description') entries.push([k, v, k === 'card_number', k]); }
   const secretKey = SECRET_KEYS.find((k) => str(k));
   const copySecret = () => { if (!secretKey) return; void Clipboard.setStringAsync(str(secretKey)); setCopiedKey(secretKey); };
   const when = (iso: string) => formatDate(locale, new Date(iso), { dateStyle: 'medium', timeStyle: 'short' });
@@ -113,7 +144,7 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 4 }}>
           <TypeModule type={item.type} theme={theme} size={56} />
           <View style={{ flex: 1 }}>
-            <Text style={[styles.heading, { fontSize: 22, lineHeight: 28 }]}>{item.title}</Text>
+            <Text style={[styles.heading, { fontSize: 22, lineHeight: 28 }]}>{displayTitle}</Text>
             <Text style={{ color: colors.muted, fontSize: 14, marginTop: 4 }}>{typeLabel(dict, item.type)}{item.favorite ? `  · ${d.favorite}` : ''}{inTrash ? `  · ${d.inTrash}` : ''}{archived ? `  · ${d.archived}` : ''}</Text>
           </View>
         </View>
@@ -144,7 +175,7 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
               </View>
             ) : (
               <View key={key} style={i === 0 ? { marginTop: -1 } : undefined}>
-                <FieldRow label={label} value={value} secret={secret} testID={`field-${key}`} />
+                <FieldRow label={label} value={value} secret={secret} mask={key === 'card_number' ? `•••• ${cardLast4(f)}` : undefined} copyable={key !== 'cvv'} testID={`field-${key}`} />
               </View>
             ),
           )}
@@ -201,7 +232,6 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
             ))}
           </View>
         )}
-        {item.type === 'card' ? <Text style={{ color: colors.warnText, fontSize: 13, lineHeight: 18, marginTop: 12 }}>{m.cardNote}</Text> : null}
         <Text style={{ color: colors.muted, fontSize: 12, marginTop: 16 }}>{format(d.created, when(item.created_at))} · {format(d.updated, when(item.updated_at))}</Text>
       </ScrollView>
 

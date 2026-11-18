@@ -83,5 +83,5 @@ decryptable from stored data alone. See `packages/storage/src/upload.ts`.
 - It does not wire sync into any app (apps/ is owned separately).
 - It does not decrypt anything itself — decryption is the caller's
   `decrypt` callback (libsodium adapter) and the storage helpers.
-- It does not store CVV/PIN/live OTPs, and it never sends plaintext
+- Vault item payloads exclude CVV, PIN and live OTPs, and the SDK never sends plaintext
   titles/tags/types/relations to the server.

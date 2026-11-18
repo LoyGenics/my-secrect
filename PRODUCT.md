@@ -29,7 +29,7 @@ An all-in-one vault, not just a password manager: logins, passkeys, cards, banki
 
 ## Capabilities and Constraints
 
-- 12 item types: login, passkey, bank account, card (metadata only — never CVV or PIN), identity, SSH key, API key, secure note, document, media, collection, custom.
+- 12 item types: login, passkey, bank account, card (full number and credit terms, with optional device-only CVV), identity, SSH key, API key, secure note, document, media, collection, custom.
 - Favorites, tags, trash/archive, relations between items, local-only search (Cmd/Ctrl+K), password and passphrase generator, TOTP codes, Watchtower vault health, auto-lock.
 - Encrypted sync across devices with explicit conflict handling (both versions kept), encrypted media upload/download, encrypted portable backups, secure sharing (in progress), Security Center (passkeys, MFA, step-up, sessions, trusted devices, activity, account deletion).
 - The web client is intentionally limited (separate attack surface) and says so; desktop is the full client.

@@ -34,7 +34,7 @@ export default function SharePage({ id }: { id: string }) {
         <dl>{Object.entries(item.fields).map(([name, raw]) => {
           if (raw == null || raw === '') return null;
           const value = typeof raw === 'string' ? raw : JSON.stringify(raw);
-          const secret = /password|secret|key|account_number|document_number/i.test(name);
+          const secret = /password|secret|key|account_number|card_number|document_number/i.test(name);
           const label = (dict.fields as Record<string, string>)[name] || name.replace(/_/g, ' ');
           return <div className="shared-field" key={name}>
             <dt>{label}</dt><dd><span data-testid={`shared-value-${name}`}>{secret && !shown[name] ? '••••••••••••' : value}</span>

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { VaultItem } from '../../../../packages/core/src/types';
+import { cardIssuer, cardLast4, isCardVerificationField } from '../../../../packages/core/src/card';
+import { readLocalCardCode } from '../vault';
 import { generateTotp, isValidBase32Secret, type TotpResult } from '../utils/totp';
 import { isFavorite, isTrashed } from '../utils/password';
 import { renderMarkdownToHtml } from '../utils/markdown';
@@ -37,15 +39,15 @@ interface ItemDetailProps {
   onRestoreRevision?: (item: VaultItem) => void;
 }
 
-const SENSITIVE_KEYS = new Set(['password', 'private_key', 'key', 'totp_secret']);
+const SENSITIVE_KEYS = new Set(['password', 'private_key', 'key', 'totp_secret', 'card_number', 'cvv']);
 
 function isSensitiveKey(key: string): boolean {
   return SENSITIVE_KEYS.has(key) || /secret/i.test(key);
 }
 
-/** CVV / PIN / CVC values are never displayed, even if present in fields. */
+/** CVV is loaded separately from device-local ciphertext. */
 function isForbiddenKey(key: string): boolean {
-  return /^(cvv|cvc|pin)$/i.test(key);
+  return isCardVerificationField(key) || /^pin$/i.test(key);
 }
 
 function fieldString(item: VaultItem, key: string): string {
@@ -124,9 +126,20 @@ export default function ItemDetail({
   const d = dict.itemDetail;
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [totp, setTotp] = useState<TotpResult | null>(null);
+  const [localCode, setLocalCode] = useState<{ id: string; value: string }>();
   const { copiedKey, secondsLeft } = useClipboardStatus();
 
   const itemId = item?.id ?? null;
+  const cardId = item?.type === 'card' ? item.id : undefined;
+  useEffect(() => {
+    if (!cardId) return;
+    let active = true;
+    void readLocalCardCode(cardId).then(
+      (value) => { if (active) setLocalCode({ id: cardId, value }); },
+      () => { if (active) setLocalCode(undefined); },
+    );
+    return () => { active = false; };
+  }, [cardId]);
   const totpSecret = item?.type === 'login' && item ? fieldString(item, 'totp_secret') : '';
   const totpValid = totpSecret !== '' && isValidBase32Secret(totpSecret);
 
@@ -163,6 +176,7 @@ export default function ItemDetail({
   const trashed = isTrashed(item);
   const favorite = isFavorite(item);
   const archived = isArchived(item);
+  const displayTitle = item.type === 'card' ? cardIssuer(item.title, item.fields.bank) : item.title;
   const typeLabel = (dict.itemTypes as Record<string, string>)[item.type] ?? item.type;
   const copyKey = (key: string) => `${item.id}:${key}`;
   const copy = (key: string, text: string) => void copyWithClear(copyKey(key), text);
@@ -176,7 +190,14 @@ export default function ItemDetail({
 
   // Meta fields get their own sections below — never rendered as raw JSON.
   const META_KEYS = new Set(['password_history', 'revisions', 'archived', 'parent_id']);
-  const fieldEntries = Object.entries(item.fields ?? {}).filter(([key]) => !isForbiddenKey(key) && !META_KEYS.has(key));
+  const fieldEntries = Object.entries(item.fields ?? {}).filter(([key]) => {
+    if (isForbiddenKey(key) || META_KEYS.has(key)) return false;
+    if (item.type !== 'card') return true;
+    if (key === 'bank' || (key === 'last4' && fieldString(item, 'card_number'))) return false;
+    if (key === 'credit_limit' || key === 'statement_day') return fieldString(item, 'card_type') === 'credit';
+    return true;
+  });
+  if (cardId && localCode?.id === cardId && localCode.value) fieldEntries.push(['cvv', localCode.value]);
   const passwordHistory = item.type === 'login' ? getPasswordHistory(item) : [];
   const revisions = item.type === 'secure_note' ? getNoteRevisions(item) : [];
   const parentId = typeof item.fields?.parent_id === 'string' ? (item.fields.parent_id as string) : '';
@@ -216,7 +237,7 @@ export default function ItemDetail({
       <header className="ms-spec__head">
         <ItemTypeArt type={item.type} size="lg" />
         <div className="ms-spec__title">
-          <h2 id={`detail-title-${item.id}`} className="ms-heading ms-heading--lg">{item.title}</h2>
+          <h2 id={`detail-title-${item.id}`} className="ms-heading ms-heading--lg">{displayTitle}</h2>
           <div className="ms-spec__meta">
             <Badge legend>{typeLabel}</Badge>
             {favorite && (
@@ -303,7 +324,9 @@ export default function ItemDetail({
         ) : (
           <ul className="ms-spec__rows">
             {fieldEntries.map(([key, value]) => {
-              const text = formatValue(value);
+              let text = formatValue(value);
+              if (item.type === 'card' && key === 'card_type' && (value === 'credit' || value === 'debit')) text = dict.card[value];
+              if (item.type === 'card' && key === 'brand' && value === 'other') text = dict.card.otherBrand;
               const label = fieldLabel(dict, key);
               const sensitive = isSensitiveKey(key);
               const isRevealed = Boolean(revealed[key]);
@@ -315,7 +338,7 @@ export default function ItemDetail({
                     {isNote ? (
                       <span className="block" dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(text) }} />
                     ) : sensitive && !isRevealed ? (
-                      <span>{MASK}</span>
+                      <span>{key === 'card_number' ? `•••• ${cardLast4(item.fields)}` : MASK}</span>
                     ) : sensitive ? (
                       <Revealed text={text} />
                     ) : (
@@ -333,7 +356,7 @@ export default function ItemDetail({
                         onClick={() => toggleReveal(key)}
                       />
                     )}
-                    <IconButton icon="copy" size="sm" label={format(d.copy, label)} onClick={() => copy(`field:${key}`, text)} />
+                    {key !== 'cvv' && <IconButton icon="copy" size="sm" label={format(d.copy, label)} onClick={() => copy(`field:${key}`, text)} />}
                   </span>
                 </li>
               );

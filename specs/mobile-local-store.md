@@ -66,6 +66,10 @@ Rules:
 - `rows` holds exactly the encrypted row shape the app already uses. A
   provider decrypts one row by id; it never writes to `rows` or
   `vault_keys`.
+- The app adds `local_card_codes` (`id TEXT PRIMARY KEY`, `ciphertext TEXT NOT NULL`)
+  for optional CVV values. It encrypts them with the unlocked Vault Key and
+  writes them in the same transaction as the card. Credential providers,
+  sharing and portable exports only use the ordinary item payload.
 - `autofill_index` holds titles, usernames and hosts for login and
   passkey items only. Never passwords, TOTP secrets, notes or keys. The
   app rewrites it after each unlock and after each item write, and

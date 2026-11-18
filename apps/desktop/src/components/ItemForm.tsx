@@ -3,6 +3,7 @@ import type { ItemType, VaultItem } from '../../../../packages/core/src/types';
 import { CARD_TYPES, cardBrands, cardInputError, cardIssuer, prepareCardFields } from '../../../../packages/core/src/card';
 import { loginServiceNames } from '../../../../packages/core/src/login-services';
 import PasswordGenerator from './PasswordGenerator';
+import LoginServiceField from './LoginServiceField';
 import { buildRelations } from './itemFormRelations';
 import StrengthMeter from './StrengthMeter';
 import {
@@ -396,9 +397,7 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
 
   const relationCandidates = allItems.filter((candidate) => candidate.id !== initial?.id);
   const f = dict.itemForm;
-  const titleLabel = type === 'login' ? f.loginService : type === 'card' ? dict.card.issuer : f.title;
   const titleRequired = type === 'login' ? f.loginServiceRequired : type === 'card' ? dict.card.issuerRequired : f.titleRequired;
-  const titlePlaceholder = type === 'login' ? f.loginServicePlaceholder : type === 'card' ? dict.card.issuerPlaceholder : dict.placeholders.title;
   const label = (key: string) => (dict.fields as Record<string, string>)[key] ?? key;
   const placeholder = (def: FieldDef) => (def.placeholder ? dict.placeholders[def.placeholder] : undefined);
 
@@ -602,21 +601,19 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
               ))}
             </Select>
           </Field>
-          <Field id="item-title" label={titleLabel}>
-            <Input
-              name="item-title"
-              type="text"
-              value={title}
-              placeholder={titlePlaceholder}
-              onChange={(e) => setTitle(e.target.value)}
-              autoComplete="off"
-              list={type === 'login' ? 'login-service-suggestions' : undefined}
-            />
-          </Field>
-          {type === 'login' && (
-            <datalist id="login-service-suggestions">
-              {loginServiceNames(allItems, initial?.type === 'login' ? initial.title : '').map((name) => <option key={name} value={name} />)}
-            </datalist>
+          {type === 'login' ? (
+            <LoginServiceField value={title} onChange={setTitle} names={loginServiceNames(allItems, initial?.type === 'login' ? initial.title : '')} />
+          ) : (
+            <Field id="item-title" label={type === 'card' ? dict.card.issuer : f.title}>
+              <Input
+                name="item-title"
+                type="text"
+                value={title}
+                placeholder={type === 'card' ? dict.card.issuerPlaceholder : dict.placeholders.title}
+                onChange={(e) => setTitle(e.target.value)}
+                autoComplete="off"
+              />
+            </Field>
           )}
         </div>
         <Field id="item-tags" label={f.tags}>

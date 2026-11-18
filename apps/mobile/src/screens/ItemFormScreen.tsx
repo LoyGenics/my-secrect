@@ -295,7 +295,7 @@ export default function ItemFormScreen({ initial, allItems, onSave, onDirtyChang
       {(customFields.length > 0 || addingCustom) && (
         <View style={{ padding: 16 }}>
           {customFields.map((key) => (
-            <Field key={key} testID={`custom-${key}`} label={key} value={fields[key]} onChangeText={(value) => setF(key, value)} autoCapitalize="none" />
+            <Field key={key} testID={`custom-${key}`} label={key} value={fields[key]} onChangeText={(value) => setF(key, value)} autoCapitalize="none" secureTextEntry={key === 'card_number'} />
           ))}
           {addingCustom && (
             <>
@@ -429,7 +429,7 @@ export default function ItemFormScreen({ initial, allItems, onSave, onDirtyChang
             value={title}
             choices={loginServiceNames(allItems, title).map((name) => ({ value: name, label: name }))}
             createLabel={(name) => format(dict.itemForm.createLoginService, name)}
-            searchPlaceholder={dict.itemForm.loginServicePlaceholder}
+            placeholder={dict.itemForm.loginServicePlaceholder}
             onChange={(value) => { setTitle(value); setMissingField(undefined); }}
           />
           {titleError && <Text accessibilityRole="alert" style={styles.error}>{dict.itemForm.loginServiceRequired}</Text>}

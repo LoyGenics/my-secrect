@@ -23,7 +23,7 @@ and recovery key = lose the vault. No server copy, no reset.
 - **Health tab** — score 0–100, weak passwords, reused passwords, cards/documents expiring in 30 days; tap an item to fix it.
 - **Settings tab** — change passphrase (re-wraps the same Master Key, items untouched, recovery key still works), auto-lock (1/5/15 min/never), recovery info, lock now, view Trash, encrypted export, plaintext export (two-tap confirm + warning), wipe vault (Alert + arm confirm).
 - **Item Detail** — every field with show/hide + copy, live TOTP (pure-TS RFC 6238, 30 s), tags, related items (tap to open), favorite, edit, trash/restore, permanent delete.
-- **Item Form** — all 12 item types across the 8 modules, full fields, custom fields, relations picker, tags, favorite. Card form has **no CVV/PIN field, by design**.
+- **Item Form** — all 12 item types across the 8 modules, custom fields, relations picker, tags and favorites. Cards accept a full number and an optional CVV encrypted on the device.
 - **Trash** — restore / permanently delete.
 
 Bottom tab bar: Vault / Search / Generate / Health / Settings. Every

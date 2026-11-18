@@ -1,4 +1,5 @@
 import type { VaultItem } from '../../../../packages/core/src/types';
+import { cardIssuer, cardLast4 } from '../../../../packages/core/src/card';
 import { isFavorite } from '../utils/password';
 import { isArchived } from '../utils/itemMeta';
 import { Badge, IconButton, TypeModule } from '../theme';
@@ -37,7 +38,7 @@ export function itemSubtitle(item: VaultItem): string {
       return fieldString(item, 'bank_name') || fieldString(item, 'holder_name');
     case 'card': {
       const brand = fieldString(item, 'brand');
-      const last4 = fieldString(item, 'last4');
+      const last4 = cardLast4(item.fields);
       return [brand, last4 ? `•••• ${last4}` : ''].filter(Boolean).join(' ');
     }
     case 'identity':
@@ -73,6 +74,7 @@ export default function ItemList({ items, selectedId, onSelect, onToggleFavorite
     <ul className="ms-list" aria-label={l.label}>
       {items.map((item) => {
         const favorite = isFavorite(item);
+        const title = item.type === 'card' ? cardIssuer(item.title, item.fields.bank) : item.title;
         const subtitle = itemSubtitle(item);
         const checked = selectedIds?.has(item.id) ?? false;
         const selected = selectionMode ? checked : item.id === selectedId;
@@ -85,7 +87,7 @@ export default function ItemList({ items, selectedId, onSelect, onToggleFavorite
                   type="checkbox"
                   checked={checked}
                   onChange={() => onToggleSelect?.(item.id)}
-                  aria-label={format(l.select, item.title)}
+                  aria-label={format(l.select, title)}
                 />
               </span>
             )}
@@ -100,7 +102,7 @@ export default function ItemList({ items, selectedId, onSelect, onToggleFavorite
             >
               <TypeModule type={item.type} />
               <span className="ms-row__text">
-                <span className="ms-row__title">{item.title}</span>
+                <span className="ms-row__title">{title}</span>
                 <span className="ms-row__meta">
                   {typeLabel}
                   {subtitle ? ` · ${subtitle}` : ''}
@@ -124,7 +126,7 @@ export default function ItemList({ items, selectedId, onSelect, onToggleFavorite
                 className={favorite ? 'ms-favorite--on' : undefined}
                 onClick={() => onToggleFavorite(item.id)}
               />
-              <IconButton icon="trash" size="sm" label={format(l.delete, item.title)} onClick={() => onDelete(item.id)} />
+              <IconButton icon="trash" size="sm" label={format(l.delete, title)} onClick={() => onDelete(item.id)} />
             </span>
           </li>
         );

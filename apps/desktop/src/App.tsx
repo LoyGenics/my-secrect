@@ -1351,6 +1351,7 @@ export default function App({
                   />
                 ) : selectedItem ? (
                   <ItemDetail
+                    key={selectedItem.id}
                     item={selectedItem}
                     allItems={items}
                     onEdit={(item: VaultItem) => { setEditingItem(item); setShowForm(true); }}

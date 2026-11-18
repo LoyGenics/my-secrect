@@ -31,7 +31,7 @@ if (problems.length) throw new Error(problems.join('; '));
   clients must refuse items they do not understand, not guess.
 - **Unknown fields are allowed** within a supported version (forward
   compatibility for v1.x optional additions). Unknown *types* are rejected.
-- **Forbidden fields are never stored, in any version:** card CVV/CVC
+- **Forbidden fields stay outside vault item payloads in every version:** card CVV/CVC
   (`cvv`, `cvv2`, `cvc`, `cvc2`), any `pin`, and live one-time codes
   (`otp`, `one_time_code`, `one_time_password`, `totp_code`). A TOTP
   *secret* (`totp_secret`) is storable; a live TOTP *code* is not.

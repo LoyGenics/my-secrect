@@ -39,6 +39,8 @@ export function normalizeAiPreview(response: unknown, source: string): { items: 
     // the editor already supports.
     allowed.delete('checklist');
     allowed.delete('private_key_ref');
+    // Preserve the AI preview contract, which permits only the last four digits.
+    allowed.delete('card_number');
     const fields: Record<string, string> = {};
     for (const [key, value] of Object.entries(raw.fields)) {
       if (value === null || value === '') continue;

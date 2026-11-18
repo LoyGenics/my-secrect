@@ -9,7 +9,9 @@ export function cardIssuer(title: string, bank: unknown): string {
   if (typeof bank !== 'string' || !bank.trim()) return title;
   const issuer = bank.trim();
   if (!title.trim()) return issuer;
-  return title.toLowerCase().includes(issuer.toLowerCase()) ? title : `${issuer} · ${title}`;
+  const lowerTitle = title.trim().toLowerCase();
+  const lowerIssuer = issuer.toLowerCase();
+  return lowerTitle === lowerIssuer || lowerTitle.startsWith(`${lowerIssuer} `) ? title : `${issuer} · ${title}`;
 }
 
 export function cardNumberDigits(value: string): string {
@@ -43,7 +45,7 @@ export function prepareCardFields(fields: Record<string, unknown>): void {
 
 export function cardInputError(fields: Record<string, string>, code: string): 'invalidNumber' | 'invalidCvv' | 'invalidStatementDay' | undefined {
   const number = cardNumberDigits(fields.card_number ?? '');
-  if (number && !/^\d{12,19}$/.test(number)) return 'invalidNumber';
+  if (fields.card_number?.trim() && !/^\d{12,19}$/.test(number)) return 'invalidNumber';
   if (code && !/^\d{3,4}$/.test(code)) return 'invalidCvv';
   const day = fields.statement_day?.trim();
   if (fields.card_type === 'credit' && day && !/^(0?[1-9]|[12]\d|3[01])$/.test(day)) return 'invalidStatementDay';

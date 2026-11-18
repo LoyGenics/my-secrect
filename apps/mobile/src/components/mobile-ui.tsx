@@ -71,9 +71,9 @@ export function SearchTrigger({ onPress }: { onPress: () => void }) {
   </Pressable>;
 }
 export interface Choice { value: string; label: string; detail?: string; icon?: ReactNode }
-export function Select({ value, choices, onChange, label, testID, style, createLabel, searchPlaceholder }: {
+export function Select({ value, choices, onChange, label, testID, style, createLabel, placeholder }: {
   value: string; choices: Choice[]; onChange: (value: string) => void; label: string; testID?: string; style?: StyleProp<ViewStyle>;
-  createLabel?: (name: string) => string; searchPlaceholder?: string;
+  createLabel?: (name: string) => string; placeholder?: string;
 }) {
   const { colors, styles } = useMobileTheme();
   const { dict, t } = useTranslation();
@@ -103,7 +103,7 @@ export function Select({ value, choices, onChange, label, testID, style, createL
         ]}
       >
         {selected?.icon}
-        <Text style={{ flex: 1, color: colors.text, fontSize: 16, fontWeight: '600' }} numberOfLines={2}>{selected?.label ?? label}</Text>
+        <Text style={{ flex: 1, color: colors.text, fontSize: 16, fontWeight: '600' }} numberOfLines={2}>{selected?.label ?? placeholder ?? label}</Text>
         <ChevronDown size={18} color={open ? colors.focus : colors.secondary} />
       </Pressable>
       <Modal visible={open} transparent animationType="fade" onRequestClose={close}>
@@ -117,7 +117,7 @@ export function Select({ value, choices, onChange, label, testID, style, createL
             {(choices.length > 9 || createLabel) && (
               <InputControl
                 accessibilityLabel={dict.common.search}
-                placeholder={searchPlaceholder ?? dict.common.search}
+                placeholder={placeholder ?? dict.common.search}
                 value={query}
                 onChangeText={setQuery}
                 autoCorrect={false}

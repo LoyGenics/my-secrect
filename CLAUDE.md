@@ -119,8 +119,9 @@ No ESLint/Prettier config — typecheck and tests are the static checks.
   `tests/crypto-vectors/` in the same change. A failing vector means the code
   is wrong — never edit the expected hex.
 - **Zero-knowledge:** keep vault contents and keys out of plaintext API requests.
-  The opt-in AI import preview may forward user-pasted text only. Never store
-  CVV, bank PIN or live OTP (`FORBIDDEN_FIELDS`).
+  The opt-in AI import preview may forward user-pasted text only. Keep CVV out
+  of item payloads, sync, sharing and exports. The optional card CVV stays
+  encrypted on the current device. Never store bank PINs or live OTPs.
 - **Extension:** popup/options/content scripts talk to the background via
   messages; they never import `vault-ext.ts` or receive the whole vault.
 - **Imports:** apps import packages by relative path — count `../` from the

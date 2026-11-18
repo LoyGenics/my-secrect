@@ -78,6 +78,44 @@ function assertStorageEmpty(): void {
   assert.equal(localStorage.getItem(LS_KEY), null);
 }
 
+test('card CVV stays local across unlock and item edits, and is absent from sync and exports', { timeout: 180_000 }, async () => {
+  const vault = await import('./src/vault.ts');
+  localStorage.clear();
+  const { recoveryKey } = await vault.createVault(PASSPHRASE);
+  const card: VaultItem = {
+    ...item('test-card', 'Example bank'),
+    type: 'card',
+    fields: { cardholder: 'Example person', card_number: '4242424242424242', last4: '4242', card_type: 'credit', credit_limit: '1000 USD', statement_day: '15' },
+  };
+  await vault.upsertItem(card, '047');
+  assert.notEqual(JSON.parse(localStorage.getItem(LS_KEY)!)[0].local_card_code, '047');
+  assert.equal(await vault.readLocalCardCode(card.id), '047');
+  vault.lockVault();
+  await assert.rejects(() => vault.readLocalCardCode(card.id), /vault locked/);
+  assert.equal(await vault.unlockVault(PASSPHRASE), true);
+  await vault.upsertItem({ ...card, favorite: true });
+  assert.equal(await vault.readLocalCardCode(card.id), '047');
+  assert.deepEqual(JSON.parse(vault.exportPlaintext()).items[0].fields, card.fields);
+  const push = vault.buildSyncPush(card.id, 'wire-card');
+  assert.ok(push);
+  const event = { ...push, id: 'event', vault_id: 'test-vault', sequence: 1, revision: 1, device_id: 'test-device', signature: '', created_at: card.created_at };
+  const synced = await vault.decryptSyncEvent(event);
+  assert.deepEqual(synced.fields, card.fields);
+  vault.storeRemoteItem(synced, 1, event);
+  assert.equal(await vault.readLocalCardCode(card.id), '047');
+  const backup = await vault.exportEncrypted();
+  await vault.upsertItem(card, '');
+  assert.equal(await vault.readLocalCardCode(card.id), '');
+  await vault.upsertItem(card, '047');
+  vault.permanentlyDeleteItem(card.id);
+  assert.equal(await vault.readLocalCardCode(card.id), '');
+  vault.wipeVault();
+  await vault.restoreEncrypted(backup, { recoveryKey });
+  assert.deepEqual(vault.listItems()[0].fields, card.fields);
+  assert.equal(await vault.readLocalCardCode(card.id), '');
+  vault.wipeVault();
+});
+
 test('a batch import commits no rows when a later item cannot be encrypted', { timeout: 180_000 }, async () => {
   const vault = await import('./src/vault.ts');
   localStorage.clear();

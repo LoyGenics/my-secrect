@@ -497,7 +497,7 @@ export default function SharesScreen({ baseUrl, onClose }: { baseUrl: string; on
             <View style={{ marginTop: 12 }}>
               <Field label={t('shares.item')} testID="share-edit-title" value={draft.title} onChangeText={(v) => setDraft({ ...draft, title: v })} />
               {Object.entries(draft.fields).map(([name, value]) => (
-                <Field key={name} label={name} testID={`share-edit-${name}`} value={value} autoCapitalize="none" autoCorrect={false}
+                <Field key={name} label={name} testID={`share-edit-${name}`} value={value} autoCapitalize="none" autoCorrect={false} secureTextEntry={name === 'card_number' && !revealed}
                   onChangeText={(v) => setDraft({ ...draft, fields: { ...draft.fields, [name]: v } })} />
               ))}
               <Button testID="share-edit-save" primary label={t('shares.saveChanges')} disabled={busy} onPress={saveDraft} />

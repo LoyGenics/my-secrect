@@ -12,7 +12,7 @@ const SUPPORTED_SCHEMA_VERSIONS = [1];
 const FORBIDDEN_FIELDS = ['cvv', 'cvv2', 'cvc', 'cvc2', 'pin', 'otp', 'one_time_code', 'one_time_password', 'totp_code'];
 const ITEM_SCHEMAS = {
   login: { required: ['username'], optional: ['password', 'url', 'totp_secret', 'notes'] },
-  card: { required: ['cardholder', 'last4'], optional: ['brand', 'expiry', 'bank', 'notes'] },
+  card: { required: ['cardholder', 'last4'], optional: ['brand', 'expiry', 'bank', 'notes', 'card_number', 'card_type', 'credit_limit', 'statement_day'] },
   secure_note: { required: ['body'], optional: ['checklist'] },
   custom: { required: [], optional: [] },
 };

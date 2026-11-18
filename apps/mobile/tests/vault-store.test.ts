@@ -26,13 +26,14 @@ function legacyWith(rows: unknown, keys: string | null = KEYS): MemoryKeyValue {
   return kv;
 }
 
-test('schema: exactly the contract tables and columns, schema_version 1', async () => {
+test('schema: provider contract and device-local card code table, schema_version 1', async () => {
   const { raw } = await openTestStore();
   const tables = (await raw.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")).map((t) => t.name);
-  assert.deepEqual(tables, ['autofill_index', 'device_unlock', 'meta', 'rows', 'vault_keys']);
+  assert.deepEqual(tables, ['autofill_index', 'device_unlock', 'local_card_codes', 'meta', 'rows', 'vault_keys']);
   const cols = async (t: string) => (await raw.all<{ name: string; notnull: number; pk: number }>(`PRAGMA table_info(${t})`)).map((c) => `${c.name}:${c.notnull}:${c.pk}`);
   assert.deepEqual(await cols('rows'), ['id:0:1', 'revision:1:0', 'nonce:1:0', 'ciphertext:1:0', 'wrapped_item_key:1:0', 'wrapped_nonce:1:0', 'deleted_at:0:0']);
   assert.deepEqual(await cols('device_unlock'), ['id:0:1', 'scheme:1:0', 'wrapped_amk:1:0', 'created_at:1:0']);
+  assert.deepEqual(await cols('local_card_codes'), ['id:0:1', 'ciphertext:1:0']);
   assert.deepEqual(await cols('autofill_index'), ['id:0:1', 'title:1:0', 'username:1:0', 'host:1:0', 'type:1:0']);
   assert.deepEqual(await cols('vault_keys'), ['id:0:1', 'json:1:0']);
   assert.deepEqual(await raw.all('SELECT key, value FROM meta'), [{ key: 'schema_version', value: '1' }]);
@@ -133,13 +134,14 @@ test('upsert: revision bumps and the index entry is written in the same transact
   assert.equal(await store.countRows(), 0);
 });
 
-test('wipe: keys, rows, device unlock and index all gone; schema_version kept', async () => {
+test('wipe: keys, rows, device unlock, index and local card codes gone; schema_version kept', async () => {
   const { store, raw } = await openTestStore();
   await store.importLegacy(KEYS, [row('a')]);
+  await store.upsertItemRow(row('a'), null, 'encrypted-code');
   await store.putDeviceUnlock({ scheme: 'ios-kc-aesgcm-v1', wrapped_amk: 'blob', created_at: 'now' });
   await store.replaceAutofillIndex([{ id: 'a', title: 'A', username: 'u', host: 'h', type: 'login' }]);
   await store.wipe();
-  for (const t of ['vault_keys', 'rows', 'device_unlock', 'autofill_index']) {
+  for (const t of ['vault_keys', 'rows', 'device_unlock', 'autofill_index', 'local_card_codes']) {
     assert.equal((await raw.first<{ n: number }>(`SELECT count(*) AS n FROM ${t}`))?.n, 0, t);
   }
   assert.equal(await store.isOccupied(), false);

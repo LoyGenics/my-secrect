@@ -22,6 +22,6 @@
 5. **Nhập bằng AI là luồng xử lý văn bản riêng.** Sau khi người dùng đồng ý, API gửi nguyên văn nội dung đã dán tới OpenAI để trả về bản xem trước. Nội dung này không nằm trong phạm vi E2EE khi xử lý. API không lưu nội dung hoặc ghi vào log và yêu cầu OpenAI tắt lưu phản hồi. Xử lý CSV diễn ra trên thiết bị.
 
 ## Thẻ ngân hàng / PCI
-- Hỗ trợ metadata thẻ, tài khoản, ghi chú tài chính.
-- **Không lưu CVV trên server trong sản phẩm thương mại (kể cả đã mã hóa).** PCI cấm lưu CVV sau authorization.
+- Kho thẻ hỗ trợ số thẻ đầy đủ, được mã hóa như các trường khác trong kho và được che khi xem.
+- CVV do chủ thẻ nhập là tùy chọn. Ứng dụng mã hóa riêng trên thiết bị và loại khỏi đồng bộ, chia sẻ và mọi tệp xuất của kho. [PCI SSC FAQ 1574](https://www.pcisecuritystandards.org/faqs/1574/)
 - Không lưu PIN, OTP đang dùng, không auto-login Internet Banking bằng scraping trong MVP.
