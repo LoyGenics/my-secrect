@@ -23,7 +23,7 @@ export const iconNames = [
   // Content markers
   'timer', 'link', 'attachment', 'server', 'language', 'appearance', 'light', 'dark', 'system', 'checklist',
   // Status
-  'info', 'success', 'warning', 'error', 'reused', 'expiring', 'spinner',
+  'info', 'success', 'warning', 'error', 'reused', 'expiring', 'spinner', 'mail', 'shield',
 ] as const;
 
 export type IconName = (typeof iconNames)[number];

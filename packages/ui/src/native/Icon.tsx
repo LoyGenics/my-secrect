@@ -39,6 +39,7 @@ import {
   LoaderCircle,
   Lock,
   LockOpen,
+  Mail,
   Menu,
   Monitor,
   Moon,
@@ -53,6 +54,7 @@ import {
   Server,
   Settings,
   Shapes,
+  ShieldCheck,
   Share2,
   SquareTerminal,
   Star,
@@ -135,6 +137,8 @@ const glyphs: Record<IconName, LucideIcon> = {
   reused: Repeat,
   expiring: CalendarClock,
   spinner: LoaderCircle,
+  mail: Mail,
+  shield: ShieldCheck,
 };
 
 export interface NativeIconProps {

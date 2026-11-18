@@ -1,4 +1,6 @@
 import { useRef, useState, type FormEvent } from 'react';
+import { Art, Icon, illustrations } from '../theme';
+import './signin.css';
 import { useTranslation } from '../../../../packages/i18n/src/react';
 import {
   ApiError,
@@ -366,196 +368,186 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
   const onCodeStep = machine.step === 'email-code';
 
   const error = machine.error ? errorText(machine.error, s as unknown as Record<string, string>) : '';
+  const busyIcon = <Icon name="spinner" size="lg" />;
+  const rise = (i: number) => ({ '--i': i }) as React.CSSProperties;
 
   return (
-    <div className="flex min-h-full items-center justify-center bg-[#0B0F14] p-6">
-      <div className="card gradient-subtle w-full max-w-md p-6">
-        <h1 className="text-xl font-semibold">{s.title}</h1>
-        <p className="mt-1 text-sm text-zinc-400">{s.subtitle}</p>
-        {sessionExpired && (
-          <p role="alert" className="mt-3 rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
-            {s.sessionExpired}
-          </p>
-        )}
-        {!webauthn && (
-          <p role="alert" className="mt-3 rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
-            <strong>{s.passkeyNotAvailable}.</strong> {s.passkeyNotAvailableBody}
-          </p>
-        )}
+    <div className="si">
+      <aside className="si-aside">
+        <div className="si-brand">
+          <span className="si-brand__mark"><Icon name="lock" size="lg" /></span>
+          <span>My Secret</span>
+        </div>
+        <div className="si-hero">
+          <span className="si-hero__shadow" aria-hidden="true" />
+          <Art src={illustrations.splash} size={340} eager className="si-hero__art" />
+        </div>
+        <h2>{s.asideHeadline}</h2>
+        <ul className="si-trust">
+          <li><span className="si-trust__icon"><Icon name="lock" size="md" /></span>{s.trustEncrypted}</li>
+          <li><span className="si-trust__icon"><Icon name="server" size="md" /></span>{s.trustCiphertext}</li>
+          <li><span className="si-trust__icon"><Icon name="passkey" size="md" /></span>{s.trustNoPassword}</li>
+        </ul>
+      </aside>
 
-        {onCodeStep && (
-          <form className="mt-4 space-y-3" onSubmit={(e) => void submitEmailCode(e)}>
-            <h2 className="text-base font-semibold">{s.emailCodeTitle}</h2>
-            <p className="text-sm text-zinc-400">{s.emailCodeBody}</p>
-            <p className="truncate text-sm font-semibold text-zinc-200">{machine.email}</p>
-            {!ticket && (
-              <div>
-                <label className="label" htmlFor="signin-email-code">{s.emailCodeLabel}</label>
-                <input
-                  id="signin-email-code"
-                  name="signin-email-code"
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  className="input font-mono"
-                  value={emailCode}
-                  onChange={(e) => setEmailCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
-                  placeholder="123456"
-                  aria-label={s.emailCodeLabel}
-                  autoFocus
-                />
-                <p className="mt-1 text-xs text-zinc-500">{s.emailCodeHint}</p>
-              </div>
-            )}
-            {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
-            <button
-              type="submit"
-              className="btn-primary w-full"
-              disabled={machine.busy || (!ticket && emailCode.length !== 6)}
-            >
-              {machine.mode === 'create' ? s.createAccountButton : s.signIn}
-            </button>
-            <button
-              type="button"
-              className="w-full text-center text-sm text-indigo-300 hover:text-indigo-200"
-              disabled={machine.busy}
-              onClick={resendCode}
-            >
-              {s.resendCode}
-            </button>
-            <button
-              type="button"
-              className="w-full text-center text-sm text-zinc-400 hover:text-zinc-200"
-              onClick={() => switchMode(machine.mode)}
-            >
-              {s.back}
-            </button>
-          </form>
-        )}
+      <main className="si-main">
+        <div className="si-card">
+          <div className="si-compact">
+            <Art src={illustrations.deviceHero} size={76} eager className="si-compact__art" />
+            <span className="si-brand">My Secret</span>
+          </div>
+          <h1>{s.title}</h1>
+          <p className="si-sub">{s.subtitle}</p>
 
-        {machine.step !== 'mfa' && !onCodeStep && (
-          <>
-            <div className="mt-4 flex gap-2" role="tablist" aria-label="Sign-in mode">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={machine.mode === 'login'}
-                className={`flex-1 rounded-md px-2 py-1.5 text-sm ${machine.mode === 'login' ? 'bg-indigo-600/25 text-indigo-200' : 'bg-zinc-900 text-zinc-400'}`}
-                onClick={() => switchMode('login')}
-              >
-                {s.signIn}
+          {sessionExpired && <p role="alert" className="si-note" style={{ marginTop: 14 }}>{s.sessionExpired}</p>}
+          {!webauthn && machine.step !== 'mfa' && !onCodeStep && (
+            <p role="alert" className="si-note" style={{ marginTop: 14 }}>
+              <strong>{s.passkeyNotAvailable}.</strong> {s.passkeyNotAvailableBody}
+            </p>
+          )}
+
+          {onCodeStep && (
+            <form key="code" className="si-step" onSubmit={(e) => void submitEmailCode(e)}>
+              <h2 className="si-h2" style={rise(0)}>{s.emailCodeTitle}</h2>
+              <p className="si-sub" style={{ ...rise(1), margin: 0 }}>{s.emailCodeBody}</p>
+              <span className="si-email-chip" style={rise(2)}><Icon name="mail" size="md" /><span>{machine.email}</span></span>
+              {!ticket && (
+                <div className="si-field" style={rise(3)}>
+                  <label className="si-label" htmlFor="signin-email-code">{s.emailCodeLabel}</label>
+                  <OtpField id="signin-email-code" value={emailCode} onChange={setEmailCode} label={s.emailCodeLabel} />
+                  <p className="si-hint">{s.emailCodeHint}</p>
+                </div>
+              )}
+              {error && <p role="alert" className="si-alert">{error}</p>}
+              <button type="submit" className="si-btn si-btn--primary" style={rise(4)} disabled={machine.busy || (!ticket && emailCode.length !== 6)}>
+                {machine.busy ? busyIcon : <Icon name="enter" size="lg" />}
+                {machine.mode === 'create' ? s.createAccountButton : s.signIn}
               </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={machine.mode === 'create'}
-                className={`flex-1 rounded-md px-2 py-1.5 text-sm ${machine.mode === 'create' ? 'bg-indigo-600/25 text-indigo-200' : 'bg-zinc-900 text-zinc-400'}`}
-                onClick={() => switchMode('create')}
-              >
-                {s.createAccount}
-              </button>
-            </div>
-            <form className="mt-4 space-y-3" onSubmit={(e) => void submitEmail(e)}>
-              <div>
-                <label className="label" htmlFor="signin-email">{s.emailLabel}</label>
-                <input
-                  id="signin-email"
-                  name="signin-email"
-                  type="email"
-                  className="input"
-                  value={emailInput}
-                  onChange={(e) => setEmailInput(e.target.value)}
-                  placeholder={s.emailPlaceholder}
-                  autoComplete="email"
-                  aria-label={s.emailLabel}
-                  autoFocus
-                />
+              <button type="button" className="si-link si-link--brand" style={rise(5)} disabled={machine.busy} onClick={resendCode}>{s.resendCode}</button>
+              <button type="button" className="si-link" style={rise(6)} onClick={() => switchMode(machine.mode)}>{s.back}</button>
+            </form>
+          )}
+
+          {machine.step !== 'mfa' && !onCodeStep && (
+            <>
+              <div className="si-tabs" data-mode={machine.mode} role="tablist" aria-label="Sign-in mode">
+                <span className="si-tabs__thumb" aria-hidden="true" />
+                <button type="button" role="tab" aria-selected={machine.mode === 'login'} className="si-tab" onClick={() => switchMode('login')}>{s.signIn}</button>
+                <button type="button" role="tab" aria-selected={machine.mode === 'create'} className="si-tab" onClick={() => switchMode('create')}>{s.createAccount}</button>
               </div>
-              {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
-              {machine.mode === 'create' ? (
-                <button type="submit" className="btn-primary w-full" disabled={machine.busy || !emailInput.trim()}>
-                  {s.sendCodeButton}
-                </button>
-              ) : (
-                <>
-                  <button type="submit" className="btn-primary w-full" disabled={machine.busy || !webauthn || !emailInput.trim()}>
-                    {s.signInButton}
-                  </button>
-                  <button
-                    type="button"
-                    className="w-full text-center text-sm text-indigo-300 hover:text-indigo-200"
-                    disabled={machine.busy || !emailInput.trim()}
-                    onClick={() => void startEmailCode()}
-                  >
+              <form key={machine.mode} className="si-step" onSubmit={(e) => void submitEmail(e)}>
+                <div className="si-field" style={rise(0)}>
+                  <label className="si-label" htmlFor="signin-email">{s.emailLabel}</label>
+                  <div className="si-input">
+                    <Icon name="mail" size="lg" />
+                    <input
+                      id="signin-email"
+                      name="signin-email"
+                      type="email"
+                      value={emailInput}
+                      onChange={(e) => setEmailInput(e.target.value)}
+                      placeholder={s.emailPlaceholder}
+                      autoComplete="email"
+                      aria-label={s.emailLabel}
+                      autoFocus
+                    />
+                  </div>
+                </div>
+                {error && <p role="alert" className="si-alert">{error}</p>}
+                {machine.mode === 'create' ? (
+                  <button type="submit" className="si-btn si-btn--primary" style={rise(1)} disabled={machine.busy || !emailInput.trim()}>
+                    {machine.busy ? busyIcon : <Icon name="mail" size="lg" />}
                     {s.sendCodeButton}
                   </button>
-                </>
-              )}
+                ) : (
+                  <>
+                    <button type="submit" className="si-btn si-btn--primary" style={rise(1)} disabled={machine.busy || !webauthn || !emailInput.trim()}>
+                      {machine.busy ? busyIcon : <Icon name="passkey" size="lg" />}
+                      {s.signInButton}
+                    </button>
+                    <button type="button" className="si-btn" style={rise(2)} disabled={machine.busy || !emailInput.trim()} onClick={() => void startEmailCode()}>
+                      <Icon name="mail" size="lg" />
+                      {s.sendCodeButton}
+                    </button>
+                  </>
+                )}
+              </form>
+            </>
+          )}
+
+          {machine.step === 'mfa' && (
+            <form key="mfa" className="si-step" onSubmit={(e) => void submitMfa(e)}>
+              <h2 className="si-h2" style={rise(0)}>{s.mfaTitle}</h2>
+              <p className="si-sub" style={{ ...rise(1), margin: 0 }}>{s.mfaBody}</p>
+              <div className="si-field" style={rise(2)}>
+                <label className="si-label" htmlFor="signin-mfa-code">{useRecoveryCode ? s.recoveryCodeLabel : s.mfaCodeLabel}</label>
+                <div className="si-input">
+                  <Icon name="security" size="lg" />
+                  <input
+                    id="signin-mfa-code"
+                    name="signin-mfa-code"
+                    type="text"
+                    inputMode={useRecoveryCode ? 'text' : 'numeric'}
+                    autoComplete="one-time-code"
+                    style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', letterSpacing: '0.12em' }}
+                    value={code}
+                    onChange={(e) =>
+                      setCode(
+                        useRecoveryCode
+                          ? e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 9)
+                          : e.target.value.replace(/[^0-9]/g, '').slice(0, 6),
+                      )
+                    }
+                    placeholder={useRecoveryCode ? 'XXXX-XXXX' : '123456'}
+                    aria-label={useRecoveryCode ? s.recoveryCodeLabel : s.mfaCodeLabel}
+                    autoFocus
+                  />
+                </div>
+                <p className="si-hint">{useRecoveryCode ? s.recoveryCodeHint : s.mfaTotpHint}</p>
+              </div>
+              {error && <p role="alert" className="si-alert">{error}</p>}
+              <button type="submit" className="si-btn si-btn--primary" style={rise(3)} disabled={machine.busy || (useRecoveryCode ? code.trim().length < 9 : code.trim().length !== 6)}>
+                {machine.busy ? busyIcon : <Icon name="check" size="lg" />}
+                {s.verifyCode}
+              </button>
+              <button type="button" className="si-link si-link--brand" style={rise(4)} onClick={() => { setUseRecoveryCode((v) => !v); setCode(''); }}>
+                {useRecoveryCode ? s.useTotpCode : s.useRecoveryCode}
+              </button>
+              <button type="button" className="si-link" style={rise(5)} onClick={() => setMachine(initialSignInState(machine.mode))}>{s.back}</button>
             </form>
-          </>
-        )}
+          )}
 
-        {machine.step === 'mfa' && (
-          <form className="mt-4 space-y-3" onSubmit={(e) => void submitMfa(e)}>
-            <h2 className="text-base font-semibold">{s.mfaTitle}</h2>
-            <p className="text-sm text-zinc-400">{s.mfaBody}</p>
-            <div>
-              <label className="label" htmlFor="signin-mfa-code">
-                {useRecoveryCode ? s.recoveryCodeLabel : s.mfaCodeLabel}
-              </label>
-              <input
-                id="signin-mfa-code"
-                name="signin-mfa-code"
-                type="text"
-                inputMode={useRecoveryCode ? 'text' : 'numeric'}
-                autoComplete="one-time-code"
-                className="input font-mono"
-                value={code}
-                onChange={(e) =>
-                  setCode(
-                    useRecoveryCode
-                      ? e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 9)
-                      : e.target.value.replace(/[^0-9]/g, '').slice(0, 6),
-                  )
-                }
-                placeholder={useRecoveryCode ? 'XXXX-XXXX' : '123456'}
-                aria-label={useRecoveryCode ? s.recoveryCodeLabel : s.mfaCodeLabel}
-                autoFocus
-              />
-              <p className="mt-1 text-xs text-zinc-500">
-                {useRecoveryCode ? s.recoveryCodeHint : s.mfaTotpHint}
-              </p>
-            </div>
-            {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
-            <button
-              type="submit"
-              className="btn-primary w-full"
-              disabled={machine.busy || (useRecoveryCode ? code.trim().length < 9 : code.trim().length !== 6)}
-            >
-              {s.verifyCode}
-            </button>
-            <button
-              type="button"
-              className="w-full text-center text-sm text-indigo-300 hover:text-indigo-200"
-              onClick={() => { setUseRecoveryCode((v) => !v); setCode(''); }}
-            >
-              {useRecoveryCode ? s.useTotpCode : s.useRecoveryCode}
-            </button>
-            <button
-              type="button"
-              className="w-full text-center text-sm text-zinc-400 hover:text-zinc-200"
-              onClick={() => setMachine(initialSignInState(machine.mode))}
-            >
-              {s.back}
-            </button>
-          </form>
-        )}
+          <p className="si-foot">
+            <button type="button" className="si-link" onClick={onContinueLocalOnly}>{s.continueLocalOnly}</button>
+          </p>
+          <p className="si-fine">{s.footerNote}</p>
+        </div>
+      </main>
+    </div>
+  );
+}
 
-        <button type="button" className="mt-4 w-full text-center text-sm text-zinc-400 hover:text-zinc-200" onClick={onContinueLocalOnly}>
-          {s.continueLocalOnly}
-        </button>
-        <p className="mt-4 text-xs text-zinc-500">{s.footerNote}</p>
-      </div>
+/** Six-digit code: one real input (autofill, paste, screen readers) drawn as six boxes. */
+function OtpField({ id, value, onChange, label }: { id: string; value: string; onChange: (v: string) => void; label: string }) {
+  return (
+    <div className="si-otp">
+      <input
+        id={id}
+        name={id}
+        type="text"
+        inputMode="numeric"
+        autoComplete="one-time-code"
+        maxLength={6}
+        value={value}
+        onChange={(e) => onChange(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+        aria-label={label}
+        autoFocus
+      />
+      {Array.from({ length: 6 }, (_, i) => (
+        <span key={i} className="si-otp__box" aria-hidden="true" data-filled={i < value.length} data-active={i === Math.min(value.length, 5)}>
+          {value[i] ? <span key={value[i] + i} className="si-otp__digit">{value[i]}</span> : null}
+        </span>
+      ))}
     </div>
   );
 }
