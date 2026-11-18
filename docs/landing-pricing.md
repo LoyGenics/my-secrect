@@ -109,3 +109,7 @@ The iPhone Release build includes the merged ghost mascot icon and replaces rema
 lock wordmarks on mobile and desktop sign-in. Family UI is available under Settings on
 desktop/web and the Family button in the mobile vault. The new Family server endpoints
 are tested locally; no hosted API deployment or website publication was performed.
+
+The final Release build was installed on the connected iPhone 17 Pro Max using Apple
+`devicectl` after Expo’s older device installer stalled. The updated bundle includes the
+Ghost brand and Family refresh UI. The pre-merge stash is retained as a backup.
