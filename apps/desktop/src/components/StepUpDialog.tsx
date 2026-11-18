@@ -32,6 +32,11 @@ import { serializeGetCredential, toRequestOptions } from '../utils/webauthn';
  *   (iii) passkey via POST /v1/auth/step-up/passkey (after authenticate
  *         options) — only when a server is configured and this build
  *         offers WebAuthn; otherwise an honest unavailable note.
+ *   (iv)  a code emailed to the account (POST /v1/auth/step-up/email/request
+ *         then /step-up/email) — serverOnly and `allowEmail` only: the
+ *         caller offers it while the account has no passkey and no MFA
+ *         (its only login factor is the email), which is also how such an
+ *         account adds its first passkey. The server refuses it otherwise.
  *
  * A step-up verification is valid for 10 minutes (STEP_UP_WINDOW_MS in
  * the SDK); the caller (App) owns the window and only opens this dialog
@@ -46,7 +51,7 @@ import { serializeGetCredential, toRequestOptions } from '../utils/webauthn';
  * app hardcodes its strings too). Everything else uses the dictionary.
  */
 
-export type StepUpMethod = 'passphrase' | 'totp' | 'passkey';
+export type StepUpMethod = 'passphrase' | 'totp' | 'passkey' | 'email';
 
 export interface StepUpDialogProps {
   open: boolean;
@@ -56,6 +61,8 @@ export interface StepUpDialogProps {
   verifyPassphrase?: (passphrase: string) => Promise<boolean>;
   /** Only passkey / TOTP (server-verified); no passphrase option. */
   serverOnly?: boolean;
+  /** Offer the emailed-code method (serverOnly): the account has no passkey and no MFA. */
+  allowEmail?: boolean;
   /** 'export' shows the export-specific reason line; otherwise the generic body. */
   reason?: 'export';
   onVerified: (method: StepUpMethod) => void;
@@ -80,6 +87,7 @@ export default function StepUpDialog({
   security,
   verifyPassphrase,
   serverOnly = false,
+  allowEmail = false,
   reason,
   onVerified,
   onCancel,
@@ -87,17 +95,28 @@ export default function StepUpDialog({
   const { dict } = useTranslation();
   const s = dict.security;
   const x = dict.securityActions;
-  const [method, setMethod] = useState<StepUpMethod>(serverOnly ? 'passkey' : 'passphrase');
+  const si = dict.signin;
+  const [chosen, setChosen] = useState<StepUpMethod | null>(null);
   const [passphrase, setPassphrase] = useState('');
   const [totpCode, setTotpCode] = useState('');
+  const [emailCode, setEmailCode] = useState('');
+  const [emailSent, setEmailSent] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
   if (!open) return null;
 
+  const emailOffered = serverOnly && allowEmail && security !== null;
+  // No explicit pick yet: an email-only account starts on the email code.
+  const method: StepUpMethod = chosen === 'email' && !emailOffered ? 'passkey'
+    : chosen ?? (serverOnly ? (emailOffered ? 'email' : 'passkey') : 'passphrase');
+  const setMethod = (m: StepUpMethod) => setChosen(m);
+
   const close = () => {
     setPassphrase('');
     setTotpCode('');
+    setEmailCode('');
+    setEmailSent(false);
     setError('');
     setBusy(false);
     onCancel();
@@ -133,6 +152,36 @@ export default function StepUpDialog({
       await security.stepUpTotp(totpCode.trim());
       setTotpCode('');
       onVerified('totp');
+    } catch (err) {
+      fail(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const sendEmailCode = async () => {
+    if (!security) return;
+    setError('');
+    setBusy(true);
+    try {
+      await security.stepUpEmailRequest();
+      setEmailSent(true);
+    } catch (err) {
+      fail(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const verifyWithEmail = async () => {
+    if (!security) return;
+    setError('');
+    setBusy(true);
+    try {
+      await security.stepUpEmail(emailCode.trim());
+      setEmailCode('');
+      setEmailSent(false);
+      onVerified('email');
     } catch (err) {
       fail(err);
     } finally {
@@ -197,6 +246,20 @@ export default function StepUpDialog({
               {s.stepUpPassphrase}
             </label>
           )}
+          {emailOffered && (
+            <label className="flex items-center gap-2 text-sm text-zinc-200">
+              <input
+                type="radio"
+                name="step-up-method"
+                value="email"
+                checked={method === 'email'}
+                onChange={() => setMethod('email')}
+                className="accent-indigo-600"
+                aria-label={si.stepUpEmailOption}
+              />
+              {si.stepUpEmailOption}
+            </label>
+          )}
           {canUseServerMethods && (
             <label className="flex items-center gap-2 text-sm text-zinc-200">
               <input
@@ -254,6 +317,45 @@ export default function StepUpDialog({
             </div>
             <button type="submit" className="btn-primary w-full" disabled={busy || !passphrase}>
               {s.stepUp}
+            </button>
+          </form>
+        )}
+
+        {method === 'email' && emailOffered && (
+          <form
+            className="mt-4 space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void (emailSent ? verifyWithEmail() : sendEmailCode());
+            }}
+          >
+            {emailSent && (
+              <div>
+                <label className="label" htmlFor="step-up-email-code">
+                  {si.emailCodeLabel}
+                </label>
+                <input
+                  id="step-up-email-code"
+                  name="step-up-email-code"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  className="input font-mono"
+                  value={emailCode}
+                  onChange={(e) => setEmailCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+                  placeholder="123456"
+                  aria-label={si.emailCodeLabel}
+                  autoFocus
+                />
+                <p className="mt-1 text-xs text-zinc-500">{si.emailCodeHint}</p>
+              </div>
+            )}
+            <button
+              type="submit"
+              className="btn-primary w-full"
+              disabled={busy || (emailSent && emailCode.length !== 6)}
+            >
+              {emailSent ? s.stepUp : si.sendCodeButton}
             </button>
           </form>
         )}

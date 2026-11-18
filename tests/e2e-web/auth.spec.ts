@@ -1,5 +1,5 @@
 import {
-  test, expect, registerAccountViaUi, createVaultViaUi, uniqueEmail, signOutViaUi,
+  test, expect, registerAccountViaUi, createVaultViaUi, addPasskeyViaUi, uniqueEmail, signOutViaUi,
   signInWithPasskeyViaUi, unlockVaultViaUi, storedToken, apiFetch, DEFAULT_PASSPHRASE,
 } from './fixtures';
 
@@ -8,6 +8,7 @@ test.describe('sign out / sign in / vault unlock are separate', () => {
     const email = uniqueEmail();
     await registerAccountViaUi(page, email);
     await createVaultViaUi(page);
+    await addPasskeyViaUi(page, email);
     const token1 = await storedToken(page);
     expect(token1).not.toBeNull();
     expect((await apiFetch(apiUrl, token1, 'GET', '/api/v1/auth/sessions')).status).toBe(200);
@@ -40,8 +41,10 @@ test.describe('sign out / sign in / vault unlock are separate', () => {
   });
 
   test('vault lock does not sign out; vault unlock needs the passphrase even with a valid session', async ({ page, authenticator }) => {
-    await registerAccountViaUi(page, uniqueEmail());
+    const email = uniqueEmail();
+    await registerAccountViaUi(page, email);
     await createVaultViaUi(page);
+    await addPasskeyViaUi(page, email);
     await page.getByRole('button', { name: /Lock vault/ }).click();
     await expect(page.getByText('Your vault is locked')).toBeVisible();
     await page.reload();
@@ -62,6 +65,7 @@ test.describe('sign out / sign in / vault unlock are separate', () => {
     const email = uniqueEmail();
     await registerAccountViaUi(page, email);
     await createVaultViaUi(page);
+    await addPasskeyViaUi(page, email);
     await signOutViaUi(page);
     await authenticator.clearCredentials();
     await signInWithPasskeyViaUi(page, email);

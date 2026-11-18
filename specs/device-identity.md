@@ -104,13 +104,17 @@ revisions, content hashes) so it cannot be replayed in another context.
   verifies the signature, so a failed attempt burns it too, and two
   concurrent uses cannot both succeed.
 - **Expiring**: a challenge past its TTL is rejected.
-- Two sources, both server-issued:
+- Three sources, all server-issued:
   1. **Sign-in (inline)** — the WebAuthn challenge of the passkey ceremony
      in the same request (`creation_options.challenge` /
      `request_options.challenge`, TTL 5 minutes). It is consumed by the
      passkey verification, and the device proof is only accepted together
      with that passkey verification.
-  2. **Authenticated (explicit)** — `POST /api/v1/devices/challenges`
+  2. **Email sign-in (inline)** — the single-use registration ticket
+     (`rt_` + 64 hex = 256 bits, TTL 10 minutes) from
+     `POST /api/v1/auth/email/verify`, spent by `POST /api/v1/auth/email/session`
+     (§6.4). The proof is only accepted together with that spend.
+  3. **Authenticated (explicit)** — `POST /api/v1/devices/challenges`
      `{ purpose }` → `{ challenge, purpose, expires_in }`, TTL 2 minutes.
      The server stores only `SHA-256(challenge)`, bound to the user, the
      **session that requested it** and the purpose. The client echoes the
@@ -212,6 +216,38 @@ keys already on the device (no remote wipe), and the vault key that device
 holds still decrypts anything encrypted under it if it ever obtains that
 ciphertext again. Only rotating the vault key protects items created after
 the revocation — vault key rotation is not implemented yet.
+
+### 6.4 Sign-in with the email alone (`POST /api/v1/auth/email/session`)
+
+The default for an account without a passkey (a passkey is an optional
+upgrade added later from the Security Center, step-up required). Body
+`{ email, registration_ticket, device? }`; `device` is the same proof as in
+§6.1, signed over the **ticket** as `challenge` (source 2 in §5). The code and
+ticket flow is `POST /auth/email/request` -> `POST /auth/email/verify`
+(unchanged). Server order: the live ticket for that address is checked, then
+in one transaction it is spent, the user row is created on first use, and the
+proof is verified and the device enrolled/bound. A bad proof answers `401
+device_verification_failed`, rolls the account back and leaves the ticket
+usable; every other failure is one generic `401 verification_failed`.
+
+- **Closed for an account with an active passkey.** `request` mails such an
+  address a notice instead of a code, and `session` refuses it again. The
+  passkey is then the only way in (or the recovery key): email possession alone
+  is not enough, as in §6.3.
+- With MFA enabled the response is `{ mfa_required, mfa_token }` and nothing is
+  bound or created until `POST /auth/mfa/verify` succeeds, as in §6.1.
+- Without `device` the session is unbound and cannot reach vault data.
+- **Step-up** for such an account is a code mailed to it
+  (`POST /auth/step-up/email/request`, `POST /auth/step-up/email`): allowed only
+  while the account has no active passkey and no MFA (its login factor is the
+  email already); `403 email_step_up_unavailable` otherwise. This is how it
+  adds its first passkey.
+- **No durable revocation here.** A device enrolled through this flow has no
+  enrolling passkey (`devices.authenticator_id` is null), so revoking it cannot
+  restrict anything: whoever holds the mailbox can enrol a new device. Adding a
+  passkey is what closes that (§6.3 applies from then on; the account's passkeys
+  are all marked for re-approval after a revocation, the "enrolling passkey
+  unknown" rule).
 
 ## 7. Server verification rules (normative)
 

@@ -1206,6 +1206,7 @@ export default function SecurityCenter({
         open={stepUpRetry !== null}
         security={security}
         serverOnly
+        allowEmail={passkeys.length === 0 && mfaState !== 'enabled'}
         onVerified={() => {
           const retry = stepUpRetry;
           setStepUpRetry(null);

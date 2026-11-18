@@ -29,9 +29,9 @@ module Authentication
   #   * No account enumeration: request_code returns the same body for
   #     every syntactically valid address and runs the same steps — a row
   #     with a fresh random code digest is stored either way. If the
-  #     address already belongs to a claimed account (User#claimed?), the
-  #     code is NOT sent; the owner gets an "account already exists" notice
-  #     instead, so no ticket can be minted for an existing account.
+  #     address belongs to an account with a passkey (User#passkey_account?),
+  #     the code is NOT sent; the owner gets an "account already exists"
+  #     notice instead, so no ticket can be minted for a passkey account.
   #   * The registration ticket ("rt_" + 64 hex) is shown once; only its
   #     SHA-256 is stored (it has 256 bits of entropy, so a plain hash is
   #     enough). TTL 10 minutes, consumed by the successful registration.
@@ -83,7 +83,7 @@ module Authentication
         )
       end
       message =
-        if user&.claimed?
+        if user&.passkey_account?
           AuthMailer.account_exists(email: normalized)
         else
           AuthMailer.verification_code(email: normalized, code: code, expires_in_minutes: CODE_TTL.in_minutes.to_i)
@@ -126,6 +126,17 @@ module Authentication
       Audit::Log.call(user: User.find_by(email: normalized), event_type: 'email_verification_succeeded',
                       metadata: { email_verification_id: record.id })
       { registration_ticket: ticket, expires_in: TICKET_TTL.to_i }
+    end
+
+    # Verify a code and spend its ticket in one go, for flows that act on the
+    # proof right away (email sign-in, email step-up). Returns the verified
+    # EmailVerification; raises VerificationError like verify_code.
+    def redeem_code!(email:, code:)
+      normalized = email.to_s.strip.downcase
+      ticket = verify_code(email: normalized, code: code)[:registration_ticket]
+      record = live_ticket!(email: normalized, ticket: ticket)
+      consume_ticket!(record)
+      record
     end
 
     # The live (unexpired, unused) verification behind a ticket, or

@@ -27,4 +27,8 @@ class User < ApplicationRecord
   # row (a pre-email-verification leftover that never finished
   # registration) may be completed by the verified-email sign-up flow.
   def claimed? = authenticators.exists? || mfa_enabled?
+
+  # True while the account has a usable passkey. Such an account signs in
+  # with the passkey only: the email-code sign-in is closed for it.
+  def passkey_account? = authenticators.active.exists?
 end

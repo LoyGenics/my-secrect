@@ -5,7 +5,7 @@
  */
 import type { Page } from '@playwright/test';
 import {
-  test, expect, registerAccountViaUi, createVaultViaUi, uniqueEmail, signOutViaUi, signInWithPasskeyViaUi,
+  test, expect, registerAccountViaUi, createVaultViaUi, addPasskeyViaUi, uniqueEmail, signOutViaUi, signInWithPasskeyViaUi,
   storedToken, apiFetch, openSecurityCenter, unlockVaultViaUi, secondBrowser, syncCredentials, stepUpWithPasskey,
   SESSIONS_API,
 } from './fixtures';
@@ -77,6 +77,7 @@ test.describe('device binding', () => {
     const email = uniqueEmail('rebind');
     await registerAccountViaUi(page, email);
     await createVaultViaUi(page);
+    await addPasskeyViaUi(page, email);
     const firstDevice = await currentSessionDeviceId(apiUrl, await storedToken(page));
 
     await signOutViaUi(page);
@@ -100,7 +101,10 @@ test.describe('device binding', () => {
     const deviceRows = devicesSection.locator('li').filter({ has: page.getByRole('button', { name: 'Revoke', exact: true }) });
     await expect(deviceRows).toHaveCount(2);
     const listed = (await apiFetch(apiUrl, tokenBeforeRevoke, 'GET', '/api/v1/devices')).json.devices;
-    expect(listed.find((d: any) => d.id === firstDevice)).toMatchObject({ current: true, passkey_active_devices: 2 });
+    // The first device was enrolled by the email sign-in (no enrolling passkey);
+    // the second one by the synced passkey.
+    expect(listed.find((d: any) => d.id === firstDevice)).toMatchObject({ current: true, passkey_active_devices: 0 });
+    expect(listed.find((d: any) => d.id !== firstDevice)).toMatchObject({ passkey_active_devices: 1 });
     // Open the confirmation for the current device (it is the one that warns about signing out).
     for (const row of await deviceRows.all()) {
       await row.getByRole('button', { name: 'Revoke', exact: true }).click();
@@ -159,6 +163,7 @@ test.describe('device binding', () => {
     const email = uniqueEmail('sodium');
     await registerAccountViaUi(page, email);
     await createVaultViaUi(page);
+    await addPasskeyViaUi(page, email);
     const deviceId = await currentSessionDeviceId(apiUrl, await storedToken(page));
     expect(deviceId).toBeTruthy();
     const [record] = await deviceKeyRecords(page);

@@ -6,9 +6,11 @@
  *
  *   email --(valid email)--> passkey --(assertion verified)--> signed-in
  *   email --(valid email)--> passkey --(mfa_required)--> mfa --(code ok)--> signed-in
- *   create-account first proves the email address, then registers:
- *   email --(code requested)--> email-code --(code ok: ticket)--> passkey
- *     --(attestation verified)--> signed-in
+ *   the email-code path needs no passkey (sign up, or sign in before a
+ *   passkey was added): prove the address, spend the ticket for a session:
+ *   email --(code requested)--> email-code --(code ok: ticket, session)--> signed-in
+ *   email --(code requested)--> email-code --(mfa_required)--> mfa --(code ok)--> signed-in
+ *   An account WITH a passkey cannot use it: the server mails no code for it.
  *
  * Server facts these rules encode (see apps/api, do not change here
  * without changing the server too):
@@ -26,14 +28,13 @@
  *   * A TOTP code and a recovery code are interchangeable at the MFA
  *     step (the server tries TOTP first, then the recovery-code
  *     digest); the machine does not distinguish them.
- *   * Create-account needs a verified email first: POST
- *     /v1/auth/email/request mails a 6-digit code (same 202 whether or
- *     not the address already has an account — an existing owner gets
- *     a notice instead of a code), POST /v1/auth/email/verify trades
- *     the code for a single-use registration ticket (10 minutes), and
- *     register options require that ticket. A code allows 5 tries and
- *     is single-use; a failed passkey ceremony keeps the ticket, so the
- *     screen retries the ceremony without a new code. An expired or
+ *   * The email-code path: POST /v1/auth/email/request mails a 6-digit
+ *     code (same 202 whether or not the address already has an account —
+ *     an account with a passkey gets a notice instead of a code), POST
+ *     /v1/auth/email/verify trades the code for a single-use ticket (10
+ *     minutes), and POST /v1/auth/email/session spends it for a session
+ *     (creating the account on first use). A code allows 5 tries and is
+ *     single-use; a failed device proof keeps the ticket. An expired or
  *     spent ticket ('signup-expired') restarts from the email step.
  *   * A session token never unlocks the vault. 'signed-in' here
  *     means ACCOUNT signed in only; the master passphrase is still
@@ -104,6 +105,35 @@ export function startSignIn(state: SignInState, email: string, mode: SignInMode)
   return { ...state, step, mode, email: normalized, mfaToken: null, error: null, busy: true };
 }
 
+/** email step -> email-code step for either mode: the same code flow
+ *  signs an existing account in or creates a new one. Rejects a bad
+ *  email without leaving the email step. */
+export function startEmailSignIn(state: SignInState, email: string, mode: SignInMode): SignInState {
+  const normalized = normalizeEmail(email);
+  if (!isValidEmail(normalized)) {
+    return { ...state, step: 'email', mode, email: normalized, mfaToken: null, error: 'invalid-email', busy: false };
+  }
+  return { ...state, step: 'email-code', mode, email: normalized, mfaToken: null, error: null, busy: true };
+}
+
+/** Outcome of POST /v1/auth/email/session (code ticket spent).
+ *  - { token } -> signed-in.
+ *  - { mfa_required: true, mfa_token } -> mfa step (no session yet).
+ *  Only valid from the email-code step; anything else is ignored. */
+export function emailSignedIn(
+  state: SignInState,
+  result: { token?: string; mfa_required?: boolean; mfa_token?: string },
+): SignInState {
+  if (state.step !== 'email-code') return state;
+  if (result.mfa_required === true && typeof result.mfa_token === 'string' && result.mfa_token) {
+    return { ...state, step: 'mfa', mfaToken: result.mfa_token, error: null, busy: false };
+  }
+  if (typeof result.token === 'string' && result.token) {
+    return { ...state, step: 'signed-in', mfaToken: null, error: null, busy: false };
+  }
+  return { ...state, error: 'verification-failed', busy: false };
+}
+
 /** POST /v1/auth/email/request answered 202: wait for the user to type
  *  the code. Only valid from the email-code step. */
 export function emailCodeSent(state: SignInState): SignInState {
@@ -118,7 +148,8 @@ export function emailCodeRequestFailed(state: SignInState, kind: SignInErrorKind
 }
 
 /** POST /v1/auth/email/verify returned a registration ticket: the
- *  passkey ceremony may start. Only valid from the email-code step. */
+ *  passkey registration ceremony may start (legacy passkey sign-up; the
+ *  screen uses emailSignedIn instead). Only valid from the email-code step. */
 export function emailCodeVerified(state: SignInState): SignInState {
   if (state.step !== 'email-code') return state;
   return { ...state, step: 'passkey', busy: true, error: null };

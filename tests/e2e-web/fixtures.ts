@@ -159,7 +159,8 @@ export async function waitForMailCode(email: string, seen = 0, timeoutMs = 10_00
 }
 
 /** Account registration on the sign-in gate: email -> code from the
- *  mailed message -> passkey (stops at the vault onboarding screen). */
+ *  mailed message -> signed in WITHOUT a passkey (stops at the vault
+ *  onboarding screen). A passkey is added later: addPasskeyViaUi. */
 export async function registerAccountViaUi(page: Page, email: string): Promise<void> {
   await page.goto('/');
   await page.getByRole('tab', { name: 'Create account' }).click();
@@ -168,8 +169,23 @@ export async function registerAccountViaUi(page: Page, email: string): Promise<v
   await page.getByRole('button', { name: 'Email me a code' }).click();
   await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
   await page.getByLabel('Verification code').fill(await waitForMailCode(email, seen));
-  await page.getByRole('button', { name: 'Create account with passkey' }).click();
+  await page.getByRole('button', { name: 'Create account', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'My Secret', level: 1 })).toBeVisible();
+}
+
+/** Add the first passkey from the Security Center. The account has no
+ *  passkey and no MFA yet, so the step-up is a code mailed to the account. */
+export async function addPasskeyViaUi(page: Page, email: string): Promise<void> {
+  await openSecurityCenter(page);
+  const seen = mailCodes(email).length;
+  await page.getByRole('button', { name: 'Add passkey', exact: true }).click();
+  const dialog = stepUpDialog(page);
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Email me a code' }).click();
+  await dialog.getByLabel('Verification code').fill(await waitForMailCode(email, seen));
+  await dialog.getByRole('button', { name: 'Verify it’s you' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText(/Passkey added/)).toBeVisible();
 }
 
 /** Vault onboarding: passphrase + confirm -> recovery key screen -> acknowledge -> open. Returns the recovery key. */
@@ -282,12 +298,19 @@ export async function nextTotp(secretBase32: string, lastStep: number | null): P
 
 // ---------------------------------------------------------------- composite flows
 
-/** Register an account, create the vault, land in the unlocked shell on the Security Center. */
+/** Register an account, create the vault, add a passkey, land in the unlocked shell on the Security Center. */
 export async function signedInWithVault(page: Page, opts: { passphrase?: string; email?: string } = {}) {
   const email = opts.email ?? uniqueEmail();
   const passphrase = opts.passphrase ?? DEFAULT_PASSPHRASE;
   await registerAccountViaUi(page, email);
   const recoveryKey = await createVaultViaUi(page, passphrase);
+  await addPasskeyViaUi(page, email);
+  // Adding the passkey left a fresh email step-up on this session. Sign in
+  // again with the passkey so the specs start from a session without one.
+  await signOutViaUi(page);
+  await signInWithPasskeyViaUi(page, email);
+  await expect(page.getByText('Your vault is locked')).toBeVisible();
+  await unlockVaultViaUi(page, passphrase);
   await openSecurityCenter(page);
   return { email, passphrase, recoveryKey };
 }

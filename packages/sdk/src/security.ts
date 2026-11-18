@@ -518,6 +518,20 @@ export class SecurityApiClient {
     return this.post<EmailCodeVerifyResponse>('/v1/auth/email/verify', { email, code });
   }
 
+  /** Sign in (or sign up) with the email alone, for an account without a
+   *  passkey: spends the ticket from verifyEmailCode. `device` (optional) is
+   *  the proof signed over THE TICKET (device-key-store.ts
+   *  prepareSignInDeviceProof(scope, ticket)); without it the session is
+   *  unbound and cannot reach vault data. Returns a session or, when the
+   *  account has MFA, { mfa_required, mfa_token } (finish with mfaVerify).
+   *  401 is generic; 401 device_verification_failed = bad device proof (the
+   *  ticket stays usable). */
+  emailSessionVerify(email: string, registrationTicket: string, device?: SignInDeviceProof): Promise<SignInResult> {
+    return this.post<SignInResult>('/v1/auth/email/session', {
+      email, registration_ticket: registrationTicket, ...(device ? { device } : {}),
+    });
+  }
+
   /** Sign-up step 3: creation options. Requires the ticket from
    *  verifyEmailCode (401 when it is missing, expired or spent). */
   passkeyRegisterOptions(email: string, registrationTicket: string): Promise<PasskeyRegisterOptionsResponse> {
@@ -698,6 +712,18 @@ export class SecurityApiClient {
   /** Verify a step-up with a TOTP code. */
   stepUpTotp(code: string): Promise<unknown> {
     return this.post('/v1/auth/step-up/totp', { code });
+  }
+
+  /** Mail a step-up code to the signed-in account. Only for an account whose
+   *  sole login factor is its email: 403 email_step_up_unavailable once it
+   *  has a passkey or MFA (use those). */
+  stepUpEmailRequest(): Promise<EmailCodeRequestResponse> {
+    return this.post<EmailCodeRequestResponse>('/v1/auth/step-up/email/request');
+  }
+
+  /** Verify a step-up with the emailed code (after stepUpEmailRequest). */
+  stepUpEmail(code: string): Promise<unknown> {
+    return this.post('/v1/auth/step-up/email', { code });
   }
 
   /** Options for a passkey step-up of the CURRENT session (no email needed:

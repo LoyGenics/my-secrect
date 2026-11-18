@@ -9,9 +9,11 @@ import {
   emailCodeRequestFailed,
   emailCodeSent,
   emailCodeVerified,
+  emailSignedIn,
   initialSignInState,
   passkeyVerified,
   signInFailed,
+  startEmailSignIn,
   startSignIn,
 } from '../src/signin';
 
@@ -56,4 +58,28 @@ test('a wrong code keeps the email-code step; an expired ticket or a failed requ
   assert.equal(emailCodeRequestFailed(sent, unavailable).step, 'email');
   assert.equal(classifySignInError(new ApiError(422, '/v1/auth/email/request', {}), 'email-code'), 'invalid-email');
   assert.equal(classifySignInError(new TypeError('fetch failed'), 'email-code'), 'offline');
+});
+
+test('email-code sign-in: either mode reaches the email-code step; a ticket spent for a token signs in', () => {
+  for (const mode of ['login', 'create'] as const) {
+    const s = startEmailSignIn(initialSignInState(mode), ' A@B.com ', mode);
+    assert.equal(s.step, 'email-code');
+    assert.equal(s.mode, mode);
+    assert.equal(s.email, 'a@b.com');
+    assert.equal(s.busy, true);
+  }
+  assert.equal(startEmailSignIn(initialSignInState('login'), 'nope', 'login').error, 'invalid-email');
+
+  const sent = emailCodeSent(startEmailSignIn(initialSignInState('login'), 'a@b.com', 'login'));
+  assert.equal(emailSignedIn(initialSignInState('login'), { token: 'sess_x' }).step, 'email'); // not from another step
+  assert.equal(emailSignedIn(sent, {}).step, 'email-code');
+  assert.equal(emailSignedIn(sent, {}).error, 'verification-failed');
+  assert.equal(emailSignedIn(sent, { token: 'sess_x' }).step, 'signed-in');
+});
+
+test('email-code sign-in: an MFA account parks at the mfa step with the single-use token', () => {
+  const sent = emailCodeSent(startEmailSignIn(initialSignInState('login'), 'a@b.com', 'login'));
+  const parked = emailSignedIn(sent, { mfa_required: true, mfa_token: 'mfa_x' });
+  assert.equal(parked.step, 'mfa');
+  assert.equal(parked.mfaToken, 'mfa_x');
 });

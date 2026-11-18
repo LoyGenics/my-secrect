@@ -7,7 +7,7 @@ module Api
     # the Account Master Key locally.
     class AuthController < ApplicationController
       skip_before_action :authenticate_request!,
-                         only: %i[request_email_code verify_email_code register_passkey verify_passkey
+                         only: %i[request_email_code verify_email_code email_session register_passkey verify_passkey
                                   authenticate_passkey verify_mfa]
 
       # POST /v1/auth/email/request — sign-up step 1: email a 6-digit code.
@@ -33,6 +33,25 @@ module Api
         render json: result, status: :ok
       rescue Authentication::EmailOwnership::VerificationError
         render json: { error: 'verification_failed' }, status: :unauthorized
+      end
+
+      # POST /v1/auth/email/session — sign in (or sign up) with the email
+      # alone, for an account without a passkey. Body: { email:,
+      # registration_ticket:, device: (optional, same proof as the passkey
+      # verify, signed over the ticket) }. Returns { token:, user_id:,
+      # device_id:, expires_in: } or { mfa_required: true, mfa_token:, user_id: }.
+      # One generic 401 verification_failed; 401 device_verification_failed
+      # for a bad device proof (the ticket stays usable).
+      def email_session
+        result = Authentication::EmailSignIn.call(
+          email: params[:email], registration_ticket: params[:registration_ticket], device: params[:device],
+          user_agent: request.user_agent, ip_address: request.remote_ip
+        )
+        render json: result, status: :ok
+      rescue Authentication::EmailOwnership::VerificationError
+        render json: { error: 'verification_failed' }, status: :unauthorized
+      rescue Authentication::DeviceProof::VerificationError
+        render json: { error: 'device_verification_failed' }, status: :unauthorized
       end
 
       # POST /v1/auth/passkeys/register — sign-up step 3: creation options
@@ -115,6 +134,29 @@ module Api
         Authentication::StepUp.mark_verified!(current_session, method: method)
         render json: { step_up_verified: true, method: method,
                        verified_until: Authentication::StepUp::WINDOW.from_now }, status: :ok
+      end
+
+      # POST /v1/auth/step-up/email/request — mail a step-up code to the
+      # signed-in account. 403 email_step_up_unavailable once the account has
+      # a passkey or MFA (use those instead).
+      def step_up_email_request
+        render json: Authentication::StepUp.request_email_code(user: current_user), status: :accepted
+      rescue Authentication::StepUp::VerificationError
+        render json: { error: 'email_step_up_unavailable' }, status: :forbidden
+      rescue Authentication::EmailOwnership::DeliveryError
+        render json: { error: 'email_unavailable' }, status: :service_unavailable
+      end
+
+      # POST /v1/auth/step-up/email — verify that code as a step-up for the
+      # current session. Body: { code: }.
+      def step_up_email
+        Authentication::StepUp.verify_email(user: current_user, code: params[:code], session: current_session)
+        render json: { step_up_verified: true, method: 'email',
+                       verified_until: Authentication::StepUp::WINDOW.from_now }, status: :ok
+      rescue Authentication::StepUp::VerificationError
+        Audit::Log.call(user: current_user, device: current_device,
+                        event_type: 'step_up_failed', metadata: { method: 'email' })
+        render json: { error: 'verification_failed' }, status: :unauthorized
       end
 
       # POST /v1/auth/step-up/passkey/options — request options for a

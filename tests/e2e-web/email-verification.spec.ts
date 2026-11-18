@@ -4,7 +4,7 @@
  * the real UI, and the real server verifies it before any account exists.
  */
 import {
-  test, expect, uniqueEmail, registerAccountViaUi, mailCodes, mailText, waitForMailCode,
+  test, expect, uniqueEmail, registerAccountViaUi, createVaultViaUi, addPasskeyViaUi, signOutViaUi, mailCodes, mailText, waitForMailCode,
   apiFetch, storedToken, newVirtualAuthenticator, LS_API_BASE_URL,
 } from './fixtures';
 
@@ -27,22 +27,41 @@ test.describe('sign-up email verification', () => {
     const code = await waitForMailCode(email);
 
     await page.getByLabel('Verification code').fill(otherCode(code));
-    await page.getByRole('button', { name: 'Create account with passkey' }).click();
+    await page.getByRole('button', { name: 'Create account', exact: true }).click();
     await expect(page.getByText('That code did not work.', { exact: false })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
-    expect(await authenticator.credentials()).toHaveLength(0); // no ceremony ran
     expect(await storedToken(page)).toBeNull();
 
     await page.getByLabel('Verification code').fill(code);
-    await page.getByRole('button', { name: 'Create account with passkey' }).click();
+    await page.getByRole('button', { name: 'Create account', exact: true }).click();
     await expect(page.getByText('Create your local vault')).toBeVisible();
-    expect(await authenticator.credentials()).toHaveLength(1);
+    expect(await authenticator.credentials()).toHaveLength(0); // signed up without a passkey
     const token = await storedToken(page);
     expect((await apiFetch(apiUrl, token, 'GET', '/api/v1/auth/sessions')).status).toBe(200);
 
     // The code is single-use: replaying it against the API fails.
     const replay = await apiFetch(apiUrl, null, 'POST', '/api/v1/auth/email/verify', { email, code });
     expect(replay.status).toBe(401);
+  });
+
+  test('an account without a passkey signs in again with an emailed code', async ({ page, authenticator }) => {
+    const email = uniqueEmail('again');
+    await registerAccountViaUi(page, email);
+    await createVaultViaUi(page);
+    await signOutViaUi(page);
+    expect(await storedToken(page)).toBeNull();
+
+    await page.getByRole('tab', { name: 'Sign in' }).click();
+    await page.getByLabel('Account email').fill(email);
+    const seen = mailCodes(email).length;
+    await page.getByRole('button', { name: 'Email me a code' }).click();
+    await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
+    await page.getByLabel('Verification code').fill(await waitForMailCode(email, seen));
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+    // Signed in, vault still locked: sign-in never unlocks it.
+    await expect(page.getByText('Your vault is locked')).toBeVisible();
+    expect(await storedToken(page)).toMatch(/^sess_[0-9a-f]{64}$/);
+    expect(await authenticator.credentials()).toHaveLength(0);
   });
 
   test('a new code replaces the previous one', async ({ page, authenticator }) => {
@@ -54,18 +73,19 @@ test.describe('sign-up email verification', () => {
     test.skip(first === second, 'the two random codes collided (1 in a million)');
 
     await page.getByLabel('Verification code').fill(first);
-    await page.getByRole('button', { name: 'Create account with passkey' }).click();
+    await page.getByRole('button', { name: 'Create account', exact: true }).click();
     await expect(page.getByText('That code did not work.', { exact: false })).toBeVisible();
 
     await page.getByLabel('Verification code').fill(second);
-    await page.getByRole('button', { name: 'Create account with passkey' }).click();
+    await page.getByRole('button', { name: 'Create account', exact: true }).click();
     await expect(page.getByText('Create your local vault')).toBeVisible();
-    expect(await authenticator.credentials()).toHaveLength(1);
   });
 
-  test('an address that already has an account gets the same answer and a notice, never a code', async ({ page, authenticator, apiUrl, browser }) => {
+  test('an address whose account has a passkey gets the same answer and a notice, never a code', async ({ page, authenticator, apiUrl, browser }) => {
     const email = uniqueEmail('taken');
     await registerAccountViaUi(page, email);
+    await createVaultViaUi(page);
+    await addPasskeyViaUi(page, email);
     const codesBefore = mailCodes(email).length;
 
     const fresh = await apiFetch(apiUrl, null, 'POST', '/api/v1/auth/email/request', { email: uniqueEmail('fresh') });

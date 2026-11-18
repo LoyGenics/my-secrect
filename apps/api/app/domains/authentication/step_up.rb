@@ -29,6 +29,28 @@ module Authentication
       session
     end
 
+    # Email step-up, only for an account whose sole login factor is the
+    # email (no passkey, no MFA): it is no weaker than the login itself, and
+    # it is what lets such an account add its first passkey. Anyone else
+    # must use the passkey or TOTP.
+    def email_allowed?(user)
+      !user.passkey_account? && !user.mfa_enabled?
+    end
+
+    def request_email_code(user:)
+      raise VerificationError, 'verification failed' unless email_allowed?(user)
+      EmailOwnership.request_code(email: user.email)
+    end
+
+    def verify_email(user:, code:, session:)
+      raise VerificationError, 'verification failed' unless email_allowed?(user)
+      EmailOwnership.redeem_code!(email: user.email, code: code)
+      mark_verified!(session, method: 'email')
+      true
+    rescue EmailOwnership::VerificationError
+      raise VerificationError, 'verification failed'
+    end
+
     # Verify a passkey assertion as a step-up. Reuses the stored
     # 'authentication' challenge + the STORED public key (never a
     # client-supplied key) via the same gem verification as login.

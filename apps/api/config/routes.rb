@@ -62,6 +62,9 @@ Rails.application.routes.draw do
       # (Authentication::EmailOwnership).
       post 'auth/email/request', to: 'auth#request_email_code'
       post 'auth/email/verify', to: 'auth#verify_email_code'
+      post 'auth/email/session', to: 'auth#email_session'
+      post 'auth/step-up/email/request', to: 'auth#step_up_email_request'
+      post 'auth/step-up/email', to: 'auth#step_up_email'
       # Device proof-of-possession (specs/device-identity.md §6.2).
       post 'devices/challenges', to: 'devices#create_challenge'
       post 'devices/:id/bind', to: 'devices#bind'

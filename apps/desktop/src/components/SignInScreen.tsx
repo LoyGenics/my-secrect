@@ -15,12 +15,13 @@ import {
   classifySignInError,
   emailCodeRequestFailed,
   emailCodeSent,
-  emailCodeVerified,
+  emailSignedIn,
   initialSignInState,
   mfaVerified,
   optionsReceived,
   passkeyVerified,
   signInFailed,
+  startEmailSignIn,
   startSignIn,
   type SignInErrorKind,
   type SignInMode,
@@ -31,31 +32,27 @@ import {
   prepareSignInDeviceProof,
   type PreparedDeviceProof,
 } from '../../../../packages/sdk/src/device-key-store';
-import {
-  serializeCreateCredential,
-  serializeGetCredential,
-  toCreationOptions,
-  toRequestOptions,
-} from '../utils/webauthn';
+import { serializeGetCredential, toRequestOptions } from '../utils/webauthn';
 
 /**
- * SignInScreen — account sign-in, passkey-first. Rendered by App
- * BEFORE the vault (onboarding / lock) whenever an API base URL is
- * configured and no valid session token is stored.
+ * SignInScreen — account sign-in by email code, or by passkey once the
+ * account has one. Rendered by App BEFORE the vault (onboarding / lock)
+ * whenever an API base URL is configured and no valid session token is
+ * stored.
  *
- * The API is passkey-only: there is no password login endpoint, so
- * none is offered here. Flow (see packages/sdk/src/signin.ts — the
- * state machine this screen drives):
+ * There is no password login. A passkey is an optional upgrade added
+ * later in the Security Center; it is never required to sign up. Flow
+ * (see packages/sdk/src/signin.ts — the state machine this screen drives):
+ *   email -> 6-digit code from the email -> signed-in (creates the account
+ *     on first use). The code is traded for a single-use ticket kept in
+ *     memory only, then spent for a session together with this browser's
+ *     device proof signed over the ticket. A bad device proof retries with
+ *     the same ticket; an expired ticket restarts from the email step. The
+ *     screen shows the same "check your email" step whether or not the
+ *     address already has an account (an account WITH a passkey gets a
+ *     notice, not a code — it signs in with the passkey).
  *   email -> passkey ceremony -> signed-in
- *   email -> passkey ceremony -> MFA step (TOTP code or recovery
- *     code) -> signed-in
- *   create-account: email -> 6-digit code from the email -> passkey
- *     ceremony (kind 'registration') -> signed-in. The code is traded
- *     for a single-use registration ticket kept in memory only; a
- *     failed ceremony retries with the same ticket, an expired ticket
- *     restarts from the email step. The screen shows the same "check
- *     your email" step whether or not the address already has an
- *     account (the server mails that owner a notice, not a code).
+ *   either path -> MFA step (TOTP code or recovery code) -> signed-in
  *
  * Account sign-in is SEPARATE from vault unlock: a successful
  * sign-in stores only the opaque Bearer session token (via the
@@ -74,7 +71,8 @@ import {
  * local-only: account features then stay signed out.
  *
  * Device binding (specs/device-identity.md): every passkey verify
- * carries a device proof signed over that ceremony's challenge with
+ * carries a device proof signed over that ceremony's challenge (the email
+ * path signs the ticket instead) with
  * this browser's Ed25519 device key (non-extractable WebCrypto key in
  * IndexedDB, libsodium fallback — packages/sdk/src/device-key-store.ts):
  * an enrol proof the first time for this (server, account), a bind proof
@@ -178,26 +176,34 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
     }
   };
 
+  /** Passkey sign-in (login tab, primary button). */
   const submitEmail = async (e: FormEvent) => {
     e.preventDefault();
+    if (machine.mode === 'create') {
+      await startEmailCode();
+      return;
+    }
     if (!webauthn) {
       setMachine((prev) => signInFailed(prev, 'webauthn-unavailable'));
       return;
     }
-    const mode: SignInMode = machine.mode;
-    const st = startSignIn(machine, emailInput, mode);
+    const st = startSignIn(machine, emailInput, 'login');
     setMachine(st);
     if (st.error) return;
-    if (mode === 'create') {
-      await requestCode(st);
-      return;
-    }
     await runLogin(st);
   };
 
-  /** Create-account steps 2 + 3: trade the emailed code for a ticket
-   *  (skipped when a ticket from a failed ceremony is still held), then
-   *  run the registration ceremony with it. */
+  /** Email-code path: sign up (create tab) or sign in without a passkey. */
+  const startEmailCode = async () => {
+    const st = startEmailSignIn(machine, emailInput, machine.mode);
+    setMachine(st);
+    if (st.error) return;
+    await requestCode(st);
+  };
+
+  /** Email-code steps 2 + 3: trade the emailed code for a ticket (skipped
+   *  when a ticket from a failed attempt is still held), then spend it for a
+   *  session together with this browser's device proof over the ticket. */
   const submitEmailCode = async (e: FormEvent) => {
     e.preventDefault();
     let st: SignInState = { ...machine, busy: true, error: null };
@@ -213,50 +219,36 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
       } finally {
         setEmailCode('');
       }
-      st = emailCodeVerified(st);
-      setMachine(st);
     }
+    const device = await prepareDevice(st.email, currentTicket);
     try {
-      let registerOptions;
-      try {
-        registerOptions = await security.passkeyRegisterOptions(st.email, currentTicket);
-      } catch (err) {
-        if (err instanceof ApiError && err.status === 401) {
-          // Ticket expired or spent: a new code is needed.
-          setTicket(null);
-          setMachine(signInFailed(st, 'signup-expired'));
-          return;
-        }
-        throw err;
-      }
-      st = optionsReceived(st);
+      const res = await security.emailSessionVerify(st.email, currentTicket, device?.proof);
+      st = emailSignedIn(st, res);
       setMachine(st);
-      const cred = await navigator.credentials.create({
-        publicKey: toCreationOptions(registerOptions.creation_options),
-      });
-      if (!cred) throw new Error('no credential returned');
-      const device = await prepareDevice(st.email, (registerOptions.creation_options as { challenge?: unknown })?.challenge);
-      let res;
-      try {
-        res = await security.passkeyRegisterVerify(st.email, serializeCreateCredential(cred as PublicKeyCredential), device?.proof);
-      } catch (err) {
-        // The server rolled the sign-up back; drop the key so the next
-        // attempt (same ticket) enrols a fresh one.
-        if (isDeviceVerificationFailed(err)) await device?.reject();
-        throw err;
-      }
-      await device?.confirm(res.device_id);
-      st = passkeyVerified(st, res);
-      setMachine(st);
-      if (st.step === 'signed-in') {
+      if (isMfaRequiredResult(res)) {
+        // The ticket is spent; the device is confirmed once MFA succeeds.
+        pendingDevice.current = device;
         setTicket(null);
+      } else if (st.step === 'signed-in') {
+        setTicket(null);
+        await device?.confirm(res.device_id);
         await finishSignIn(st.email, res.token, res.expires_in);
       }
     } catch (err) {
-      // A 401 from verify is generic by design. The ticket is kept: the
-      // user can retry the ceremony without a new code.
-      const kind = isDeviceVerificationFailed(err) ? 'device-rejected' : classifySignInError(err, st.step);
-      setMachine((prev) => signInFailed(prev, err instanceof ApiError && err.status === 401 && kind !== 'device-rejected' ? 'verification-failed' : kind));
+      if (isDeviceVerificationFailed(err)) {
+        // Rolled back server-side; the ticket is still usable, so the next
+        // attempt (no new code) enrols a fresh key.
+        await device?.reject();
+        setMachine((prev) => signInFailed(prev, 'device-rejected'));
+        return;
+      }
+      if (err instanceof ApiError && err.status === 401) {
+        // Ticket expired or spent: a new code is needed.
+        setTicket(null);
+        setMachine(signInFailed(st, 'signup-expired'));
+        return;
+      }
+      setMachine((prev) => signInFailed(prev, classifySignInError(err, 'email-code')));
     }
   };
 
@@ -366,12 +358,12 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
   };
 
   const resendCode = () => {
-    const st = startSignIn(machine, machine.email, 'create');
+    const st = startEmailSignIn(machine, machine.email, machine.mode);
     setMachine(st);
     if (!st.error) void requestCode(st);
   };
 
-  const onCodeStep = machine.mode === 'create' && (machine.step === 'email-code' || machine.step === 'passkey');
+  const onCodeStep = machine.step === 'email-code';
 
   const error = machine.error ? errorText(machine.error, s as unknown as Record<string, string>) : '';
 
@@ -421,7 +413,7 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
               className="btn-primary w-full"
               disabled={machine.busy || (!ticket && emailCode.length !== 6)}
             >
-              {s.createAccountButton}
+              {machine.mode === 'create' ? s.createAccountButton : s.signIn}
             </button>
             <button
               type="button"
@@ -434,7 +426,7 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
             <button
               type="button"
               className="w-full text-center text-sm text-zinc-400 hover:text-zinc-200"
-              onClick={() => switchMode('create')}
+              onClick={() => switchMode(machine.mode)}
             >
               {s.back}
             </button>
@@ -480,9 +472,25 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
                 />
               </div>
               {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
-              <button type="submit" className="btn-primary w-full" disabled={machine.busy || !webauthn || !emailInput.trim()}>
-                {machine.mode === 'create' ? s.sendCodeButton : s.signInButton}
-              </button>
+              {machine.mode === 'create' ? (
+                <button type="submit" className="btn-primary w-full" disabled={machine.busy || !emailInput.trim()}>
+                  {s.sendCodeButton}
+                </button>
+              ) : (
+                <>
+                  <button type="submit" className="btn-primary w-full" disabled={machine.busy || !webauthn || !emailInput.trim()}>
+                    {s.signInButton}
+                  </button>
+                  <button
+                    type="button"
+                    className="w-full text-center text-sm text-indigo-300 hover:text-indigo-200"
+                    disabled={machine.busy || !emailInput.trim()}
+                    onClick={() => void startEmailCode()}
+                  >
+                    {s.sendCodeButton}
+                  </button>
+                </>
+              )}
             </form>
           </>
         )}
@@ -546,9 +554,7 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
         <button type="button" className="mt-4 w-full text-center text-sm text-zinc-400 hover:text-zinc-200" onClick={onContinueLocalOnly}>
           {s.continueLocalOnly}
         </button>
-        <p className="mt-4 text-xs text-zinc-500">
-          Passkey-only sign-in — there is no password login. The server never sees your vault keys or contents.
-        </p>
+        <p className="mt-4 text-xs text-zinc-500">{s.footerNote}</p>
       </div>
     </div>
   );
