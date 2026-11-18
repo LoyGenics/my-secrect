@@ -24,7 +24,7 @@ import { Icon, illustrations, type IconName } from '../../../../packages/ui/src/
 import { fromBase64Url, sodiumReady, toBase64 } from '../../../../packages/crypto-adapters/src/index';
 import { legacyRecoveryVerifierKeyPair, recoveryVerifierKeyPair } from '../../../../packages/sdk/src/recovery-verifier';
 import { apiStatus, isNetworkError } from '../utils/stepUp';
-import { Btn, Float, useSoftPalette, Rise, TextButton, useReducedMotion } from '../components/soft';
+import { Btn, Float, useSoftPalette, Rise, SoftField, TextButton, useReducedMotion } from '../components/soft';
 
 /**
  * SignInScreen (mobile) — account sign-in WITHOUT WebAuthn, "soft light" finish
@@ -85,7 +85,7 @@ function OtpField({ value, onChange, label, testID, length = 6 }: {
               height: 56,
               borderRadius: 14,
               borderWidth: active ? 2 : 1,
-              borderColor: active ? P.brandFill : value[i] ? '#F2C9B3' : P.line,
+              borderColor: active ? P.focus : P.line,
               backgroundColor: value[i] || active ? P.surface : P.surface2,
               alignItems: 'center',
               justifyContent: 'center',
@@ -294,25 +294,18 @@ export default function SignInScreen({ baseUrl, sessionExpired, onSignedIn, onCo
   }
 
   const emailInput = (
-    <View style={{ gap: 6 }}>
-      <Text style={{ fontSize: 13, fontWeight: '600', color: P.ink2 }}>{t('signin.emailLabel')}</Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, height: 52, borderRadius: 14, borderWidth: 1, borderColor: P.line, backgroundColor: P.surface2, paddingHorizontal: 14 }}>
-        <Icon name="mail" size="lg" color={P.ink3} />
-        <TextInput
-          testID="signin-email"
-          accessibilityLabel={t('signin.emailLabel')}
-          placeholder={t('signin.emailPlaceholder')}
-          placeholderTextColor={P.ink3}
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="email-address"
-          textContentType="emailAddress"
-          style={{ flex: 1, fontSize: 16, color: P.ink }}
-        />
-      </View>
-    </View>
+    <SoftField
+      testID="signin-email"
+      label={t('signin.emailLabel')}
+      placeholder={t('signin.emailPlaceholder')}
+      icon="mail"
+      value={email}
+      onChangeText={setEmail}
+      autoCapitalize="none"
+      autoCorrect={false}
+      keyboardType="email-address"
+      textContentType="emailAddress"
+    />
   );
 
   const alert = error ? (
@@ -334,21 +327,16 @@ export default function SignInScreen({ baseUrl, sessionExpired, onSignedIn, onCo
         </Rise>
         <Rise index={1} reduced={reduced}>{emailInput}</Rise>
         <Rise index={2} reduced={reduced}>
-          <View style={{ gap: 6 }}>
-            <Text style={{ fontSize: 13, fontWeight: '600', color: P.ink2 }}>{t('signin.recoveryKeyLabel')}</Text>
-            <TextInput
-              testID="signin-recovery-key"
-              accessibilityLabel={t('signin.recoveryKeyLabel')}
-              placeholder={t('signin.recoveryKeyHint')}
-              placeholderTextColor={P.ink3}
-              secureTextEntry
-              value={recoveryKey}
-              onChangeText={setRecoveryKey}
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={{ height: 52, borderRadius: 14, borderWidth: 1, borderColor: P.line, backgroundColor: P.surface2, paddingHorizontal: 14, fontSize: 16, color: P.ink }}
-            />
-          </View>
+          <SoftField
+            testID="signin-recovery-key"
+            label={t('signin.recoveryKeyLabel')}
+            placeholder={t('signin.recoveryKeyHint')}
+            secureTextEntry
+            value={recoveryKey}
+            onChangeText={setRecoveryKey}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
         </Rise>
         {alert}
         <Rise index={3} reduced={reduced}>
@@ -410,20 +398,16 @@ export default function SignInScreen({ baseUrl, sessionExpired, onSignedIn, onCo
           <Text style={{ fontSize: 14, lineHeight: 20, color: P.ink2 }}>{t('signin.mfaBody')}</Text>
         </Rise>
         <Rise index={2} reduced={reduced}>
-          <View style={{ gap: 6 }}>
-            <Text style={{ fontSize: 13, fontWeight: '600', color: P.ink2 }}>{t('signin.mfaCodeLabel')}</Text>
-            <TextInput
-              testID="signin-mfa-code"
-              accessibilityLabel={t('signin.mfaCodeLabel')}
-              value={code}
-              onChangeText={(v) => setCode(v.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 9))}
-              autoCapitalize="characters"
-              autoCorrect={false}
-              placeholder="123456 / XXXX-XXXX"
-              placeholderTextColor={P.ink3}
-              style={{ height: 52, borderRadius: 14, borderWidth: 1, borderColor: P.line, backgroundColor: P.surface2, paddingHorizontal: 14, fontSize: 16, color: P.ink, letterSpacing: 2 }}
-            />
-          </View>
+          <SoftField
+            testID="signin-mfa-code"
+            label={t('signin.mfaCodeLabel')}
+            value={code}
+            onChangeText={(v) => setCode(v.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 9))}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            placeholder="123456 / XXXX-XXXX"
+            style={{ letterSpacing: 2 }}
+          />
         </Rise>
         {alert}
         <Rise index={3} reduced={reduced}>

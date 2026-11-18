@@ -6,7 +6,7 @@ import { Empty, Select } from '../components/mobile-ui';
 import { illustrations } from '../../../../packages/ui/src/native';
 import { useMobileTheme } from '../theme';
 import { decryptWithVaultKey, encryptWithVaultKey, listItems, upsertItem } from '../vault';
-import { API_BASE_URL_KEY, getApiToken } from './SecurityScreen';
+import { getApiToken } from './SecurityScreen';
 // From apps/mobile/src/screens/ the repo root is four levels up.
 import type { VaultItem } from '../../../../packages/core/src/types';
 import { fingerprintOf, type SharePermission } from '../../../../packages/core/src/sharing';
@@ -98,7 +98,7 @@ function Chip({ label, selected, onPress, testID }: { label: string; selected: b
   );
 }
 
-export default function SharesScreen({ onClose }: { onClose: () => void }) {
+export default function SharesScreen({ baseUrl, onClose }: { baseUrl: string; onClose: () => void }) {
   const [section, setSection] = useState('inbox');
   const { colors, styles } = useMobileTheme();
   const cardStyle = { backgroundColor: colors.card, borderRadius: 14, padding: 16, marginBottom: 10 };
@@ -106,7 +106,6 @@ export default function SharesScreen({ onClose }: { onClose: () => void }) {
   const [phase, setPhase] = useState<'starting' | 'no-server' | 'signed-out' | 'failed' | 'ready'>('starting');
   const [startError, setStartError] = useState<{ kind: ShareErrorKind; detail: string } | null>(null);
   const [startAttempt, setStartAttempt] = useState(0);
-  const [baseUrl, setBaseUrl] = useState('');
   // Pending action that needs a fresh server step-up (TOTP on mobile).
   const [stepUpFor, setStepUpFor] = useState<null | (() => void)>(null);
   const [stepUpCode, setStepUpCode] = useState('');
@@ -159,14 +158,12 @@ export default function SharesScreen({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const url = ((await AsyncStorage.getItem(API_BASE_URL_KEY)) ?? '').trim();
-      setBaseUrl(url);
-      if (!url) return setPhase('no-server');
+      if (!baseUrl) return setPhase('no-server');
       if (!(await getApiToken())) return setPhase('signed-out');
       setPhase('starting');
       setStartError(null);
       try {
-        const s = await SharingSession.start(sessionOptions(url));
+        const s = await SharingSession.start(sessionOptions(baseUrl));
         if (cancelled) return s.close();
         sessionRef.current = s;
         setMyFingerprint(await s.myFingerprint());
@@ -187,7 +184,7 @@ export default function SharesScreen({ onClose }: { onClose: () => void }) {
     };
     // sessionOptions only reads module-level functions and its argument.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refresh, startAttempt]);
+  }, [baseUrl, refresh, startAttempt]);
 
   /** Server step-up with an authenticator code, then the pending action. */
   const submitStepUp = () => {
@@ -367,7 +364,7 @@ export default function SharesScreen({ onClose }: { onClose: () => void }) {
     return (
       <ScrollView style={styles.screen} contentContainerStyle={{ padding: 20, width: '100%', maxWidth: 720, alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
         {header}
-        {phase === 'no-server' || phase === 'signed-out' ? <Empty image={illustrations.emptyVault} title={t('mobileUI.sharingConnect')} detail={t('mobileUI.sharingConnectBody')} /> : <Text testID="shares-status" style={[phase === 'failed' && !needsStepUp ? styles.error : styles.subtitle, { marginTop: 12 }]}>{message}</Text>}
+        {phase === 'no-server' || phase === 'signed-out' ? <Empty image={illustrations.emptyVault} title={t('mobileUI.sharingConnect')} detail={phase === 'signed-out' ? message : t('mobileUI.sharingConnectBody')} /> : <Text testID="shares-status" style={[phase === 'failed' && !needsStepUp ? styles.error : styles.subtitle, { marginTop: 12 }]}>{message}</Text>}
         {error ? <Text testID="shares-error" style={[styles.error, { marginTop: 10 }]}>{error}</Text> : null}
         {needsStepUp && !stepUpFor ? (
           <Button testID="share-stepup-start" primary label={t('shares.verifyItsYou')} onPress={() => setStepUpFor(() => () => setStartAttempt((n) => n + 1))} />

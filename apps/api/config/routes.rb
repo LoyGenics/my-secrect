@@ -3,6 +3,7 @@ Rails.application.routes.draw do
 
   namespace :api do
     namespace :v1 do
+      post 'imports/preview', to: 'import_previews#create'
       get 'billing', to: 'billing#show'
       post 'billing/checkout', to: 'billing#checkout'
       post 'billing/portal', to: 'billing#portal'

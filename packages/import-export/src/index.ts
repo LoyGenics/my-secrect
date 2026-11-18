@@ -531,7 +531,7 @@ export function validatePlaintextExport(data: unknown): ImportValidation {
 }
 
 // ---------------------------------------------------------------------------
-// CSV import (1Password / Bitwarden)
+// Login CSV import
 // ---------------------------------------------------------------------------
 
 export interface CsvDraft {
@@ -542,19 +542,30 @@ export interface CsvDraft {
   notes: string;
   totp?: string;
   folder?: string;
+  tags?: string[];
   favorite?: boolean;
+  archived?: boolean;
 }
 
-export type CsvSource = 'bitwarden' | '1password';
+export type CsvSource = 'bitwarden' | '1password' | 'google' | 'my-secret';
+
+export const CSV_SOURCE_NAMES: Record<CsvSource, string> = {
+  'my-secret': 'My Secret',
+  bitwarden: 'Bitwarden',
+  '1password': '1Password',
+  google: 'Google Password Manager',
+};
+
+export const LOGIN_CSV_TEMPLATE = 'title,url,username,password,notes,totp_secret,folder,favorite\r\n';
+
+export type CsvImportError = 'empty_or_malformed' | 'unrecognized' | 'no_rows' | 'too_many_rows';
 
 export interface CsvParseResult {
-  source: CsvSource;
+  source: CsvSource | null;
   drafts: CsvDraft[];
   /** Rows skipped entirely (with 1-based row numbers). */
   skipped: Array<{ row: number; reason: string }>;
-  /** Non-fatal notes, e.g. rows imported without a password. */
-  warnings: string[];
-  errors: string[];
+  errors: CsvImportError[];
 }
 
 /** Minimal RFC 4180 CSV reader: quoted fields, "" escapes, CRLF/LF. */
@@ -565,23 +576,31 @@ export function parseCsv(text: string): string[][] {
   let field = '';
   let inQuotes = false;
   let fieldStarted = false;
-  const endField = () => { row.push(field); field = ''; fieldStarted = false; };
+  let closedQuote = false;
+  const endField = () => { row.push(field); field = ''; fieldStarted = false; closedQuote = false; };
   const endRow = () => { endField(); rows.push(row); row = []; };
   for (let i = 0; i < clean.length; i++) {
     const ch = clean[i];
     if (inQuotes) {
       if (ch === '"') {
-        if (clean[i + 1] === '"') { field += '"'; i++; } else inQuotes = false;
+        if (clean[i + 1] === '"') { field += '"'; i++; } else { inQuotes = false; closedQuote = true; }
       } else field += ch;
       continue;
     }
-    if (ch === '"' && !fieldStarted && field === '') { inQuotes = true; fieldStarted = true; continue; }
+    if (ch === '"') {
+      if (fieldStarted) return [];
+      inQuotes = true;
+      fieldStarted = true;
+      continue;
+    }
     if (ch === ',') { endField(); continue; }
     if (ch === '\r') { if (clean[i + 1] === '\n') i++; endRow(); continue; }
     if (ch === '\n') { endRow(); continue; }
+    if (closedQuote) return [];
     field += ch;
     fieldStarted = true;
   }
+  if (inQuotes) return [];
   if (field !== '' || fieldStarted || row.length > 0) endRow();
   // Drop trailing empty rows produced by a final newline.
   while (rows.length > 0 && rows[rows.length - 1].every((c) => c === '')) rows.pop();
@@ -613,84 +632,98 @@ const ONEPASSWORD_COLUMNS: Record<string, keyof CsvDraft> = {
   onetimepassword: 'totp',
   otp: 'totp',
   totp: 'totp',
+  tags: 'tags',
+  favorite: 'favorite',
+  favourite: 'favorite',
+  favoritestatus: 'favorite',
+  archived: 'archived',
+  archivedstatus: 'archived',
+};
+
+const COLUMN_MAPS: Record<CsvSource, Record<string, keyof CsvDraft>> = {
+  bitwarden: BITWARDEN_COLUMNS,
+  '1password': ONEPASSWORD_COLUMNS,
+  google: { name: 'title', url: 'url', username: 'username', password: 'password', note: 'notes' },
+  'my-secret': { ...ONEPASSWORD_COLUMNS, totpsecret: 'totp', folder: 'folder' },
 };
 
 function detectSource(headers: string[]): CsvSource | null {
-  const norm = headers.map(normHeader);
-  if (norm.includes('loginusername') || norm.includes('loginpassword') || norm.includes('loginuri')) return 'bitwarden';
-  if (norm.includes('title') && norm.includes('username') && norm.includes('password')) return '1password';
+  if (headers.includes('loginpassword') && ['name', 'loginusername', 'loginuri'].some((h) => headers.includes(h))) return 'bitwarden';
+  if (headers.includes('username') && headers.includes('password')) {
+    if (headers.includes('title')) return headers.includes('totpsecret') ? 'my-secret' : '1password';
+    if (headers.includes('url')) return 'google';
+  }
   return null;
 }
 
-/** Parse a 1Password or Bitwarden CSV export into login drafts. Never throws
- *  on malformed rows — they are reported in `skipped`/`errors` instead. */
+/** Normalize supported password manager exports and the My Secret template. */
 export function parseCsvImport(text: string): CsvParseResult {
   const rows = parseCsv(text);
   if (rows.length === 0) {
-    return { source: 'bitwarden', drafts: [], skipped: [], warnings: [], errors: ['CSV file is empty.'] };
+    return { source: null, drafts: [], skipped: [], errors: ['empty_or_malformed'] };
   }
-  const headers = rows[0];
+  const headers = rows[0].map(normHeader);
   const source = detectSource(headers);
   if (!source) {
     return {
-      source: 'bitwarden',
+      source: null,
       drafts: [],
       skipped: [],
-      warnings: [],
-      errors: ['Could not recognise this CSV. Expected a Bitwarden export (columns: name, login_username, login_password, login_uri, …) or a 1Password export (Title, Username, Password, URL, …).'],
+      errors: ['unrecognized'],
     };
   }
-  const columnMap = source === 'bitwarden' ? BITWARDEN_COLUMNS : ONEPASSWORD_COLUMNS;
+  const columnMap = COLUMN_MAPS[source];
+  const typeIndex = source === 'bitwarden' ? headers.indexOf('type') : -1;
   const colIndex = new Map<keyof CsvDraft, number>();
   headers.forEach((h, i) => {
-    const key = columnMap[normHeader(h)];
+    const key = Object.prototype.hasOwnProperty.call(columnMap, h) ? columnMap[h] : undefined;
     if (key && !colIndex.has(key)) colIndex.set(key, i);
   });
-  if (!colIndex.has('title') && !colIndex.has('url') && !colIndex.has('username')) {
-    return { source, drafts: [], skipped: [], warnings: [], errors: [`${source === 'bitwarden' ? 'Bitwarden' : '1Password'} CSV is missing its title/URL/username columns.`] };
-  }
   const drafts: CsvDraft[] = [];
   const skipped: Array<{ row: number; reason: string }> = [];
-  const warnings: string[] = [];
-  const errors: string[] = [];
+  const errors: CsvImportError[] = [];
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r];
     const rowNo = r + 1; // 1-based, header is row 1
-    if (row.every((c) => c.trim() === '')) continue;
+    if (row.every((c) => c === '')) continue;
+    const type = row[typeIndex]?.trim().toLowerCase();
+    if (type && type !== 'login') {
+      skipped.push({ row: rowNo, reason: 'unsupported item type' });
+      continue;
+    }
+    if (row.length > headers.length && row.slice(headers.length).some((value) => value !== '')) {
+      skipped.push({ row: rowNo, reason: 'more values than columns' });
+      continue;
+    }
     const get = (key: keyof CsvDraft): string => {
       const idx = colIndex.get(key);
-      if (idx === undefined) return '';
-      const v = row[idx];
-      return typeof v === 'string' ? v.trim() : '';
+      return idx === undefined ? '' : row[idx] ?? '';
     };
+    const flag = (key: 'favorite' | 'archived') => /^(true|1|yes)$/i.test(get(key).trim());
     const draft: CsvDraft = {
-      title: get('title'),
+      title: get('title').trim(),
       username: get('username'),
       password: get('password'),
-      url: get('url'),
+      url: get('url').trim(),
       notes: get('notes'),
-      totp: get('totp') || undefined,
-      folder: get('folder') || undefined,
-      favorite: source === 'bitwarden' ? /^(true|1|yes)$/i.test(get('favorite')) : undefined,
+      totp: get('totp').trim() || undefined,
+      folder: get('folder').trim() || undefined,
+      tags: get('tags').split(',').map((tag) => tag.trim()).filter(Boolean),
+      favorite: flag('favorite'),
+      archived: flag('archived'),
     };
-    if (!draft.title && !draft.url && !draft.username) {
+    if (!draft.title && !draft.url && !draft.username.trim()) {
       skipped.push({ row: rowNo, reason: 'no title, URL or username — nothing to import' });
       continue;
     }
-    if (!draft.title) draft.title = draft.url || draft.username;
-    if (!draft.password) warnings.push(`Row ${rowNo} (“${draft.title}”): no password stored — imported without one.`);
-    if (draft.totp && !/^[A-Z2-7]+=*$/i.test(draft.totp.replace(/\s+/g, ''))) {
-      warnings.push(`Row ${rowNo} (“${draft.title}”): TOTP value does not look like Base32 — it was kept as-is; check it after import.`);
-    }
+    if (!draft.title) draft.title = draft.url || draft.username.trim();
     drafts.push(draft);
   }
-  if (drafts.length === 0 && skipped.length === 0 && warnings.length === 0) {
-    errors.push('CSV has a header row but no data rows.');
-  }
+  if (drafts.length === 0 && skipped.length === 0) errors.push('no_rows');
   if (drafts.length > MAX_IMPORT_ITEMS) {
-    return { source, drafts: [], skipped, warnings, errors: [`CSV has ${drafts.length} logins, over the limit of ${MAX_IMPORT_ITEMS}. Split the file and import it in parts.`] };
+    return { source, drafts: [], skipped, errors: ['too_many_rows'] };
   }
-  return { source, drafts, skipped, warnings, errors };
+  return { source, drafts, skipped, errors };
 }
 
 // ---------------------------------------------------------------------------
@@ -710,6 +743,7 @@ export interface CsvDuplicate {
   existingId: string;
   existingTitle: string;
   reason: string;
+  fromBatch?: boolean;
 }
 
 function hostOf(url: string): string {
@@ -728,26 +762,33 @@ function hostOf(url: string): string {
  * the same (title + username) when there is no URL on either side.
  */
 export function detectCsvDuplicates(drafts: CsvDraft[], existing: ExistingLoginLike[]): CsvDuplicate[] {
+  const signature = (title: string, url: string, username: string): string | null => {
+    const user = username.trim().toLowerCase();
+    const host = url ? hostOf(url) : '';
+    if (host && user) return JSON.stringify(['host', host, user]);
+    if (!host && title.trim()) return JSON.stringify(['title', title.trim().toLowerCase(), user]);
+    return null;
+  };
+  const seen = new Map<string, { id: string; title: string; fromBatch?: boolean }>();
+  for (const item of existing) {
+    if (item.type !== 'login') continue;
+    const url = typeof item.fields.url === 'string' ? item.fields.url : '';
+    const username = typeof item.fields.username === 'string' ? item.fields.username : '';
+    const key = signature(item.title, url, username);
+    if (key && !seen.has(key)) seen.set(key, item);
+  }
   const out: CsvDuplicate[] = [];
   drafts.forEach((draft, draftIndex) => {
-    const dHost = draft.url ? hostOf(draft.url) : '';
-    const dUser = draft.username.trim().toLowerCase();
-    const dTitle = draft.title.trim().toLowerCase();
-    for (const item of existing) {
-      if (item.type !== 'login') continue;
-      const eUser = typeof item.fields.username === 'string' ? item.fields.username.trim().toLowerCase() : '';
-      const eUrl = typeof item.fields.url === 'string' ? item.fields.url : '';
-      const eHost = eUrl ? hostOf(eUrl) : '';
-      const eTitle = item.title.trim().toLowerCase();
-      if (dHost && eHost && dHost === eHost && dUser === eUser && dUser !== '') {
-        out.push({ draftIndex, draftTitle: draft.title, existingId: item.id, existingTitle: item.title, reason: 'same site and username already in the vault' });
-        return;
-      }
-      if (!dHost && !eHost && dTitle && dTitle === eTitle && dUser === eUser) {
-        out.push({ draftIndex, draftTitle: draft.title, existingId: item.id, existingTitle: item.title, reason: 'same title and username already in the vault' });
-        return;
-      }
+    const key = signature(draft.title, draft.url, draft.username);
+    if (!key) return;
+    const match = seen.get(key);
+    if (!match) {
+      seen.set(key, { id: '', title: draft.title, fromBatch: true });
+      return;
     }
+    const reason = match.fromBatch ? 'same login in this import' :
+      draft.url ? 'same site and username already in the vault' : 'same title and username already in the vault';
+    out.push({ draftIndex, draftTitle: draft.title, existingId: match.id, existingTitle: match.title, reason, fromBatch: match.fromBatch });
   });
   return out;
 }

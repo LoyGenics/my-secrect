@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from 'react';
-import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
+import { FlatList, Text, View } from 'react-native';
 import { Search, X } from 'lucide-react-native';
 import type { VaultItem } from '../../../../packages/core/src/types';
 import { useTranslation } from '../../../../packages/i18n/src/react';
 import { illustrations } from '../../../../packages/ui/src/native';
 import ItemRow from '../components/ItemRow';
-import { Empty } from '../components/mobile-ui';
+import { Empty, IconButton } from '../components/mobile-ui';
+import { InputControl } from '../components/Field';
 import { useMobileTheme } from '../theme';
 import { searchLocal } from '../vault';
 
@@ -18,11 +19,19 @@ export default function SearchScreen({ items, onSelect, onToggleFavorite }: { it
   return <View style={{ flex: 1, backgroundColor: colors.bg }}>
     <FlatList data={results} keyExtractor={i => i.id} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={{ padding: 20, paddingTop: 8, paddingBottom: 40, width: '100%', maxWidth: 820, alignSelf: 'center' }}
       ListHeaderComponent={<View style={{ marginBottom: 18 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 14, borderRadius: 11, backgroundColor: colors.surface2, minHeight: 48 }}>
-          <Search size={19} color={colors.muted} />
-          <TextInput testID="search-input" accessibilityLabel={t('mobileUI.searchAll')} placeholder={dict.search.placeholder} placeholderTextColor={colors.muted} value={q} onChangeText={setQ} autoFocus autoCapitalize="none" autoCorrect={false} returnKeyType="search" clearButtonMode="never" style={{ color: colors.text, flex: 1, fontSize: 16, paddingVertical: 13 }} />
-          {!!q && <Pressable accessibilityRole="button" accessibilityLabel={dict.common.clear} onPress={() => setQ('')} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><X size={18} color={colors.muted} /></Pressable>}
-        </View>
+        <InputControl
+          testID="search-input"
+          accessibilityLabel={t('mobileUI.searchAll')}
+          placeholder={dict.search.placeholder}
+          value={q}
+          onChangeText={setQ}
+          autoFocus
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="search"
+          leading={<Search size={19} color={colors.muted} />}
+          trailing={!!q && <IconButton accessibilityLabel={dict.common.clear} onPress={() => setQ('')}><X size={18} color={colors.muted} /></IconButton>}
+        />
         <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 19, marginTop: 12 }}>{q.trim() ? t('mobileUI.itemCount', results.length) : t('mobileUI.recentItems')}</Text>
       </View>}
       renderItem={({ item }) => <ItemRow item={item} onPress={() => onSelect(item.id)} onToggleFavorite={() => onToggleFavorite(item.id)} />}

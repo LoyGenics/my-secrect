@@ -34,6 +34,7 @@ import {
   sha256,
 } from '../../../packages/crypto-adapters/src/index';
 import type { VaultItem } from '../../../packages/core/src/types';
+import { decodeLocalCardCode, encodeLocalCardCode, isCardVerificationField } from '../../../packages/core/src/card';
 import {
   buildEncryptedExport,
   parseEncryptedExportText,
@@ -422,22 +423,44 @@ export async function withVaultKey<T>(fn: (key: Uint8Array, assertUnlocked: () =
 export function listItems(includeDeleted = false): VaultItem[] { return includeDeleted ? [...unlockedItems] : unlockedItems.filter((i) => !isDeleted(i)); }
 export function listTrash(): VaultItem[] { return unlockedItems.filter((i) => isDeleted(i)); }
 
-export async function upsertItem(item: VaultItem): Promise<void> {
-  if (!vaultKey) throw new Error('vault locked');
+export async function readLocalCardCode(id: string): Promise<string> {
+  const key = vaultKey;
+  if (!key) throw new Error('vault locked');
+  const ciphertext = await (await getStore()).getLocalCardCode(id);
+  if (!ciphertext) return '';
+  const plaintext = await decryptWithVaultKey(ciphertext);
+  if (vaultKey !== key) throw new Error('vault locked');
+  if (plaintext === null) throw new Error('Invalid local card code ciphertext');
+  return decodeLocalCardCode(id, plaintext);
+}
+
+export async function upsertItem(item: VaultItem, localCardCode?: string): Promise<void> {
+  const key = vaultKey;
+  if (!key) throw new Error('vault locked');
   if (!item.id) throw new Error('item id must not be empty');
+  if (item.type === 'card' && Object.keys(item.fields).some(isCardVerificationField)) {
+    throw new Error('Card verification codes belong in device-local storage');
+  }
   await sodiumReady;
   const now = new Date().toISOString();
   const stored: VaultItem = { ...item, favorite: item.favorite ?? false, deleted_at: null, updated_at: now, created_at: item.created_at || now };
   const itemKey = crypto.randomBytes(32);
-  const wrapped = await crypto.wrapKey(vaultKey, itemKey);
-  const { nonce, ciphertext } = await crypto.encrypt(itemKey, Buffer.from(JSON.stringify(stored), 'utf8'));
-  itemKey.fill(0);
+  let row: Omit<StoredRow, 'revision'>;
+  try {
+    const wrapped = await crypto.wrapKey(key, itemKey);
+    const { nonce, ciphertext } = await crypto.encrypt(itemKey, Buffer.from(JSON.stringify(stored), 'utf8'));
+    row = { id: stored.id, nonce: toBase64(nonce), ciphertext: toBase64(ciphertext), wrapped_item_key: toBase64(wrapped.wrapped), wrapped_nonce: toBase64(wrapped.nonce), deleted_at: null };
+  } finally {
+    itemKey.fill(0);
+  }
+  let sealedCode: string | null | undefined;
+  if (item.type !== 'card' || localCardCode === '') sealedCode = null;
+  else if (localCardCode !== undefined) sealedCode = await encryptWithVaultKey(encodeLocalCardCode(item.id, localCardCode));
   const store = await getStore();
-  await store.upsertItemRow(
-    { id: stored.id, nonce: toBase64(nonce), ciphertext: toBase64(ciphertext), wrapped_item_key: toBase64(wrapped.wrapped), wrapped_nonce: toBase64(wrapped.nonce), deleted_at: null },
-    await indexEntryFor(store, stored),
-  );
-  unlockedItems = [...unlockedItems.filter((i) => i.id !== stored.id), stored];
+  const indexEntry = await indexEntryFor(store, stored);
+  if (vaultKey !== key) throw new Error('vault locked');
+  await store.upsertItemRow(row, indexEntry, sealedCode);
+  if (vaultKey === key) unlockedItems = [...unlockedItems.filter((i) => i.id !== stored.id), stored];
 }
 
 export async function deleteItem(id: string): Promise<void> {

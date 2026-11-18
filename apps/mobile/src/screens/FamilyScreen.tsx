@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { FamilyApiClient, familyErrorKey, type FamilyState } from '../../../../packages/sdk/src/family';
 import { isStepUpRequired, SecurityApiClient } from '../../../../packages/sdk/src/security';
 import { useTranslation } from '../../../../packages/i18n/src/react';
@@ -9,10 +8,10 @@ import { Action, Empty, Group, Page, Row, Rule } from '../components/mobile-ui';
 import { illustrations } from '../../../../packages/ui/src/native';
 import Field from '../components/Field';
 import { MoreHorizontal, UserRound } from 'lucide-react-native';
-import { API_BASE_URL_KEY, getApiToken } from './SecurityScreen';
+import { getApiToken } from './SecurityScreen';
 
 type Action = () => Promise<FamilyState>;
-export default function FamilyScreen({ onClose }: { onClose: () => void }) {
+export default function FamilyScreen({ baseUrl, onClose }: { baseUrl: string; onClose: () => void }) {
   const { t } = useTranslation();
   const { colors, styles } = useMobileTheme();
   const [api, setApi] = useState<FamilyApiClient | null>(null);
@@ -32,14 +31,12 @@ export default function FamilyScreen({ onClose }: { onClose: () => void }) {
   }
   useEffect(() => {
     alive.current = true;
-    AsyncStorage.getItem(API_BASE_URL_KEY).then(baseUrl => {
-      if (!alive.current || !baseUrl) return;
-      const client = new FamilyApiClient({ baseUrl, getToken: getApiToken });
-      security.current = new SecurityApiClient({ baseUrl, getToken: getApiToken });
-      setApi(client); void run(() => client.get());
-    }).catch(() => { if (alive.current) setError(t('family.error')); });
+    if (!baseUrl) return;
+    const client = new FamilyApiClient({ baseUrl, getToken: getApiToken });
+    security.current = new SecurityApiClient({ baseUrl, getToken: getApiToken });
+    setApi(client); void run(() => client.get());
     return () => { alive.current = false; security.current = null; };
-  }, []);
+  }, [baseUrl]);
   function confirm(label: string, action: Action) {
     Alert.alert(label, t('family.confirmHelp'), [
       { text: t('family.cancel'), style: 'cancel' },

@@ -46,6 +46,9 @@ export interface StoredRow {
   id: string; revision: number; nonce: string; ciphertext: string;
   wrapped_item_key: string; wrapped_nonce: string; deleted_at?: string | null;
 }
+
+// Additive app-only table. Credential providers continue to use the contract above.
+const LOCAL_CARD_CODES_SQL = 'CREATE TABLE IF NOT EXISTS local_card_codes (id TEXT PRIMARY KEY, ciphertext TEXT NOT NULL)';
 export interface StoredKeys {
   salt: string; wrapped_master: string; wrapped_master_nonce: string;
   wrapped_vault: string; wrapped_vault_nonce: string;
@@ -94,6 +97,7 @@ export class VaultStore {
   static async open(db: SerializedSql): Promise<VaultStore> {
     await db.transaction(async (tx) => {
       await tx.exec(SCHEMA_SQL);
+      await tx.exec(LOCAL_CARD_CODES_SQL);
       const v = await tx.first<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'");
       if (!v) await tx.run("INSERT INTO meta (key, value) VALUES ('schema_version', ?)", [SCHEMA_VERSION]);
       else if (v.value !== SCHEMA_VERSION) throw new Error(`vault.db schema_version ${v.value} is not supported by this build`);
@@ -113,10 +117,15 @@ export class VaultStore {
   }
   async isOccupied(): Promise<boolean> { return this.db.transaction(isOccupiedTx); }
 
+  async getLocalCardCode(id: string): Promise<string | null> {
+    return (await this.db.first<{ ciphertext: string }>('SELECT ciphertext FROM local_card_codes WHERE id = ?', [id]))?.ciphertext ?? null;
+  }
+
   /** New vault: fresh keys, and nothing left over from an earlier one. */
   async createVault(keysJson: string): Promise<void> {
     await this.db.transaction(async (tx) => {
       await tx.run('DELETE FROM rows');
+      await tx.run('DELETE FROM local_card_codes');
       await tx.run('DELETE FROM device_unlock');
       await tx.run('DELETE FROM autofill_index');
       await tx.run('INSERT OR REPLACE INTO vault_keys (id, json) VALUES (1, ?)', [keysJson]);
@@ -133,12 +142,16 @@ export class VaultStore {
   }
 
   /** Write one item row (revision = stored + 1) and its index entry together. */
-  async upsertItemRow(row: Omit<StoredRow, 'revision'>, entry: AutofillEntry | null): Promise<number> {
+  async upsertItemRow(row: Omit<StoredRow, 'revision'>, entry: AutofillEntry | null, localCardCode?: string | null): Promise<number> {
     return this.db.transaction(async (tx) => {
       const prev = await tx.first<{ revision: number }>('SELECT revision FROM rows WHERE id = ?', [row.id]);
       const revision = (prev?.revision ?? 0) + 1;
       await insertRow(tx, { ...row, revision });
       await putIndexEntry(tx, row.id, entry);
+      if (localCardCode === null) await tx.run('DELETE FROM local_card_codes WHERE id = ?', [row.id]);
+      else if (localCardCode !== undefined) {
+        await tx.run('INSERT OR REPLACE INTO local_card_codes (id, ciphertext) VALUES (?, ?)', [row.id, localCardCode]);
+      }
       return revision;
     });
   }
@@ -151,6 +164,7 @@ export class VaultStore {
   async deleteRow(id: string): Promise<void> {
     await this.db.transaction(async (tx) => {
       await tx.run('DELETE FROM rows WHERE id = ?', [id]);
+      await tx.run('DELETE FROM local_card_codes WHERE id = ?', [id]);
       await tx.run('DELETE FROM autofill_index WHERE id = ?', [id]);
     });
   }
@@ -198,7 +212,7 @@ export class VaultStore {
   /** Wipe: every vault table emptied in one transaction (meta keeps the schema version). */
   async wipe(): Promise<void> {
     await this.db.transaction(async (tx) => {
-      for (const t of ['vault_keys', 'rows', 'device_unlock', 'autofill_index']) await tx.run(`DELETE FROM ${t}`);
+      for (const t of ['vault_keys', 'rows', 'device_unlock', 'autofill_index', 'local_card_codes']) await tx.run(`DELETE FROM ${t}`);
     });
   }
 

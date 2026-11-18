@@ -78,6 +78,20 @@ function assertStorageEmpty(): void {
   assert.equal(localStorage.getItem(LS_KEY), null);
 }
 
+test('a batch import commits no rows when a later item cannot be encrypted', { timeout: 180_000 }, async () => {
+  const vault = await import('./src/vault.ts');
+  localStorage.clear();
+  await vault.createVault(PASSPHRASE);
+  const originalRows = localStorage.getItem(LS_KEY);
+  const malformed = item('item_bad', 'Broken item');
+  malformed.fields.circular = malformed.fields;
+  await assert.rejects(vault.upsertItems([item('item_good', 'First item'), malformed]), /circular/i);
+  assert.deepEqual(vault.listItems(), []);
+  assert.equal(localStorage.getItem(LS_KEY), originalRows);
+  vault.lockVault();
+  localStorage.clear();
+});
+
 test('portable v3 restore uses the frozen item cipher', { timeout: 180_000 }, async () => {
   const vault = await import('./src/vault.ts');
   const first = item('item_restore_01', 'Portable restore sentinel');

@@ -10,6 +10,7 @@ import { useTranslation } from '../../../../packages/i18n/src/react';
 import { format, plural, formatDate } from '../../../../packages/i18n/src/index';
 import { typeLabel } from '../components/ItemRow';
 import MarkdownText from '../components/MarkdownText';
+import { IconButton } from '../components/mobile-ui';
 import ScreenFrame from '../components/ScreenFrame';
 import { generateTotp } from '../utils/totp';
 import { getPasswordHistory, getNoteRevisions, isArchived } from '../utils/itemMeta';
@@ -32,7 +33,7 @@ function Ring({ value, color, track }: { value: number; color: string; track: st
 }
 
 function FieldRow({ label, value, secret, testID }: { label: string; value: string; secret?: boolean; testID: string }) {
-  const { colors, styles } = useMobileTheme();
+  const { colors } = useMobileTheme();
   const { dict } = useTranslation();
   const [show, setShow] = useState(false);
   const display = secret && !show ? '•'.repeat(Math.min(12, Math.max(4, value.length))) : value;
@@ -42,9 +43,9 @@ function FieldRow({ label, value, secret, testID }: { label: string; value: stri
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         <Text selectable style={{ flex: 1, color: colors.text, fontSize: 16 }} numberOfLines={secret && !show ? 1 : undefined}>{display}</Text>
         {secret ? (
-          <Pressable testID={`${testID}-toggle`} accessibilityLabel={format(show ? dict.itemDetail.hide : dict.itemDetail.show, label)} onPress={() => setShow((v) => !v)} hitSlop={10} style={{ width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}><Icon name={show ? 'hide' : 'show'} color={colors.muted} /></Pressable>
+          <IconButton testID={`${testID}-toggle`} accessibilityLabel={format(show ? dict.itemDetail.hide : dict.itemDetail.show, label)} onPress={() => setShow((v) => !v)}><Icon name={show ? 'hide' : 'show'} size="lg" color={colors.secondary} /></IconButton>
         ) : null}
-        <Pressable testID={`${testID}-copy`} accessibilityLabel={format(dict.itemDetail.copy, label)} onPress={() => { void Clipboard.setStringAsync(value); }} hitSlop={10} style={{ width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}><Icon name="copy" color={colors.muted} /></Pressable>
+        <IconButton testID={`${testID}-copy`} accessibilityLabel={format(dict.itemDetail.copy, label)} onPress={() => { void Clipboard.setStringAsync(value); }}><Icon name="copy" size="lg" color={colors.secondary} /></IconButton>
       </View>
     </View>
   );
@@ -129,9 +130,9 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
               <Text testID="totp-code" accessibilityLabel={`${d.totp} ${totp}`} style={{ color: colors.text, fontSize: 26, fontWeight: '700', letterSpacing: 3 }}>{totp ? (totp.length === 6 ? `${totp.slice(0, 3)} ${totp.slice(3)}` : totp) : d.totpInvalid}</Text>
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{plural(locale, d.totpRefresh, totpLeft)}</Text>
             </View>
-            <Pressable testID="totp-copy" accessibilityLabel={d.copyCode} accessibilityRole="button" hitSlop={8} style={{ width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: colors.cardBorder, alignItems: 'center', justifyContent: 'center' }} onPress={() => { void Clipboard.setStringAsync(totp); }}>
-              <Icon name="copy" color={colors.text} />
-            </Pressable>
+            <IconButton testID="totp-copy" accessibilityLabel={d.copyCode} style={{ borderWidth: 1, borderColor: colors.cardBorder }} onPress={() => { void Clipboard.setStringAsync(totp); }}>
+              <Icon name="copy" size="lg" color={colors.secondary} />
+            </IconButton>
           </View>
         ) : null}
         <View style={[card, { marginTop: 16, overflow: 'hidden' }]}>
@@ -205,19 +206,19 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
       </ScrollView>
 
       {/* Primary actions stay within thumb reach. */}
-      <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 10, paddingBottom: Math.max(insets.bottom, 12), backgroundColor: colors.bg, borderTopColor: colors.cardBorder, borderTopWidth: 1 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingTop: 10, paddingBottom: Math.max(insets.bottom, 12), backgroundColor: colors.bg, borderTopColor: colors.cardBorder, borderTopWidth: 1 }}>
         {inTrash ? (
           <Pressable testID="detail-restore" accessibilityRole="button" accessibilityLabel={d.restore} style={[styles.primaryButton, { flex: 1 }]} onPress={onRestore}><Text style={styles.primaryButtonText}>{d.restore}</Text></Pressable>
         ) : (
           <Pressable testID="detail-copy-secret" accessibilityRole="button" accessibilityLabel={secretKey ? format(d.copy, fieldLabel(secretKey)) : d.copyPassword} accessibilityState={{ disabled: !secretKey }} disabled={!secretKey} style={[styles.primaryButton, { flex: 1, opacity: secretKey ? 1 : 0.5 }]} onPress={copySecret}>
-            <Icon name="copy" color={colors.onAccent} />
-            <Text style={styles.primaryButtonText}>{copiedKey ? dict.common.copied : secretKey === 'password' || !secretKey ? d.copyPassword : format(d.copy, fieldLabel(secretKey))}</Text>
+            <Icon name="copy" size="lg" color={colors.onAccent} />
+            <Text style={[styles.primaryButtonText, { flexShrink: 1, textAlign: 'center' }]}>{copiedKey ? dict.common.copied : secretKey === 'password' || !secretKey ? d.copyPassword : format(d.copy, fieldLabel(secretKey))}</Text>
           </Pressable>
         )}
-        {!inTrash && onShare && !['media', 'document', 'collection'].includes(item.type) && <Pressable testID="detail-share" accessibilityRole="button" accessibilityLabel={dict.mobileUI.share} onPress={onShare} style={[styles.ghostButton, { width: 56, paddingHorizontal: 0 }]}><Icon name="share" color={colors.text} /></Pressable>}
-        <Pressable testID="detail-more" accessibilityRole="button" accessibilityLabel={d.more} onPress={() => setMenuOpen(true)} style={[styles.ghostButton, { width: 56, paddingHorizontal: 0 }]}>
-          <Icon name="more" color={colors.text} />
-        </Pressable>
+        {!inTrash && onShare && !['media', 'document', 'collection'].includes(item.type) && <IconButton testID="detail-share" accessibilityLabel={dict.mobileUI.share} onPress={onShare} style={[styles.ghostButton, { width: 50, height: 50, paddingHorizontal: 0 }]}><Icon name="share" size="lg" color={colors.text} /></IconButton>}
+        <IconButton testID="detail-more" accessibilityLabel={d.more} onPress={() => setMenuOpen(true)} style={[styles.ghostButton, { width: 50, height: 50, paddingHorizontal: 0 }]}>
+          <Icon name="more" size="lg" color={colors.text} />
+        </IconButton>
       </View>
 
       <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>

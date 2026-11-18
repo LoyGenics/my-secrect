@@ -26,7 +26,7 @@ import { apiStatus, isNetworkError, isStepUpFresh, isStepUpRequired } from '../u
  * and the server never sees vault content, only ciphertext + opaque ids.
  *
  * Honest-state rules followed here (same as SharesScreen):
- * - No server configured (AsyncStorage 'my-secrect:api-base-url' empty)
+ * - No server configured (development build without an API URL)
  *   -> not-configured state, never fake data, never a crash.
  * - Offline -> offline state + retry. Server errors -> error + retry.
  * - Passkeys: list + Remove work server-side. ADD does not: React Native
@@ -51,8 +51,6 @@ import { apiStatus, isNetworkError, isStepUpFresh, isStepUpRequired } from '../u
  * died server-side: App sends the user back to SignIn (via the
  * onUnauthorized prop) instead of showing a dead-end error.
  */
-
-export const API_BASE_URL_KEY = 'my-secrect:api-base-url';
 
 /** AsyncStorage-backed token store (same LS_API_TOKEN key as
  *  desktop/web — one token store, not one per platform). */
@@ -103,10 +101,10 @@ function fmtDate(raw?: string): string {
   return Number.isNaN(d.getTime()) ? raw : d.toLocaleString();
 }
 
-export default function SecurityScreen({ onClose, onSignedOut, onUnauthorized }: {
+export default function SecurityScreen({ baseUrl, onClose, onSignedOut, onUnauthorized }: {
+  baseUrl: string;
   onClose: () => void;
-  /** Sign-out completed (server session revoked, token cleared,
-   *  vault locked): App shows the sign-in gate again. */
+  /** App completes sign-out and locks the local vault. */
   onSignedOut?: () => void;
   /** Every server call answered 401: the session is gone
    *  server-side. App clears the token and shows SignIn. */
@@ -115,8 +113,7 @@ export default function SecurityScreen({ onClose, onSignedOut, onUnauthorized }:
   const [sectionKey, setSectionKey] = useState('auth');
   const { colors, styles } = useMobileTheme();
   const { t } = useTranslation();
-  const [baseUrl, setBaseUrl] = useState<string | null>(null); // null = not loaded yet
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(Boolean(baseUrl));
   const [offline, setOffline] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -174,19 +171,9 @@ export default function SecurityScreen({ onClose, onSignedOut, onUnauthorized }:
   }
 
   useEffect(() => {
-    void (async () => {
-      const raw = await AsyncStorage.getItem(API_BASE_URL_KEY);
-      const url = (raw ?? '').trim();
-      setBaseUrl(url);
-      if (url) {
-        const c = new SecurityApiClient({ baseUrl: url, getToken: getApiToken, tokenStore: asyncTokenStore });
-        await loadAll(c);
-      } else {
-        setLoaded(true);
-      }
-    })();
+    if (client) void loadAll(client);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [client]);
 
   /**
    * Run a sensitive server action behind step-up. Returns true when the
@@ -484,7 +471,7 @@ export default function SecurityScreen({ onClose, onSignedOut, onUnauthorized }:
   const section = (title: string) => <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700', marginTop: 24, marginBottom: 10 }}>{title}</Text>;
   const rowCard = { backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 8 } as const;
 
-  if (baseUrl === null || (loading && !loaded)) {
+  if (loading && !loaded) {
     return (
       <View style={[styles.screen, { alignItems: 'center', justifyContent: 'center', padding: 24 }]}>
         <ActivityIndicator size="large" color={colors.accent} />

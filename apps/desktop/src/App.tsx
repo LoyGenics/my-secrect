@@ -10,6 +10,7 @@ import {
   listItems,
   listTrash,
   upsertItem,
+  upsertItems,
   deleteItem,
   restoreItem,
   permanentlyDeleteItem,
@@ -588,8 +589,8 @@ export default function App({
     setSelectedId(id);
   };
 
-  const handleSaveItem = async (item: VaultItem) => {
-    await upsertItem(item);
+  const handleSaveItem = async (item: VaultItem, localCardCode?: string) => {
+    await upsertItem(item, localCardCode);
     refresh();
     setShowForm(false);
     setEditingItem(null);
@@ -744,10 +745,9 @@ export default function App({
     }
   };
 
-  const handleImportCsv = async (csvItems: VaultItem[]) => {
-    for (const item of csvItems) await upsertItem(item);
+  const handleImportItems = async (imported: VaultItem[]) => {
+    await upsertItems(imported);
     refresh();
-    setNotice(tp(dict.notices.csvImported, csvItems.length));
   };
 
   /** Autosave for secure notes: upsert without closing the form. */
@@ -1175,7 +1175,8 @@ export default function App({
               allowPlaintextExport={allowPlaintextExport}
               onImport={() => fileInputRef.current?.click()}
               existingItems={items}
-              onImportCsv={(csvItems) => void handleImportCsv(csvItems)}
+              onImportItems={handleImportItems}
+              aiApiBaseUrl={signedIn ? securityClient?.baseUrl : undefined}
               onChangePassphrase={handleChangePassphraseRequest}
               onWipeVault={() => requestStepUp(handleWipeVault)}
               apiBaseUrl={apiBaseUrl}
@@ -1344,7 +1345,7 @@ export default function App({
                   <ItemForm
                     initial={editingItem ?? undefined}
                     allItems={items}
-                    onSave={(item: VaultItem) => void handleSaveItem(item)}
+                    onSave={handleSaveItem}
                     onCancel={() => { setShowForm(false); setEditingItem(null); }}
                     onAutosave={(item: VaultItem) => void handleAutosaveItem(item)}
                   />

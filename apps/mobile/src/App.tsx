@@ -5,7 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import type { VaultItem } from '../../../packages/core/src/types';
 import { SecurityApiClient, clearSessionToken, getValidToken } from '../../../packages/sdk/src/security';
 import SignInScreen from './screens/SignInScreen';
-import { API_BASE_URL_KEY } from './screens/SecurityScreen';
+import { loadAccountServer } from './accountServer';
 
 /** AsyncStorage-backed token store (same LS_API_TOKEN key as
  *  desktop/web — one token store, not one per platform). */
@@ -62,14 +62,9 @@ function AppShell() {
   const [notice, setNotice] = useState('');
   const [autoLock, setAutoLock] = useState<AutoLockMinutes>(5);
   const lastActivity = useRef(Date.now());
-  // --- Account sign-in state (WorkOS scope) --------------------------
-  // Signed-in = a valid (unexpired) session token is stored. When a
-  // server is configured and there is no valid session, the sign-in
-  // screen comes FIRST — before vault onboarding / lock. Vault unlock
-  // (master passphrase) stays a SEPARATE step after sign-in. With no
-  // server configured there is no gate at all.
+  // The hosted account is optional. A local vault opens independently.
   const [apiBaseUrl, setApiBaseUrl] = useState('');
-  const [localOnlyBypass, setLocalOnlyBypass] = useState(false);
+  const [signedIn, setSignedIn] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
 
   const refresh = useCallback(() => { if (isUnlocked()) { setItems(listItems()); setTrash(listTrash()); } }, []);
@@ -77,17 +72,13 @@ function AppShell() {
   useEffect(() => {
     void (async () => {
       await clearFilePreviews().catch(() => undefined);
-      const raw = await AsyncStorage.getItem(API_BASE_URL_KEY);
-      const url = (raw ?? '').trim();
+      const url = await loadAccountServer(AsyncStorage, !__DEV__).catch(() => '');
       setApiBaseUrl(url);
+      const token = url ? await getValidToken(asyncTokenStore) : null;
+      setSignedIn(Boolean(token));
       const exists = await hasVault();
       const next: Boot = exists ? 'locked' : 'onboarding';
-      if (url && !localOnlyBypass) {
-        const token = await getValidToken(asyncTokenStore);
-        setBoot(token ? next : 'signin');
-      } else {
-        setBoot(next);
-      }
+      setBoot(__DEV__ && url && !token ? 'signin' : next);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -114,10 +105,10 @@ function AppShell() {
       // Server revocation unconfirmed; local sign-out proceeds.
     }
     await clearSessionToken(asyncTokenStore);
-    setLocalOnlyBypass(false);
+    setSignedIn(false);
     setSessionExpired(false);
     doLock();
-    setBoot(apiBaseUrl ? 'signin' : 'locked');
+    if (__DEV__ && apiBaseUrl) setBoot('signin');
   }, [apiBaseUrl, doLock]);
 
   /** A 401 anywhere means the session is gone server-side: clear
@@ -126,16 +117,22 @@ function AppShell() {
   const handleUnauthorized = useCallback(() => {
     void clearSessionToken(asyncTokenStore);
     setSessionExpired(true);
-    setLocalOnlyBypass(false);
+    setSignedIn(false);
     doLock();
     setBoot(apiBaseUrl ? 'signin' : 'locked');
+  }, [apiBaseUrl, doLock]);
+
+  const handleSignIn = useCallback(() => {
+    if (!apiBaseUrl) return;
+    doLock();
+    setBoot('signin');
   }, [apiBaseUrl, doLock]);
 
   const handleServerSaved = useCallback(async (next: string) => {
     if (next === apiBaseUrl) return;
     setApiBaseUrl(next);
     setSessionExpired(false);
-    setLocalOnlyBypass(false);
+    setSignedIn(false);
     if (next) {
       doLock();
       setBoot('signin');
@@ -143,7 +140,7 @@ function AppShell() {
   }, [apiBaseUrl, doLock]);
 
   const handleSignedIn = useCallback((_email: string, _recoverySession: boolean) => {
-    setLocalOnlyBypass(false);
+    setSignedIn(true);
     setSessionExpired(false);
     void (async () => {
       const exists = await hasVault();
@@ -172,8 +169,8 @@ function AppShell() {
   function markActivity() { lastActivity.current = Date.now(); }
   function handleUnlocked() { lastActivity.current = Date.now(); refresh(); setBoot('unlocked'); }
 
-  async function handleSaveItem(item: VaultItem) {
-    await upsertItem(item); refresh();
+  async function handleSaveItem(item: VaultItem, localCardCode?: string) {
+    await upsertItem(item, localCardCode); refresh();
   }
   async function handleDelete(id: string) {
     const inTrash = trash.some((t) => t.id === id);
@@ -194,9 +191,6 @@ function AppShell() {
   }
   if (boot === 'onboarding') return (<><StatusBar style={statusBar} /><OnboardingScreen onDone={handleUnlocked} onRestored={() => setBoot('locked')} /></>);
   if (boot === 'locked') return (<><StatusBar style={statusBar} /><LockScreen onUnlocked={handleUnlocked} /></>);
-  // Account sign-in comes BEFORE the vault whenever a server is
-  // configured and there is no valid session. 'Continue without
-  // signing in' keeps the local vault usable offline.
   if (boot === 'signin') {
     return (
       <ScreenFrame style={styles.screen}>
@@ -206,7 +200,6 @@ function AppShell() {
           sessionExpired={sessionExpired}
           onSignedIn={(email, recoverySession) => handleSignedIn(email, recoverySession)}
           onContinueLocalOnly={() => {
-            setLocalOnlyBypass(true);
             void (async () => {
               const exists = await hasVault();
               setBoot(exists ? 'locked' : 'onboarding');
@@ -224,6 +217,7 @@ function AppShell() {
         onSave={handleSaveItem} onDelete={handleDelete} onRestore={handleRestore} onToggleFavorite={handleToggleFavorite}
         onLoadExamples={list => void handleLoadExamples(list)} onClearExamples={ids => void handleClearExamples(ids)}
         onAutoLockChange={setAutoLock} onLock={doLock} onWiped={() => setBoot('onboarding')}
+        apiBaseUrl={apiBaseUrl} signedIn={signedIn} onSignIn={handleSignIn}
         onSignedOut={() => void handleSignedOut()} onUnauthorized={handleUnauthorized} onServerSaved={handleServerSaved} />
     </View>
   );

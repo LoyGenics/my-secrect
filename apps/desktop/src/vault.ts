@@ -37,6 +37,7 @@ import {
 } from '../../../packages/crypto-adapters/src/index';
 
 import type { VaultItem } from '../../../packages/core/src/types';
+import { decodeLocalCardCode, encodeLocalCardCode, isCardVerificationField } from '../../../packages/core/src/card';
 import type { LocalItemState, PushRequest, SyncEvent } from '../../../packages/sync/src/index';
 import {
   buildEncryptedExport,
@@ -86,6 +87,8 @@ interface StoredRow {
   wrapped_item_key: string; // base64, Vault-Key-wrapped Item Key (ciphertext only)
   wrapped_nonce: string; // base64, 24 bytes
   deleted_at?: string | null; // tombstone; null/undefined = live
+  // Device-only. Sync and vault exports serialize the payload and its wrapped key.
+  local_card_code?: string | null;
   /** Last server revision this device has synced for the item. Absent = never synced (0).
    *  `revision > base_revision` means a local change is pending push. */
   base_revision?: number;
@@ -456,41 +459,81 @@ export function listTrash(): VaultItem[] {
   return unlockedItems.filter((i) => isDeleted(i));
 }
 
-export async function upsertItem(item: VaultItem): Promise<void> {
-  if (!vaultKey) throw new Error('vault locked');
-  if (!item.id) throw new Error('item id must not be empty');
-  // randomBytes is synchronous, so await readiness BEFORE its first use.
+export async function readLocalCardCode(id: string): Promise<string> {
+  const key = vaultKey;
+  if (!key) throw new Error('vault locked');
+  const ciphertext = loadRows().find((row) => row.id === id)?.local_card_code;
+  if (!ciphertext) return '';
+  const plaintext = await decryptWithVaultKey(ciphertext);
+  if (vaultKey !== key) throw new Error('vault locked');
+  return decodeLocalCardCode(id, plaintext);
+}
+
+export async function upsertItem(item: VaultItem, localCardCode?: string): Promise<void> {
+  await writeItems([item], localCardCode);
+}
+
+/** Stage all encrypted rows before committing the import as one local write. */
+export async function upsertItems(items: VaultItem[]): Promise<void> {
+  await writeItems(items);
+}
+
+async function writeItems(items: VaultItem[], localCardCode?: string): Promise<void> {
+  if (items.length === 0) return;
+  const key = vaultKey;
+  if (!key) throw new Error('vault locked');
+  const ids = new Set(items.map((item) => item.id));
+  if (ids.has('') || ids.size !== items.length) throw new Error('item ids must be nonempty and unique');
+
   await sodiumReady;
   const now = new Date().toISOString();
-  const stored: VaultItem = {
+  const storedItems = items.map((item): VaultItem => ({
     ...item,
     favorite: item.favorite ?? false,
     deleted_at: null, // an upsert is a live write: it restores a tombstoned item
     updated_at: now,
     created_at: item.created_at || now,
-  };
-  const itemKey = crypto.randomBytes(32);
-  const wrapped = await crypto.wrapKey(vaultKey, itemKey);
-  const { nonce, ciphertext } = await crypto.encrypt(
-    itemKey,
-    new TextEncoder().encode(JSON.stringify(stored)),
-  );
-  itemKey.fill(0);
+  }));
+  const staged: Omit<StoredRow, 'revision'>[] = [];
+  const encoder = new TextEncoder();
+  for (const item of storedItems) {
+    if (vaultKey !== key) throw new Error('vault locked');
+    if (item.type === 'card' && Object.keys(item.fields).some(isCardVerificationField)) {
+      throw new Error('Card verification codes belong in device-local storage');
+    }
+    let sealedCode: string | null | undefined;
+    if (item.type !== 'card' || localCardCode === '') sealedCode = null;
+    else if (localCardCode !== undefined) sealedCode = await encryptWithVaultKey(encodeLocalCardCode(item.id, localCardCode));
+    if (vaultKey !== key) throw new Error('vault locked');
+    const itemKey = crypto.randomBytes(32);
+    try {
+      const wrapped = await crypto.wrapKey(key, itemKey);
+      const encrypted = await crypto.encrypt(itemKey, encoder.encode(JSON.stringify(item)));
+      staged.push({
+        id: item.id,
+        nonce: toBase64(encrypted.nonce),
+        ciphertext: toBase64(encrypted.ciphertext),
+        wrapped_item_key: toBase64(wrapped.wrapped),
+        wrapped_nonce: toBase64(wrapped.nonce),
+        deleted_at: null,
+        local_card_code: sealedCode,
+      });
+    } finally {
+      itemKey.fill(0);
+    }
+  }
+  if (vaultKey !== key) throw new Error('vault locked');
   const rows = loadRows();
-  const existing = rows.find((r) => r.id === stored.id);
-  const row: StoredRow = {
-    id: stored.id,
-    revision: (existing?.revision ?? 0) + 1,
-    nonce: toBase64(nonce),
-    ciphertext: toBase64(ciphertext),
-    wrapped_item_key: toBase64(wrapped.wrapped),
-    wrapped_nonce: toBase64(wrapped.nonce),
-    deleted_at: null,
-    base_revision: existing?.base_revision,
-  };
-  saveRows([...rows.filter((r) => r.id !== stored.id), row]);
-  unlockedItems = [...unlockedItems.filter((i) => i.id !== stored.id), stored];
-  emitMutation({ kind: 'upsert', id: stored.id });
+  const current = new Map(rows.map((row) => [row.id, row]));
+  const updated = staged.map((row): StoredRow => ({
+    ...row,
+    local_card_code: row.local_card_code === undefined ? current.get(row.id)?.local_card_code : row.local_card_code ?? undefined,
+    revision: (current.get(row.id)?.revision ?? 0) + 1,
+    base_revision: current.get(row.id)?.base_revision,
+  }));
+  saveRows([...rows.filter((row) => !ids.has(row.id)), ...updated]);
+  unlockedItems = [...unlockedItems.filter((item) => !ids.has(item.id)), ...storedItems];
+  for (const item of storedItems) emitMutation({ kind: 'upsert', id: item.id });
 }
 
 /** Tombstone: keep the encrypted row, mark it deleted (trash). Restorable. */
@@ -544,6 +587,7 @@ export function permanentlyDeleteItem(id: string): void {
     row.ciphertext = '';
     row.wrapped_item_key = '';
     row.wrapped_nonce = '';
+    delete row.local_card_code;
     saveRows(rows);
   } else {
     saveRows(rows.filter((r) => r.id !== id));
@@ -734,6 +778,7 @@ export async function importEncrypted(json: string): Promise<ItemListCheck> {
     if (existing && existing.revision >= row.revision) continue;
     written.push(row.id);
     if (existing?.base_revision !== undefined) row.base_revision = existing.base_revision;
+    if (item.type === 'card') row.local_card_code = existing?.local_card_code;
     const idx = nextRows.findIndex((r) => r.id === row.id);
     if (idx >= 0) nextRows[idx] = row;
     else nextRows.push(row);
@@ -1014,6 +1059,7 @@ export function storeRemoteItem(item: VaultItem, revision: number, event: SyncEv
     deleted_at: null,
   };
   const rows = loadRows();
+  if (item.type === 'card') row.local_card_code = rows.find((existing) => existing.id === live.id)?.local_card_code;
   saveRows([...rows.filter((r) => r.id !== live.id), row]);
   unlockedItems = [...unlockedItems.filter((i) => i.id !== live.id), live];
 }

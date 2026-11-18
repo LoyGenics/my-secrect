@@ -1,8 +1,8 @@
 # My Secret
 
 My Secret is a local-first encrypted vault for credentials, secure notes and
-files. The mobile app works with a local vault by default. Set up a server to
-use account security, item sharing and Family.
+files. The mobile app opens a local vault by default. Sign in to the hosted
+My Secret service from Settings to use account security, sharing and Family.
 
 ## What’s available
 
@@ -15,6 +15,7 @@ use account security, item sharing and Family.
 | Family | Up to six people. Each member keeps a private vault. Share individual items when needed. |
 | Backup and recovery | Export encrypted item backups. Mobile can restore a backup during setup. A saved recovery key can unlock the vault if the passphrase is forgotten. |
 | Desktop and web | Vault management, optional account setup, encrypted backups and server-backed media transfers. The web client excludes plaintext export. |
+| Item import | On desktop and web, import login CSVs locally from the My Secret template, 1Password, Bitwarden or Google Password Manager. Signed-in users can also consent to send pasted text to OpenAI and review the resulting drafts before saving. |
 | Browser extension and Autofill | Chromium extension and native iOS/Android credential provider code. Native providers require a build with their respective platform integration. |
 
 Mobile file contents stay on the importing device. Item backups include file
@@ -48,8 +49,18 @@ The Rails API uses Ruby 3.3 and PostgreSQL. See [the self-hosting guide](infra/d
 for local and hosted setup, including the object store for server-backed media.
 Run the application’s database migrations before starting the API.
 
-On mobile, open **Settings → Sync server** and enter the API base URL ending in
-`/api`. The web link viewer defaults to the same origin. When running Vite and
+To enable text import, set `OPENAI_API_KEY` on the Rails API server. The optional
+`OPENAI_IMPORT_MODEL` must support Structured Outputs and defaults to `gpt-4o-mini`.
+The API needs HTTPS access to `api.openai.com`. Leave project data sharing
+disabled in OpenAI. The endpoint uses `store: false` and filters pasted content
+from request logs. CSV import works without this setup.
+Packaged Tauri builds also need the configured API origin in their
+`connect-src` policy and the app origin allowed by Rails CORS.
+
+In a mobile development build, open **Settings → Development server** and
+enter the API base URL ending in `/api`. Release builds use the My Secret
+service at `https://my.msecret.app/api`. The web link viewer defaults to the
+same origin. When running Vite and
 Rails on separate local ports, set `VITE_API_PROXY_TARGET` when starting Vite,
 then enter the Vite origin as **Web app URL** on mobile. Recipients need a web
 origin they can reach.

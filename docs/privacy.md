@@ -14,8 +14,14 @@
 
 - **Local-first.** The vault lives on the user's device. The server is an
   untrusted sync + blob store, not a trusted custodian.
-- **End-to-end encryption.** Vault content is encrypted on the device before
-  it leaves it. The server never receives plaintext or decryption keys.
+- **End-to-end encryption.** Vault sync encrypts content on the device before
+  it leaves. The server never receives decryption keys.
+- **Optional AI import.** After explicit consent, the API forwards only the
+  pasted text to OpenAI and returns an unsaved preview. My Secret does not
+  retain the text or preview in storage or logs. OpenAI receives the request
+  with response storage disabled. API inputs are excluded from training by
+  default, and OpenAI may retain content in abuse monitoring logs, generally
+  for up to 30 days. CSV import runs on the device.
 - **Data minimisation.** The server stores what sync and sign-in need:
   ciphertext, opaque ids, revisions, timestamps, sizes, the account email,
   passkey public keys, and per-session metadata (below).
@@ -194,7 +200,7 @@ account stays. The **mobile app has no account-deletion UI** (no
 
 1. We cannot recover your vault if you lose both your passphrase and your
    recovery key. No one can.
-2. The server sees ciphertext and sync metadata, never vault content.
+2. Vault sync sends ciphertext and sync metadata.
 3. No ads, no tracking, no sale of data.
 4. You can export your encrypted vault and delete your account in the app
    (desktop/web today; mobile PENDING). Deletion is immediate and permanent on

@@ -4,8 +4,8 @@ export const ITEM_SCHEMAS = {
   login: { required: ['username'], optional: ['password', 'url', 'totp_secret', 'notes'] },
   passkey: { required: ['credential_id', 'rp_id'], optional: ['public_key', 'notes'] },
   bank_account: { required: ['bank_name', 'account_number'], optional: ['currency', 'holder_name', 'branch', 'notes'] },
-  // NOTE: never store CVV / PIN on the server. Card metadata only; CVV is out of scope for v1.
-  card: { required: ['cardholder', 'last4'], optional: ['brand', 'expiry', 'bank', 'notes'] },
+  // Keep last4 for older records and clients. CVV is device-local and outside this schema.
+  card: { required: ['cardholder', 'last4'], optional: ['brand', 'expiry', 'bank', 'notes', 'card_number', 'card_type', 'credit_limit', 'statement_day'] },
   identity: { required: ['full_name'], optional: ['document_number', 'issued_date', 'expiry_date', 'notes'] },
   ssh_key: { required: ['public_key'], optional: ['private_key_ref', 'comment', 'notes'] },
   api_key: { required: ['service'], optional: ['key', 'scopes', 'expires_at', 'notes'] },
@@ -24,7 +24,7 @@ export type ItemTypeName = keyof typeof ITEM_SCHEMAS;
 //  - Additive only: new fields are optional, existing fields are never
 //    renamed or removed. A breaking change ships as a NEW version.
 //  - Unknown schema versions are REJECTED, never silently accepted.
-//  - Forbidden fields are never stored, in any version: card CVV/CVC,
+//  - Forbidden fields are never stored in item payloads, in any version: CVV/CVC,
 //    any PIN, and live one-time codes. (A TOTP *secret* is storable;
 //    a live TOTP *code* is not — it expires in 30s and must never be
 //    persisted.)
@@ -41,9 +41,9 @@ export function isSupportedItemType(type: unknown): type is ItemTypeName {
   return typeof type === 'string' && type in ITEM_SCHEMAS;
 }
 
-/** Field names that must never be stored, in any item type, any version. */
+/** Field names that must never be stored in a vault item payload. */
 export const FORBIDDEN_FIELDS: readonly string[] = [
-  'cvv', 'cvv2', 'cvc', 'cvc2', // card verification values — never stored
+  'cvv', 'cvv2', 'cvc', 'cvc2', // excluded from sync, export and sharing
   'pin', // any PIN — never stored
   'otp', 'one_time_code', 'one_time_password', 'totp_code', // live one-time codes — never stored
 ];
@@ -56,8 +56,7 @@ export interface VersionedItemSchema {
   forbidden: readonly string[];
 }
 
-/** Versioned schema per item type. ITEM_SCHEMAS above is kept byte-for-byte
- *  for backward compatibility; this map is the versioned view of it. */
+/** Versioned view of the additive item schemas above. */
 export const ITEM_SCHEMA_VERSIONS: Record<ItemTypeName, VersionedItemSchema> = Object.fromEntries(
   (Object.keys(ITEM_SCHEMAS) as ItemTypeName[]).map((type) => [
     type,

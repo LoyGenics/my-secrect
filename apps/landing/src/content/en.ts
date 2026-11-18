@@ -161,7 +161,8 @@ export const en = {
     h1: 'Privacy policy',
     sections: [
       { h: 'Who we are', p: ['My Secret is run by [[COMPANY_NAME]], [[COMPANY_ADDRESS]]. This policy covers the My Secret apps, the browser extension and this website. You can reach us at [[PRIVACY_EMAIL]].', 'In short: your vault is encrypted on your device, the server stores ciphertext, and we do not run ads, trackers or third-party analytics.'] },
-      { h: 'What we never receive', ul: ['Your master passphrase.', 'Your recovery key.', 'Any key that decrypts your vault.', 'Your items or files in readable form, or their names.'] },
+      { h: 'Vault encryption', p: ['Vault sync sends encrypted items, files and names. Signing in, unlocking and recovery keep your master passphrase, recovery key and vault decryption keys on your device.'] },
+      { h: 'Optional AI import', p: ['After you agree, we forward the text you pasted to the OpenAI API and return a preview. We do not store, log or publish the text or preview. We request that OpenAI does not store the response. OpenAI API data is excluded from training by default. Abuse monitoring logs may include the text and generally retain it for up to 30 days. CSV import is processed on your device.'] },
       { h: 'What we store', ul: [
         'Account: your email, your passkey public keys with their credential ids and counters, and your devices’ public keys.',
         'Vault: encrypted items, encrypted file chunks and an encrypted file manifest, plus item ids, revision numbers, timestamps, sizes and device ids.',

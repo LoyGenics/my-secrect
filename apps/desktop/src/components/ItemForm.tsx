@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ItemType, VaultItem } from '../../../../packages/core/src/types';
+import { CARD_TYPES, cardBrands, cardInputError, cardIssuer, prepareCardFields } from '../../../../packages/core/src/card';
+import { loginServiceNames } from '../../../../packages/core/src/login-services';
 import PasswordGenerator from './PasswordGenerator';
 import { buildRelations } from './itemFormRelations';
 import StrengthMeter from './StrengthMeter';
@@ -13,6 +15,7 @@ import {
   Input,
   ItemTypeArt,
   Led,
+  SecureField,
   Select,
   Textarea,
   copyWithClear,
@@ -22,6 +25,7 @@ import { useTranslation } from '../../../../packages/i18n/src/react';
 import { format, type Dictionary } from '../../../../packages/i18n/src/index';
 import { isValidBase32Secret } from '../utils/totp';
 import { renderMarkdownToHtml } from '../utils/markdown';
+import { readLocalCardCode } from '../vault';
 import {
   getPasswordHistory,
   appendPasswordHistory,
@@ -32,7 +36,7 @@ import {
 interface ItemFormProps {
   initial?: VaultItem | null;
   defaultType?: ItemType;
-  onSave: (item: VaultItem) => Promise<void> | void;
+  onSave: (item: VaultItem, localCardCode?: string) => Promise<void> | void;
   onCancel: () => void;
   allItems?: VaultItem[];
   /**
@@ -81,13 +85,15 @@ const FIELD_DEFS: Record<ItemType, FieldDef[]> = {
     { key: 'branch', autoComplete: 'off' },
     { key: 'notes', type: 'textarea', autoComplete: 'off' },
   ],
-  // Card: metadata only. CVV / PIN are never stored — there is no field for them.
   card: [
-    { key: 'cardholder', autoComplete: 'cc-name' },
-    { key: 'last4', placeholder: 'last4', autoComplete: 'cc-number' },
-    { key: 'brand', placeholder: 'brand', autoComplete: 'off' },
-    { key: 'expiry', placeholder: 'expiry', autoComplete: 'cc-exp' },
-    { key: 'bank', autoComplete: 'off' },
+    { key: 'brand' },
+    { key: 'card_type' },
+    { key: 'cardholder' },
+    { key: 'card_number' },
+    { key: 'expiry', placeholder: 'expiry' },
+    { key: 'cvv' },
+    { key: 'credit_limit' },
+    { key: 'statement_day' },
     { key: 'notes', type: 'textarea', autoComplete: 'off' },
   ],
   identity: [
@@ -177,7 +183,7 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
   const { dict } = useTranslation();
   const { copiedKey } = useClipboardStatus();
   const [type, setType] = useState<ItemType>(initial?.type ?? defaultType);
-  const [title, setTitle] = useState(initial?.title ?? '');
+  const [title, setTitle] = useState(() => initial?.type === 'card' ? cardIssuer(initial.title, initial.fields.bank) : initial?.title ?? '');
   const [tagsText, setTagsText] = useState((initial?.tags ?? []).join(', '));
   const [favorite, setFavorite] = useState(Boolean(initial?.favorite));
   const [fields, setFields] = useState<Record<string, string>>(() => initialFields(initial));
@@ -186,6 +192,19 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
     (initial?.relations ?? []).map((r) => r.target_id),
   );
   const [error, setError] = useState('');
+  const [loadedCode, setLoadedCode] = useState('');
+  const [localCardCode, setLocalCardCode] = useState<string>();
+  const [codeReadFailed, setCodeReadFailed] = useState(false);
+  const cardId = initial?.type === 'card' ? initial.id : undefined;
+  useEffect(() => {
+    if (!cardId) return;
+    let active = true;
+    void readLocalCardCode(cardId).then(
+      (value) => { if (active) setLoadedCode(value); },
+      () => { if (active) setCodeReadFailed(true); },
+    );
+    return () => { active = false; };
+  }, [cardId]);
   const [showPassword, setShowPassword] = useState(false);
   const [showGenerator, setShowGenerator] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
@@ -295,6 +314,7 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
       if (parentId) cleanedFields.parent_id = parentId;
       else delete cleanedFields.parent_id;
     }
+    if (type === 'card') prepareCardFields(cleanedFields);
     const item: VaultItem = {
       id: itemId,
       type,
@@ -343,12 +363,19 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (title.trim() === '') {
-      setError(dict.itemForm.titleRequired);
+      setError(titleRequired);
       return;
     }
     if (totpInvalid) {
       setError(dict.itemForm.totpInvalid);
       return;
+    }
+    if (type === 'card') {
+      const issue = cardInputError(fields, localCardCode ?? '');
+      if (issue) {
+        setError(dict.card[issue]);
+        return;
+      }
     }
     if (type === 'custom') {
       const names = customPairs.map((p) => p.name.trim()).filter(Boolean);
@@ -359,7 +386,9 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
     }
     setSaving(true);
     try {
-      await onSave(buildItem(true));
+      await onSave(buildItem(true), type === 'card' ? localCardCode : undefined);
+    } catch {
+      setError(f.saveFailed);
     } finally {
       setSaving(false);
     }
@@ -367,6 +396,9 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
 
   const relationCandidates = allItems.filter((candidate) => candidate.id !== initial?.id);
   const f = dict.itemForm;
+  const titleLabel = type === 'login' ? f.loginService : type === 'card' ? dict.card.issuer : f.title;
+  const titleRequired = type === 'login' ? f.loginServiceRequired : type === 'card' ? dict.card.issuerRequired : f.titleRequired;
+  const titlePlaceholder = type === 'login' ? f.loginServicePlaceholder : type === 'card' ? dict.card.issuerPlaceholder : dict.placeholders.title;
   const label = (key: string) => (dict.fields as Record<string, string>)[key] ?? key;
   const placeholder = (def: FieldDef) => (def.placeholder ? dict.placeholders[def.placeholder] : undefined);
 
@@ -374,6 +406,38 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
     const value = fieldValue(def.key);
     const inputId = `field-${def.key}`;
     const inputName = `field-${def.key}`;
+    if (type === 'card' && (def.key === 'brand' || def.key === 'card_type')) {
+      const brand = def.key === 'brand';
+      return (
+        <Field key={def.key} id={inputId} label={label(def.key)}>
+          <Select name={inputName} value={value} onChange={(e) => setField(def.key, e.target.value)}>
+            <option value="">{brand ? dict.card.chooseBrand : dict.card.chooseType}</option>
+            {brand ? cardBrands(value).map((network) => (
+              <option key={network} value={network}>{network === 'other' ? dict.card.otherBrand : network}</option>
+            )) : CARD_TYPES.map((kind) => <option key={kind} value={kind}>{dict.card[kind]}</option>)}
+          </Select>
+        </Field>
+      );
+    }
+    if (type === 'card' && (def.key === 'card_number' || def.key === 'cvv')) {
+      const cvv = def.key === 'cvv';
+      const fieldLabel = label(def.key);
+      const hint = cvv ? dict.card.cvvHint : !value && fields.last4 ? format(dict.card.existingDigits, fields.last4) : undefined;
+      return (
+        <Field key={def.key} id={inputId} label={fieldLabel} hint={hint} error={cvv && codeReadFailed ? dict.card.codeReadFailed : undefined}>
+          <SecureField
+            name={inputName}
+            value={cvv ? localCardCode ?? loadedCode : value}
+            onChange={(e) => cvv ? setLocalCardCode(e.target.value) : setField(def.key, e.target.value)}
+            inputMode="numeric"
+            autoComplete="off"
+            maxLength={cvv ? 4 : undefined}
+            showLabel={format(dict.itemDetail.show, fieldLabel)}
+            hideLabel={format(dict.itemDetail.hide, fieldLabel)}
+          />
+        </Field>
+      );
+    }
     // Login password: show/hide + inline generator + strength meter.
     if (type === 'login' && def.key === 'password') {
       return (
@@ -505,7 +569,8 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
           name={inputName}
           type={def.type ?? 'text'}
           value={value}
-          placeholder={placeholder(def)}
+          placeholder={def.key === 'credit_limit' ? dict.card.limitPlaceholder : def.key === 'statement_day' ? dict.card.dayPlaceholder : placeholder(def)}
+          inputMode={def.key === 'statement_day' ? 'numeric' : undefined}
           autoComplete={def.autoComplete ?? 'off'}
           aria-label={label(def.key)}
           mono={def.key === 'totp_secret' || def.key === 'sha256' || def.key === 'blob_id'}
@@ -537,17 +602,22 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
               ))}
             </Select>
           </Field>
-          <Field id="item-title" label={f.title}>
+          <Field id="item-title" label={titleLabel}>
             <Input
               name="item-title"
               type="text"
               value={title}
-              placeholder={dict.placeholders.title}
+              placeholder={titlePlaceholder}
               onChange={(e) => setTitle(e.target.value)}
               autoComplete="off"
-              aria-label={f.title}
+              list={type === 'login' ? 'login-service-suggestions' : undefined}
             />
           </Field>
+          {type === 'login' && (
+            <datalist id="login-service-suggestions">
+              {loginServiceNames(allItems, initial?.type === 'login' ? initial.title : '').map((name) => <option key={name} value={name} />)}
+            </datalist>
+          )}
         </div>
         <Field id="item-tags" label={f.tags}>
           <Input
@@ -571,7 +641,7 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
 
         <hr className="ms-rule" />
 
-        {FIELD_DEFS[type].map(renderField)}
+        {FIELD_DEFS[type].filter(({ key }) => type !== 'card' || fields.card_type === 'credit' || (key !== 'credit_limit' && key !== 'statement_day')).map(renderField)}
 
         {type === 'collection' && (
           <Field id="item-parent-collection" label={f.parent} hint={f.parentHint}>
@@ -625,12 +695,6 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
               {f.addCustom}
             </Button>
           </fieldset>
-        )}
-
-        {type === 'card' && (
-          <Alert tone="info" className="mb-4">
-            {f.cardNote}
-          </Alert>
         )}
 
         {(type === 'media' || type === 'document') && (

@@ -11,12 +11,12 @@ import {
   SafeAreaView,
   ScrollView,
   Text,
-  TextInput,
   View,
   type TextInputProps,
   type ViewStyle,
 } from 'react-native';
 import { useMobileTheme } from '../theme';
+import Field from './Field';
 import { Icon, type IconName } from '../../../../packages/ui/src/native';
 
 /**
@@ -30,7 +30,7 @@ export function useSoftPalette() {
   const { colors } = useMobileTheme();
   return { bg: colors.bg, surface: colors.card, surface2: colors.surface2, line: colors.line,
     ink: colors.text, ink2: colors.secondary, ink3: colors.muted,
-    brandFill: colors.accent, brand: colors.link, brandSoft: colors.accentSoft, brandText: colors.link,
+    brandFill: colors.accent, brand: colors.link, brandSoft: colors.accentSoft, brandText: colors.link, focus: colors.focus,
     danger: colors.dangerText, dangerSoft: colors.dangerSoft, warnSoft: colors.warnSoft, warnText: colors.warnText };
 }
 
@@ -124,17 +124,9 @@ export function TextButton({ label, onPress, disabled, brand, testID }: { label:
 
 
 /** Labelled soft input. */
-export function SoftField({ label, testID, icon, ...props }: Omit<TextInputProps, 'style'> & { label: string; testID: string; icon?: IconName }) {
+export function SoftField({ icon, ...props }: TextInputProps & { label: string; testID: string; icon?: IconName }) {
   const P = useSoftPalette();
-  return (
-    <View style={{ gap: 6 }}>
-      <Text style={{ fontSize: 13, fontWeight: '600', color: P.ink2 }}>{label}</Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 52, paddingVertical: 12, borderRadius: 14, borderWidth: 1, borderColor: P.line, backgroundColor: P.surface2, paddingHorizontal: 14 }}>
-        {icon ? <Icon name={icon} size="lg" color={P.ink3} /> : null}
-        <TextInput testID={testID} accessibilityLabel={label} placeholderTextColor={P.ink3} style={{ flex: 1, fontSize: 16, color: P.ink }} {...props} />
-      </View>
-    </View>
-  );
+  return <Field flush leading={icon && <Icon name={icon} size="lg" color={P.ink3} />} {...props} />;
 }
 
 /** Error line. */

@@ -10,11 +10,11 @@ import { useTranslation } from '../../../../packages/i18n/src/react';
 import { Action, Group, Page, Row, Rule, Select } from '../components/mobile-ui';
 import { useMobileTheme } from '../theme';
 import { decryptWithVaultKey, encryptWithVaultKey } from '../vault';
-import { API_BASE_URL_KEY, getApiToken } from './SecurityScreen';
+import { getApiToken } from './SecurityScreen';
+import { SHARE_WEB_ORIGIN_KEY } from '../accountServer';
 
-export const SHARE_WEB_ORIGIN_KEY = 'my-secrect:share-web-origin';
 interface LinkView { link: OwnedShareLink; url: string }
-export default function ShareLinkScreen({ item }: { item: VaultItem }) {
+export default function ShareLinkScreen({ item, baseUrl }: { item: VaultItem; baseUrl: string }) {
   const { t, dict, locale } = useTranslation(); const { colors } = useMobileTheme();
   const [ttl, setTTL] = useState('86400'); const [busy, setBusy] = useState(false);
   const [error, setError] = useState(''); const [api, setApi] = useState<ShareLinksApiClient | null>(null);
@@ -35,17 +35,17 @@ export default function ShareLinkScreen({ item }: { item: VaultItem }) {
   useEffect(() => {
     let alive = true;
     void (async () => {
-      const baseUrl = (await AsyncStorage.getItem(API_BASE_URL_KEY))?.trim();
       if (!baseUrl) { if (alive) setError(t('mobileUI.linkConfigure')); return; }
       if (!(await getApiToken())) { if (alive) setError(t('mobileUI.linkConnect')); return; }
-      const webOrigin = (await AsyncStorage.getItem(SHARE_WEB_ORIGIN_KEY))?.trim() || new URL(baseUrl).origin;
+      const override = __DEV__ ? (await AsyncStorage.getItem(SHARE_WEB_ORIGIN_KEY))?.trim() : '';
+      const webOrigin = override || new URL(baseUrl).origin;
       const client = new ShareLinksApiClient({ baseUrl, getToken: getApiToken });
       if (!alive) return;
       setApi(client); setOrigin(webOrigin);
       try { await refresh(client, webOrigin); } catch { if (alive) setError(t('mobileUI.linkFailed')); }
     })().catch(() => { if (alive) setError(t('mobileUI.linkFailed')); });
     return () => { alive = false; };
-  }, [item.id]);
+  }, [baseUrl, item.id]);
   async function create() {
     if (!api || busy) return;
     setBusy(true); setError(''); setCopied(false);

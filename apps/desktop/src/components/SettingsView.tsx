@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { VaultItem } from '../../../../packages/core/src/types';
-import CsvImport from './CsvImport';
+import ImportItems from './ImportItems';
 import FamilyView from './FamilyView';
 import BillingView from './BillingView';
 import {
@@ -40,9 +40,9 @@ interface SettingsViewProps {
    */
   allowPlaintextExport?: boolean;
   onImport: () => void;
-  /** CSV import (1Password / Bitwarden). Optional: hidden when absent. */
   existingItems?: VaultItem[];
-  onImportCsv?: (items: VaultItem[]) => Promise<void> | void;
+  onImportItems?: (items: VaultItem[]) => Promise<void>;
+  aiApiBaseUrl?: string;
   onChangePassphrase: (oldPassphrase: string, newPassphrase: string) => Promise<void>;
   onWipeVault: () => void;
   /**
@@ -87,7 +87,8 @@ export default function SettingsView({
   allowPlaintextExport = true,
   onImport,
   existingItems,
-  onImportCsv,
+  onImportItems,
+  aiApiBaseUrl,
   onChangePassphrase,
   onWipeVault,
   apiBaseUrl,
@@ -308,12 +309,13 @@ export default function SettingsView({
             {st.plaintextDisabledBody}
           </Alert>
         )}
-        {existingItems && onImportCsv && (
-          <div className="mt-4 border-t border-[var(--ms-color-border-default)] pt-4">
-            <CsvImport existingItems={existingItems} onImport={onImportCsv} />
-          </div>
-        )}
       </Section>
+
+      {existingItems && onImportItems && (
+        <Section id="settings-import-heading" icon="import" title={dict.itemImport.title}>
+          <ImportItems existingItems={existingItems} onImport={onImportItems} aiApiBaseUrl={aiApiBaseUrl} onDownloadTemplate={downloadText} />
+        </Section>
+      )}
 
       {/* App info */}
       <Section id="settings-about-heading" icon="info" title={st.aboutTitle}>

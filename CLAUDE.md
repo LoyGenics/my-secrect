@@ -2,7 +2,8 @@
 
 Personal Digital Vault: local-first, end-to-end encrypted. Monorepo: npm
 workspaces (`apps/*`, `packages/*`) + Rails API + Rust/Swift/Kotlin native.
-The server only ever sees ciphertext and opaque ids.
+Vault sync sends ciphertext and opaque ids. The optional import preview sends
+only the text the user explicitly pasted and consented to send to OpenAI.
 
 Reply in the user's language (usually Vietnamese). Code, comments and commit
 messages in English (Conventional Commits, as in `git log`).
@@ -117,7 +118,8 @@ No ESLint/Prettier config — typecheck and tests are the static checks.
   One Argon2id profile shared by TS and Rust. Crypto change → update
   `tests/crypto-vectors/` in the same change. A failing vector means the code
   is wrong — never edit the expected hex.
-- **Zero-knowledge:** never send plaintext or keys to the API. Never store
+- **Zero-knowledge:** keep vault contents and keys out of plaintext API requests.
+  The opt-in AI import preview may forward user-pasted text only. Never store
   CVV, bank PIN or live OTP (`FORBIDDEN_FIELDS`).
 - **Extension:** popup/options/content scripts talk to the background via
   messages; they never import `vault-ext.ts` or receive the whole vault.

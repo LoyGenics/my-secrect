@@ -33,7 +33,7 @@ An all-in-one vault, not just a password manager: logins, passkeys, cards, banki
 - Favorites, tags, trash/archive, relations between items, local-only search (Cmd/Ctrl+K), password and passphrase generator, TOTP codes, Watchtower vault health, auto-lock.
 - Encrypted sync across devices with explicit conflict handling (both versions kept), encrypted media upload/download, encrypted portable backups, secure sharing (in progress), Security Center (passkeys, MFA, step-up, sessions, trusted devices, activity, account deletion).
 - The web client is intentionally limited (separate attack surface) and says so; desktop is the full client.
-- No AI access to decrypted vault contents. No enterprise SSO/SCIM.
+- AI import can process text explicitly pasted and approved by the user. Vault contents and keys remain outside the import request. No enterprise SSO/SCIM.
 
 ## Brand Commitments
 

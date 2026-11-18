@@ -9,7 +9,7 @@ import { illustrations } from '../../../../packages/ui/src/native';
 import { exampleItems, EXAMPLE_IDS } from '../utils/exampleData';
 import { isFileEntry } from '../../../../packages/core/src/files';
 import { isArchived } from '../utils/itemMeta';
-import { Empty, SearchTrigger, Select } from '../components/mobile-ui';
+import { Empty, IconButton, SearchTrigger, Select } from '../components/mobile-ui';
 
 export type VaultFilter = 'all' | 'favorites' | 'trash' | 'archived' | string;
 export type VaultSort = 'updated' | 'title' | 'created';
@@ -47,13 +47,13 @@ export default function VaultScreen({ items, trash, onSelect, onToggleFavorite, 
     <FlatList data={visible} keyExtractor={i => i.id} contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" contentContainerStyle={{ width: '100%', maxWidth: 820, alignSelf: 'center', paddingHorizontal: 20, paddingBottom: 32 }}
       ListHeaderComponent={<View style={{ paddingTop: 8, paddingBottom: 12 }}>
         <SearchTrigger onPress={() => onSearch?.()} />
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
-          <Select value={filter} choices={choices} onChange={setFilter} label={t('mobileUI.categories')} testID="vault-filter" />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 }}>
+          <Select value={filter} choices={choices} onChange={setFilter} label={t('mobileUI.categories')} testID="vault-filter" style={{ flex: 1 }} />
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Pressable testID="vault-sort" accessibilityRole="button" accessibilityLabel={t('mobileUI.sort')} onPress={() => Alert.alert(t('mobileUI.sort'), undefined, [
+            <IconButton testID="vault-sort" accessibilityLabel={t('mobileUI.sort')} onPress={() => Alert.alert(t('mobileUI.sort'), undefined, [
               ...(['updated', 'title', 'created'] as const).map(value => ({ text: value === 'updated' ? dict.shell.sortUpdated : value === 'title' ? dict.shell.sortTitle : dict.shell.sortCreated, onPress: () => setSort(value) })), ...(Platform.OS === 'ios' ? [{ text: dict.common.cancel, style: 'cancel' as const }] : []),
-            ], { cancelable: true })} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><ArrowDownUp size={19} color={colors.muted} /></Pressable>
-            <Pressable testID="vault-more" accessibilityRole="button" accessibilityLabel={t('mobileUI.vaultActions')} onPress={menu} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><MoreHorizontal size={22} color={colors.muted} /></Pressable>
+            ], { cancelable: true })}><ArrowDownUp size={20} color={colors.secondary} /></IconButton>
+            <IconButton testID="vault-more" accessibilityLabel={t('mobileUI.vaultActions')} onPress={menu}><MoreHorizontal size={20} color={colors.secondary} /></IconButton>
           </View>
         </View>
         <Text style={{ color: colors.muted, fontSize: 13, marginBottom: 4 }}>{t('mobileUI.itemCount', visible.length)}</Text>

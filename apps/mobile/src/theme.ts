@@ -17,6 +17,7 @@ export interface MobileColors {
   accent: string;
   onAccent: string;
   accentSoft: string;
+  focus: string;
   danger: string;
   dangerText: string;
   dangerSoft: string;
@@ -46,6 +47,7 @@ function toMobileColors(theme: ThemeTokens): MobileColors {
     accent: '#D23F0C',
     onAccent: '#FFFFFF',
     accentSoft: theme.brand.soft,
+    focus: theme.focus.ring,
     danger: theme.danger.DEFAULT,
     dangerText: theme.danger.softText,
     dangerSoft: theme.danger.soft,
@@ -95,8 +97,11 @@ export function createStyles(c: MobileColors) {
     small: { color: c.muted, fontSize: 13, lineHeight: 18 },
     label: { ...legend, fontSize: 13, color: c.muted, marginBottom: 6 },
     legend: { ...legend, color: c.muted },
-    input: { backgroundColor: c.input, borderColor: c.cardBorder, borderWidth: 1, borderRadius: radii.md, color: c.text, fontSize: 16, minHeight: 50, paddingHorizontal: 14, paddingVertical: 13 },
+    inputShell: { backgroundColor: c.input, borderColor: c.cardBorder, borderWidth: 2, borderRadius: radii.md, minHeight: 50, flexDirection: 'row', alignItems: 'center' },
+    inputFocused: { borderColor: c.focus, backgroundColor: c.card },
+    input: { flex: 1, minWidth: 0, color: c.text, fontSize: 16, paddingHorizontal: 12, paddingVertical: 12 },
     inputMultiline: { minHeight: 96, textAlignVertical: 'top' },
+    iconButton: { width: 44, height: 44, flexShrink: 0, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
     primaryButton: { backgroundColor: c.accent, borderRadius: 12, minHeight: 50, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, paddingHorizontal: 20 },
     primaryButtonText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
     ghostButton: { backgroundColor: c.card, borderColor: c.cardBorder, borderWidth: 1, borderRadius: 12, minHeight: 48, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, paddingHorizontal: 18 },

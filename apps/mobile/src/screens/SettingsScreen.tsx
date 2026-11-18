@@ -11,11 +11,11 @@ import {
 import { biometryName, deviceUnlockMessage } from './LockScreen';
 import { useTranslation } from '../../../../packages/i18n/src/react';
 import { LS_API_TOKEN, LS_API_TOKEN_EXPIRES_AT, LS_ACCOUNT_EMAIL, SecurityApiClient } from '../../../../packages/sdk/src/security';
-import { API_BASE_URL_KEY, getApiToken } from './SecurityScreen';
+import { getApiToken } from './SecurityScreen';
+import { API_BASE_URL_KEY, SHARE_WEB_ORIGIN_KEY } from '../accountServer';
 import { isStepUpRequired } from '../utils/stepUp';
 import { Action, Group, Page, Row, Rule, Select } from '../components/mobile-ui';
-import { Archive, ChevronLeft, Fingerprint, Globe, Image, KeyRound, Lock, Search, ShieldCheck, Trash2, Users, Share2, X } from 'lucide-react-native';
-import { SHARE_WEB_ORIGIN_KEY } from './ShareLinkScreen';
+import { Archive, ChevronLeft, Fingerprint, Globe, Image, KeyRound, Lock, LogIn, Search, ShieldCheck, Trash2, Users, Share2, X } from 'lucide-react-native';
 import { removeAllEncryptedFiles } from '../storage/localFiles';
 import { GhostBrandMark } from '../components/soft';
 
@@ -23,9 +23,10 @@ export type AutoLockMinutes = 1 | 5 | 15 | 0;
 
 type PendingAction = 'export' | 'change' | 'wipe';
 
-export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onWiped, notice, setNotice, onViewTrash, onViewSecurity, onOpen, onSearch, onServerSaved }: {
+export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onWiped, notice, setNotice, onViewTrash, onViewSecurity, onOpen, onSearch, apiBaseUrl, signedIn, onSignIn, onServerSaved }: {
   autoLock: AutoLockMinutes; onAutoLockChange: (m: AutoLockMinutes) => void; onLock: () => void; onWiped: () => void;
   notice: string; setNotice: (s: string) => void; onViewTrash: () => void; onViewSecurity: () => void; onOpen?: (screen: 'Family' | 'Shares') => void; onSearch?: () => void; onServerSaved?: (url: string) => Promise<void>;
+  apiBaseUrl: string; signedIn: boolean; onSignIn: () => void;
 }) {
   const { colors, styles } = useMobileTheme();
   const { t, dict, locale, setLocale } = useTranslation();
@@ -41,7 +42,6 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
   const [changeOk, setChangeOk] = useState(false);
   const [wipeArmed, setWipeArmed] = useState(false);
   const [exported, setExported] = useState('');
-  const [apiBaseUrl, setApiBaseUrl] = useState('');
   // Step-up state: every sensitive local action (export / change
   // passphrase / wipe) opens this panel first. See submitStepUp().
   const [stepUpAction, setStepUpAction] = useState<PendingAction | null>(null);
@@ -57,9 +57,8 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
   const bioName = biometryName(device?.biometry);
 
   useEffect(() => {
-    void AsyncStorage.getItem(API_BASE_URL_KEY).then((v) => { setApiBaseUrl(v ?? ''); setServerDraft(v ?? ''); }).catch(() => undefined);
     void getDeviceUnlockState().then(setDevice);
-    void AsyncStorage.getItem(SHARE_WEB_ORIGIN_KEY).then(value => setWebOrigin(value ?? ''));
+    if (__DEV__) void AsyncStorage.getItem(SHARE_WEB_ORIGIN_KEY).then(value => setWebOrigin(value ?? '')).catch(() => undefined);
   }, []);
 
   /** Turning it on needs the passphrase again: that unlock is what releases the Master Key copy to wrap. */
@@ -79,6 +78,7 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
   }
 
   const apiConfigured = apiBaseUrl.trim() !== '';
+  const requiresAccountVerification = apiConfigured && (__DEV__ || signedIn);
 
   async function saveApiBaseUrl(v: string) {
     setServerError(''); setServerSaved(false);
@@ -95,7 +95,7 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
         await AsyncStorage.multiRemove([LS_API_TOKEN, LS_API_TOKEN_EXPIRES_AT, LS_ACCOUNT_EMAIL]);
       }
       await AsyncStorage.multiSet([[API_BASE_URL_KEY, next], [SHARE_WEB_ORIGIN_KEY, target]]);
-      setApiBaseUrl(next); setServerSaved(true);
+      setServerSaved(true);
       await onServerSaved?.(next);
     } catch { setServerError(t('mobileUI.saveFailed')); }
   }
@@ -113,7 +113,7 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
    * Step-up gate for export / change passphrase / wipe.
    * (i) Local: re-enter the master passphrase, verified with
    * verifyPassphrase() — a wrong entry cannot lock the open vault.
-   * (ii) Server, only when an API base URL is configured: a TOTP code,
+   * (ii) When account verification applies: a TOTP code,
    * verified with POST /v1/auth/step-up/totp. A 403 step_up_required
    * re-prompts with the expired message; any other failure shows the
    * failed message. Nothing proceeds until both pass. The passphrase and
@@ -124,7 +124,7 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
     setStepUpError(''); setStepUpBusy(true);
     const okPass = await verifyPassphrase(stepUpPass);
     if (!okPass) { setStepUpBusy(false); setStepUpError(t('security.stepUpFailed')); return; }
-    if (apiConfigured) {
+    if (requiresAccountVerification) {
       if (!stepUpCode.trim()) { setStepUpBusy(false); setStepUpError(t('security.stepUpFailed')); return; }
       try {
         const c = new SecurityApiClient({ baseUrl: apiBaseUrl.trim(), getToken: getApiToken });
@@ -172,13 +172,14 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
         <Row testID="view-trash-button" icon={icon(Trash2)} label={dict.shell.trash} onPress={onViewTrash} />
       </Group>
       <Group title={t('mobileUI.accountSettings')}>
+        {apiConfigured && !signedIn && <><Row testID="settings-sign-in" icon={icon(LogIn)} label={t('signin.signIn')} onPress={onSignIn} /><Rule /></>}
         <Row testID="security-center-button" icon={icon(ShieldCheck)} label={t('security.title')} onPress={onViewSecurity} /><Rule />
         <Row testID="settings-sharing" icon={icon(Share2)} label={t('mobileUI.sharing')} onPress={() => onOpen?.('Shares')} /><Rule />
         <Row testID="settings-family" icon={icon(Users)} label={t('mobileUI.familyPlan')} onPress={() => onOpen?.('Family')} />
       </Group>
       <Group title={dict.settings.preferencesTitle}>
         <View style={{ paddingHorizontal: 16 }}><Select label={t('mobileUI.language')} testID="settings-language" value={locale} choices={[{ value: 'en', label: 'English' }, { value: 'vi', label: 'Tiếng Việt' }]} onChange={value => setLocale(value as 'en' | 'vi')} /></View><Rule />
-        <Row testID="settings-server" icon={icon(Globe)} label={t('mobileUI.serverSettings')} detail={apiConfigured ? t('mobileUI.connected') : t('mobileUI.notConnected')} onPress={() => { setServerDraft(apiBaseUrl); setPanel('server'); }} /><Rule />
+        {__DEV__ && <><Row testID="settings-server" icon={icon(Globe)} label={t('mobileUI.serverSettings')} detail={apiConfigured ? t('mobileUI.connected') : t('mobileUI.notConnected')} onPress={() => { setServerDraft(apiBaseUrl); setPanel('server'); }} /><Rule /></>}
         <Row testID="settings-about" label={t('mobileUI.about')} onPress={() => setPanel('about')} />
       </Group>
       <Group><Row testID="lock-now-button" icon={icon(Lock)} label={t('mobileUI.lockNow')} onPress={onLock} /></Group>
@@ -196,7 +197,7 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
             <Text style={[styles.heading, { marginBottom: 12 }]}>{t('security.stepUpTitle')}</Text>
             {hint(t('security.stepUpBody'))}
             <Field label={t('security.stepUpPassphraseLabel')} testID="stepup-passphrase" secureTextEntry value={stepUpPass} onChangeText={setStepUpPass} autoCapitalize="none" autoCorrect={false} />
-            {apiConfigured && <Field label={t('security.stepUpTotpLabel')} testID="stepup-totp-code" value={stepUpCode} onChangeText={setStepUpCode} autoCapitalize="none" autoCorrect={false} keyboardType="number-pad" />}
+            {requiresAccountVerification && <Field label={t('security.stepUpTotpLabel')} testID="stepup-totp-code" value={stepUpCode} onChangeText={setStepUpCode} autoCapitalize="none" autoCorrect={false} keyboardType="number-pad" />}
             {!!stepUpError && <Text testID="stepup-error" style={[styles.error, { marginBottom: 14 }]}>{stepUpError}</Text>}
             <Action testID="stepup-confirm" label={stepUpBusy ? dict.common.loading : t('security.confirm')} disabled={stepUpBusy} onPress={() => void submitStepUp()} />
             <View style={{ marginTop: 12 }}><Action testID="stepup-cancel" secondary label={dict.common.cancel} disabled={stepUpBusy} onPress={() => { setStepUpAction(null); setStepUpPass(''); setStepUpCode(''); setStepUpError(''); }} /></View>

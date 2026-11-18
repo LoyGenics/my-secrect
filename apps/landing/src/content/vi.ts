@@ -161,7 +161,8 @@ export const vi: Copy = {
     h1: 'Chính sách quyền riêng tư',
     sections: [
       { h: 'Chúng tôi là ai', p: ['My Secret do [[COMPANY_NAME]], [[COMPANY_ADDRESS]] vận hành. Chính sách này áp dụng cho các ứng dụng My Secret, tiện ích trình duyệt và trang web này. Bạn có thể liên hệ chúng tôi tại [[PRIVACY_EMAIL]].', 'Tóm lại: két của bạn được mã hóa trên thiết bị, máy chủ chỉ lưu dữ liệu đã mã hóa, và chúng tôi không chạy quảng cáo, công cụ theo dõi hay phân tích của bên thứ ba.'] },
-      { h: 'Những gì chúng tôi không bao giờ nhận', ul: ['Mật khẩu chính của bạn.', 'Khóa khôi phục của bạn.', 'Bất kỳ khóa nào giải mã được két của bạn.', 'Các mục hay tệp của bạn ở dạng đọc được, hoặc tên của chúng.'] },
+      { h: 'Mã hóa két', p: ['Tính năng đồng bộ gửi các mục, tệp và tên đã mã hóa. Mật khẩu chính, khóa khôi phục và khóa giải mã két được giữ trên thiết bị khi bạn đăng nhập, mở khóa và khôi phục.'] },
+      { h: 'Tùy chọn nhập bằng AI', p: ['Sau khi bạn đồng ý, chúng tôi chuyển văn bản bạn đã dán đến API của OpenAI rồi trả về bản xem trước. Chúng tôi không lưu, ghi nhật ký hay công khai văn bản và bản xem trước. Ứng dụng yêu cầu OpenAI tắt lưu phản hồi. Theo mặc định, dữ liệu API không dùng để huấn luyện. Nhật ký chống lạm dụng của OpenAI có thể chứa văn bản và thường được giữ tối đa 30 ngày. Tệp CSV được xử lý trên thiết bị.'] },
       { h: 'Những gì chúng tôi lưu', ul: [
         'Tài khoản: email, khóa công khai passkey cùng mã định danh và bộ đếm, và khóa công khai của các thiết bị.',
         'Két: mục đã mã hóa, các phần tệp đã mã hóa và bản kê tệp đã mã hóa, cùng mã mục, số phiên bản, thời gian, kích thước và mã thiết bị.',

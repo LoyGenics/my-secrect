@@ -91,7 +91,10 @@ services:
       dockerfile: Dockerfile
     # Production boot refuses missing/placeholder secrets
     # (apps/api/config/environments/production.rb, storage_config.rb).
-    environment: *app-env
+    environment:
+      <<: *app-env
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_IMPORT_MODEL: ${OPENAI_IMPORT_MODEL:-gpt-4o-mini}
     # No host ports. Caddy reaches this process as api:3000.
     # force_ssl redirects plain HTTP, so the probe sends the same forwarded
     # proto Caddy sends and requires the /health body {"ok":true}.
