@@ -9,17 +9,17 @@ export type ButtonSize = 'sm' | 'md' | 'lg';
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   /**
-   * primary = the orange key (one per view: the main action).
-   * secondary = neutral key. ghost = unprinted key for toolbars.
-   * danger = final destructive action (red key, white legend).
-   * danger-outline = destructive but recoverable (neutral key, red LED + danger legend).
+   * primary = the orange pill (one per view: the main action).
+   * secondary = neutral pill. ghost = borderless, for toolbars.
+   * danger = final destructive action (red pill, white label).
+   * danger-outline = destructive but recoverable (quiet pill, danger ink).
    * link = inline text action.
    */
   variant?: ButtonVariant;
   size?: ButtonSize;
-  /** Full-width key. */
+  /** Full-width button. */
   block?: boolean;
-  /** Shows a spinner, sets aria-busy and disables the key. */
+  /** Shows a spinner, sets aria-busy and disables the button. */
   loading?: boolean;
   /** Leading Lucide glyph by semantic name. */
   icon?: IconName;
@@ -28,11 +28,10 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 /**
- * Molded key. Printed UPPERCASE legend (CSS), 1px lower edge; pressed drops
- * 1px and loses the edge; focus is the orange ring (+ ink band on
- * aluminium); disabled is flat with a dashed hairline. Native button
- * semantics (Enter/Space). `type` defaults to "button" so a key never
- * submits a form by accident; pass type="submit" explicitly.
+ * Pill button with a sentence-case label. Hover lifts 1px, focus is the
+ * orange ring, disabled is a flat grey pill. Native button semantics
+ * (Enter/Space). `type` defaults to "button" so a button never submits a
+ * form by accident; pass type="submit" explicitly.
  */
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   { variant = 'secondary', size = 'md', block = false, loading = false, icon, asChild = false, className, children, disabled, type, ...rest },
@@ -63,11 +62,11 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
 
 export interface IconButtonProps extends Omit<ButtonProps, 'icon' | 'children' | 'asChild'> {
   icon: IconName;
-  /** Accessible name — required: an icon-only key must say what it does. Also shown as the native tooltip. */
+  /** Accessible name — required: an icon-only button must say what it does. Also shown as the native tooltip. */
   label: string;
 }
 
-/** Icon-only key. The label is mandatory (aria-label + title). */
+/** Icon-only button. The label is mandatory (aria-label + title). */
 export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
   { icon, label, variant = 'ghost', className, ...rest },
   ref,

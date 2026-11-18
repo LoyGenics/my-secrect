@@ -14,7 +14,7 @@ import {
   IconButton,
   ItemTypeArt,
   Led,
-  Progress,
+  Ring,
   copyWithClear,
   useClipboardStatus,
   type MenuItemDef,
@@ -73,6 +73,11 @@ function displayDate(locale: Locale, iso: string): string {
 }
 
 const MASK = '••••••••';
+
+/** "482913" -> "482 913" for reading; the copied value stays the raw code. */
+function groupCode(code: string): string {
+  return code.length === 6 ? `${code.slice(0, 3)} ${code.slice(3)}` : code;
+}
 /** Cells animated by the reveal flip; longer values (keys) show the rest at once. */
 const FLIP_CELLS = 48;
 
@@ -95,10 +100,13 @@ const SECRET_ORDER = ['password', 'key', 'account_number', 'document_number', 'p
 const ID_ORDER = ['username', 'holder_name', 'cardholder', 'full_name', 'service', 'rp_id', 'file_name', 'bank_name'];
 
 /**
- * Item detail as a spec-sheet plate: each field row ends in its keys
- * (reveal, copy). A copy lights the row's LED with "Copied · clears in
- * 30s" and the clipboard is cleared at the deadline. Phones get a
- * thumb-reach action rail (copy secret, copy identifier, open, more).
+ * Item detail: a large type tile, the title, a row of pill buttons, the
+ * one-time-code card with its countdown ring, and a card of field rows that
+ * each end in reveal / copy buttons. A copy shows "Copied · clears in 30s"
+ * beside the value and the clipboard is cleared at the deadline (see
+ * packages/ui/src/clipboard.ts). Phones get a thumb-reach action bar (copy
+ * secret, copy identifier, open, more). The toolbar is the place to add the
+ * share button once sharing ships.
  */
 export default function ItemDetail({
   item,
@@ -263,23 +271,25 @@ export default function ItemDetail({
 
       {item.type === 'login' && totpSecret !== '' && (
         <Card as="section" className="ms-spec__section" aria-label={d.totp}>
-          <span className="ms-legend block mb-2">{d.totp}</span>
           {!totpValid ? (
             <Alert tone="danger">{d.totpInvalid}</Alert>
           ) : totp ? (
-            <div className="grid gap-3">
-              <div className="ms-totp">
-                <span className="ms-totp__code" aria-live="off">{totp.code}</span>
-                <IconButton icon="copy" variant="secondary" label={d.copyCode} onClick={() => copy('totp', totp.code)} />
-                {copiedLed('totp')}
-              </div>
-              <Progress
+            <div className="ms-totp">
+              <Ring
                 value={(totp.secondsRemaining / totp.period) * 100}
                 tone={totp.secondsRemaining <= 5 ? 'danger' : 'success'}
-                label={plural(locale, d.totpRefresh, totp.secondsRemaining)}
+                label={d.totp}
                 valueText={plural(locale, d.totpRefresh, totp.secondsRemaining)}
               />
-              <span className="ms-text-sm ms-text-muted">{plural(locale, d.totpRefresh, totp.secondsRemaining)}</span>
+              <div className="ms-totp__info">
+                <span className="ms-text-sm ms-text-muted">{d.totp}</span>
+                <span className="ms-totp__code" aria-live="off">{groupCode(totp.code)}</span>
+                <span className="ms-text-sm ms-text-muted">{plural(locale, d.totpRefresh, totp.secondsRemaining)}</span>
+              </div>
+              <div className="ms-totp__copy">
+                {copiedLed('totp')}
+                <IconButton icon="copy" variant="secondary" label={d.copyCode} onClick={() => copy('totp', totp.code)} />
+              </div>
             </div>
           ) : (
             <p className="ms-text-muted m-0">{d.totpLoading}</p>

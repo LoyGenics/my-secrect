@@ -305,7 +305,7 @@ export default function SharesView(props: SharesViewProps) {
   const blocked = (peer: PeerView) => peer.state === 'changed' || peer.state === 'relabeled';
 
   const peerWarning = (share: ShareSummary, peer: PeerView) => (
-    <div className="mt-2 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-200" role="alert">
+    <div className="mt-2 rounded-lg border border-ms-danger-line bg-ms-danger-bg px-3 py-2 text-xs text-ms-danger-text" role="alert">
       {peer.state === 'relabeled'
         ? <p>{t('shares.relabeled', peer.serverEmail, peer.pinnedEmail ?? '—')}</p>
         : <p>{t('shares.keyChanged', peer.pinnedFingerprint ?? '—', peer.pinnedEmail ?? peer.serverEmail)}</p>}
@@ -327,7 +327,7 @@ export default function SharesView(props: SharesViewProps) {
 
   const resetControls = (
     confirmReset ? (
-      <div className="mt-3 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-200">
+      <div className="mt-3 rounded-lg border border-ms-danger-line bg-ms-danger-bg px-3 py-2 text-xs text-ms-danger-text">
         <p>{t('shares.resetKeyWarning')}</p>
         <div className="mt-2 flex gap-2">
           <button className="btn-primary !py-1 text-xs" disabled={busy} onClick={resetIdentity}>{t('shares.confirmReset')}</button>
@@ -357,7 +357,7 @@ export default function SharesView(props: SharesViewProps) {
     return (
       <div className="p-5">
         <h2 className="text-base font-semibold">{t('shares.title')}</h2>
-        <p className="mt-2 text-sm text-zinc-400">{baseUrl ? t('shares.signedOut') : t('shares.notConfigured')}</p>
+        <p className="mt-2 text-sm text-ms-muted">{baseUrl ? t('shares.signedOut') : t('shares.notConfigured')}</p>
       </div>
     );
   }
@@ -365,16 +365,16 @@ export default function SharesView(props: SharesViewProps) {
     return (
       <div className="p-5">
         <h2 className="text-base font-semibold">{t('shares.title')}</h2>
-        {error && <p className="mt-2 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-200" role="alert">{error}</p>}
-        {!startError && <p className="mt-2 text-sm text-zinc-400">{t('shares.starting')}</p>}
+        {error && <p className="mt-2 rounded-lg border border-ms-danger-line bg-ms-danger-bg px-3 py-2 text-sm text-ms-danger-text" role="alert">{error}</p>}
+        {!startError && <p className="mt-2 text-sm text-ms-muted">{t('shares.starting')}</p>}
         {startError?.kind === 'step_up' && (
           <div className="card mt-3 p-4">
-            <p className="text-sm text-zinc-300">{t('shares.stepUpNeeded')}</p>
+            <p className="text-sm text-ms-muted">{t('shares.stepUpNeeded')}</p>
             <button className="btn-primary mt-3" onClick={() => setStepUpFor(() => () => setStartAttempt((n) => n + 1))}>{t('shares.verifyItsYou')}</button>
           </div>
         )}
         {startError && startError.kind !== 'step_up' && (
-          <div className="mt-2 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-200">
+          <div className="mt-2 rounded-lg border border-ms-danger-line bg-ms-danger-bg px-3 py-2 text-sm text-ms-danger-text">
             <p>{t('shares.unavailable', startError.detail)}</p>
             {startError.kind === 'identity' && resetControls}
           </div>
@@ -391,14 +391,14 @@ export default function SharesView(props: SharesViewProps) {
   return (
     <div className="p-5">
       <h2 className="text-base font-semibold">{t('shares.title')}</h2>
-      <p className="mt-1 text-sm text-zinc-400">{t('shares.intro')}</p>
-      {notice && <p className="mt-3 rounded-lg border border-emerald-900/60 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-200" role="status">{notice}</p>}
-      {error && <p className="mt-3 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-200" role="alert">{error}</p>}
+      <p className="mt-1 text-sm text-ms-muted">{t('shares.intro')}</p>
+      {notice && <p className="mt-3 rounded-lg border border-ms-ok-line bg-ms-ok-bg px-3 py-2 text-sm text-ms-ok-text" role="status">{notice}</p>}
+      {error && <p className="mt-3 rounded-lg border border-ms-danger-line bg-ms-danger-bg px-3 py-2 text-sm text-ms-danger-text" role="alert">{error}</p>}
 
       <section className="card mt-4 p-4" aria-label={t('shares.myKey')}>
         <h3 className="text-sm font-semibold">{t('shares.myKey')}</h3>
-        <p className="mt-2 font-mono text-lg tracking-wider text-zinc-100" data-testid="my-fingerprint">{myFingerprint}</p>
-        <p className="mt-1 text-xs text-zinc-400">{t('shares.myKeyHelp')}</p>
+        <p className="mt-2 font-mono text-lg tracking-wider text-ms-text" data-testid="my-fingerprint">{myFingerprint}</p>
+        <p className="mt-1 text-xs text-ms-muted">{t('shares.myKeyHelp')}</p>
         {resetControls}
       </section>
 
@@ -419,16 +419,16 @@ export default function SharesView(props: SharesViewProps) {
                 onChange={(e) => { setEmail(e.target.value); setContact(null); setNotFound(false); }} />
               <button className="btn-ghost" disabled={busy || !email.trim()} onClick={lookUp}>{t('shares.lookUp')}</button>
             </div>
-            {notFound && <p className="mt-2 text-sm text-zinc-400">{t('shares.noSuchRecipient')}</p>}
+            {notFound && <p className="mt-2 text-sm text-ms-muted">{t('shares.noSuchRecipient')}</p>}
           </div>
 
           {contact && (
-            <div className="rounded-lg border border-zinc-800 p-3">
-              <p className="text-xs text-zinc-400">{t('shares.serverFingerprint', contact.email)}</p>
-              <p className="mt-1 font-mono text-base tracking-wider text-zinc-100" data-testid="recipient-fingerprint">{contact.fingerprint}</p>
-              {contact.pinState === 'verified' && <p className="mt-2 text-sm text-emerald-300">{t('shares.verified')}</p>}
+            <div className="rounded-lg border border-ms-line p-3">
+              <p className="text-xs text-ms-muted">{t('shares.serverFingerprint', contact.email)}</p>
+              <p className="mt-1 font-mono text-base tracking-wider text-ms-text" data-testid="recipient-fingerprint">{contact.fingerprint}</p>
+              {contact.pinState === 'verified' && <p className="mt-2 text-sm text-ms-ok-text">{t('shares.verified')}</p>}
               {contact.pinState === 'unverified' && (
-                <div className="mt-2 rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
+                <div className="mt-2 rounded-lg border border-ms-warn-line bg-ms-warn-bg px-3 py-2 text-sm text-ms-warn-text">
                   <p>{t('shares.verifyInstructions', contact.email)}</p>
                   <div className="mt-2 flex gap-2">
                     <button className="btn-primary !py-1 text-xs" disabled={busy} onClick={() => verifyContact(contact)}>{t('shares.digitsMatch')}</button>
@@ -437,7 +437,7 @@ export default function SharesView(props: SharesViewProps) {
                 </div>
               )}
               {(contact.pinState === 'changed' || contact.pinState === 'relabeled') && (
-                <div className="mt-2 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-200" role="alert">
+                <div className="mt-2 rounded-lg border border-ms-danger-line bg-ms-danger-bg px-3 py-2 text-sm text-ms-danger-text" role="alert">
                   {contact.pinState === 'relabeled'
                     ? <p>{t('shares.relabeled', contact.email, contact.pinnedEmail ?? '—')}</p>
                     : <p>{t('shares.keyChanged', contact.pinnedFingerprint ?? '—', contact.email)}</p>}
@@ -471,19 +471,19 @@ export default function SharesView(props: SharesViewProps) {
 
       <section className="mt-6" aria-label={t('shares.sharedWithMe')}>
         <h3 className="text-sm font-semibold">{t('shares.sharedWithMe')}</h3>
-        {incoming.length === 0 ? <p className="mt-2 text-sm text-zinc-500">{t('shares.none')}</p> : (
+        {incoming.length === 0 ? <p className="mt-2 text-sm text-ms-muted">{t('shares.none')}</p> : (
           <ul className="mt-2 space-y-2">
             {incoming.map((share) => {
               const actions = shareActions(share);
               const peer = session.peerView(share);
               return (
                 <li key={share.id} className="card p-3">
-                  <p className="text-sm font-semibold text-zinc-100">{t('shares.from', peerLabel(peer))}</p>
-                  <p className="text-xs text-zinc-400">{meta(share)}</p>
+                  <p className="text-sm font-semibold text-ms-text">{t('shares.from', peerLabel(peer))}</p>
+                  <p className="text-xs text-ms-muted">{meta(share)}</p>
                   {actions.canRevoke && blocked(peer) && peerWarning(share, peer)}
                   {actions.canAccept && peer.state === 'unverified' && (
                     verifyingId === share.id ? (
-                      <div className="mt-2 rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
+                      <div className="mt-2 rounded-lg border border-ms-warn-line bg-ms-warn-bg px-3 py-2 text-sm text-ms-warn-text">
                         <p className="text-xs">{t('shares.serverFingerprint', peer.serverEmail)}</p>
                         <p className="mt-1 font-mono tracking-wider">{peerFingerprints[share.id]}</p>
                         <p className="mt-1">{t('shares.verifyInstructions', peer.serverEmail)}</p>
@@ -510,15 +510,15 @@ export default function SharesView(props: SharesViewProps) {
 
       <section className="mt-6" aria-label={t('shares.sharedByMe')}>
         <h3 className="text-sm font-semibold">{t('shares.sharedByMe')}</h3>
-        {outgoing.length === 0 ? <p className="mt-2 text-sm text-zinc-500">{t('shares.none')}</p> : (
+        {outgoing.length === 0 ? <p className="mt-2 text-sm text-ms-muted">{t('shares.none')}</p> : (
           <ul className="mt-2 space-y-2">
             {outgoing.map((share) => {
               const actions = shareActions(share);
               const peer = session.peerView(share);
               return (
                 <li key={share.id} className="card p-3">
-                  <p className="text-sm font-semibold text-zinc-100">{t('shares.to', peerLabel(peer))}</p>
-                  <p className="text-xs text-zinc-400">{meta(share)}</p>
+                  <p className="text-sm font-semibold text-ms-text">{t('shares.to', peerLabel(peer))}</p>
+                  <p className="text-xs text-ms-muted">{meta(share)}</p>
                   {actions.canRevoke && blocked(peer) && peerWarning(share, peer)}
                   <div className="mt-2 flex flex-wrap gap-2">
                     {actions.canOpen && peer.state === 'verified' && <button className="btn-ghost !py-1 text-xs" disabled={busy} onClick={() => open(share)}>{t('shares.open')}</button>}
@@ -530,15 +530,15 @@ export default function SharesView(props: SharesViewProps) {
             })}
           </ul>
         )}
-        <p className="mt-3 text-xs text-zinc-500">{t('shares.revokeLimit')}</p>
+        <p className="mt-3 text-xs text-ms-muted">{t('shares.revokeLimit')}</p>
       </section>
 
       {opened && (
         <section className="card mt-6 p-4" aria-label={opened.data.item.title}>
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h3 className="text-sm font-semibold text-zinc-100">{opened.data.item.title}</h3>
-              <p className="text-xs text-zinc-400">
+              <h3 className="text-sm font-semibold text-ms-text">{opened.data.item.title}</h3>
+              <p className="text-xs text-ms-muted">
                 {t('shares.revision', opened.data.revision)} · {opened.data.lastWriter === 'recipient' ? t('shares.lastWriterRecipient') : t('shares.lastWriterOwner')}
               </p>
             </div>
@@ -564,8 +564,8 @@ export default function SharesView(props: SharesViewProps) {
               <dl className="mt-3 space-y-1 text-sm">
                 {Object.entries(opened.data.item.fields).map(([name, value]) => (
                   <div key={name} className="flex gap-3">
-                    <dt className="w-40 shrink-0 text-zinc-400">{name}</dt>
-                    <dd className="min-w-0 break-all font-mono text-zinc-100">{revealed ? displayValue(value) : '••••••••'}</dd>
+                    <dt className="w-40 shrink-0 text-ms-muted">{name}</dt>
+                    <dd className="min-w-0 break-all font-mono text-ms-text">{revealed ? displayValue(value) : '••••••••'}</dd>
                   </div>
                 ))}
               </dl>

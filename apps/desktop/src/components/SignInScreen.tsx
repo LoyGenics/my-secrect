@@ -377,16 +377,16 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
 
   return (
     <div className="flex min-h-full items-center justify-center bg-[#0B0F14] p-6">
-      <div className="card gradient-subtle w-full max-w-md p-6">
+      <div className="card w-full max-w-md p-6">
         <h1 className="text-xl font-semibold">{s.title}</h1>
-        <p className="mt-1 text-sm text-zinc-400">{s.subtitle}</p>
+        <p className="mt-1 text-sm text-ms-muted">{s.subtitle}</p>
         {sessionExpired && (
-          <p role="alert" className="mt-3 rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
+          <p role="alert" className="mt-3 rounded-lg border border-ms-warn-line bg-ms-warn-bg px-3 py-2 text-sm text-ms-warn-text">
             {s.sessionExpired}
           </p>
         )}
         {!webauthn && (
-          <p role="alert" className="mt-3 rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
+          <p role="alert" className="mt-3 rounded-lg border border-ms-warn-line bg-ms-warn-bg px-3 py-2 text-sm text-ms-warn-text">
             <strong>{s.passkeyNotAvailable}.</strong> {s.passkeyNotAvailableBody}
           </p>
         )}
@@ -394,8 +394,8 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
         {onCodeStep && (
           <form className="mt-4 space-y-3" onSubmit={(e) => void submitEmailCode(e)}>
             <h2 className="text-base font-semibold">{s.emailCodeTitle}</h2>
-            <p className="text-sm text-zinc-400">{s.emailCodeBody}</p>
-            <p className="truncate text-sm font-semibold text-zinc-200">{machine.email}</p>
+            <p className="text-sm text-ms-muted">{s.emailCodeBody}</p>
+            <p className="truncate text-sm font-semibold text-ms-text">{machine.email}</p>
             {!ticket && (
               <div>
                 <label className="label" htmlFor="signin-email-code">{s.emailCodeLabel}</label>
@@ -412,10 +412,10 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
                   aria-label={s.emailCodeLabel}
                   autoFocus
                 />
-                <p className="mt-1 text-xs text-zinc-500">{s.emailCodeHint}</p>
+                <p className="mt-1 text-xs text-ms-muted">{s.emailCodeHint}</p>
               </div>
             )}
-            {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
+            {error && <p role="alert" className="text-sm text-ms-danger-text">{error}</p>}
             <button
               type="submit"
               className="btn-primary w-full"
@@ -425,7 +425,7 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
             </button>
             <button
               type="button"
-              className="w-full text-center text-sm text-indigo-300 hover:text-indigo-200"
+              className="w-full text-center text-sm text-ms-link hover:text-ms-text"
               disabled={machine.busy}
               onClick={resendCode}
             >
@@ -433,7 +433,7 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
             </button>
             <button
               type="button"
-              className="w-full text-center text-sm text-zinc-400 hover:text-zinc-200"
+              className="w-full text-center text-sm text-ms-muted hover:text-ms-text"
               onClick={() => switchMode('create')}
             >
               {s.back}
@@ -448,7 +448,7 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
                 type="button"
                 role="tab"
                 aria-selected={machine.mode === 'login'}
-                className={`flex-1 rounded-md px-2 py-1.5 text-sm ${machine.mode === 'login' ? 'bg-indigo-600/25 text-indigo-200' : 'bg-zinc-900 text-zinc-400'}`}
+                className={`flex-1 rounded-md px-2 py-1.5 text-sm ${machine.mode === 'login' ? 'bg-ms-brand-bg text-ms-text' : 'bg-ms-surface2 text-ms-muted'}`}
                 onClick={() => switchMode('login')}
               >
                 {s.signIn}
@@ -457,7 +457,7 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
                 type="button"
                 role="tab"
                 aria-selected={machine.mode === 'create'}
-                className={`flex-1 rounded-md px-2 py-1.5 text-sm ${machine.mode === 'create' ? 'bg-indigo-600/25 text-indigo-200' : 'bg-zinc-900 text-zinc-400'}`}
+                className={`flex-1 rounded-md px-2 py-1.5 text-sm ${machine.mode === 'create' ? 'bg-ms-brand-bg text-ms-text' : 'bg-ms-surface2 text-ms-muted'}`}
                 onClick={() => switchMode('create')}
               >
                 {s.createAccount}
@@ -479,7 +479,7 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
                   autoFocus
                 />
               </div>
-              {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
+              {error && <p role="alert" className="text-sm text-ms-danger-text">{error}</p>}
               <button type="submit" className="btn-primary w-full" disabled={machine.busy || !webauthn || !emailInput.trim()}>
                 {machine.mode === 'create' ? s.sendCodeButton : s.signInButton}
               </button>
@@ -490,7 +490,7 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
         {machine.step === 'mfa' && (
           <form className="mt-4 space-y-3" onSubmit={(e) => void submitMfa(e)}>
             <h2 className="text-base font-semibold">{s.mfaTitle}</h2>
-            <p className="text-sm text-zinc-400">{s.mfaBody}</p>
+            <p className="text-sm text-ms-muted">{s.mfaBody}</p>
             <div>
               <label className="label" htmlFor="signin-mfa-code">
                 {useRecoveryCode ? s.recoveryCodeLabel : s.mfaCodeLabel}
@@ -514,11 +514,11 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
                 aria-label={useRecoveryCode ? s.recoveryCodeLabel : s.mfaCodeLabel}
                 autoFocus
               />
-              <p className="mt-1 text-xs text-zinc-500">
+              <p className="mt-1 text-xs text-ms-muted">
                 {useRecoveryCode ? s.recoveryCodeHint : s.mfaTotpHint}
               </p>
             </div>
-            {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
+            {error && <p role="alert" className="text-sm text-ms-danger-text">{error}</p>}
             <button
               type="submit"
               className="btn-primary w-full"
@@ -528,14 +528,14 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
             </button>
             <button
               type="button"
-              className="w-full text-center text-sm text-indigo-300 hover:text-indigo-200"
+              className="w-full text-center text-sm text-ms-link hover:text-ms-text"
               onClick={() => { setUseRecoveryCode((v) => !v); setCode(''); }}
             >
               {useRecoveryCode ? s.useTotpCode : s.useRecoveryCode}
             </button>
             <button
               type="button"
-              className="w-full text-center text-sm text-zinc-400 hover:text-zinc-200"
+              className="w-full text-center text-sm text-ms-muted hover:text-ms-text"
               onClick={() => setMachine(initialSignInState(machine.mode))}
             >
               {s.back}
@@ -543,10 +543,10 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
           </form>
         )}
 
-        <button type="button" className="mt-4 w-full text-center text-sm text-zinc-400 hover:text-zinc-200" onClick={onContinueLocalOnly}>
+        <button type="button" className="mt-4 w-full text-center text-sm text-ms-muted hover:text-ms-text" onClick={onContinueLocalOnly}>
           {s.continueLocalOnly}
         </button>
-        <p className="mt-4 text-xs text-zinc-500">
+        <p className="mt-4 text-xs text-ms-muted">
           Passkey-only sign-in — there is no password login. The server never sees your vault keys or contents.
         </p>
       </div>

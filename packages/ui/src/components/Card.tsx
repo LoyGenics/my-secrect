@@ -9,9 +9,8 @@ export interface CardProps extends HTMLAttributes<HTMLElement> {
 }
 
 /**
- * Plate: a flat machined panel — surface fill, 1px hairline, 1px inner top
- * highlight, 12px radius. Elevation is the hairline and highlight only; no
- * drop shadow, no glow. Never nest plates.
+ * Card: white surface, 1px hairline, 20px radius, one gentle shadow
+ * (hairline only on the dark theme). Never nest cards.
  */
 export const Card = forwardRef<HTMLElement, CardProps>(function Card(
   { as: Tag = 'div', padding = 'md', className, children, ...rest },

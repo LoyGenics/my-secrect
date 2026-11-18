@@ -6,24 +6,24 @@ function VersionCard({ label, item, deleted, testId }: { label: string; item: Va
   const [reveal, setReveal] = useState(false);
   const entries = Object.entries(item.fields ?? {});
   return (
-    <div className="min-w-0 flex-1 rounded-lg border border-zinc-800 bg-zinc-950 p-3" data-testid={testId}>
+    <div className="min-w-0 flex-1 rounded-lg border border-ms-line bg-ms-surface2 p-3" data-testid={testId}>
       <div className="flex items-center justify-between gap-2">
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-zinc-400">{label}</h4>
-        <button type="button" className="text-xs text-indigo-300 hover:text-indigo-200" aria-pressed={reveal} onClick={() => setReveal((v) => !v)}>
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-ms-muted">{label}</h4>
+        <button type="button" className="text-xs text-ms-link hover:text-ms-text" aria-pressed={reveal} onClick={() => setReveal((v) => !v)}>
           {reveal ? 'Hide values' : 'Reveal values'}
         </button>
       </div>
       {deleted ? (
-        <p className="mt-2 text-sm text-amber-300">Deleted on the other device — no content.</p>
+        <p className="mt-2 text-sm text-ms-warn-text">Deleted on the other device — no content.</p>
       ) : (
         <>
-          <p className="mt-2 break-words text-sm font-medium text-zinc-100">{item.title}</p>
-          <p className="text-xs text-zinc-500">Edited {item.updated_at}</p>
+          <p className="mt-2 break-words text-sm font-medium text-ms-text">{item.title}</p>
+          <p className="text-xs text-ms-muted">Edited {item.updated_at}</p>
           <dl className="mt-2 space-y-1 text-xs">
             {entries.map(([k, v]) => (
               <div key={k} className="flex gap-2">
-                <dt className="shrink-0 text-zinc-500">{k}</dt>
-                <dd className="min-w-0 break-all font-mono text-zinc-200">{reveal ? (typeof v === 'object' ? JSON.stringify(v) : String(v)) : '••••••'}</dd>
+                <dt className="shrink-0 text-ms-muted">{k}</dt>
+                <dd className="min-w-0 break-all font-mono text-ms-text">{reveal ? (typeof v === 'object' ? JSON.stringify(v) : String(v)) : '••••••'}</dd>
               </div>
             ))}
           </dl>
@@ -50,12 +50,12 @@ export default function ConflictList({ conflicts, onKeepBoth, error }: ConflictL
   const resolved = conflicts.filter((c) => c.resolution !== 'unresolved');
   return (
     <section aria-label="Sync conflicts" data-testid="conflict-list" className="space-y-3 p-5">
-      <h2 className="text-base font-semibold text-zinc-100">Sync conflicts</h2>
-      {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
-      {unresolved.length === 0 && <p className="text-sm text-zinc-400">No unresolved conflicts.</p>}
+      <h2 className="text-base font-semibold text-ms-text">Sync conflicts</h2>
+      {error && <p role="alert" className="text-sm text-ms-danger-text">{error}</p>}
+      {unresolved.length === 0 && <p className="text-sm text-ms-muted">No unresolved conflicts.</p>}
       {unresolved.map((c) => (
         <article key={c.id} className="card space-y-3 p-4" data-testid="conflict-item">
-          <p className="text-sm text-zinc-200">
+          <p className="text-sm text-ms-text">
             {c.kind === 'delete_vs_update'
               ? 'This item was deleted on another device while you edited it here.'
               : 'This item was edited on two devices before they synced.'}
@@ -66,7 +66,7 @@ export default function ConflictList({ conflicts, onKeepBoth, error }: ConflictL
           </div>
           <div className="flex items-center gap-3">
             <button type="button" className="btn-primary !py-1.5" onClick={() => void onKeepBoth(c.id)}>Keep both</button>
-            <span className="text-xs text-zinc-500">
+            <span className="text-xs text-ms-muted">
               {c.kind === 'delete_vs_update'
                 ? 'Keeps your item (it is restored on the other devices). Nothing is discarded.'
                 : 'Saves the other version as a separate copy and keeps yours. Nothing is discarded.'}
@@ -75,7 +75,7 @@ export default function ConflictList({ conflicts, onKeepBoth, error }: ConflictL
         </article>
       ))}
       {resolved.length > 0 && (
-        <details className="text-sm text-zinc-400">
+        <details className="text-sm text-ms-muted">
           <summary className="cursor-pointer">{resolved.length} resolved</summary>
           <ul className="mt-1 list-disc pl-5">
             {resolved.map((c) => (

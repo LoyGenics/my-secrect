@@ -6,10 +6,10 @@
  *
  * Art: the soft-3D clay set (tangerine, mint, lavender, sky, butter, coral),
  * transparent cutouts so they sit on either finish; no text or brand marks.
- * Brand rule: imagery ONLY on onboarding/splash, the lock screen (>= 1024px),
- * empty, error and success states and the item-type art slots — never in
- * list rows or as an interface icon. Decorative (alt=""): the heading beside
- * it carries the meaning. Static slots are 384px WebP (type art 256px);
+ * Brand rule: imagery on onboarding/splash, the lock screen (>= 1024px),
+ * empty, error and success states, and the item-type tiles (list rows and
+ * detail header, on the type's pastel) — never as an interface icon.
+ * Decorative (alt=""): the text beside it carries the meaning. Static slots are 384px WebP (type art 256px);
  * motion slots are 256px animated WebP with a still first frame that is
  * shown instead under prefers-reduced-motion (see components/Art.tsx).
  */
@@ -91,7 +91,7 @@ export const illustrations = {
 
 export type IllustrationName = keyof typeof illustrations;
 
-/** Item-type art (detail header): one clay object per type. Consumers fall back to the vector TypeModule. */
+/** Item-type art (tiles in list rows and the detail header): one clay object per type. */
 export const typeArt: Partial<Record<ItemTypeKey, string>> = {
   login: typeLogin,
   passkey: typePasskey,
@@ -109,6 +109,6 @@ export const typeArt: Partial<Record<ItemTypeKey, string>> = {
 
 /**
  * Brand mark slot (rail header, device face). Undefined until the chosen
- * logo lands; consumers show the status LED meanwhile.
+ * logo lands; consumers show the orange brand mark meanwhile.
  */
 export const brandMark: { src?: string } = {};

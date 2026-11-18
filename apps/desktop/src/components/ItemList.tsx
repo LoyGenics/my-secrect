@@ -61,10 +61,10 @@ export function itemSubtitle(item: VaultItem): string {
 }
 
 /**
- * Item rows: type module, title, one secondary line, tags; favorite and
- * delete keys appear on hover/focus (always on touch). The row's main area
- * is a real button, so the list is fully keyboard operable. The selected
- * row is a raised plate — ink stays ink in both finishes.
+ * Item rows: the type's pastel tile, title, one secondary line, tags;
+ * favorite and delete buttons appear on hover/focus (always on touch). The
+ * row's main area is a real button, so the list is fully keyboard operable.
+ * The selected row is tinted with the soft brand colour.
  */
 export default function ItemList({ items, selectedId, onSelect, onToggleFavorite, onDelete, selectionMode = false, selectedIds, onToggleSelect }: ItemListProps) {
   const { dict } = useTranslation();

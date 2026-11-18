@@ -639,10 +639,10 @@ export default function SecurityCenter({
     <div className="mx-auto w-full max-w-2xl space-y-6 p-5">
       <div>
         <h2 className="text-lg font-semibold">{s.title}</h2>
-        <p className="mt-1 text-sm text-zinc-400">{s.subtitle}</p>
+        <p className="mt-1 text-sm text-ms-muted">{s.subtitle}</p>
         {security && onSignOut && (
-          <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm">
-            <span className="text-zinc-300">
+          <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-ms-line bg-ms-surface2 px-3 py-2 text-sm">
+            <span className="text-ms-muted">
               {dict.signin.signedInAs} <strong>{signedInEmail || '—'}</strong>
             </span>
             <button
@@ -653,7 +653,7 @@ export default function SecurityCenter({
             >
               {dict.signin.signOut}
             </button>
-            <span className="text-xs text-zinc-500">
+            <span className="text-xs text-ms-muted">
               {x.signOutNote}
             </span>
           </div>
@@ -665,18 +665,18 @@ export default function SecurityCenter({
           <h3 id="security-not-configured-heading" className="text-base font-semibold">
             {s.notConfigured}
           </h3>
-          <p className="mt-1 text-sm text-zinc-400">{s.notConfiguredBody}</p>
+          <p className="mt-1 text-sm text-ms-muted">{s.notConfiguredBody}</p>
         </section>
       )}
 
-      {status === 'loading' && <p className="text-sm text-zinc-400">{s.loading}</p>}
+      {status === 'loading' && <p className="text-sm text-ms-muted">{s.loading}</p>}
 
       {status === 'error' && (
         <section className="card p-5" aria-labelledby="security-error-heading">
           <h3 id="security-error-heading" className="text-base font-semibold">
             {s.error}
           </h3>
-          <p className="mt-1 text-sm text-zinc-400">{loadError || s.offline}</p>
+          <p className="mt-1 text-sm text-ms-muted">{loadError || s.offline}</p>
           <button type="button" className="btn-primary mt-3" onClick={() => void loadAll()}>
             {s.retry}
           </button>
@@ -686,7 +686,7 @@ export default function SecurityCenter({
       {status === 'ready' && (
         <>
           {loadError && (
-            <p role="alert" className="rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
+            <p role="alert" className="rounded-lg border border-ms-warn-line bg-ms-warn-bg px-3 py-2 text-sm text-ms-warn-text">
               {loadError}
             </p>
           )}
@@ -699,16 +699,16 @@ export default function SecurityCenter({
 
             <h4 className="mt-4 text-sm font-semibold">{s.passkeys}</h4>
             {passkeys.length === 0 ? (
-              <p className="mt-1 text-sm text-zinc-500">{s.noPasskeys}</p>
+              <p className="mt-1 text-sm text-ms-muted">{s.noPasskeys}</p>
             ) : (
               <ul className="mt-2 space-y-2">
                 {passkeys.map((pk) => (
-                  <li key={pk.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
+                  <li key={pk.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-ms-line bg-ms-surface2 p-3">
                     <div className="min-w-0 flex-1">
-                      <p className="truncate font-mono text-sm text-zinc-100">{pk.credential_id_prefix}…</p>
-                      <p className="text-xs text-zinc-400">{fmtDate(pk.created_at)}</p>
+                      <p className="truncate font-mono text-sm text-ms-text">{pk.credential_id_prefix}…</p>
+                      <p className="text-xs text-ms-muted">{fmtDate(pk.created_at)}</p>
                       {pk.reapproval_required_at && (
-                        <p className="text-xs text-amber-200">{x.passkeyNeedsApproval}</p>
+                        <p className="text-xs text-ms-warn-text">{x.passkeyNeedsApproval}</p>
                       )}
                     </div>
                     {pk.reapproval_required_at && (
@@ -719,7 +719,7 @@ export default function SecurityCenter({
                     {confirmRemovePasskeyId === pk.id ? (
                       <span className="flex flex-wrap items-center gap-2">
                         {passkeys.length === 1 && (
-                          <span className="text-xs text-amber-200">{s.lastMethodWarning}</span>
+                          <span className="text-xs text-ms-warn-text">{s.lastMethodWarning}</span>
                         )}
                         <button type="button" className="btn-ghost !py-1 text-xs" onClick={() => setConfirmRemovePasskeyId(null)}>
                           {s.cancel}
@@ -743,17 +743,17 @@ export default function SecurityCenter({
               </button>
             </div>
             {webAuthnUnavailable && (
-              <p className="mt-2 rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
+              <p className="mt-2 rounded-lg border border-ms-warn-line bg-ms-warn-bg px-3 py-2 text-sm text-ms-warn-text">
                 WebAuthn is not available in this browser or build, so a passkey cannot be added
                 here. Nothing is faked — use an authenticator app instead.
               </p>
             )}
-            {passkeyError && <p role="alert" className="mt-2 text-sm text-red-400">{passkeyError}</p>}
-            {passkeyMessage && <p role="status" className="mt-2 text-sm text-emerald-400">{passkeyMessage}</p>}
+            {passkeyError && <p role="alert" className="mt-2 text-sm text-ms-danger-text">{passkeyError}</p>}
+            {passkeyMessage && <p role="status" className="mt-2 text-sm text-ms-ok-text">{passkeyMessage}</p>}
 
             <h4 className="mt-6 text-sm font-semibold">{s.mfa}</h4>
-            {mfaState === 'enabled' && <p className="mt-1 text-sm text-emerald-400">{s.mfaEnabled}</p>}
-            {mfaState === 'disabled' && <p className="mt-1 text-sm text-zinc-400">{s.mfaDisabled}</p>}
+            {mfaState === 'enabled' && <p className="mt-1 text-sm text-ms-ok-text">{s.mfaEnabled}</p>}
+            {mfaState === 'disabled' && <p className="mt-1 text-sm text-ms-muted">{s.mfaDisabled}</p>}
             {/* No status line while 'unknown': the API contract has no
              *  MFA-status read endpoint, so no claim is made before an
              *  enroll / disable is done in this session. */}
@@ -780,8 +780,8 @@ export default function SecurityCenter({
               </div>
             )}
             {mfaSecret && (
-              <div className="mt-3 space-y-3 rounded-lg border border-zinc-800 bg-zinc-900/60 p-4">
-                <p className="text-sm text-amber-200">{s.mfaSecretWarning}</p>
+              <div className="mt-3 space-y-3 rounded-lg border border-ms-line bg-ms-surface2 p-4">
+                <p className="text-sm text-ms-warn-text">{s.mfaSecretWarning}</p>
                 <div>
                   <label className="label" htmlFor="security-mfa-secret">
                     {s.mfaSecretLabel}
@@ -869,17 +869,17 @@ export default function SecurityCenter({
                 </form>
               </div>
             )}
-            {mfaError && <p role="alert" className="mt-2 text-sm text-red-400">{mfaError}</p>}
-            {mfaMessage && <p role="status" className="mt-2 text-sm text-emerald-400">{mfaMessage}</p>}
+            {mfaError && <p role="alert" className="mt-2 text-sm text-ms-danger-text">{mfaError}</p>}
+            {mfaMessage && <p role="status" className="mt-2 text-sm text-ms-ok-text">{mfaMessage}</p>}
 
             <h4 className="mt-6 text-sm font-semibold">{s.recoveryCodes}</h4>
-            <p className="mt-1 text-sm text-zinc-400">{s.codesShownOnce}</p>
+            <p className="mt-1 text-sm text-ms-muted">{s.codesShownOnce}</p>
             <button type="button" className="btn-ghost mt-2" onClick={() => void handleRegenerateCodes()}>
               {s.regenerateCodes}
             </button>
             {recoveryCodes && (
-              <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900/60 p-4">
-                <ul className="grid grid-cols-2 gap-2 font-mono text-sm text-zinc-100">
+              <div className="mt-3 rounded-lg border border-ms-line bg-ms-surface2 p-4">
+                <ul className="grid grid-cols-2 gap-2 font-mono text-sm text-ms-text">
                   {recoveryCodes.map((code) => (
                     <li key={code}>{code}</li>
                   ))}
@@ -897,15 +897,15 @@ export default function SecurityCenter({
               {s.devices}
             </h3>
             {devices.length === 0 ? (
-              <p className="mt-1 text-sm text-zinc-500">{dict.common.none}</p>
+              <p className="mt-1 text-sm text-ms-muted">{dict.common.none}</p>
             ) : (
               <ul className="mt-3 space-y-2">
                 {devices.map((d) => (
-                  <li key={d.id} className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
+                  <li key={d.id} className="rounded-lg border border-ms-line bg-ms-surface2 p-3">
                     <div className="flex flex-wrap items-center gap-3">
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-semibold text-zinc-100">{deviceLabel(d)}</p>
-                        <p className="text-xs text-zinc-400">
+                        <p className="truncate text-sm font-semibold text-ms-text">{deviceLabel(d)}</p>
+                        <p className="text-xs text-ms-muted">
                           {d.trusted ? s.trusted : s.untrusted} · {s.lastSeen} {fmtDate(d.last_seen_at ?? d.created_at)}
                         </p>
                       </div>
@@ -926,12 +926,12 @@ export default function SecurityCenter({
                       </span>
                     </div>
                     {confirmRevokeDeviceId === d.id && (
-                      <div role="group" aria-label={x.revokeDeviceTitle} className="mt-3 space-y-2 rounded-lg border border-amber-900/60 bg-amber-950/30 p-3">
-                        <p className="text-sm font-semibold text-amber-100">{x.revokeDeviceTitle}</p>
-                        {d.current && <p className="text-xs text-amber-200">{x.revokeDeviceCurrent}</p>}
-                        <p className="text-xs text-zinc-300">{x.revokeDeviceLimits}</p>
+                      <div role="group" aria-label={x.revokeDeviceTitle} className="mt-3 space-y-2 rounded-lg border border-ms-warn-line bg-ms-warn-bg p-3">
+                        <p className="text-sm font-semibold text-ms-warn-text">{x.revokeDeviceTitle}</p>
+                        {d.current && <p className="text-xs text-ms-warn-text">{x.revokeDeviceCurrent}</p>}
+                        <p className="text-xs text-ms-muted">{x.revokeDeviceLimits}</p>
                         {d.authenticator_id && (
-                          <label className="flex items-center gap-2 text-xs text-zinc-200">
+                          <label className="flex items-center gap-2 text-xs text-ms-text">
                             <input
                               type="checkbox"
                               checked={revokeDevicePasskey}
@@ -941,11 +941,11 @@ export default function SecurityCenter({
                           </label>
                         )}
                         {revokeDevicePasskey && (d.passkey_active_devices ?? 0) > 1 ? (
-                          <p className="text-xs text-amber-200">
+                          <p className="text-xs text-ms-warn-text">
                             {x.revokeDeviceSharedPasskey.replace('{n}', String((d.passkey_active_devices ?? 1) - 1))}
                           </p>
                         ) : !revokeDevicePasskey ? (
-                          <p className="text-xs text-zinc-400">{x.revokeDevicePasskeyNote}</p>
+                          <p className="text-xs text-ms-muted">{x.revokeDevicePasskeyNote}</p>
                         ) : null}
                         <span className="flex gap-2">
                           <button type="button" className="btn-ghost !py-1 text-xs" onClick={() => setConfirmRevokeDeviceId(null)}>
@@ -993,12 +993,12 @@ export default function SecurityCenter({
                 ))}
               </ul>
             )}
-            <p className="mt-3 text-xs text-zinc-500">{x.deviceRevokeNote}</p>
+            <p className="mt-3 text-xs text-ms-muted">{x.deviceRevokeNote}</p>
             <form
-              className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900/60 p-3"
+              className="mt-3 rounded-lg border border-ms-line bg-ms-surface2 p-3"
               onSubmit={(e) => { e.preventDefault(); void handleEnrollDevice(); }}
             >
-              <p className="text-xs text-zinc-400">{x.enrollDeviceBody}</p>
+              <p className="text-xs text-ms-muted">{x.enrollDeviceBody}</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 <div className="min-w-0 flex-1">
                   <label className="label" htmlFor="security-enroll-name">{x.enrollDeviceName}</label>
@@ -1018,29 +1018,29 @@ export default function SecurityCenter({
                 </button>
               </div>
             </form>
-            {deviceError && <p role="alert" className="mt-2 text-sm text-red-400">{deviceError}</p>}
-            {deviceMessage && <p role="status" className="mt-2 text-sm text-zinc-400">{deviceMessage}</p>}
+            {deviceError && <p role="alert" className="mt-2 text-sm text-ms-danger-text">{deviceError}</p>}
+            {deviceMessage && <p role="status" className="mt-2 text-sm text-ms-muted">{deviceMessage}</p>}
 
             <h3 className="mt-6 text-base font-semibold">{s.sessions}</h3>
-            <p className="mt-1 rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
+            <p className="mt-1 rounded-lg border border-ms-warn-line bg-ms-warn-bg px-3 py-2 text-sm text-ms-warn-text">
               {s.revokeOthersConfirm}
             </p>
             {sessions.length === 0 ? (
-              <p className="mt-2 text-sm text-zinc-500">{dict.common.none}</p>
+              <p className="mt-2 text-sm text-ms-muted">{dict.common.none}</p>
             ) : (
               <ul className="mt-3 space-y-2">
                 {sessions.map((sess) => (
-                  <li key={sess.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
+                  <li key={sess.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-ms-line bg-ms-surface2 p-3">
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-zinc-100">
+                      <p className="truncate text-sm font-semibold text-ms-text">
                         {sess.user_agent || sess.device_id}
                         {sess.current && (
-                          <span className="ml-2 rounded-full bg-indigo-600/25 px-2 py-0.5 text-[11px] font-medium text-indigo-200">
+                          <span className="ml-2 rounded-full bg-ms-brand-bg px-2 py-0.5 text-[11px] font-medium text-ms-text">
                             {s.currentSession}
                           </span>
                         )}
                       </p>
-                      <p className="text-xs text-zinc-400">
+                      <p className="text-xs text-ms-muted">
                         {sess.ip_address ? `${sess.ip_address} · ` : ''}{fmtDate(sess.created_at)}
                       </p>
                     </div>
@@ -1065,7 +1065,7 @@ export default function SecurityCenter({
             <div className="mt-3">
               {confirmRevokeOthers ? (
                 <span className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm text-zinc-300">{s.revokeOthersConfirm}</span>
+                  <span className="text-sm text-ms-muted">{s.revokeOthersConfirm}</span>
                   <button type="button" className="btn-ghost" onClick={() => setConfirmRevokeOthers(false)}>
                     {s.cancel}
                   </button>
@@ -1079,8 +1079,8 @@ export default function SecurityCenter({
                 </button>
               )}
             </div>
-            {sessionError && <p role="alert" className="mt-2 text-sm text-red-400">{sessionError}</p>}
-            {sessionMessage && <p role="status" className="mt-2 text-sm text-emerald-400">{sessionMessage}</p>}
+            {sessionError && <p role="alert" className="mt-2 text-sm text-ms-danger-text">{sessionError}</p>}
+            {sessionMessage && <p role="status" className="mt-2 text-sm text-ms-ok-text">{sessionMessage}</p>}
           </section>
 
           {/* (c) Recovery settings */}
@@ -1088,9 +1088,9 @@ export default function SecurityCenter({
             <h3 id="security-recovery-heading" className="text-base font-semibold">
               {s.recoverySettings}
             </h3>
-            <p className="mt-1 text-sm text-zinc-400">{s.recoveryNote}</p>
+            <p className="mt-1 text-sm text-ms-muted">{s.recoveryNote}</p>
             <h4 className="mt-4 text-sm font-semibold">{s.recoveryVerifier}</h4>
-            <p className="mt-1 text-sm text-zinc-400">{s.recovery}</p>
+            <p className="mt-1 text-sm text-ms-muted">{s.recovery}</p>
             <form
               className="mt-3 space-y-3"
               onSubmit={(e) => {
@@ -1119,15 +1119,15 @@ export default function SecurityCenter({
             </form>
             {verifierFingerprint && (
               <div role="status" className="mt-2 space-y-1">
-                <p className="text-sm text-emerald-400">{s.recoveryVerifierRegistered}</p>
-                <p className="break-all font-mono text-sm text-zinc-200">
+                <p className="text-sm text-ms-ok-text">{s.recoveryVerifierRegistered}</p>
+                <p className="break-all font-mono text-sm text-ms-text">
                   {s.recoveryVerifier}: {verifierFingerprint}
                 </p>
               </div>
             )}
-            {recoveryError && <p role="alert" className="mt-2 text-sm text-red-400">{recoveryError}</p>}
+            {recoveryError && <p role="alert" className="mt-2 text-sm text-ms-danger-text">{recoveryError}</p>}
             {recoveryMessage && !verifierFingerprint && (
-              <p role="status" className="mt-2 text-sm text-emerald-400">{recoveryMessage}</p>
+              <p role="status" className="mt-2 text-sm text-ms-ok-text">{recoveryMessage}</p>
             )}
           </section>
 
@@ -1137,14 +1137,14 @@ export default function SecurityCenter({
               {s.activity}
             </h3>
             {activity.length === 0 ? (
-              <p className="mt-1 text-sm text-zinc-500">{s.noActivity}</p>
+              <p className="mt-1 text-sm text-ms-muted">{s.noActivity}</p>
             ) : (
               <ul className="mt-3 space-y-2">
                 {activity.map((ev, i) => (
-                  <li key={`${ev.event_type}-${ev.created_at}-${i}`} className="flex flex-wrap items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
+                  <li key={`${ev.event_type}-${ev.created_at}-${i}`} className="flex flex-wrap items-center gap-3 rounded-lg border border-ms-line bg-ms-surface2 p-3">
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-zinc-100">{ev.event_type}</p>
-                      <p className="text-xs text-zinc-400">
+                      <p className="truncate text-sm font-semibold text-ms-text">{ev.event_type}</p>
+                      <p className="text-xs text-ms-muted">
                         {ev.device_id} · {fmtDate(ev.created_at)}
                       </p>
                     </div>
@@ -1159,11 +1159,11 @@ export default function SecurityCenter({
             <h3 id="security-delete-account-heading" className="text-base font-semibold">
               {x.deleteAccount}
             </h3>
-            <p className="mt-1 text-sm text-zinc-400">{x.deleteAccountBody}</p>
+            <p className="mt-1 text-sm text-ms-muted">{x.deleteAccountBody}</p>
             <div className="mt-3">
               {confirmDeleteAccount ? (
                 <span className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm text-zinc-300">{x.deleteAccountConfirm}</span>
+                  <span className="text-sm text-ms-muted">{x.deleteAccountConfirm}</span>
                   <button
                     type="button"
                     className="btn-ghost"
@@ -1192,13 +1192,13 @@ export default function SecurityCenter({
                 </button>
               )}
             </div>
-            {deleteAccountError && <p role="alert" className="mt-2 text-sm text-red-400">{deleteAccountError}</p>}
-            {deleteAccountMessage && <p role="status" className="mt-2 text-sm text-emerald-400">{deleteAccountMessage}</p>}
+            {deleteAccountError && <p role="alert" className="mt-2 text-sm text-ms-danger-text">{deleteAccountError}</p>}
+            {deleteAccountMessage && <p role="status" className="mt-2 text-sm text-ms-ok-text">{deleteAccountMessage}</p>}
           </section>
         </>
       )}
 
-      <p className="text-xs text-zinc-500">
+      <p className="text-xs text-ms-muted">
         {s.title} · {apiBaseUrl ? apiBaseUrl : s.notConfigured}
       </p>
 

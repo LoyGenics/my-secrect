@@ -10,6 +10,7 @@
     "./tokens": "./src/tokens.ts",
     "./tokens.css": "./src/tokens.css",
     "./components.css": "./src/components.css",
+    "./legacy.css": "./src/legacy.css",
     "./theme": "./src/theme.ts",
     "./icons": "./src/icons.ts",
     "./native": "./src/native/index.ts"

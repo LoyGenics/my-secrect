@@ -1,9 +1,9 @@
 /**
- * @my-secrect/ui — My Secret design system ("Precision Instrument").
+ * @my-secrect/ui — My Secret design system (soft, light direction).
  *
  * - Tokens: `tokens.ts` (single source) -> generated `tokens.css`.
  * - Icons: `icons.ts` (semantic names) + `components/Icon` (lucide-react).
- * - Modules: `modules.ts` (item-type silhouettes) + `TypeModule`.
+ * - Modules: `modules.ts` (item-type glyphs) + `TypeModule` (pastel tile + 3D picture).
  * - Components: web/desktop React on Radix primitives + `components.css`.
  * - React Native imports `@my-secrect/ui/native` and `tokens.ts` only.
  *

@@ -1134,33 +1134,12 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
       />
 
       <main id="ms-main" className="ms-main" tabIndex={-1}>
-        <header className="ms-topbar">
+        <header className="ms-topbar" data-list={isListView}>
           <IconButton className="ms-topbar__menu" icon="menu" label={sh.openMenu} variant="secondary" onClick={() => setNavOpen(true)} />
           <h1 className="ms-heading ms-heading--md ms-topbar__title">{viewTitle}</h1>
-          {isListView && (
-            <div className="ms-topbar__search">
-              <span className="ms-input-wrap ms-search-field">
-                <span className="ms-search-field__icon" aria-hidden="true"><Icon name="search" /></span>
-                <input
-                  id="search-items"
-                  name="search"
-                  type="search"
-                  className="ms-input"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder={sh.searchPlaceholder}
-                  aria-label={sh.searchLabel}
-                  autoComplete="off"
-                />
-                <button type="button" className="ms-input-wrap__button" aria-label={`${sh.openSearch} ⌘K`} title={sh.openSearch} onClick={() => setShowPalette(true)}>
-                  <Kbd>⌘K</Kbd>
-                </button>
-              </span>
-            </div>
-          )}
           <div className="ms-topbar__end">
-            {syncTone && (
-              <span className="ms-copy-led ms-legend ms-topbar__wide">
+            {syncTone && !isListView && (
+              <span className="ms-copy-led ms-topbar__wide">
                 <Led tone={syncTone} /> {syncLabel}
               </span>
             )}
@@ -1259,6 +1238,36 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
           <div className="ms-content ms-content--split">
             <div className="ms-split" data-pushed={pushed}>
               <section className="ms-pane ms-pane--list" aria-label={viewTitle}>
+                <div className="ms-pane__top">
+                <div className="ms-pane__head">
+                  <div className="ms-pane__head-row">
+                    <h1 className="ms-heading ms-heading--lg ms-pane__title">{viewTitle}</h1>
+                    {syncTone && (
+                      <span className="ms-copy-led ms-pane__sync" title={syncLabel}>
+                        <Led tone={syncTone} />
+                        <span className="ms-pane__sync-text">{syncLabel}</span>
+                      </span>
+                    )}
+                    <Button variant="primary" size="sm" onClick={newItem}>{sh.newItem}</Button>
+                  </div>
+                  <span className="ms-input-wrap ms-search-field">
+                    <span className="ms-search-field__icon" aria-hidden="true"><Icon name="search" /></span>
+                    <input
+                      id="search-items"
+                      name="search"
+                      type="search"
+                      className="ms-input"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder={sh.searchPlaceholder}
+                      aria-label={sh.searchLabel}
+                      autoComplete="off"
+                    />
+                    <button type="button" className="ms-input-wrap__button" aria-label={`${sh.openSearch} ⌘K`} title={sh.openSearch} onClick={() => setShowPalette(true)}>
+                      <Kbd>⌘K</Kbd>
+                    </button>
+                  </span>
+                </div>
                 <div className="ms-pane__toolbar">
                   <Button size="sm" aria-pressed={selectionMode} onClick={() => { setSelectionMode((v) => !v); setBulkIds(new Set()); }}>
                     {selectionMode ? sh.doneSelecting : sh.selectMode}
@@ -1292,6 +1301,7 @@ export default function App({ allowPlaintextExport = true }: { allowPlaintextExp
                       <Button size="sm" variant="ghost" onClick={() => setBulkIds(new Set())}>{sh.clearSelection}</Button>
                     </div>
                   )}
+                </div>
                 </div>
                 {visibleItems.length === 0 ? (
                   <EmptyState

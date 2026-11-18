@@ -26,23 +26,23 @@ export default function SyncBar({ status, conflicts, onSyncNow, onKeepBoth, reso
   const [open, setOpen] = useState(false);
   if (status.state === 'disabled') return null;
   const tone =
-    status.state === 'error' || status.state === 'signed_out' || status.state === 'vault_mismatch' ? 'border-red-900/60 bg-red-950/40 text-red-200'
-    : status.state === 'offline' ? 'border-amber-900/60 bg-amber-950/40 text-amber-200'
-    : 'border-zinc-800 bg-zinc-900 text-zinc-300';
+    status.state === 'error' || status.state === 'signed_out' || status.state === 'vault_mismatch' ? 'border-ms-danger-line bg-ms-danger-bg text-ms-danger-text'
+    : status.state === 'offline' ? 'border-ms-warn-line bg-ms-warn-bg text-ms-warn-text'
+    : 'border-ms-line bg-ms-surface2 text-ms-muted';
   const showConflicts = status.unresolvedConflicts > 0 || open;
   return (
     <div data-testid="sync-bar">
       <div className={`mx-5 mt-3 flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2 text-xs ${tone}`}>
         <span data-testid="sync-status" data-state={status.state} role="status" className="font-medium">{LABEL[status.state]}</span>
         {status.pending > 0 && <span data-testid="sync-pending">{status.pending} change{status.pending === 1 ? '' : 's'} waiting to upload</span>}
-        {status.lastSyncedAt && status.state === 'idle' && <span className="text-zinc-500">last {status.lastSyncedAt}</span>}
+        {status.lastSyncedAt && status.state === 'idle' && <span className="text-ms-muted">last {status.lastSyncedAt}</span>}
         <button type="button" className="underline" onClick={onSyncNow}>Sync now</button>
         <button type="button" className="underline" data-testid="sync-conflicts-toggle" onClick={() => setOpen((v) => !v)}>
           {status.unresolvedConflicts > 0 ? `${status.unresolvedConflicts} conflict${status.unresolvedConflicts === 1 ? '' : 's'} to review` : 'Conflicts'}
         </button>
       </div>
       {status.error && (
-        <pre data-testid="sync-error" role="alert" className="mx-5 mt-1 whitespace-pre-wrap rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-300">{status.error}</pre>
+        <pre data-testid="sync-error" role="alert" className="mx-5 mt-1 whitespace-pre-wrap rounded-lg border border-ms-line bg-ms-surface2 px-3 py-2 text-xs text-ms-muted">{status.error}</pre>
       )}
       {showConflicts && <ConflictList conflicts={conflicts} onKeepBoth={onKeepBoth} error={resolveError} />}
     </div>

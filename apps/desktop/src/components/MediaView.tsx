@@ -251,21 +251,21 @@ export default function MediaView({ items, api = null, onItemsChanged, onSelect 
             disabled={upload !== null || busy !== null}
             onChange={(e) => { const f = e.target.files?.[0]; if (f) void onUpload(f); }}
           />
-          <span className="text-xs text-zinc-500">Encrypted on this device before upload · max {formatBytes(MAX_MEDIA_BYTES)} per file</span>
+          <span className="text-xs text-ms-muted">Encrypted on this device before upload · max {formatBytes(MAX_MEDIA_BYTES)} per file</span>
         </div>
       ) : (
-        <p role="note" className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200">
+        <p role="note" className="rounded-lg border border-ms-warn-line bg-ms-warn-bg p-3 text-xs text-ms-warn-text">
           Local-only: file upload and download need an account server. Set the API base URL in Settings and sign in. Until then no file bytes are stored anywhere.
         </p>
       )}
       {upload && (
         <div className="mt-3 max-w-xl" role="status" aria-live="polite">
           <div className="flex items-baseline justify-between gap-3 text-xs">
-            <span className="truncate text-zinc-200">Encrypting and uploading {upload.fileName}</span>
-            <span className="shrink-0 tabular-nums text-zinc-400">{upload.done} / {upload.total} parts</span>
+            <span className="truncate text-ms-text">Encrypting and uploading {upload.fileName}</span>
+            <span className="shrink-0 tabular-nums text-ms-muted">{upload.done} / {upload.total} parts</span>
           </div>
           <div
-            className="mt-1.5 h-1 overflow-hidden rounded-full bg-zinc-800" role="progressbar" aria-label={`Upload progress for ${upload.fileName}`}
+            className="mt-1.5 h-1 overflow-hidden rounded-full bg-ms-sunken" role="progressbar" aria-label={`Upload progress for ${upload.fileName}`}
             aria-valuemin={0} aria-valuemax={upload.total} aria-valuenow={upload.done}
           >
             <div className="h-full rounded-full bg-[var(--ms-color-brand)] transition-[width] duration-200 ease-out" style={{ width: `${(100 * upload.done) / upload.total}%` }} />
@@ -273,7 +273,7 @@ export default function MediaView({ items, api = null, onItemsChanged, onSelect 
           {upload.retry && <p className="mt-1.5 text-xs text-[var(--ms-color-warning-text)]">{upload.retry}</p>}
         </div>
       )}
-      {busy && <p role="status" className="mt-3 text-xs text-zinc-300">{busy}</p>}
+      {busy && <p role="status" className="mt-3 text-xs text-ms-muted">{busy}</p>}
       {notice && <p role="status" className="mt-3 text-xs text-[var(--ms-color-success-text)]">{notice}</p>}
       {error && (
         <div role="alert" className="mt-3 flex max-w-xl flex-wrap items-center gap-3 rounded-lg border border-[var(--ms-color-danger-border)] bg-[var(--ms-color-danger-soft)] px-3 py-2 text-xs text-[var(--ms-color-danger-soft-text)]">
@@ -294,14 +294,14 @@ export default function MediaView({ items, api = null, onItemsChanged, onSelect 
       aria-label={viewer ? `Viewer: ${viewer.item.title}` : 'Viewer'}
       onClose={closeViewer}
       onClick={(e) => { if (e.target === e.currentTarget) closeViewer(); }}
-      className="w-[min(92vw,64rem)] overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 p-0 text-zinc-100 shadow-2xl backdrop:bg-black/70"
+      className="w-[min(92vw,64rem)] overflow-hidden rounded-xl border border-ms-line bg-ms-surface2 p-0 text-ms-text shadow-2xl backdrop:bg-black/70"
     >
       {viewer && (
         <div className="flex max-h-[88vh] flex-col">
-          <div className="flex items-center gap-3 border-b border-zinc-800 px-4 py-3">
+          <div className="flex items-center gap-3 border-b border-ms-line px-4 py-3">
             <div className="min-w-0 flex-1">
               <h2 className="truncate text-sm font-semibold">{viewer.item.title}</h2>
-              <p className="text-xs text-zinc-400">
+              <p className="text-xs text-ms-muted">
                 {viewer.info.mime_type} · {formatBytes(viewer.info.size_bytes)}
                 {viewer.status === 'ready' && <span className="text-[var(--ms-color-success-text)]"> · verified and decrypted on this device</span>}
               </p>
@@ -311,12 +311,12 @@ export default function MediaView({ items, api = null, onItemsChanged, onSelect 
           <div className="flex min-h-[16rem] flex-1 items-center justify-center overflow-auto bg-black/40 p-4">
             {viewer.status === 'decrypting' && (
               <div className="w-full max-w-sm text-center" role="status" aria-live="polite">
-                <p className="text-sm text-zinc-300">Verifying and decrypting…</p>
-                <p className="mt-1 text-xs tabular-nums text-zinc-500">{viewer.total ? `${viewer.done} / ${viewer.total} chunks` : 'fetching manifest'}</p>
-                <div className="mt-3 h-1 overflow-hidden rounded-full bg-zinc-800">
+                <p className="text-sm text-ms-muted">Verifying and decrypting…</p>
+                <p className="mt-1 text-xs tabular-nums text-ms-muted">{viewer.total ? `${viewer.done} / ${viewer.total} chunks` : 'fetching manifest'}</p>
+                <div className="mt-3 h-1 overflow-hidden rounded-full bg-ms-sunken">
                   <div className="h-full rounded-full bg-[var(--ms-color-brand)] transition-[width] duration-200 ease-out" style={{ width: viewer.total ? `${(100 * viewer.done) / viewer.total}%` : '0%' }} />
                 </div>
-                <p className="mt-3 text-xs text-zinc-500">Nothing is shown until every chunk has been verified.</p>
+                <p className="mt-3 text-xs text-ms-muted">Nothing is shown until every chunk has been verified.</p>
               </div>
             )}
             {viewer.status === 'failed' && (
@@ -340,9 +340,9 @@ export default function MediaView({ items, api = null, onItemsChanged, onSelect 
       <div className="p-5">
         {header}
         <div className="mx-auto mt-10 max-w-md text-center">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-500"><KindIcon kind="photo" className="h-7 w-7" /></div>
-          <p className="mt-4 text-sm text-zinc-200">No photos, videos or documents yet.</p>
-          <p className="mt-1 text-xs text-zinc-500">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-xl border border-ms-line bg-ms-surface2 text-ms-muted"><KindIcon kind="photo" className="h-7 w-7" /></div>
+          <p className="mt-4 text-sm text-ms-text">No photos, videos or documents yet.</p>
+          <p className="mt-1 text-xs text-ms-muted">
             Each file is split into authenticated encrypted chunks on this device before it leaves. Thumbnails are made and encrypted here too, so the server only ever holds ciphertext.
           </p>
         </div>
@@ -356,12 +356,12 @@ export default function MediaView({ items, api = null, onItemsChanged, onSelect 
       {header}
       <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="Filter media">
         {FILTERS.map((k) => (
-          <button key={k} onClick={() => setFilter(k)} aria-pressed={filter === k} className={`rounded-full px-3 py-1 text-xs transition-colors duration-150 ${filter === k ? 'bg-indigo-600 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}>
+          <button key={k} onClick={() => setFilter(k)} aria-pressed={filter === k} className={`rounded-full px-3 py-1 text-xs transition-colors duration-150 ${filter === k ? 'bg-ms-brand-bg text-ms-text' : 'bg-ms-sunken text-ms-muted hover:bg-ms-sunken'}`}>
             {k === 'all' ? 'All' : k[0].toUpperCase() + k.slice(1)}
           </button>
         ))}
       </div>
-      {mediaItems.length === 0 && <p className="text-sm text-zinc-400">Nothing in this filter.</p>}
+      {mediaItems.length === 0 && <p className="text-sm text-ms-muted">Nothing in this filter.</p>}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {mediaItems.map(({ item, info }) => {
           const manifest = manifests[info.blob_id];
@@ -390,7 +390,7 @@ export default function MediaView({ items, api = null, onItemsChanged, onSelect 
           );
         })}
       </div>
-      <p className="mt-5 max-w-3xl text-xs text-zinc-500">
+      <p className="mt-5 max-w-3xl text-xs text-ms-muted">
         Thumbnails are generated on this device and stored as their own encrypted blobs; the server never sees them. Decrypted files live only in memory while shown and are released when you close them. A fully compromised device is not protected by this.
       </p>
       {viewerDialog}
@@ -436,33 +436,33 @@ function MediaTile(props: {
   return (
     <article ref={ref} className="card overflow-hidden" aria-label={`Media item ${item.title}`}>
       <button className="group block w-full text-left focus-visible:outline-none" onClick={() => props.onSelect?.(item)} disabled={status === 'tampered'}>
-        <div className={`relative flex aspect-[4/3] items-center justify-center overflow-hidden bg-zinc-900 text-zinc-500 ${loadingThumb ? 'animate-pulse' : ''}`}>
+        <div className={`relative flex aspect-[4/3] items-center justify-center overflow-hidden bg-ms-surface2 text-ms-muted ${loadingThumb ? 'animate-pulse' : ''}`}>
           {thumb ? <img src={thumb} alt="" className="h-full w-full object-cover" /> : <KindIcon kind={info.kind} />}
           {info.duration_s != null && (
-            <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[11px] tabular-nums text-zinc-100">{formatDuration(info.duration_s)}</span>
+            <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[11px] tabular-nums text-white">{formatDuration(info.duration_s)}</span>
           )}
         </div>
         <div className="p-3">
-          <h3 className="truncate text-sm font-semibold text-zinc-100 group-hover:text-white">{item.title}</h3>
-          <p className="mt-1 text-xs text-zinc-400">
+          <h3 className="truncate text-sm font-semibold text-ms-text group-hover:text-ms-text">{item.title}</h3>
+          <p className="mt-1 text-xs text-ms-muted">
             {info.mime_type} · {formatBytes(info.size_bytes)}
             {info.width && info.height ? ` · ${info.width}×${info.height}` : ''}
           </p>
           <p className="mt-1 text-xs">
-            <span className={status === 'verified' ? 'text-[var(--ms-color-success-text)]' : status === 'tampered' ? 'text-[var(--ms-color-danger-soft-text)]' : 'text-zinc-500'}>
+            <span className={status === 'verified' ? 'text-[var(--ms-color-success-text)]' : status === 'tampered' ? 'text-[var(--ms-color-danger-soft-text)]' : 'text-ms-muted'}>
               Manifest: {status === 'tampered' && metaError ? 'FAILED verification' : status === 'missing' ? 'not uploaded' : hasApi ? status : 'unknown (no account server)'}
             </span>
-            {manifest ? <span className="text-zinc-500">{` · ${manifest.chunks.length} chunk${manifest.chunks.length > 1 ? 's' : ''}`}</span> : ''}
+            {manifest ? <span className="text-ms-muted">{` · ${manifest.chunks.length} chunk${manifest.chunks.length > 1 ? 's' : ''}`}</span> : ''}
           </p>
           {thumbError && <p className="mt-1 text-xs text-[var(--ms-color-warning-text)]">Thumbnail failed verification — not shown.</p>}
           {status === 'tampered' && <p role="alert" className="mt-1 text-xs text-[var(--ms-color-danger-soft-text)]">Manifest failed verification{metaError ? `: ${metaError}` : ''}. Do not open this file.</p>}
           {status === 'missing' && <p className="mt-1 text-xs text-[var(--ms-color-warning-text)]">This item was created with the old manifest-only form: no file bytes were ever stored, so there is nothing to download.</p>}
           {info.kind === 'video' && manifest && (
-            <p className="mt-1 text-xs text-zinc-500">{seekChunksLabel(manifest, 0)} — video seeks fetch only the needed chunks.</p>
+            <p className="mt-1 text-xs text-ms-muted">{seekChunksLabel(manifest, 0)} — video seeks fetch only the needed chunks.</p>
           )}
         </div>
       </button>
-      <div className="flex flex-wrap gap-2 border-t border-zinc-800 px-3 py-2">
+      <div className="flex flex-wrap gap-2 border-t border-ms-line px-3 py-2">
         {(info.kind === 'photo' || info.kind === 'video' || info.kind === 'audio') && (
           <button
             className="btn-ghost !py-1 text-xs" disabled={blocked || !preview.ok} onClick={props.onView}
@@ -477,7 +477,7 @@ function MediaTile(props: {
         <p className="px-3 pb-2 text-xs text-[var(--ms-color-warning-text)]">Download only: {preview.reason}.</p>
       )}
       {!isSupportedMime(info.mime_type) && (info.kind === 'document' || info.kind === 'other') && (
-        <p className="px-3 pb-2 text-xs text-zinc-500">No in-app preview for this type — download only.</p>
+        <p className="px-3 pb-2 text-xs text-ms-muted">No in-app preview for this type — download only.</p>
       )}
     </article>
   );
