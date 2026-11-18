@@ -951,7 +951,12 @@ select.ms-input { padding-right: 32px; cursor: pointer; }
   padding: 4px 18px 10px;
 }
 .ms-pane__toolbar .ms-input { min-height: var(--ms-control-height); padding-top: 4px; padding-bottom: 4px; font-size: var(--ms-text-sm); }
-.ms-pane--detail { padding: 28px 32px; }
+.ms-pane--detail { padding: 28px 32px; container-type: inline-size; }
+/* A narrow detail column (tablet, small desktop windows) stacks each field's label above its value. */
+@container (max-width: 520px) {
+  .ms-spec__row { grid-template-columns: minmax(0, 1fr) auto; }
+  .ms-spec__row > .ms-spec__label { grid-column: 1 / -1; margin-bottom: -2px; }
+}
 .ms-pane__back { display: none; }
 
 /* List rows */
@@ -1247,21 +1252,6 @@ select.ms-input { padding-right: 32px; cursor: pointer; }
 @keyframes ms-keyturn-out {
   from { transform: none; opacity: 1; }
   to { transform: translateY(-24px); opacity: 0; }
-}
-
-/* --- Screens still on shared page patterns (security, media, shares) --------- */
-.ms-stack { display: grid; gap: var(--ms-space-4); min-width: 0; }
-.ms-stack--tight { gap: var(--ms-space-2); }
-.ms-cluster { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ms-space-2); min-width: 0; }
-.ms-page-title { font-size: var(--ms-text-lg); line-height: var(--ms-leading-lg); font-weight: 700; letter-spacing: -0.01em; margin: 0; }
-.ms-section-title { font-size: var(--ms-text-md); line-height: var(--ms-leading-md); font-weight: 700; margin: 0; }
-.ms-grid-media { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: var(--ms-space-3); }
-.ms-tile-card {
-  background: var(--ms-color-bg-surface);
-  border: 1px solid var(--ms-color-border-default);
-  border-radius: var(--ms-radius-lg);
-  box-shadow: var(--ms-shadow-sm);
-  overflow: hidden;
 }
 
 /* --- Reduced motion: crossfade instead of movement, no decorative loops ---- */
