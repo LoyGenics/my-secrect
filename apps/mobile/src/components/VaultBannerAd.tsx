@@ -13,7 +13,7 @@ function bannerUnitId() {
   const unitId = Platform.OS === 'ios' ? process.env.EXPO_PUBLIC_ADMOB_IOS_BANNER_ID : process.env.EXPO_PUBLIC_ADMOB_ANDROID_BANNER_ID;
   if (Platform.OS !== 'ios' && Platform.OS !== 'android') return;
   if (__DEV__) return process.env.EXPO_PUBLIC_ADMOB_TEST_ADS === '1' ? 'test' : undefined;
-  if (/^ca-app-pub-\d+~\d+$/.test(appId ?? '') && /^ca-app-pub-\d+\/\d+$/.test(unitId ?? '')) return unitId;
+  if (/^ca-app-pub-\d{16}~\d{10}$/.test(appId ?? '') && /^ca-app-pub-\d{16}\/\d{10}$/.test(unitId ?? '')) return unitId;
 }
 
 let consentRequest: Promise<AdsState> | undefined;
@@ -91,10 +91,16 @@ export function VaultBannerAd({ sdk, unitId }: { sdk: Ads; unitId: string }) {
   const { colors } = useMobileTheme();
   const { width } = useWindowDimensions();
   const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   if (failed || width < 320) return null;
-  return <View testID="free-tier-banner" style={{ alignItems: 'center', paddingVertical: space[3], gap: space[1], backgroundColor: colors.canvas }}>
-    <Text style={[textStyle.caption, { color: colors.secondaryText }]}>{t('mobileBilling.adLabel')}</Text>
+  return <View testID={loaded ? 'free-tier-banner' : undefined} pointerEvents={loaded ? 'auto' : 'none'}
+    accessibilityElementsHidden={!loaded} importantForAccessibility={loaded ? 'auto' : 'no-hide-descendants'}
+    style={[
+      { alignItems: 'center', paddingVertical: space[3], gap: space[1], backgroundColor: colors.canvas },
+      !loaded && { position: 'absolute', bottom: 0, left: 0, right: 0, opacity: 0 },
+    ]}>
+    {loaded && <Text style={[textStyle.caption, { color: colors.secondaryText }]}>{t('mobileBilling.adLabel')}</Text>}
     <sdk.BannerAd unitId={unitId} size={sdk.BannerAdSize.BANNER} requestOptions={{ requestNonPersonalizedAdsOnly: true }}
-      onAdFailedToLoad={() => setFailed(true)} />
+      onAdLoaded={() => setLoaded(true)} onAdFailedToLoad={() => setFailed(true)} />
   </View>;
 }
