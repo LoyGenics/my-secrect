@@ -94,7 +94,33 @@ Real device-protected unlock (contract §4), not a presence check:
   passphrase — never to the device passcode.
 - Turning it off, wiping the vault and changing the passphrase delete
   the device key and the row.
+- Signing out, an expired session and any 401 that signs the user out
+  also delete the row, the device key and the autofill index
+  (`signOutVault`). The encrypted vault stays; sign in and enter the
+  passphrase to open it again.
 - Auto-lock also applies when the app comes back from the background.
+
+## Account sign-in
+
+An account session comes before creating, unlocking or restoring a vault.
+The sign-in screen offers Sign in with Apple (iOS), Sign in with Google and
+the email code. A button appears only when `GET /v1/auth/providers` returns
+that provider with this platform's ID (`apple.bundle_id`,
+`google.ios_client_id` / `google.android_client_id`). A session with a known,
+unexpired expiry may open the vault offline; one without a stored expiry is
+checked online first.
+
+Google uses `expo-auth-session` (authorization code + PKCE in the system
+browser, with the nonce). Console setup the owner does once:
+
+- iOS OAuth client for bundle `com.loygenics.my-secrect`. Its redirect is the
+  reversed client ID (`com.googleusercontent.apps.<id>:/oauthredirect`).
+- Android OAuth client for package `com.loygenics.mysecrect` and the signing
+  certificate SHA-1. Under **Advanced settings**, turn on **Enable custom URI
+  scheme**: the redirect is `com.loygenics.mysecrect:/oauthredirect`, and
+  Google blocks custom schemes for Android clients by default.
+- Apple: enable Sign in with Apple for the App ID (`ios.usesAppleSignIn` adds
+  the entitlement at prebuild).
 
 ## Native integrations — implemented vs planned
 

@@ -1,6 +1,9 @@
 export const mobileAuthEn = {
   continueEmail: 'Continue with email',
   continueGoogle: 'Continue with Google',
+  continueApple: 'Continue with Apple',
+  serviceUnavailable: 'The account service is unavailable right now. Try again later.',
+  accountUnverified: 'Your account could not be verified offline. Connect to the internet and sign in to open your vault.',
   orEmail: 'or',
   providerFailed: 'Could not verify that sign-in. Try again or continue with email.',
   newAccountHint: 'Verify your email to sign in or create an account and continue to your vault.',
@@ -80,6 +83,9 @@ export const mobileAuthEn = {
 export const mobileAuthVi: Record<keyof typeof mobileAuthEn, string> = {
   continueEmail: 'Tiếp tục bằng email',
   continueGoogle: 'Tiếp tục với Google',
+  continueApple: 'Tiếp tục với Apple',
+  serviceUnavailable: 'Dịch vụ tài khoản hiện không khả dụng. Hãy thử lại sau.',
+  accountUnverified: 'Không thể xác minh tài khoản khi ngoại tuyến. Hãy kết nối mạng và đăng nhập để mở kho.',
   orEmail: 'hoặc',
   providerFailed: 'Không xác minh được lần đăng nhập này. Hãy thử lại hoặc tiếp tục bằng email.',
   newAccountHint: 'Xác minh email để đăng nhập hoặc tạo tài khoản và tiếp tục vào kho.',

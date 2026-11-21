@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { BackHandler, Platform, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { AppState, BackHandler, Platform, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import sodium from 'libsodium-wrappers-sumo';
 import * as AppleAuthentication from 'expo-apple-authentication';
@@ -27,6 +27,8 @@ import { appleCredential, appleSignInAvailable, googleCredential } from '../oaut
 export interface SignInScreenProps {
   baseUrl: string;
   sessionExpired?: boolean;
+  /** A stored session without a known expiry could not be checked online. */
+  accountUnverified?: boolean;
   onSignedIn: (email: string, recoverySession: boolean, accountCreated: boolean) => void;
 }
 
@@ -106,7 +108,9 @@ function GoogleMark() {
 }
 
 /** Google, Apple or email verification creates or signs in to the account. Vault unlock is a separate next step. */
-export default function SignInScreen({ baseUrl, sessionExpired, onSignedIn }: SignInScreenProps) {
+const PROVIDERS_RETRY_MS = 15_000;
+
+export default function SignInScreen({ baseUrl, sessionExpired, accountUnverified, onSignedIn }: SignInScreenProps) {
   const { dict, t } = useTranslation();
   const { colors, scheme } = useMobileTheme();
   const { signin, mobileAuth: auth } = dict;
@@ -130,13 +134,20 @@ export default function SignInScreen({ baseUrl, sessionExpired, onSignedIn }: Si
   const address = email.trim().toLowerCase();
 
   // Buttons appear only for providers this server has configured; email is always offered.
+  // Fetched again when the app returns to the foreground, and retried after a failed (offline) fetch.
   useEffect(() => {
     let active = true;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const load = () => {
+      clearTimeout(retry);
+      void Promise.all([fetchAuthProviders(baseUrl), appleSignInAvailable()])
+        .then(([providers, appleAvailable]) => { if (active) setButtons(providerButtons(providers, Platform.OS, appleAvailable)); })
+        .catch(() => { if (active) retry = setTimeout(load, PROVIDERS_RETRY_MS); });
+    };
     setButtons({ apple: false, googleClientId: null });
-    void Promise.all([fetchAuthProviders(baseUrl), appleSignInAvailable()])
-      .then(([providers, appleAvailable]) => { if (active) setButtons(providerButtons(providers, Platform.OS, appleAvailable)); })
-      .catch(() => undefined);
-    return () => { active = false; };
+    load();
+    const sub = AppState.addEventListener('change', state => { if (state === 'active') load(); });
+    return () => { active = false; clearTimeout(retry); sub.remove(); };
   }, [baseUrl]);
 
   async function finish(who: string, token: string, expiresIn: number, recoverySession: boolean, accountCreated = false) {
@@ -149,7 +160,7 @@ export default function SignInScreen({ baseUrl, sessionExpired, onSignedIn }: Si
     if (isNetworkError(error)) return auth.offline;
     switch (apiStatus(error)) {
       case 429: return auth.emailRateLimited;
-      case 503: return signin.emailUnavailable;
+      case 503: return auth.serviceUnavailable;
       case 401: return signin.emailCodeFailed;
       default: return signin.unknownError;
     }
@@ -198,7 +209,7 @@ export default function SignInScreen({ baseUrl, sessionExpired, onSignedIn }: Si
       setStep('code');
     } catch (error) {
       if (apiStatus(error) === 422 && !resending) setEmailError(signin.invalidEmail);
-      else setError(failMessage(error));
+      else setError(apiStatus(error) === 503 ? signin.emailUnavailable : failMessage(error));
     } finally {
       setBusy(null);
     }
@@ -359,10 +370,14 @@ export default function SignInScreen({ baseUrl, sessionExpired, onSignedIn }: Si
     content = (
       <>
         {sessionExpired && <Text testID="signin-session-expired" accessibilityRole="alert" style={[textStyle.helper, { color: colors.warningText }]}>{signin.sessionExpired}</Text>}
+        {accountUnverified && <Text testID="signin-account-unverified" accessibilityRole="alert" style={[textStyle.helper, { color: colors.warningText }]}>{auth.accountUnverified}</Text>}
         {(buttons.apple || buttons.googleClientId) && (
           <View style={styles.actions}>
             {buttons.apple && (
-              <View pointerEvents={busy ? 'none' : 'auto'} style={{ opacity: busy && busy !== 'apple' ? 0.5 : 1 }}>
+              <View pointerEvents={busy ? 'none' : 'auto'} style={{ opacity: busy && busy !== 'apple' ? 0.5 : 1 }}
+                accessible accessibilityRole="button" accessibilityLabel={auth.continueApple}
+                accessibilityState={{ disabled: Boolean(busy) && busy !== 'apple', busy: busy === 'apple' }}
+                onAccessibilityTap={() => void signInWith('apple')}>
                 <AppleAuthentication.AppleAuthenticationButton
                   testID="signin-apple"
                   buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
