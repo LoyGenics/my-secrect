@@ -146,6 +146,7 @@ export default function Options() {
         ) : account ? (
           <SignIn account={account} onChange={setAccount} tone="paper" />
         ) : null}
+        {import.meta.env.DEV && (<>
         <div>
           <label className="label" htmlFor="api-base-url">{x.accountServer}</label>
           <input id="api-base-url" name="api-base-url" type="url" className="input font-mono" value={serverText} onChange={(e) => setServerText(e.target.value)}
@@ -153,6 +154,7 @@ export default function Options() {
           <p className="ink3 mt-1">{x.accountServerHint}</p>
         </div>
         <button className="btn-secondary" type="button" onClick={() => void saveServer()}>{x.saveServer}</button>
+        </>)}
       </section>
 
       <RestoreBackupExt vaultExists={vaultExists} signedIn={account?.step === 'signed-in'} onRestored={() => setVaultExists(true)} />

@@ -29,6 +29,7 @@
  *    SDK device-key store (non-extractable WebCrypto key when available),
  *    exactly as on desktop/web; it signs the email ticket or OAuth nonce.
  */
+import { HOSTED_API_BASE_URL } from '../../../../packages/sdk/src/hosted';
 import {
   deviceKeyScope,
   prepareSignInDeviceProof,
@@ -55,8 +56,8 @@ const DEVICE_PLATFORM = 'extension';
 export const SESSION_ALARM = 'my-secrect-session-expiry';
 const VERIFY_WINDOW_MS = 60_000;
 
-/** Build-time default (VITE_API_BASE_URL); the options page can override it. */
-const DEFAULT_API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL ?? '') ?? '';
+/** The hosted My Secret cloud; VITE_API_BASE_URL (and the options override in development builds) is for developers only. */
+const DEFAULT_API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL || HOSTED_API_BASE_URL) ?? '';
 
 interface AccountRecord {
   apiBaseUrl: string;

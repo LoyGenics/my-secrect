@@ -961,7 +961,7 @@ export const vi: Dictionary = {
     encryption: 'Mã hóa',
     encryptionValue: 'Argon2id + XChaCha20-Poly1305 qua libsodium',
     storage: 'Lưu trữ',
-    storageValue: 'Chỉ cục bộ — chưa có máy chủ, chưa đồng bộ',
+    storageValue: 'Mã hoá trên thiết bị, đồng bộ lên đám mây My Secret',
     audit: 'Kiểm toán',
     auditValue: 'Chưa kiểm toán — đừng dùng như sản phẩm chính thức',
     wipeTitle: 'Vùng nguy hiểm — xóa sạch kho',

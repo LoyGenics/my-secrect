@@ -961,7 +961,7 @@ export const en = {
     encryption: 'Encryption',
     encryptionValue: 'Argon2id + XChaCha20-Poly1305 via libsodium',
     storage: 'Storage',
-    storageValue: 'Local only — no server, no sync yet',
+    storageValue: 'Encrypted on this device, synced to the My Secret cloud',
     audit: 'Audit',
     auditValue: 'Not audited — do not treat as production-ready',
     wipeTitle: 'Danger zone — wipe vault',

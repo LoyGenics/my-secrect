@@ -725,9 +725,11 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
             </form>
           )}
 
-          <p className="si-foot">
-            <button type="button" className="si-link" onClick={onChangeServer}>{s.changeServer}</button>
-          </p>
+          {import.meta.env.DEV && (
+            <p className="si-foot">
+              <button type="button" className="si-link" onClick={onChangeServer}>{s.changeServer}</button>
+            </p>
+          )}
           <p className="si-fine">{s.footerNote}</p>
         </div>
       </main>
