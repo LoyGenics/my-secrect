@@ -7,7 +7,7 @@ import { chromium, expect, test, type BrowserContext, type Page, type Worker } f
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { buildExtension, referenceTotp, startServers, type Servers } from './fixtures';
+import { buildExtension, EMAIL_CODE, referenceTotp, startMockApi, startServers, type MockApi, type Servers } from './fixtures';
 
 // Test fixtures only (not real secrets).
 const PASSPHRASE = 'e2e-Passphrase-Not-A-Real-Secret-1';
@@ -21,6 +21,7 @@ const RFC_SECRET_ASCII = '12345678901234567890';
 const RFC_SECRET_B32 = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
 
 let servers: Servers;
+let mockApi: MockApi;
 let ctx: BrowserContext;
 let sw: Worker;
 let extId: string;
@@ -65,6 +66,7 @@ test.describe.serial('MV3 extension in real Chromium', () => {
   test.beforeAll(async () => {
     const dist = buildExtension();
     servers = await startServers();
+    mockApi = await startMockApi();
     ctx = await chromium.launchPersistentContext(mkdtempSync(path.join(tmpdir(), 'my-secrect-profile-')), {
       channel: 'chromium', // full Chromium (new headless), required for extensions
       headless: process.env.E2E_HEADED !== '1',
@@ -85,6 +87,33 @@ test.describe.serial('MV3 extension in real Chromium', () => {
   test.afterAll(async () => {
     await ctx?.close();
     await servers?.close();
+    await mockApi?.close();
+  });
+
+  test('account sign-in through the real popup UI comes before the vault', async () => {
+    // Options page: point the extension at the (mock) account server.
+    await admin.fill('#api-base-url', mockApi.base);
+    await admin.getByRole('button', { name: 'Save address' }).click();
+    await expect(admin.getByRole('status')).toHaveText('Account server saved.');
+    // Signed out: no vault can be created, the popup opens on sign-in.
+    expect(await bg({ type: 'createVault', passphrase: PASSPHRASE })).toMatchObject({ ok: false, authError: 'signed-out' });
+    const popup = await ctx.newPage();
+    await popup.goto(`chrome-extension://${extId}/popup/index.html`);
+    await expect(popup.getByRole('heading', { name: 'Sign in to My Secret' })).toBeVisible();
+    await expect(popup.locator('#new-pass')).toHaveCount(0);
+    await expect(popup.getByRole('button', { name: 'Continue with Google' })).toHaveCount(0); // server offers no Google
+    await popup.fill('#signin-email', 'e2e@example.test');
+    await popup.getByRole('button', { name: 'Email me a code' }).click();
+    await expect(popup.getByText('We sent a 6-digit code to e2e@example.test.')).toBeVisible();
+    await popup.fill('#signin-code', '000000');
+    await popup.getByRole('button', { name: 'Verify and sign in' }).click();
+    await expect(popup.getByRole('alert')).toHaveText('That code did not work. Check it and try again.');
+    await popup.fill('#signin-code', EMAIL_CODE);
+    await popup.getByRole('button', { name: 'Verify and sign in' }).click();
+    await expect(popup.getByRole('heading', { name: 'Create your vault' })).toBeVisible();
+    // The device proof was checked by the mock server; the session is bound to it.
+    expect([...mockApi.sessions.values()]).toEqual([expect.objectContaining({ email: 'e2e@example.test', deviceId: expect.stringMatching(/^dev-/) })]);
+    await popup.close();
   });
 
   test('onboarding through the real popup UI creates a vault and shows a recovery key', async () => {

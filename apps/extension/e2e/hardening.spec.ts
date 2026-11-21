@@ -14,7 +14,7 @@ import { chromium, expect, test, type BrowserContext, type Page, type Worker } f
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { buildExtension, startServers, writeHostileExtension, type Servers } from './fixtures';
+import { buildExtension, signInViaMessages, startMockApi, startServers, writeHostileExtension, type MockApi, type Servers } from './fixtures';
 
 // Test fixtures only (not real secrets).
 const PASSPHRASE = 'hardening-Passphrase-Not-A-Real-Secret-2';
@@ -25,6 +25,7 @@ const FORBIDDEN = 'Forbidden: only the my-secrect popup and options page may mak
 const STORAGE_DENIED = 'Access to storage is not allowed from this context.';
 
 let servers: Servers;
+let mockApi: MockApi;
 let ctx: BrowserContext;
 let extId = '';
 let admin: Page; // options page: a legitimate extension page
@@ -172,6 +173,15 @@ function privilegedRequests(): Msg[] {
     { type: 'resolveSaveOffer', accept: true },
     { type: 'lock' },
     { type: 'wipeVault' },
+    { type: 'getAccount' },
+    { type: 'getAuthProviders' },
+    { type: 'setApiBaseUrl', url: 'https://evil.test/api' },
+    { type: 'requestEmailCode', email: 'mallory@evil.test' },
+    { type: 'verifyEmailCode', code: '123456' },
+    { type: 'verifyMfa', code: '123456' },
+    { type: 'signInWithGoogle' },
+    { type: 'cancelSignIn' },
+    { type: 'signOut' },
   ];
 }
 
@@ -185,6 +195,24 @@ async function vaultIntact(): Promise<void> {
   expect(settings).toMatchObject({ requireConfirmForBank: true, requireConfirmForPunycode: true });
   const raw = await admin.evaluate(() => chrome.storage.local.get(null));
   expect(Object.keys(raw)).not.toContain('hostile-e2e');
+  expect(((await bg({ type: 'getAccount' })).account as { step: string; apiBaseUrl: string })).toMatchObject({ step: 'signed-in', apiBaseUrl: mockApi.base });
+}
+
+/**
+ * chrome.storage.session holds exactly the account record: server, email and
+ * the session token. No vault key, passphrase or item; the token is never in
+ * chrome.storage.local.
+ */
+async function sessionStorageIsAccountOnly(w: Worker, secrets: string[]): Promise<void> {
+  const session = (await w.evaluate(() => chrome.storage.session.get(null))) as Record<string, { session?: { token?: string } }>;
+  expect(Object.keys(session)).toEqual(['my-secrect.ext.account.v1']);
+  const record = session['my-secrect.ext.account.v1'];
+  expect(Object.keys(record).sort()).toEqual(['apiBaseUrl', 'email', 'session']);
+  const token = String(record.session?.token);
+  expect(mockApi.sessions.has(token)).toBe(true);
+  const sessionText = JSON.stringify(session);
+  for (const secret of secrets) expect(sessionText).not.toContain(secret);
+  expect(JSON.stringify(await w.evaluate(() => chrome.storage.local.get(null)))).not.toContain(token);
 }
 
 test.describe.serial('extension hardening in real Chromium', () => {
@@ -192,6 +220,7 @@ test.describe.serial('extension hardening in real Chromium', () => {
     const dist = buildExtension();
     const hostileDir = writeHostileExtension();
     servers = await startServers();
+    mockApi = await startMockApi();
     ctx = await chromium.launchPersistentContext(mkdtempSync(path.join(tmpdir(), 'my-secrect-hardening-')), {
       channel: 'chromium',
       headless: process.env.E2E_HEADED !== '1',
@@ -215,6 +244,7 @@ test.describe.serial('extension hardening in real Chromium', () => {
     await admin.goto(`chrome-extension://${extId}/options/index.html`);
     web = await ctx.newPage();
 
+    await signInViaMessages(bg, mockApi.base);
     const created = await bg({ type: 'createVault', passphrase: PASSPHRASE });
     recoveryKey = String(created.recoveryKey);
     const a = loginItem('Example', { username: 'alice', password: PW_A, url: origin('example.test') + '/' });
@@ -227,6 +257,7 @@ test.describe.serial('extension hardening in real Chromium', () => {
   test.afterAll(async () => {
     await ctx?.close();
     await servers?.close();
+    await mockApi?.close();
   });
 
   test('options page with a vault: restore never overwrites, and it says sync is not available yet', async () => {
@@ -553,7 +584,7 @@ test.describe.serial('extension hardening in real Chromium', () => {
     expect(await badge()).toBe('1');
     const alarmBefore = await worker().evaluate((n) => chrome.alarms.get(n), AUTOLOCK);
     expect(alarmBefore?.scheduledTime).toBeGreaterThan(Date.now());
-    expect(await worker().evaluate(() => chrome.storage.session.get(null))).toEqual({});
+    await sessionStorageIsAccountOnly(worker(), [PASSPHRASE, recoveryKey, PW_A, PW_B, TOTP_B, PW_PENDING]);
     await worker().evaluate(() => { (globalThis as unknown as { __e2eMarker: string }).__e2eMarker = 'before-restart'; });
 
     // Stop the worker as Chrome does when it is idle (DevTools protocol).
@@ -585,10 +616,10 @@ test.describe.serial('extension hardening in real Chromium', () => {
     const evilTab = await openSite(https('evil.test'));
     expect(await contentWorldStorage(evilTab)).toEqual({ localGet: STORAGE_DENIED, localSet: STORAGE_DENIED, sessionGet: STORAGE_DENIED });
 
-    // At rest: wrapped keys and ciphertext only. No session storage at all.
+    // At rest: wrapped keys and ciphertext only. Session storage: the account record only.
     const raw = await storageText();
     for (const secret of [PASSPHRASE, recoveryKey, PW_A, PW_A2, PW_B, TOTP_B, PW_NEW, PW_DECLINED, PW_PENDING]) expect(raw).not.toContain(secret);
-    expect(await worker().evaluate(() => chrome.storage.session.get(null))).toEqual({});
+    await sessionStorageIsAccountOnly(worker(), [PASSPHRASE, recoveryKey, PW_A, PW_A2, PW_B, TOTP_B, PW_NEW, PW_DECLINED, PW_PENDING]);
 
     // Unlock in the new worker: no stale offer; auto-lock is re-armed and fires HERE.
     expect(await bg({ type: 'unlock', passphrase: PASSPHRASE })).toMatchObject({ ok: true, unlocked: true });

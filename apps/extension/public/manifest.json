@@ -3,7 +3,7 @@
   "name": "my-secrect",
   "version": "0.1.0",
   "description": "Personal Digital Vault — local-first, end-to-end encrypted. Autofill only what you choose.",
-  "permissions": ["storage", "activeTab", "scripting", "alarms"],
+  "permissions": ["storage", "activeTab", "scripting", "alarms", "identity"],
   "host_permissions": [],
   "action": {
     "default_popup": "popup/index.html",
