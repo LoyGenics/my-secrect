@@ -4,6 +4,7 @@ import { mobileEditorEn } from './mobile-editor';
 import { mobileDetailEn } from './mobile-detail';
 import { mobileSecurityEn } from './mobile-security';
 import { mobileBillingEn } from './mobile-billing';
+import { extensionEn } from './extension';
 
 /**
  * English dictionary — the source of truth for every UI string key.
@@ -14,6 +15,7 @@ import { mobileBillingEn } from './mobile-billing';
  */
 export const en = {
   mobileBilling: mobileBillingEn,
+  extension: extensionEn,
   billing: {
     title: 'Plan and billing', intro: 'One account, with access across your devices.', free: 'Free',
     monthly: 'Monthly', yearly: 'Yearly', lifetime: 'Lifetime', noRenewal: 'No recurring charge',

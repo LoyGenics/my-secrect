@@ -18,6 +18,7 @@ import * as vault from './lib/vault-ext';
 import { checkFillAllowed, checkPageAllowed, originOf, hostOf, domainsMatch } from './lib/domain';
 import { loadSettings, saveSettings, isOriginBlocked, DEFAULT_SETTINGS } from './lib/settings';
 import { generatePassword } from './lib/password';
+import { generateTotp } from './lib/totp';
 import type { ExtRequest, ExtResponse, LoginMeta, ItemMeta, PendingForm, ContentMessage, LoginSubmittedMessage, SaveOffer } from './lib/messages';
 import type { VaultItem } from '../../../packages/core/src/types';
 
@@ -361,6 +362,15 @@ async function handle(req: ExtRequest): Promise<ExtResponse> {
       if (!vault.isUnlocked()) return { ok: false, error: 'Vault is locked.' };
       const item = await vault.getDecryptedItem(req.id);
       return { ok: true, item };
+    }
+    case 'getTotpCode': {
+      // The code only: the TOTP secret and the rest of the item stay here.
+      if (!vault.isUnlocked()) return { ok: false, error: 'Vault is locked.' };
+      const item = await vault.getDecryptedItem(req.id);
+      const secret = item && !item.deleted_at ? (item.fields as Record<string, unknown>)['totp_secret'] : undefined;
+      if (typeof secret !== 'string' || !secret) return { ok: true, code: null };
+      const { code } = await generateTotp(secret);
+      return { ok: true, code: code || null };
     }
     case 'getHealth': {
       if (!vault.isUnlocked()) return { ok: false, error: 'Vault is locked.' };

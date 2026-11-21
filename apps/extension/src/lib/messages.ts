@@ -66,6 +66,8 @@ export type ExtRequest =
   | { type: 'listLogins'; origin: string }
   | { type: 'listAll' }
   | { type: 'getItem'; id: string }
+  /** The current one-time code of ONE item, for the code chip on a popup row. Never the secret. */
+  | { type: 'getTotpCode'; id: string }
   | { type: 'getHealth' }
   | { type: 'fill'; id: string; confirmed?: boolean }
   | { type: 'saveLogin'; item: VaultItem }
@@ -89,6 +91,7 @@ export type ExtResponse =
   | { ok: true; logins: LoginMeta[] }
   | { ok: true; items: ItemMeta[] }
   | { ok: true; item: VaultItem | null }
+  | { ok: true; code: string | null }
   | { ok: true; health: HealthSummary }
   | { ok: true; filled: boolean; needsConfirmation?: string }
   | { ok: true; id: string }

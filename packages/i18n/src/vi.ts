@@ -4,6 +4,7 @@ import { mobileEditorVi } from './mobile-editor';
 import { mobileDetailVi } from './mobile-detail';
 import { mobileSecurityVi } from './mobile-security';
 import { mobileBillingVi } from './mobile-billing';
+import { extensionVi } from './extension';
 
 /**
  * Vietnamese dictionary. Must satisfy the `Dictionary` type from `en.ts`
@@ -14,6 +15,7 @@ import type { Dictionary } from './en';
 
 export const vi: Dictionary = {
   mobileBilling: mobileBillingVi,
+  extension: extensionVi,
   billing: {
     title: 'Gói và thanh toán', intro: 'Một tài khoản, dùng trên các thiết bị của bạn.', free: 'Miễn phí',
     monthly: 'Hàng tháng', yearly: 'Hàng năm', lifetime: 'Trọn đời', noRenewal: 'Không thu phí định kỳ',

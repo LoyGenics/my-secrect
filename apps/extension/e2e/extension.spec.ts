@@ -96,9 +96,9 @@ test.describe.serial('MV3 extension in real Chromium', () => {
     await popup.fill('#new-pass', PASSPHRASE);
     await popup.fill('#new-pass-confirm', PASSPHRASE);
     await popup.getByRole('button', { name: 'Create vault' }).click();
-    const keyBox = popup.locator('div.font-mono').first();
+    const keyBox = popup.getByTestId('recovery-key');
     await expect(keyBox).toBeVisible({ timeout: 60_000 });
-    recoveryKey = (await keyBox.innerText()).trim();
+    recoveryKey = (await keyBox.innerText()).replace(/\s+/g, ''); // shown in groups of 4
     expect(recoveryKey.length).toBeGreaterThanOrEqual(40);
     // Regression: with a CSP that blocked wasm, libsodium's randombytes returned
     // WASM heap contents (the key embedded the passphrase). Key must be 32 bytes
@@ -109,7 +109,7 @@ test.describe.serial('MV3 extension in real Chromium', () => {
     await popup.check('#recovery-ack');
     await popup.getByRole('button', { name: 'Done' }).click();
     await popup.getByRole('button', { name: 'Open vault' }).click();
-    await expect(popup.getByText('Unlocked', { exact: true })).toBeVisible();
+    await expect(popup.getByRole('button', { name: 'Lock', exact: true })).toBeVisible();
     // Vault key/plaintext must not be in chrome.storage.local (ciphertext rows only).
     const raw = JSON.stringify(await admin.evaluate(() => chrome.storage.local.get(null)));
     expect(raw).not.toContain(PASSPHRASE);
@@ -120,7 +120,7 @@ test.describe.serial('MV3 extension in real Chromium', () => {
   test('add logins (popup UI for one, saveLogin message for the rest)', async () => {
     const popup = await ctx.newPage();
     await popup.goto(`chrome-extension://${extId}/popup/index.html`);
-    await popup.getByRole('button', { name: '+ Add login' }).click();
+    await popup.getByRole('button', { name: 'Add a login' }).click();
     await popup.fill('#add-title', 'Example');
     await popup.fill('#add-username', 'alice');
     await popup.fill('#add-password', PW_A);
@@ -236,8 +236,9 @@ test.describe.serial('MV3 extension in real Chromium', () => {
   test('popup displays a TOTP equal to an independent RFC 6238 computation', async () => {
     const popup = await ctx.newPage();
     await popup.goto(`chrome-extension://${extId}/popup/index.html`);
-    await popup.getByRole('button', { name: /TOTP site/ }).click();
-    const code = popup.locator('section[aria-label="Item detail"] span.font-mono.text-base');
+    await popup.getByRole('button', { name: 'All items', exact: true }).click();
+    await popup.getByRole('button', { name: /^TOTP site,/ }).click();
+    const code = popup.getByRole('dialog', { name: 'Item detail' }).getByTestId('detail-totp');
     await expect(code).toHaveText(/^\d{6}$/);
     const shown = (await code.innerText()).trim();
     const t = Math.floor(Date.now() / 1000);
@@ -261,7 +262,7 @@ test.describe.serial('MV3 extension in real Chromium', () => {
     await expect(popup.getByRole('alert')).toContainText('Wrong passphrase');
     await popup.fill('#master-passphrase', PASSPHRASE);
     await popup.getByRole('button', { name: 'Unlock', exact: true }).click();
-    await expect(popup.getByText('Unlocked', { exact: true })).toBeVisible({ timeout: 60_000 });
+    await expect(popup.getByRole('button', { name: 'Lock', exact: true })).toBeVisible({ timeout: 60_000 });
     await popup.close();
     expect(await fillAttempt(ids.A)).toEqual({ ok: true, filled: true });
   });
