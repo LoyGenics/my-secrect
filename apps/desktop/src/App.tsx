@@ -65,7 +65,7 @@ import {
 } from '../../../packages/sdk/src/security';
 import { VaultApiClient } from '../../../packages/sdk/src/index';
 import { RestoreBackup, RestoreSuccess } from './components/RestoreBackup';
-import { authGateStep, resolveApiBaseUrl, verifyStoredSession } from './authGate';
+import { authGateStep, resolveApiBaseUrl, verifyStoredSession, type StoredSession } from './authGate';
 import { providerScriptsLoaded } from './oauth';
 import { I18nProvider } from '../../../packages/i18n/src/react';
 import { detectLocale, format, getDictionary, plural, storeLocale, type Locale, type PluralForms } from '../../../packages/i18n/src/index';
@@ -297,16 +297,24 @@ export default function App({
   }, []);
 
   /** Checks the stored session with the server (verifyStoredSession) and
-   *  updates the gate; true when the vault may be created, unlocked or
-   *  restored. Runs at start and before each of those actions. */
-  const confirmSession = useCallback(async (): Promise<boolean> => {
+   *  updates the gate. Runs at start and before unlock; creating or
+   *  restoring a vault passes `requireOnline` (offline -> 'offline', the
+   *  screen stays and says so). */
+  const confirmSession = useCallback(async (requireOnline = false): Promise<StoredSession> => {
     const verdict = securityClient
-      ? await verifyStoredSession(webTokenStore(), () => securityClient.listSessions())
+      ? await verifyStoredSession(webTokenStore(), () => securityClient.listSessions(), { requireOnline })
       : 'signed-out';
-    setSignedIn(verdict === 'signed-in');
+    if (verdict !== 'offline') setSignedIn(verdict === 'signed-in');
     if (verdict === 'revoked') setSessionExpired(true);
-    return verdict === 'signed-in';
+    return verdict;
   }, [securityClient]);
+
+  /** Create / restore entry: true only when the server confirmed the session now. */
+  const confirmSessionOnline = async (): Promise<boolean> => {
+    const verdict = await confirmSession(true);
+    if (verdict === 'offline') setOnboardingError(dict.onboarding.needsOnlineCheck);
+    return verdict === 'signed-in';
+  };
 
   useEffect(() => {
     if (sessionChecked) return;
@@ -550,7 +558,7 @@ export default function App({
 
   const handleUnlock = async () => {
     setLockError('');
-    if (!(await confirmSession())) return;
+    if ((await confirmSession()) !== 'signed-in') return;
     setUnlocking(true);
     let ok = false;
     try {
@@ -578,7 +586,7 @@ export default function App({
 
   const handleCreateVault = async () => {
     setOnboardingError('');
-    if (!(await confirmSession())) return;
+    if (!(await confirmSessionOnline())) return;
     if (newPass.length < 8) {
       setOnboardingError(dict.onboarding.tooShort);
       return;
@@ -1036,7 +1044,7 @@ export default function App({
                     <Button type="submit" variant="primary" size="lg" block loading={creating}>
                       {creating ? o.creating : o.createVault}
                     </Button>
-                    <Button block icon="restore" onClick={() => void confirmSession().then((ok) => { if (ok) setRestoreUi({ count: null }); })}>
+                    <Button block icon="restore" onClick={() => { setOnboardingError(''); void confirmSessionOnline().then((ok) => { if (ok) setRestoreUi({ count: null }); }); }}>
                       {o.restoreFromBackup}
                     </Button>
                   </form>

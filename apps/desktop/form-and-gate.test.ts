@@ -118,6 +118,17 @@ test('session: server unreachable -> only a token with a known, unexpired expiry
   assert.equal(await verifyStoredSession(memoryStore({ [LS_API_TOKEN]: 't', [LS_API_TOKEN_EXPIRES_AT]: inAnHour }), async () => { throw new ApiError(500, '/v1/auth/sessions'); }), 'signed-in');
 });
 
+test('session: create / restore need the server now; offline unlock with a known expiry stays allowed', async () => {
+  const known = () => memoryStore({ [LS_API_TOKEN]: 't', [LS_API_TOKEN_EXPIRES_AT]: inAnHour });
+  assert.equal(await verifyStoredSession(known(), offline, { requireOnline: true }), 'offline', 'create/restore refused offline');
+  assert.equal(await verifyStoredSession(memoryStore({ [LS_API_TOKEN]: 't' }), offline, { requireOnline: true }), 'offline');
+  assert.equal(await verifyStoredSession(known(), offline), 'signed-in', 'unlock allowed offline');
+  assert.equal(await verifyStoredSession(known(), ok, { requireOnline: true }), 'signed-in');
+  const revoked = known();
+  assert.equal(await verifyStoredSession(revoked, unauthorized, { requireOnline: true }), 'revoked');
+  assert.equal(revoked.data.has(LS_API_TOKEN), false);
+});
+
 test('gate: a saved server wins, an empty saved value falls back to the build default', () => {
   assert.equal(resolveApiBaseUrl('https://mine.example/api', 'https://default.example/api'), 'https://mine.example/api');
   assert.equal(resolveApiBaseUrl('', 'https://default.example/api'), 'https://default.example/api');

@@ -43,7 +43,7 @@ export function isAcceptableApiBaseUrl(input: string): boolean {
   return url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
 }
 
-export type StoredSession = 'signed-in' | 'signed-out' | 'revoked';
+export type StoredSession = 'signed-in' | 'signed-out' | 'revoked' | 'offline';
 
 /**
  * May the stored session token open the vault? A stored token is never
@@ -54,9 +54,15 @@ export type StoredSession = 'signed-in' | 'signed-out' | 'revoked';
  *   - server unreachable       -> 'signed-in' only when the token has a
  *     known, unexpired expiry (offline, local-first); without a stored
  *     expiry it stays 'signed-out' until it can be verified online.
+ *     With `requireOnline` (creating or restoring a vault) it is 'offline'
+ *     whatever the expiry: the caller stays put and asks for a connection.
  * No token, or one past its stored expiry, is 'signed-out' without a call.
  */
-export async function verifyStoredSession(store: SyncTokenStore, checkSession: () => Promise<unknown>): Promise<StoredSession> {
+export async function verifyStoredSession(
+  store: SyncTokenStore,
+  checkSession: () => Promise<unknown>,
+  opts: { requireOnline?: boolean } = {},
+): Promise<StoredSession> {
   if (!getValidTokenSync(store)) return 'signed-out';
   try {
     await checkSession();
@@ -66,6 +72,7 @@ export async function verifyStoredSession(store: SyncTokenStore, checkSession: (
       await clearSessionToken(store);
       return 'revoked';
     }
+    if (opts.requireOnline) return 'offline';
     return /^\d+$/.test(store.getItem(LS_API_TOKEN_EXPIRES_AT) ?? '') ? 'signed-in' : 'signed-out';
   }
 }

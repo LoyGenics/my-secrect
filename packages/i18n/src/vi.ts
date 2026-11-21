@@ -615,6 +615,7 @@ export const vi: Dictionary = {
     tooShort: 'Mật khẩu chính phải có ít nhất 8 ký tự.',
     mismatch: 'Hai mật khẩu không khớp.',
     createFailed: 'Không tạo được kho.',
+    needsOnlineCheck: 'Hãy kết nối internet để xác minh tài khoản trước khi tạo hoặc khôi phục kho.',
     saveTitle: 'Hãy lưu khóa khôi phục này — nó chỉ hiện một lần.',
     saveBody: 'Đây là cách duy nhất để vào lại nếu bạn quên mật khẩu chính. Thiết bị này không bao giờ lưu nó ở dạng đọc được.',
     copyKey: 'Sao chép khóa khôi phục',

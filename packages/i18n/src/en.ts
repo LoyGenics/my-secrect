@@ -615,6 +615,7 @@ export const en = {
     tooShort: 'Passphrase must be at least 8 characters.',
     mismatch: 'Passphrases do not match.',
     createFailed: 'Could not create the vault.',
+    needsOnlineCheck: 'Connect to the internet to verify your account before creating or restoring a vault.',
     saveTitle: 'Save this recovery key — it is shown only once.',
     saveBody: 'It is the only way back in if you forget your passphrase. It is never stored on this device in readable form.',
     copyKey: 'Copy recovery key',

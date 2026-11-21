@@ -114,6 +114,10 @@ needs nothing from the server except `google` being non-null.
   the server cannot be reached, only a token with a known, unexpired expiry
   may reach the lock screen (offline, local-first); a token without a stored
   expiry stays on sign-in until it can be verified. Same policy as mobile.
+  Creating or restoring a vault (desktop, web, mobile) always needs the
+  server to confirm the session at that moment: offline, the screen stays
+  and asks the user to connect. Unlocking an existing vault keeps the
+  offline rule above.
 * Apple: the `state` sent to Apple must come back unchanged in the popup
   answer, or the answer is dropped.
 * Web: when the sign-in screen loaded the Google or Apple script, a

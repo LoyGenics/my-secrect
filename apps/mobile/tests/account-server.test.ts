@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ApiError, LS_ACCOUNT_EMAIL, LS_API_TOKEN, LS_API_TOKEN_EXPIRES_AT } from '../../../packages/sdk/src/security';
-import { API_BASE_URL_KEY, HOSTED_API_BASE_URL, SHARE_WEB_ORIGIN_KEY, endSessionAfterUnauthorized, loadAccountServer, resolveVaultEntry } from '../src/accountServer';
+import { API_BASE_URL_KEY, HOSTED_API_BASE_URL, SHARE_WEB_ORIGIN_KEY, confirmSessionOnline, endSessionAfterUnauthorized, loadAccountServer, resolveVaultEntry } from '../src/accountServer';
 
 function memoryStorage(entries: [string, string][] = []) {
   const values = new Map(entries);
@@ -132,4 +132,16 @@ test('a server 401 ends the device session; a local expiry only returns to sign-
   assert.equal(await resolveVaultEntry(expired, vaultExists, offlineCheck), 'signin');
   await endSessionAfterUnauthorized(expired, endSession);
   assert.equal(ended, 1);
+});
+
+test('create / restore need the server now; offline unlock with a known expiry stays allowed', async () => {
+  const storage = memoryStorage([[LS_API_TOKEN, 'active-session'], [LS_API_TOKEN_EXPIRES_AT, String(Date.now() + 60_000)]]);
+  const offline = async () => { throw new TypeError('Network request failed'); };
+  assert.equal(await confirmSessionOnline(storage, offline), 'offline', 'create/restore refused offline');
+  assert.equal(await confirmSessionOnline(storage, async () => { throw new ApiError(503, '/v1/auth/sessions'); }), 'offline');
+  assert.equal(await resolveVaultEntry(storage, async () => true, offline), 'locked', 'unlock allowed offline');
+  assert.equal(await confirmSessionOnline(storage, async () => ({ sessions: [] })), 'confirmed');
+  assert.equal(await confirmSessionOnline(storage, async () => { throw new ApiError(401, '/v1/auth/sessions'); }), 'revoked');
+  assert.equal(storage.values.get(LS_API_TOKEN), 'active-session', 'the App clears it through its 401 handler');
+  assert.equal(await confirmSessionOnline(memoryStorage(), async () => assert.fail('no call without a session')), 'signin');
 });
