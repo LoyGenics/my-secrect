@@ -14,9 +14,11 @@
  * readable by every extension page, for a convenience (no re-unlock after an
  * idle restart) that a password vault should not buy.
  *
- * Account gate: creating, unlocking or restoring a vault needs a signed-in
- * account (lib/account.ts). The session token is not a vault key: it lives
- * in chrome.storage.session and is never sent to the popup or a page.
+ * Account gate: creating, unlocking or restoring a vault needs an account
+ * session this worker has verified (lib/account.ts verifySessionForVault).
+ * When the session ends the vault locks (lockForSignedOut). The session
+ * token is not a vault key: it lives in chrome.storage.session and is never
+ * sent to the popup or a page.
  */
 import * as vault from './lib/vault-ext';
 import * as account from './lib/account';
@@ -204,7 +206,19 @@ async function resetAutoLock(): Promise<void> {
   }
 }
 
+/** The account session ended (sign-out, 401, expiry, server change): no vault stays open without one. */
+async function lockForSignedOut(): Promise<void> {
+  vault.lockVault();
+  clearSaveCapture();
+  await chrome.alarms.clear(AUTOLOCK_ALARM);
+}
+account.setSignedOutHandler(lockForSignedOut);
+
 chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === account.SESSION_ALARM) {
+    void account.expireIfDue();
+    return;
+  }
   if (alarm.name !== AUTOLOCK_ALARM) return;
   vault.lockVault();
   clearSaveCapture();
@@ -316,14 +330,10 @@ async function accountCall(run: () => Promise<ExtResponse>): Promise<ExtResponse
   }
 }
 
-async function signOut(): Promise<ExtResponse> {
-  vault.lockVault();
-  clearSaveCapture();
-  await chrome.alarms.clear(AUTOLOCK_ALARM);
-  return { ok: true, account: await account.signOut() };
-}
-
 async function handle(req: ExtRequest): Promise<ExtResponse> {
+  // Invariant: an unlocked vault needs a live account session (local check;
+  // the server is asked by getAccount and before create/unlock/restore).
+  if (vault.isUnlocked() && !(await account.isSignedIn())) await lockForSignedOut();
   switch (req.type) {
     case 'getAccount': {
       await account.checkSession();
@@ -332,12 +342,7 @@ async function handle(req: ExtRequest): Promise<ExtResponse> {
     case 'getAuthProviders':
       return accountCall(async () => ({ ok: true, providers: await account.providers() }));
     case 'setApiBaseUrl':
-      return accountCall(async () => {
-        const before = await account.isSignedIn();
-        const status = await account.setApiBaseUrl(String(req.url ?? ''));
-        if (before && status.step !== 'signed-in') return signOut();
-        return { ok: true, account: status };
-      });
+      return accountCall(async () => ({ ok: true, account: await account.setApiBaseUrl(String(req.url ?? '')) }));
     case 'requestEmailCode':
       return accountCall(async () => ({ ok: true, account: await account.requestEmailCode(String(req.email ?? '')) }));
     case 'verifyEmailCode':
@@ -349,30 +354,30 @@ async function handle(req: ExtRequest): Promise<ExtResponse> {
     case 'cancelSignIn':
       return { ok: true, account: await account.cancelSignIn() };
     case 'signOut':
-      return signOut();
+      return { ok: true, account: await account.signOut() };
     case 'getStatus': {
       return { ok: true, status: { locked: !vault.isUnlocked(), vaultExists: await vault.hasVault() } };
     }
     case 'unlock': {
-      if (!(await account.isSignedIn())) return SIGNED_OUT;
+      if (!(await account.verifySessionForVault())) return SIGNED_OUT;
       const ok = await vault.unlockVault(req.passphrase);
       if (ok) await resetAutoLock();
       return { ok: true, unlocked: ok, error: ok ? undefined : 'Wrong passphrase.' };
     }
     case 'unlockRecovery': {
-      if (!(await account.isSignedIn())) return SIGNED_OUT;
+      if (!(await account.verifySessionForVault())) return SIGNED_OUT;
       const ok = await vault.unlockWithRecoveryKey(req.recoveryKey);
       if (ok) await resetAutoLock();
       return { ok: true, unlocked: ok, error: ok ? undefined : 'That recovery key did not unlock the vault.' };
     }
     case 'createVault': {
-      if (!(await account.isSignedIn())) return SIGNED_OUT;
+      if (!(await account.verifySessionForVault())) return SIGNED_OUT;
       const { recoveryKey } = await vault.createVault(req.passphrase);
       await resetAutoLock();
       return { ok: true, recoveryKey };
     }
     case 'restoreBackup': {
-      if (!(await account.isSignedIn())) return SIGNED_OUT;
+      if (!(await account.verifySessionForVault())) return SIGNED_OUT;
       // restoreEncrypted needs empty storage, decrypts every item before any
       // write and throws (writing nothing) otherwise; errors reach the caller
       // through the generic handler as { ok:false, error }.

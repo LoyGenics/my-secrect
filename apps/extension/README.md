@@ -69,10 +69,23 @@ by popup and options).
   `chrome.storage.session` by the worker only: memory-backed, cleared when
   the browser quits, survives a worker restart, unreadable by content
   scripts. Never in `chrome.storage.local`. The popup/options receive an
-  `AccountStatus` (step, email, server) and never the token. A local expiry
-  or a 401 from `GET /v1/auth/sessions` (checked when the popup opens) means
-  signed out. Sign-out revokes the current server session (best effort),
-  clears the record and locks the vault.
+  `AccountStatus` (step, email, server) and never the token.
+- **A stored record is not proof.** Extension pages can write
+  `chrome.storage.session`, so before `createVault` / `unlock` /
+  `unlockRecovery` / `restoreBackup` the worker asks the server
+  (`GET /v1/auth/sessions`) unless it received or verified that exact token
+  itself in the last 60 seconds. Offline (no answer), only a token this
+  worker lifetime already trusted passes: after a worker restart an offline
+  unlock **fails closed**. Records with an empty or malformed server address
+  are dropped.
+- **Session end locks the vault.** Sign-out, a 401, the local expiry (an
+  alarm at `expiresAt`, plus a check on every popup/options message) and a
+  server change all take one path: forget the session, lock the vault, drop
+  the save offer and the auto-lock alarm. Sign-out also revokes the server
+  session (best effort).
+- **Email shown** is the one the user typed for the code flow; for Google it
+  is shown only if the server returns a verified `email` (the id token is not
+  verified in the extension), otherwise just "Signed in".
 - **Device proof**: the SDK device-key store (`packages/sdk/src/device-key-store.ts`,
   IndexedDB of the extension origin, non-extractable WebCrypto Ed25519 when
   available), scoped per server + account, platform `extension`. A rejected

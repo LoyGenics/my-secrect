@@ -4,8 +4,8 @@
  * lib/messages.ts and get back an AccountStatus, never the session token.
  *
  * Owner rule: an account sign-in comes before creating, unlocking or
- * restoring a vault (background.ts refuses those while isSignedIn() is
- * false). Sign-in is account auth only; the vault passphrase stays a
+ * restoring a vault (background.ts refuses those unless
+ * verifySessionForVault() is true). Sign-in is account auth only; the vault passphrase stays a
  * separate, later step and never leaves this worker.
  *
  * Storage:
@@ -14,6 +14,16 @@
  *    chrome.storage.session: memory-only (gone when the browser quits),
  *    survives a worker restart, and is not exposed to content scripts
  *    (TRUSTED_CONTEXTS, the default; the hardening e2e checks it).
+ *  - That area is still writable by any extension page, so a record there
+ *    is NOT proof of sign-in. Before a vault is created, unlocked or
+ *    restored, verifySessionForVault() asks the server (GET
+ *    /v1/auth/sessions) unless THIS worker verified or received the same
+ *    token in the last VERIFY_WINDOW_MS. Offline, only a token this worker
+ *    lifetime has itself verified or received is accepted; after a worker
+ *    restart an offline unlock fails closed.
+ *  - Whenever the session ends (sign-out, 401, local expiry, server change)
+ *    the signed-out handler runs: background.ts locks the vault, drops the
+ *    save offer and the auto-lock alarm.
  *  - The API base URL override (not a secret) lives in chrome.storage.local.
  *  - The Ed25519 device key lives in this extension's IndexedDB through the
  *    SDK device-key store (non-extractable WebCrypto key when available),
@@ -41,6 +51,9 @@ import type { AccountStatus } from './messages';
 const API_URL_KEY = 'my-secrect.ext.api-base-url.v1';
 const ACCOUNT_KEY = 'my-secrect.ext.account.v1';
 const DEVICE_PLATFORM = 'extension';
+/** Fires at the session's expiry so an unlocked vault locks with it. */
+export const SESSION_ALARM = 'my-secrect-session-expiry';
+const VERIFY_WINDOW_MS = 60_000;
 
 /** Build-time default (VITE_API_BASE_URL); the options page can override it. */
 const DEFAULT_API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL ?? '') ?? '';
@@ -65,6 +78,25 @@ export class AuthError extends Error {
  * between, the next sign-in simply enrols the device again.
  */
 let mfaProof: PreparedDeviceProof | null = null;
+
+/** The token this worker received or verified with the server, and when. Worker memory only. */
+let verified: { token: string; apiBaseUrl: string; at: number } | null = null;
+
+let onSignedOut: () => Promise<void> = async () => undefined;
+
+/** background.ts: what to do whenever the account session ends (lock the vault). */
+export function setSignedOutHandler(handler: () => Promise<void>): void {
+  onSignedOut = handler;
+}
+
+/** The one path for every end of a session: forget it here, then let the background lock. */
+async function dropSession(): Promise<void> {
+  verified = null;
+  mfaProof = null;
+  await writeRecord(null);
+  await chrome.alarms.clear(SESSION_ALARM);
+  await onSignedOut();
+}
 
 async function readRecord(): Promise<AccountRecord | null> {
   const stored = await chrome.storage.session.get(ACCOUNT_KEY);
@@ -124,16 +156,20 @@ async function api<T>(base: string, path: string, opts: { method?: string; body?
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
-/** The stored record when its session is live and belongs to the current server; expired ones are dropped. */
+/**
+ * The stored record when it belongs to the configured server (never an
+ * empty or malformed one) and its session has not expired. Anything else is
+ * dropped through the signed-out path.
+ */
 async function liveRecord(): Promise<AccountRecord | null> {
   const rec = await readRecord();
   if (!rec) return null;
-  if (rec.apiBaseUrl !== (await apiBaseUrl())) {
-    await writeRecord(null);
-    return null;
-  }
-  if (rec.session && Date.now() >= rec.session.expiresAt) {
-    await writeRecord(null);
+  const base = await apiBaseUrl();
+  const serverOk = Boolean(base) && rec.apiBaseUrl === base && normalizeApiBaseUrl(rec.apiBaseUrl) === rec.apiBaseUrl;
+  const sessionOk = !rec.session || (typeof rec.session.token === 'string' && rec.session.token.length > 0
+    && typeof rec.session.expiresAt === 'number' && Date.now() < rec.session.expiresAt);
+  if (!serverOk || !sessionOk) {
+    await dropSession();
     return null;
   }
   return rec;
@@ -156,15 +192,48 @@ export async function accountStatus(): Promise<AccountStatus> {
   };
 }
 
-/** Ask the server whether the session is still alive: a 401 means signed out. Offline keeps it. */
-export async function checkSession(): Promise<void> {
-  const rec = await liveRecord();
-  if (!rec?.session) return;
+/**
+ * Ask the server whether the stored session is alive. true = alive, false =
+ * gone (401: dropped through the signed-out path), null = no answer.
+ */
+async function askServer(rec: AccountRecord & { session: { token: string } }): Promise<boolean | null> {
   try {
     await api(rec.apiBaseUrl, '/v1/auth/sessions', { token: rec.session.token });
+    verified = { token: rec.session.token, apiBaseUrl: rec.apiBaseUrl, at: Date.now() };
+    return true;
   } catch (e) {
-    if (isApiFailure(e) && e.status === 401) await writeRecord(null);
+    if (!isApiFailure(e) || e.status !== 401) return null;
+    await dropSession();
+    return false;
   }
+}
+
+/** Popup opened: a 401 means signed out (and the vault locks). Offline keeps the display state. */
+export async function checkSession(): Promise<void> {
+  const rec = await liveRecord();
+  if (rec?.session) await askServer(rec as AccountRecord & { session: { token: string } });
+}
+
+/**
+ * The gate for createVault / unlock / unlockRecovery / restoreBackup. A
+ * storage.session record alone proves nothing (extension pages can write
+ * it): the token must have been received or verified by THIS worker within
+ * VERIFY_WINDOW_MS, or the server must confirm it now. Without an answer
+ * from the server only a token this worker lifetime already trusted passes.
+ */
+export async function verifySessionForVault(): Promise<boolean> {
+  const rec = await liveRecord();
+  const token = rec?.session?.token;
+  if (!rec || !token) return false;
+  const known = verified && verified.token === token && verified.apiBaseUrl === rec.apiBaseUrl ? verified : null;
+  if (known && Date.now() - known.at < VERIFY_WINDOW_MS) return true;
+  const alive = await askServer(rec as AccountRecord & { session: { token: string } });
+  return alive === true || (alive === null && known !== null);
+}
+
+/** Session alarm fired: drop the session if it has expired (liveRecord does). */
+export async function expireIfDue(): Promise<void> {
+  await liveRecord();
 }
 
 /** Which sign-in buttons to show. Apple is never offered here (README: "Account sign-in"). */
@@ -204,6 +273,8 @@ async function withDeviceProof<R>(
 }
 
 interface SignInResult {
+  /** Present only if the server names the verified account email. */
+  email?: string;
   token?: string;
   expires_in?: number;
   device_id?: string | null;
@@ -219,7 +290,10 @@ async function finishSignIn(base: string, email: string, result: SignInResult, p
   }
   if (typeof result?.token !== 'string' || !result.token) throw new AuthError('verification-failed');
   const ttl = typeof result.expires_in === 'number' && result.expires_in > 0 ? result.expires_in : 3600;
-  await writeRecord({ apiBaseUrl: base, email, session: { token: result.token, expiresAt: Date.now() + ttl * 1000 } });
+  const expiresAt = Date.now() + ttl * 1000;
+  await writeRecord({ apiBaseUrl: base, email, session: { token: result.token, expiresAt } });
+  verified = { token: result.token, apiBaseUrl: base, at: Date.now() };
+  await chrome.alarms.create(SESSION_ALARM, { when: expiresAt });
   mfaProof = null;
   await proof?.confirm(result.device_id).catch(() => undefined);
   return accountStatus();
@@ -275,9 +349,10 @@ export async function verifyMfa(rawCode: string): Promise<AccountStatus> {
   const mfaToken = rec.pending.mfaToken;
   // The MFA token is single-use whatever the answer: never keep it for a retry.
   await writeRecord(null);
+  const pendingProof = mfaProof;
   try {
     const result = await api<SignInResult>(base, '/v1/auth/mfa/verify', { body: { mfa_token: mfaToken, code } });
-    return await finishSignIn(base, email, result, mfaProof);
+    return await finishSignIn(base, email || (typeof result?.email === 'string' ? normalizeEmail(result.email) : ''), result, pendingProof);
   } catch (e) {
     mfaProof = null;
     if (e instanceof AuthError) throw e;
@@ -327,7 +402,9 @@ export async function signInWithGoogle(): Promise<AccountStatus> {
     const { result, proof } = await withDeviceProof(deviceKeyScope(base, account), nonce, (device) =>
       api<SignInResult>(base, '/v1/auth/oauth/google/session', { body: { ticket, id_token: idToken, ...(device ? { device } : {}) } }),
     );
-    return await finishSignIn(base, account.includes('@') ? account : '', result, proof);
+    // Show only what the server verified: the id_token's email is unverified here.
+    const verifiedEmail = typeof result?.email === 'string' ? normalizeEmail(result.email) : '';
+    return await finishSignIn(base, verifiedEmail, result, proof);
   } catch (e) {
     if (e instanceof AuthError) throw e;
     throw new AuthError(authErrorFor(e, 'oauth'));
@@ -355,8 +432,7 @@ export async function signOut(): Promise<AccountStatus> {
       // Offline or already revoked: the local session is dropped anyway.
     }
   }
-  await writeRecord(null);
-  mfaProof = null;
+  await dropSession();
   return accountStatus();
 }
 

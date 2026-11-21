@@ -157,7 +157,9 @@ export default function Popup() {
         if (res.ok && 'settings' in res) { setSettings(res.settings); applyAppearance(res.settings.appearance); setSettingsLoaded(true); }
       })
       .catch(() => undefined);
-    Promise.all([send({ type: 'getAccount' }), send({ type: 'getStatus' })])
+    // Account first, then status: a dead session locks the vault before the status is read.
+    send({ type: 'getAccount' })
+      .then(async (acc) => [acc, await send({ type: 'getStatus' })] as const)
       .then(([acc, res]) => {
         if (acc.ok && 'account' in acc) setAccount(acc.account);
         if (!res.ok || !('status' in res)) { setScreen('locked'); return; }
@@ -169,8 +171,8 @@ export default function Popup() {
         }
         // Account first: no vault is created or unlocked before sign-in.
         const signedIn = acc.ok && 'account' in acc && acc.account.step === 'signed-in';
-        if (!res.status.locked) { setScreen('unlocked'); void refreshUnlocked(true); }
-        else if (!signedIn) setScreen('signin');
+        if (!signedIn) setScreen('signin');
+        else if (!res.status.locked) { setScreen('unlocked'); void refreshUnlocked(true); }
         else setScreen(res.status.vaultExists ? 'locked' : 'onboarding');
       })
       .catch(() => setScreen('locked'));
