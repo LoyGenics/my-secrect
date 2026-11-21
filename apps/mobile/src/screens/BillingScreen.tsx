@@ -3,7 +3,7 @@ import { Linking, Text } from 'react-native';
 import { storeManagementUrl, type PurchaseOption } from '../../../../packages/sdk/src/billing';
 import { useTranslation } from '../../../../packages/i18n/src/react';
 import { AppButton, AppPage, FormSection, Group, InlineError, Progress, Rule, SettingsRow } from '../components/mobile-ui';
-import { AuthLayout } from '../components/soft';
+import { AuthLayout } from '../components/AuthLayout';
 import { loadStorePlans, purchaseStorePlan, restoreStorePurchases, storeConfiguration, type StorePlan } from '../mobileBilling';
 import type { MobileBilling } from '../useMobileBilling';
 import { useMobileTheme } from '../theme';

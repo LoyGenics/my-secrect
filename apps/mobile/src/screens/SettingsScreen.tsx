@@ -19,7 +19,7 @@ import { API_BASE_URL_KEY, HOSTED_API_BASE_URL, SHARE_WEB_ORIGIN_KEY } from '../
 import { isSessionUnauthorized, isStepUpRequired } from '../utils/stepUp';
 import { AppButton, AppPage, BottomSheet, FieldGroup, FormSection, Group, InlineError, PageSection, Rule, SettingsRow } from '../components/mobile-ui';
 import { removeAllEncryptedFiles } from '../storage/localFiles';
-import { GhostBrandMark } from '../components/soft';
+import { GhostBrandMark } from '../components/AuthLayout';
 import { useAppPreferences } from '../ui/AppearanceProvider';
 import { AUTO_LOCK_CHOICES, type AutoLockMinutes } from '../ui/preferences';
 import { space, textStyle } from '../ui/tokens';

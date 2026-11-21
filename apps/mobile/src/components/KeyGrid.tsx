@@ -2,13 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { monoText, useMobileTheme } from '../theme';
 import { radius, space, textStyle } from '../ui/tokens';
-
-/** Display-only groups of four; the key is copied and saved exactly as generated. */
-export function keyGroups(value: string, groupSize = 4): string[] {
-  const groups: string[] = [];
-  for (let index = 0; index < value.length; index += groupSize) groups.push(value.slice(index, index + groupSize));
-  return groups;
-}
+import { keyGroups } from '../utils/recoveryKeyText';
 
 /** Numbered recovery-key cells, four per row (mono key 18/24 on a sunken r12 cell). */
 export function KeyGrid({ value, testID }: { value: string; testID?: string }) {
