@@ -470,7 +470,7 @@ select.ms-input { padding-right: var(--ms-space-8); cursor: pointer; }
   white-space: nowrap;
   transition: background-color var(--ms-duration-base) var(--ms-easing-out);
 }
-.ms-segmented__option:hover:not(:disabled) { color: var(--ms-color-text-primary); }
+.ms-segmented__option:hover:not(:disabled):not([aria-checked='true']) { color: var(--ms-color-text-primary); }
 .ms-segmented__option[aria-checked='true'] {
   background: var(--ms-color-selected);
   color: var(--ms-color-on-selected);

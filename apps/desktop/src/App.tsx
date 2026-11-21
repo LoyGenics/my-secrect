@@ -1485,7 +1485,8 @@ export default function App({
                         {items.length === 0 && <><br />{sh.exampleLoadNote}</>}
                       </>
                     }
-                    primaryAction={items.length === 0 ? { label: sh.loadExample, icon: 'add', onClick: () => void handleLoadExampleData() } : undefined}
+                    // The empty list already offers the one primary action outside Trash.
+                    primaryAction={items.length === 0 && view === 'trash' ? { label: sh.loadExample, icon: 'add', onClick: () => void handleLoadExampleData() } : undefined}
                     secondaryAction={items.some(isExampleItem) ? { label: sh.clearExample, icon: 'trash', onClick: handleClearExampleData } : undefined}
                   />
                 )}

@@ -352,7 +352,7 @@ export const vi: Dictionary = {
     dark: 'Tối',
     system: 'Theo hệ thống',
     label: 'Giao diện',
-    description: 'Nhôm sáng hoặc than chì. Hệ thống sẽ theo thiết bị của bạn.',
+    description: 'Mận nhạt hoặc mận đậm. Hệ thống sẽ theo thiết bị của bạn.',
   },
   form: {
     requiredField: 'Trường này là bắt buộc',

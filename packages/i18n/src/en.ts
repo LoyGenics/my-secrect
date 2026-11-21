@@ -352,7 +352,7 @@ export const en = {
     dark: 'Dark',
     system: 'System',
     label: 'Appearance',
-    description: 'Aluminium or graphite. System follows your device.',
+    description: 'Pale plum or deep plum. System follows your device.',
   },
   form: {
     requiredField: 'This field is required',
