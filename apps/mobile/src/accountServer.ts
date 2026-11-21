@@ -46,6 +46,25 @@ export async function resolveVaultEntry(store: TokenStore, vaultExists: () => Pr
   return (await vaultExists()) ? 'locked' : 'onboarding';
 }
 
+export type OnlineSession = 'confirmed' | 'signin' | 'revoked' | 'offline';
+
+/**
+ * Creating or restoring a vault needs the server to confirm the session
+ * now: a known expiry is not enough offline ('offline': stay put and ask
+ * for a connection). Unlocking an existing vault keeps resolveVaultEntry's
+ * offline rule. 'revoked' (401) leaves the token for the caller's
+ * unauthorized handling (endSessionAfterUnauthorized).
+ */
+export async function confirmSessionOnline(store: TokenStore, checkSession: () => Promise<unknown>): Promise<OnlineSession> {
+  if (!await getValidToken(store)) return 'signin';
+  try {
+    await checkSession();
+    return 'confirmed';
+  } catch (error) {
+    return apiStatus(error) === 401 ? 'revoked' : 'offline';
+  }
+}
+
 /**
  * After a 401: a token still stored means the server refused one this
  * device considered valid (revoked / invalid), so `endSession` runs (drop

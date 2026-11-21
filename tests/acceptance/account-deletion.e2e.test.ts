@@ -25,7 +25,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { startApi, startMinio, startWeb, type RunningApi, type RunningMinio } from './lib/stack.ts';
-import { apiStatus, createVaultViaUi, freshDevice, registerViaUi, signInViaUi, storedToken, LS_VAULT_KEYS, LS_VAULT_ROWS, type VirtualAuthenticator } from './lib/browser.ts';
+import { addPasskeyViaUi, apiStatus, createVaultViaUi, freshDevice, registerViaUi, signInViaUi, storedToken, unlockViaUi, LS_VAULT_KEYS, LS_VAULT_ROWS, type VirtualAuthenticator } from './lib/browser.ts';
 
 const API_PORT = Number(process.env.ACCEPT_M_API_PORT ?? 3255);
 const WEB_PORT = Number(process.env.ACCEPT_M_WEB_PORT ?? 5367);
@@ -69,8 +69,15 @@ test('A registers, creates a vault, syncs items and uploads encrypted media thro
   const p = A.page;
   await registerViaUi(p, WEB, EMAIL, api.mailDir);
   await createVaultViaUi(p, PASS);
+  await addPasskeyViaUi(p, EMAIL, api.mailDir);
+  // Adding the passkey left a fresh email step-up on this session; sign in
+  // again with the passkey so "Delete account" below needs its own step-up.
+  await p.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await p.getByRole('heading', { name: 'Sign in to your account' }).waitFor();
+  await signInViaUi(p, EMAIL);
+  await unlockViaUi(p, PASS);
   for (const title of ['M-ITEM-alpha', 'M-ITEM-beta']) {
-    await p.getByRole('button', { name: '+ New item' }).click();
+    await p.getByRole('button', { name: /^New item/ }).click();
     await p.locator('#item-title').fill(title);
     await p.getByLabel('Password', { exact: true }).first().fill(`pw-${title}`);
     await p.getByRole('button', { name: 'Save', exact: true }).click();
@@ -113,6 +120,7 @@ test('B signs in on a second browser with the same (synced) passkey: two live se
 
 test('Delete account in the Security Center (passkey step-up) ends every session and returns to sign-in', async () => {
   const p = A.page;
+  await p.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Settings' }).click();
   await p.getByRole('button', { name: /Security Center/ }).first().click();
   const del = p.locator('section').filter({ has: p.getByRole('heading', { name: 'Delete account', exact: true }) });
   await del.getByText(/The vault stored on this device is not erased/).waitFor();

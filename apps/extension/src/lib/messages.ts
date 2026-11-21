@@ -16,6 +16,7 @@
 import type { VaultItem } from '../../../../packages/core/src/types';
 import type { ItemListCheck } from '../../../../packages/import-export/src/index';
 import type { ExtSettings } from './settings';
+import type { AuthErrorCode } from './account-core';
 
 export interface LoginMeta {
   id: string;
@@ -57,6 +58,22 @@ export type SaveOffer =
   | { mode: 'new'; origin: string; username: string }
   | { mode: 'update'; origin: string; username: string; itemId: string; title: string };
 
+/**
+ * Account sign-in state as the popup/options see it. Never carries the
+ * session token, the MFA token or the email ticket: those stay in the
+ * background (chrome.storage.session).
+ */
+export interface AccountStatus {
+  step: 'signed-out' | 'email-code' | 'mfa' | 'signed-in';
+  /** Signed-in account, or the address a code was sent to. */
+  email: string | null;
+  serverConfigured: boolean;
+  /** Effective account API base URL ('' = none configured). */
+  apiBaseUrl: string;
+  /** The options-page override ('' = build default). */
+  apiBaseUrlOverride: string;
+}
+
 export type ExtRequest =
   | { type: 'getStatus' }
   | { type: 'unlock'; passphrase: string }
@@ -82,7 +99,17 @@ export type ExtRequest =
   | { type: 'getPendingForm' }
   | { type: 'armActiveTab' }
   | { type: 'getSaveOffer' }
-  | { type: 'resolveSaveOffer'; accept: boolean };
+  | { type: 'resolveSaveOffer'; accept: boolean }
+  // Account sign-in (required before create / unlock / restore).
+  | { type: 'getAccount' }
+  | { type: 'getAuthProviders' }
+  | { type: 'setApiBaseUrl'; url: string }
+  | { type: 'requestEmailCode'; email: string }
+  | { type: 'verifyEmailCode'; code: string }
+  | { type: 'verifyMfa'; code: string }
+  | { type: 'signInWithGoogle' }
+  | { type: 'cancelSignIn' }
+  | { type: 'signOut' };
 
 export type ExtResponse =
   | { ok: true; status: { locked: boolean; vaultExists: boolean } }
@@ -104,7 +131,9 @@ export type ExtResponse =
   | { ok: true; armed: boolean; error?: string }
   | { ok: true; offer: SaveOffer | null }
   | { ok: true; saved: boolean; id?: string }
-  | { ok: false; error: string; needsConfirmation?: string };
+  | { ok: true; account: AccountStatus }
+  | { ok: true; providers: { google: boolean } }
+  | { ok: false; error: string; needsConfirmation?: string; authError?: AuthErrorCode };
 
 /** Message the background sends to an injected content script. */
 export interface FillMessage {

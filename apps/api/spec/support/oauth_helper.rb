@@ -12,12 +12,13 @@ module OauthHelper
   GOOGLE_IOS = 'ios.apps.googleusercontent.test'.freeze
   GOOGLE_ANDROID = 'android.apps.googleusercontent.test'.freeze
   GOOGLE_EXTENSION = 'extension.apps.googleusercontent.test'.freeze
+  GOOGLE_DESKTOP = 'desktop.apps.googleusercontent.test'.freeze
   APPLE_SERVICES = 'test.my-secrect.web'.freeze
   APPLE_BUNDLE = 'test.my-secrect.app'.freeze
   OAUTH_ENV = {
     'GOOGLE_WEB_CLIENT_ID' => GOOGLE_WEB, 'GOOGLE_IOS_CLIENT_ID' => GOOGLE_IOS,
     'GOOGLE_ANDROID_CLIENT_ID' => GOOGLE_ANDROID, 'GOOGLE_EXTENSION_CLIENT_ID' => GOOGLE_EXTENSION,
-    'APPLE_SERVICES_ID' => APPLE_SERVICES, 'APPLE_BUNDLE_ID' => APPLE_BUNDLE
+    'GOOGLE_DESKTOP_CLIENT_ID' => GOOGLE_DESKTOP, 'APPLE_SERVICES_ID' => APPLE_SERVICES, 'APPLE_BUNDLE_ID' => APPLE_BUNDLE
   }.freeze
   ISSUERS = { 'google' => 'https://accounts.google.com', 'apple' => 'https://appleid.apple.com' }.freeze
   AUDIENCES = { 'google' => GOOGLE_WEB, 'apple' => APPLE_BUNDLE }.freeze

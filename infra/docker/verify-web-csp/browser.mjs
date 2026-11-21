@@ -102,7 +102,7 @@ try {
   const h = res.headers();
   assert.ok(h['content-security-policy'], 'document has an enforced Content-Security-Policy header');
   assert.equal(h['content-security-policy-report-only'], undefined, 'policy is enforced, not report-only');
-  assert.match(h['content-security-policy'], /script-src 'self' 'wasm-unsafe-eval';/);
+  assert.match(h['content-security-policy'], /script-src 'self' 'wasm-unsafe-eval' https:\/\/accounts\.google\.com\/gsi\/client https:\/\/appleid\.cdn-apple\.com\/appleauth\/static\/jsapi\/appleid\/1\/;/);
   assert.doesNotMatch(h['content-security-policy'], /unsafe-inline|'unsafe-eval'/);
   log(`app loaded from Caddy; CSP: ${h['content-security-policy']}`);
 

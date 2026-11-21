@@ -21,7 +21,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { startApi, startMinio, startWeb, type RunningApi, type RunningMinio } from './lib/stack.ts';
-import { createVaultViaUi, freshDevice, registerViaUi, restoreViaUi, signInViaUi, unlockViaUi, type VirtualAuthenticator } from './lib/browser.ts';
+import { addPasskeyViaUi, createVaultViaUi, freshDevice, registerViaUi, restoreViaUi, signInViaUi, unlockViaUi, type VirtualAuthenticator } from './lib/browser.ts';
 
 const API_PORT = Number(process.env.ACCEPT_F_API_PORT ?? 3256);
 const WEB_PORT = Number(process.env.ACCEPT_F_WEB_PORT ?? 5369);
@@ -65,10 +65,12 @@ test('device A: register, create vault, export the encrypted backup, upload an e
   const p = A.page;
   await registerViaUi(p, WEB, EMAIL, api.mailDir);
   await createVaultViaUi(p, PASS);
+  await addPasskeyViaUi(p, EMAIL, api.mailDir);
   const [download] = await Promise.all([
     p.waitForEvent('download'),
     (async () => {
-      await p.getByRole('button', { name: /Export encrypted backup/ }).click();
+      await p.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Settings' }).click();
+      await p.getByRole('button', { name: /Export encrypted backup/ }).first().click();
       await p.locator('#step-up-passphrase').fill(PASS);
       await p.locator('form button[type="submit"]').filter({ hasText: /.+/ }).last().click();
     })(),

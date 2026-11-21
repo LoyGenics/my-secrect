@@ -1,13 +1,17 @@
 /**
  * Real-browser E2E for the "Restore backup" flow (apps/web -> shared desktop App).
  *
- * Boots its own Vite preview server (port E2E_RESTORE_WEB_PORT, default 5203), drives real Chromium via
- * Playwright, creates a vault, exports an encrypted backup THROUGH THE UI
- * (real download), then restores into fresh browser contexts (empty
- * localStorage) and runs negative cases. Nothing is mocked: real Argon2id,
- * real libsodium in the page.
+ * Boots its own Vite preview server of the BUILT app (port E2E_RESTORE_WEB_PORT,
+ * default 5203) and a real Rails API (port E2E_RESTORE_API_PORT, default 3255,
+ * own database vault_restore_a15_e2eauth, recreated every run) behind the
+ * preview's same-origin /api proxy. Every vault needs an account, so each
+ * fresh browser context first signs up with an email code (read from the
+ * API's mail files). Then: create a vault, export an encrypted backup THROUGH
+ * THE UI (real download), restore into fresh browser contexts (empty vault
+ * storage) and run negative cases. Nothing is mocked: real Argon2id, real
+ * libsodium in the page.
  *
- * Run:  npx tsx --test tests/e2e-web-restore/restore.e2e.test.ts
+ * Run:  npm --workspace apps/web run build && npx tsx --test tests/e2e-web-restore/restore.e2e.test.ts
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -16,10 +20,13 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import { startApi, type RunningApi } from '../acceptance/lib/stack.ts';
+import { signUpWithEmailCodeViaUi } from '../acceptance/lib/browser.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
 const PORT = Number(process.env.E2E_RESTORE_WEB_PORT ?? 5203);
+const API_PORT = Number(process.env.E2E_RESTORE_API_PORT ?? 3255);
 const URL_BASE = `http://127.0.0.1:${PORT}/`;
 const PASS = 'correct horse battery staple 42';
 const LS_KEYS = 'my-secrect.local-vault.v1.keys';
@@ -28,6 +35,8 @@ const shotDir = path.join(here, 'screenshots');
 mkdirSync(shotDir, { recursive: true });
 
 let server: ChildProcess;
+let api: RunningApi;
+let accounts = 0;
 let browser: Browser;
 let backupText = '';
 let recoveryKey = '';
@@ -47,8 +56,10 @@ async function waitForServer(): Promise<void> {
 before(async () => {
   // Serve the BUILT app (apps/web/dist; run `npm --workspace apps/web run build` first).
   if (!existsSync(path.join(root, 'apps/web/dist/index.html'))) throw new Error('apps/web/dist missing: build the web app first');
+  api = await startApi({ port: API_PORT, db: 'vault_restore_a15_e2eauth', webOrigin: URL_BASE.slice(0, -1) });
   server = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort', '--host', '127.0.0.1'], {
     cwd: path.join(root, 'apps/web'),
+    env: { ...process.env, VITE_API_PROXY_TARGET: api.url },
     stdio: 'ignore',
   });
   await waitForServer();
@@ -59,12 +70,15 @@ before(async () => {
 after(async () => {
   await browser?.close();
   server?.kill('SIGTERM');
+  await api?.stop();
 });
 
 async function freshPage(): Promise<{ ctx: BrowserContext; page: Page }> {
   const ctx = await browser.newContext({ acceptDownloads: true, viewport: { width: 1200, height: 900 } });
   const page = await ctx.newPage();
   await page.goto(URL_BASE);
+  // Account first (no local-only vault): a new account per fresh profile.
+  await signUpWithEmailCodeViaUi(page, `restore-${Date.now()}-${++accounts}@example.test`, api.mailDir);
   return { ctx, page };
 }
 
@@ -121,7 +135,7 @@ test('create vault, add items, export encrypted backup via UI', async () => {
   await page.getByRole('button', { name: 'Open vault' }).click();
 
   for (const title of ['Restore Test Alpha', 'Restore Test Beta']) {
-    await page.getByRole('button', { name: '+ New item' }).click();
+    await page.getByRole('button', { name: /^New item/ }).click();
     await page.locator('#item-title').fill(title);
     await page.getByLabel('Password', { exact: true }).first().fill('s3cret-' + title);
     await page.getByRole('button', { name: 'Save', exact: true }).click();
@@ -131,7 +145,8 @@ test('create vault, add items, export encrypted backup via UI', async () => {
   const [download] = await Promise.all([
     page.waitForEvent('download'),
     (async () => {
-      await page.getByRole('button', { name: /Export encrypted backup/ }).click();
+      await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Settings' }).click();
+      await page.getByRole('button', { name: /Export encrypted backup/ }).first().click();
       await page.locator('#step-up-passphrase').fill(PASS);
       await page.locator('form button[type="submit"]').filter({ hasText: /.+/ }).last().click();
     })(),

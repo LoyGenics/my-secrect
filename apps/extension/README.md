@@ -26,15 +26,85 @@ Local-first, end-to-end encrypted autofill. TypeScript + React, built with Vite.
 
 Proven in real Chromium by `e2e/hardening.spec.ts`.
 
+## Account sign-in (required before any vault)
+
+The extension refuses to create, unlock or restore a vault until an account
+is signed in (`background.ts`: `createVault`, `unlock`, `unlockRecovery`,
+`restoreBackup` answer `authError: 'signed-out'`). The passphrase step stays
+separate and comes after sign-in. Code: `src/lib/account.ts` (background
+only), `src/lib/account-core.ts` (pure rules), `src/popup/SignIn.tsx` (shared
+by popup and options).
+
+- **Server**: build-time default `VITE_API_BASE_URL` (see `.env.example`,
+  e.g. `https://vault.example.com/api`), overridable on the options page.
+  https only; plain http only for `localhost` / `127.0.0.1`. Changing the
+  server signs out and locks. With no server set, the popup says so and
+  offers no way around sign-in. The API must allow the extension origin
+  `chrome-extension://<extension-id>` in `CORS_ORIGINS` (there are no host
+  permissions).
+- **Email + code**: `POST /v1/auth/email/request` → `/verify` (ticket) →
+  `/session`, with the device proof signed over the ticket. MFA accounts get
+  the authenticator/recovery-code step (`/v1/auth/mfa/verify`).
+- **Google**: shown only when `GET /v1/auth/providers` returns a Google
+  `extension_client_id`. `POST /v1/auth/oauth/start` gives `{ ticket, nonce }`;
+  the worker opens Google's authorize URL (`response_type=id_token`, raw
+  nonce, random `state`) with `chrome.identity.launchWebAuthFlow`, reads the
+  id token from the redirect fragment and posts it to
+  `/v1/auth/oauth/google/session` with a device proof over the nonce. Google
+  Cloud setup: an OAuth client of type *Web application* whose authorized
+  redirect URI is `https://<extension-id>.chromiumapp.org/`
+  (`chrome.identity.getRedirectURL()`); put its id in
+  `GOOGLE_EXTENSION_CLIENT_ID` on the server. Pin the extension id with a
+  manifest `key` for a stable redirect URI in development.
+- **Apple: not offered in the extension.** Apple returns an id token carrying
+  the email only with `response_mode=form_post` when the `email` scope is
+  requested, i.e. an HTTP POST to the redirect URI. `launchWebAuthFlow`
+  captures only the redirect URL, never a POST body, so the token never
+  reaches the extension. Without scopes Apple allows a fragment response, but
+  that token has no email, which the server needs to find or create the
+  account. Supporting it would need a server-side relay page, which is not in
+  the contract. Sign in with Apple on desktop/mobile, or use email/Google here.
+- **Session storage**: the session token, its expiry, the account email and a
+  pending step (address being verified, single-use MFA token) are kept in
+  `chrome.storage.session` by the worker only: memory-backed, cleared when
+  the browser quits, survives a worker restart, unreadable by content
+  scripts. Never in `chrome.storage.local`. The popup/options receive an
+  `AccountStatus` (step, email, server) and never the token.
+- **A stored record is not proof.** Extension pages can write
+  `chrome.storage.session`, so before `createVault` / `unlock` /
+  `unlockRecovery` / `restoreBackup` the worker asks the server
+  (`GET /v1/auth/sessions`) unless it received or verified that exact token
+  itself in the last 60 seconds. Offline (no answer), only a token this
+  worker lifetime already trusted passes: after a worker restart an offline
+  unlock **fails closed**. Records with an empty or malformed server address
+  are dropped.
+- **Session end locks the vault.** Sign-out, a 401, the local expiry (an
+  alarm at `expiresAt`, plus a check on every popup/options message) and a
+  server change all take one path: forget the session, lock the vault, drop
+  the save offer and the auto-lock alarm. Sign-out also revokes the server
+  session (best effort).
+- **Email shown** is the one the user typed for the code flow; for Google it
+  is shown only if the server returns a verified `email` (the id token is not
+  verified in the extension), otherwise just "Signed in".
+- **Device proof**: the SDK device-key store (`packages/sdk/src/device-key-store.ts`,
+  IndexedDB of the extension origin, non-extractable WebCrypto Ed25519 when
+  available), scoped per server + account, platform `extension`. A rejected
+  proof drops the key and retries once with a fresh enrolment.
+- **Messages** (extension pages only, like every `ExtRequest`): `getAccount`,
+  `getAuthProviders`, `setApiBaseUrl`, `requestEmailCode`, `verifyEmailCode`,
+  `verifyMfa`, `signInWithGoogle`, `cancelSignIn`, `signOut`. None carries
+  vault data.
+
 ## Permissions — minimal by design
 
-`storage`, `activeTab`, `scripting`, `alarms`. **No broad host permissions**
+`storage`, `activeTab`, `scripting`, `alarms`, `identity`. **No broad host permissions**
 (`host_permissions` is empty, and there is no persistent `content_scripts`
 entry in the manifest). The content script is injected on demand with
 `chrome.scripting.executeScript` into the active tab only, for one fill.
 
 - `storage`: the encrypted vault + settings. `activeTab` + `scripting`: inject
   into the tab the user clicked, nowhere else. `alarms`: auto-lock.
+  `identity`: the Google sign-in window (`launchWebAuthFlow`) only.
 - No `web_accessible_resources` (pages cannot frame or fetch extension pages),
   `externally_connectable: { ids: [] }` (no web page, no other extension).
 - CSP `script-src 'self' 'wasm-unsafe-eval'; object-src 'none'`.
@@ -131,7 +201,7 @@ npm run build    # tsc + vite build -> dist/
 1. Open `chrome://extensions` (or `edge://extensions` / `brave://extensions`).
 2. Enable **Developer mode** (top right).
 3. Click **Load unpacked** and select the `apps/extension/dist/` folder.
-4. Pin my-secrect to the toolbar. Click it, create a vault, add a login for a site, then click **Fill** on that site.
+4. Pin my-secrect to the toolbar. Click it, sign in to your account, create a vault, add a login for a site, then click **Fill** on that site.
 
 `npm run dev` runs `vite build --watch` for iteration; reload the extension
 from `chrome://extensions` after each rebuild.
@@ -145,6 +215,9 @@ src/background.ts           Privileged worker: keys, decrypt-one, fill orchestra
 src/lib/vault-ext.ts        Extension vault (Argon2id + XChaCha20, chrome.storage)
 src/lib/domain.ts           Origin/domain matching + fill gate
 src/lib/messages.ts         Popup <-> background protocol
+src/lib/account.ts          Account sign-in, session, device proof (background only)
+src/lib/account-core.ts     Pure sign-in rules: server URL, Google URL, error mapping
+src/popup/SignIn.tsx        Sign-in form (popup + options)
 src/lib/settings.ts         Settings load/save (chrome.storage.local)
 src/lib/password.ts         Password generator (rejection sampling, as desktop/mobile)
 src/popup/                  Popup React UI (Popup.tsx, main.tsx, index.html, popup.css)

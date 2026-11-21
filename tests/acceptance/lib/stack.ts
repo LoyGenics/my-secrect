@@ -118,7 +118,7 @@ export async function startWeb(port: number): Promise<{ url: string; stop(): Pro
   mkdirSync(logDir, { recursive: true });
   await assertPortFree(port, 'web');
   const log = openSync(path.join(logDir, `web-${port}.log`), 'w');
-  const child = spawn(path.join(repoRoot, 'node_modules/.bin/vite'), ['--host', 'localhost', '--port', String(port), '--strictPort'], {
+  const child = spawn('npx', ['vite', '--host', 'localhost', '--port', String(port), '--strictPort'], {
     cwd: webDir, env: process.env, detached: true, stdio: ['ignore', log, log],
   });
   try {

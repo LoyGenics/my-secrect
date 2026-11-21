@@ -11,7 +11,9 @@
  *   2. B's browser notices on its next server call and says so:
  *      account call (Security Center)                                    (passes)
  *      sync pull                                               (DEFECT-H3, todo)
- *   3. Data B already holds offline stays readable there (stated in UI). (passes)
+ *   3. Data B already holds stays on B, encrypted (no remote wipe), but
+ *      with mandatory sign-in (specs/account-sign-in.md) there is no
+ *      local-only way to open it without an account session.         (passes)
  *   4. Each session is bound to its own device key; only B is cut off,
  *      A keeps working. (passes on main; was DEFECT-H1 on integrate/wave0)
  *   5. B cannot simply sign in again with its passkey and pull
@@ -163,24 +165,26 @@ test('B\'s browser returns to sign-in on its next account call ("session expired
   assert.ok(offline.keys && offline.rows, 'revocation is not a remote wipe: the encrypted vault is still on B');
 });
 
-test('"Continue without signing in" right after the session-expired bounce opens the local vault', async () => {
+test('no local-only escape after the session-expired bounce: no "Continue without signing in", the vault stays closed', async () => {
   const p = B.page;
-  await p.getByRole('button', { name: /Continue without signing in/ }).click();
-  await p.getByRole('button', { name: /Lock vault/ }).waitFor({ timeout: 8_000 }).catch(() => undefined);
-  await p.waitForTimeout(3_000); // the bounce comes from the remounted Security Center's own request
-  await p.screenshot({ path: path.join(logDir, 'h-b-continue-local-only.png') });
-  assert.equal(await p.getByRole('heading', { name: 'Sign in to your account' }).isVisible(), false, 'thrown back to the sign-in gate after "Continue without signing in"');
-  assert.equal(await p.getByRole('button', { name: /Lock vault/ }).isVisible(), true, 'local vault shell not reachable');
+  await p.getByRole('heading', { name: 'Sign in to your account' }).waitFor();
+  assert.equal(await p.getByRole('button', { name: /Continue without signing in/ }).count(), 0, 'the gate offers a local-only way past sign-in');
+  await p.waitForTimeout(3_000); // give a remounting shell time to appear if it were reachable
+  await p.screenshot({ path: path.join(logDir, 'h-b-no-local-only.png') });
+  assert.equal(await p.getByRole('heading', { name: 'Sign in to your account' }).isVisible(), true, 'left the sign-in gate without a session');
+  assert.equal(await p.getByRole('button', { name: /Lock vault/ }).count(), 0, 'local vault shell reachable without a session');
 });
 
-test('honest offline limit: after a reload the revoked browser still opens and reads its local vault with no session', async () => {
+test('honest offline limit: after a reload the revoked browser still holds its encrypted vault but cannot open it with no session', async () => {
   const p = B.page;
   await p.reload();
   await p.getByRole('heading', { name: 'Sign in to your account' }).waitFor();
-  await p.getByRole('button', { name: /Continue without signing in/ }).click();
-  await unlockViaUi(p, PASS);
-  for (const it of [ITEMS.one, ITEMS.two]) await p.getByText(it.title).first().waitFor();
-  assert.equal(await storedToken(p), null, 'read entirely offline, no session');
+  assert.equal(await p.getByRole('button', { name: /Continue without signing in/ }).count(), 0, 'the gate offers a local-only way past sign-in');
+  assert.equal(await p.getByText('Your vault is locked').count(), 0, 'lock screen reachable without a session');
+  for (const it of [ITEMS.one, ITEMS.two]) assert.equal(await p.getByText(it.title).count(), 0, `"${it.title}" readable without a session`);
+  const offline = await p.evaluate(([k, r]) => ({ keys: localStorage.getItem(k), rows: localStorage.getItem(r) }), [LS_VAULT_KEYS, LS_VAULT_ROWS]);
+  assert.ok(offline.keys && offline.rows, 'the encrypted vault is still on B after a reload');
+  assert.equal(await storedToken(p), null, 'no session');
 });
 
 test('only B is cut off: A\'s session keeps working (and syncing) after B\'s device is revoked', async () => {

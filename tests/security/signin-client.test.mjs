@@ -295,7 +295,7 @@ test('i18n: signin keys are identical in en.ts and vi.ts', () => {
   const vi = signinKeys('vi.ts');
   assert.deepEqual([...vi].sort(), [...en].sort());
   assert.ok(en.length >= 20, `expected at least 20 signin keys, got ${en.length}`);
-  for (const k of ['title', 'emailLabel', 'signInButton', 'mfaTitle', 'mfaCodeLabel', 'recoveryCodeLabel', 'continueLocalOnly', 'signOut', 'sessionExpired', 'verificationFailed', 'mfaExpired', 'offline']) {
+  for (const k of ['title', 'emailLabel', 'signInButton', 'mfaTitle', 'mfaCodeLabel', 'recoveryCodeLabel', 'continueWithGoogle', 'continueWithApple', 'changeServer', 'signOut', 'sessionExpired', 'verificationFailed', 'mfaExpired', 'offline']) {
     assert.ok(en.includes(k), `en signin is missing ${k}`);
   }
 });

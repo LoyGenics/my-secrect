@@ -16,7 +16,8 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 # Tauri v2 only. No fs / shell / http / updater plugins: the only IPC the
-# frontend gets is the encrypted key/value store below (see README.md).
+# frontend gets is the encrypted key/value store below and Google sign-in
+# (see README.md).
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -29,6 +30,14 @@ rusqlite = { version = "0.43", features = ["bundled-sqlcipher-vendored-openssl"]
 keyring = "4"
 getrandom = "0.3"
 zeroize = "1"
+# Google sign-in (google_oauth.rs): PKCE + loopback redirect, then one HTTPS
+# POST to Google's token endpoint. reqwest was already in Cargo.lock (via
+# tauri); `native-tls` uses the OS TLS stack (Security.framework / SChannel /
+# the vendored OpenSSL above), so no new TLS implementation is compiled in.
+reqwest = { version = "0.13", default-features = false, features = ["native-tls"] }
+sha2 = "0.10"
+base64 = "0.23"
+url = "2"
 
 [features]
 # Embed the built frontend (`../dist`) instead of loading the dev server.

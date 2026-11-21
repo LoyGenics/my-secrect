@@ -2,7 +2,9 @@
  * Real-Chromium e2e: restore an encrypted backup into the built MV3 extension
  * through the options page UI. Profile A creates a vault + items and exports
  * (background messages, same path the options "Download encrypted backup"
- * button uses). Fresh profile B restores through the real UI.
+ * button uses). Fresh profile B restores through the real UI. Every profile
+ * signs in to an account first (vault access needs one): email code against
+ * the e2e mock account server (apps/extension/e2e/fixtures.ts).
  * Run: npx tsx --test tests/e2e-web-restore/extension-restore.e2e.test.ts
  */
 import { test, before, after } from 'node:test';
@@ -12,7 +14,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type BrowserContext, type Page } from 'playwright';
-import { buildExtension } from '../../apps/extension/e2e/fixtures';
+import { buildExtension, signInViaMessages, startMockApi, type MockApi } from '../../apps/extension/e2e/fixtures';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const shotDir = path.join(here, 'screenshots');
@@ -20,12 +22,13 @@ mkdirSync(shotDir, { recursive: true });
 const PASS = 'ext-restore-passphrase-fixture-77';
 
 let dist = '';
+let mockApi: MockApi;
 let backup = '';
 let recoveryKey = '';
 const open: BrowserContext[] = [];
 
-before(() => { dist = buildExtension(); });
-after(async () => { for (const c of open) await c.close().catch(() => undefined); });
+before(async () => { dist = buildExtension(); mockApi = await startMockApi(); });
+after(async () => { for (const c of open) await c.close().catch(() => undefined); await mockApi?.close(); });
 
 async function launch(): Promise<{ ctx: BrowserContext; extId: string; admin: Page }> {
   const ctx = await chromium.launchPersistentContext(mkdtempSync(path.join(tmpdir(), 'restore-profile-')), {
@@ -38,6 +41,8 @@ async function launch(): Promise<{ ctx: BrowserContext; extId: string; admin: Pa
   const extId = new URL(sw.url()).host;
   const admin = await ctx.newPage();
   await admin.goto(`chrome-extension://${extId}/options/index.html`);
+  await signInViaMessages((m) => bg(admin, m), mockApi.base);
+  await admin.reload(); // the options page reads the account state on load
   return { ctx, extId, admin };
 }
 

@@ -127,7 +127,10 @@ function killTree(child: ChildProcess): Promise<void> {
   });
 }
 
-export async function startStack(partial: Partial<StackConfig> = {}): Promise<Stack> {
+/** `web: false` boots only the API (tests/a11y-web serves its own production
+ *  build and points it at this API). */
+export async function startStack(partial: Partial<StackConfig> = {}, opts: { web?: boolean } = {}): Promise<Stack> {
+  const withWeb = opts.web ?? true;
   const cfg = { ...stackConfigFromEnv(), ...partial };
   if (!cfg.dbName.endsWith('_e2eauth')) {
     throw new Error(`E2E database name must end with _e2eauth (got ${cfg.dbName}); refusing to drop it`);
@@ -136,7 +139,7 @@ export async function startStack(partial: Partial<StackConfig> = {}): Promise<St
   rmSync(cfg.mailDir, { recursive: true, force: true });
   mkdirSync(cfg.mailDir, { recursive: true });
   await assertPortFree(cfg.apiPort, 'API');
-  await assertPortFree(cfg.webPort, 'web');
+  if (withWeb) await assertPortFree(cfg.webPort, 'web');
   const env = railsEnv(cfg);
 
   // Fresh, migrated schema (db:schema:load = the committed schema.rb).
@@ -149,14 +152,16 @@ export async function startStack(partial: Partial<StackConfig> = {}): Promise<St
     cwd: apiDir, env, detached: true, stdio: ['ignore', apiLog, apiLog],
   });
   const webLog = openSync(path.join(cfg.logDir, 'web.log'), 'w');
-  const web = spawn('npx', ['vite', '--host', 'localhost', '--port', String(cfg.webPort), '--strictPort'], {
-    cwd: webDir, env: process.env, detached: true, stdio: ['ignore', webLog, webLog],
-  });
-  const stop = async () => { await Promise.all([killTree(api), killTree(web)]); };
+  const web = withWeb
+    ? spawn('npx', ['vite', '--host', 'localhost', '--port', String(cfg.webPort), '--strictPort'], {
+      cwd: webDir, env: process.env, detached: true, stdio: ['ignore', webLog, webLog],
+    })
+    : null;
+  const stop = async () => { await Promise.all([killTree(api), ...(web ? [killTree(web)] : [])]); };
   try {
     await Promise.all([
       waitFor(`http://localhost:${cfg.apiPort}/health`, 'API', api),
-      waitFor(`http://localhost:${cfg.webPort}/`, 'web', web),
+      ...(web ? [waitFor(`http://localhost:${cfg.webPort}/`, 'web', web)] : []),
     ]);
   } catch (err) {
     await stop();

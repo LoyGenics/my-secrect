@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import type { ExtRequest, ExtResponse } from '../lib/messages';
+import type { AccountStatus, ExtRequest, ExtResponse } from '../lib/messages';
 import RestoreBackupExt from './RestoreBackupExt';
+import SignIn, { useAuthErrorText } from '../popup/SignIn';
+import { format } from '../../../../packages/i18n/src/index';
 import { DEFAULT_SETTINGS, type AutoLockMinutes, type ExtSettings } from '../lib/settings';
 import { applyAppearance } from '../popup/theme';
 import ghostMark from '../../../../packages/ui/assets/brand/ghost-mark.webp';
@@ -34,6 +36,9 @@ export default function Options() {
   const [newPass, setNewPass] = useState('');
   const [newPassConfirm, setNewPassConfirm] = useState('');
   const [wipeConfirm, setWipeConfirm] = useState('');
+  const [account, setAccount] = useState<AccountStatus | null>(null);
+  const [serverText, setServerText] = useState('');
+  const authErrorText = useAuthErrorText();
 
   useEffect(() => {
     void send({ type: 'getSettings' }).then((res) => {
@@ -44,6 +49,9 @@ export default function Options() {
         setBlockedText(res.settings.blockedOrigins.join('\n'));
       }
       setLoaded(true);
+    });
+    void send({ type: 'getAccount' }).then((res) => {
+      if (res.ok && 'account' in res) { setAccount(res.account); setServerText(res.account.apiBaseUrlOverride); }
     });
     void send({ type: 'getStatus' }).then((res) => {
       if (res.ok && 'status' in res) { setLocked(res.status.locked); setVaultExists(res.status.vaultExists); }
@@ -60,6 +68,21 @@ export default function Options() {
     const res = await send({ type: 'saveSettings', settings: next });
     if (res.ok) { setSettings(next); setNotice('Settings saved.'); }
     else setError(!res.ok ? res.error : 'Could not save settings.');
+  };
+
+  const saveServer = async () => {
+    setError(''); setNotice('');
+    const res = await send({ type: 'setApiBaseUrl', url: serverText });
+    if (res.ok && 'account' in res) {
+      setAccount(res.account); setServerText(res.account.apiBaseUrlOverride); setNotice(x.serverSaved);
+      if (res.account.step !== 'signed-in') setLocked(true);
+    } else setError(authErrorText(res));
+  };
+
+  const signOut = async () => {
+    setError(''); setNotice('');
+    const res = await send({ type: 'signOut' });
+    if (res.ok && 'account' in res) { setAccount(res.account); setLocked(true); setNotice(x.signedOutToast); }
   };
 
   const changePassphrase = async () => {
@@ -113,7 +136,26 @@ export default function Options() {
       {notice && <p className="note" role="status">{notice}</p>}
       {error && <p className="note err" role="alert">{error}</p>}
 
-      <RestoreBackupExt vaultExists={vaultExists} onRestored={() => setVaultExists(true)} />
+      <section className="card space-y-3" aria-label={x.account} data-testid="account-card">
+        <h2>{x.account}</h2>
+        {account?.step === 'signed-in' ? (
+          <div className="flex items-center justify-between gap-3">
+            <p data-testid="options-signed-in">{account.email ? format(x.signedInAs, account.email) : x.signedIn}</p>
+            <button className="btn-secondary" type="button" onClick={() => void signOut()}>{x.signOut}</button>
+          </div>
+        ) : account ? (
+          <SignIn account={account} onChange={setAccount} tone="paper" />
+        ) : null}
+        <div>
+          <label className="label" htmlFor="api-base-url">{x.accountServer}</label>
+          <input id="api-base-url" name="api-base-url" type="url" className="input font-mono" value={serverText} onChange={(e) => setServerText(e.target.value)}
+            placeholder={account?.apiBaseUrl || 'https://vault.example.com/api'} autoComplete="off" spellCheck={false} />
+          <p className="ink3 mt-1">{x.accountServerHint}</p>
+        </div>
+        <button className="btn-secondary" type="button" onClick={() => void saveServer()}>{x.saveServer}</button>
+      </section>
+
+      <RestoreBackupExt vaultExists={vaultExists} signedIn={account?.step === 'signed-in'} onRestored={() => setVaultExists(true)} />
 
       <section className="card space-y-4" aria-label="Autofill settings">
         <h2>Autofill</h2>
@@ -173,7 +215,7 @@ export default function Options() {
       <section className="card space-y-2 ink2" aria-label="About">
         <h2>About this extension</h2>
         <p>Local-first, end-to-end encrypted. Crypto: Argon2id + XChaCha20-Poly1305 via libsodium. The extension vault is separate from the desktop app vault until sync lands — items saved here do not appear on desktop yet.</p>
-        <p>Permissions: storage, activeTab, scripting, alarms. No broad host permissions — the content script is injected on demand into the active tab only, for one user-chosen fill.</p>
+        <p>Permissions: storage, activeTab, scripting, alarms, identity (Google sign-in window). No broad host permissions — the content script is injected on demand into the active tab only, for one user-chosen fill.</p>
         <p>Not audited, not production-ready. Do not store secrets you cannot afford to lose.</p>
       </section>
     </main>

@@ -10,7 +10,7 @@ import { AppButton, BottomSheet, EmptyState, FilterChip, Group, Rule, SearchTrig
 import { Avatar, Cover, CoverIconButton, FilterGlyph, SortLine, ledgerLetter } from '../components/ledger';
 import { useMobileTheme } from '../theme';
 import { radius, size, space, textStyle } from '../ui/tokens';
-import { exampleItems, EXAMPLE_IDS } from '../utils/exampleData';
+import { exampleItems, isExampleItem } from '../utils/exampleData';
 import { isArchived } from '../utils/itemMeta';
 import {
   activeFilterCount, clearVaultFilters, filterVaultItems, toggleFilterValue, vaultFacetCounts, vaultFilterPredicate, type VaultFilter, type VaultSort,
@@ -24,7 +24,7 @@ type VaultScreenProps = {
   onSelect: (id: string) => void;
   onNew: () => void;
   onLoadExamples: (items: VaultItem[]) => void;
-  onClearExamples: (ids: string[]) => void;
+  onClearExamples: () => void;
   onSearch?: () => void;
   onOpen?: (screen: 'Shares' | 'Family') => void;
   onViewArchive?: () => void;
@@ -69,7 +69,7 @@ export default function VaultScreen({
   const scopeCounts = useMemo(() => vaultFacetCounts(candidates, clearVaultFilters(filter), [], items), [candidates, filter, items]);
   const facets = useMemo(() => draft && vaultFacetCounts(candidates, draft, collections.map((item) => item.id), items), [candidates, draft, collections, items]);
   const optionCount = useMemo(() => new Set(candidates.flatMap((item) => item.tags ?? [])).size + collections.length, [candidates, collections]);
-  const hasExamples = items.some((item) => EXAMPLE_IDS.includes(item.id));
+  const hasExamples = items.some(isExampleItem);
   const count = activeFilterCount(filter);
   const scope = scopeOf(filter);
   const pendingCount = useMemo(() => draft ? candidates.filter(vaultFilterPredicate(draft, items)).length : 0, [candidates, draft, items]);
@@ -250,7 +250,7 @@ export default function VaultScreen({
         {!archived && <>
           <Rule leading />
           <SettingsRow label={hasExamples ? dict.mobileUI.clearExamples : dict.mobileUI.loadExamples} icon="items"
-            testID="vault-example-action" onPress={() => openMore(() => hasExamples ? onClearExamples(EXAMPLE_IDS) : onLoadExamples(exampleItems()))} />
+            testID="vault-example-action" onPress={() => openMore(() => hasExamples ? onClearExamples() : onLoadExamples(exampleItems()))} />
         </>}
       </Group>
     </BottomSheet>

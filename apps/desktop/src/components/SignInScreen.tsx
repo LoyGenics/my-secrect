@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Art, Icon, brandMark, illustrations } from '../theme';
 import './signin.css';
 import { useTranslation } from '../../../../packages/i18n/src/react';
@@ -10,9 +10,25 @@ import {
   isMfaRequiredResult,
   saveSessionToken,
   webTokenStore,
+  type AuthProvidersResponse,
+  type OAuthProvider,
+  type OAuthStartResponse,
   type SecurityApiClient,
   type SignInResult,
 } from '../../../../packages/sdk/src/security';
+import { idTokenEmail, sha256Hex } from '../../../../packages/sdk/src/oauth';
+import { isTauriRuntime } from '../storage';
+import {
+  APPLE_JS_SRC,
+  GOOGLE_GSI_SRC,
+  OAuthCancelled,
+  appleSignIn,
+  desktopGoogleSignIn,
+  cancelDesktopGoogleSignIn,
+  loadScript,
+  renderGoogleButton,
+  visibleProviders,
+} from '../oauth';
 import {
   classifySignInError,
   emailCodeRequestFailed,
@@ -20,6 +36,7 @@ import {
   emailSignedIn,
   initialSignInState,
   mfaVerified,
+  oauthSignedIn,
   optionsReceived,
   passkeyVerified,
   signInFailed,
@@ -37,10 +54,18 @@ import {
 import { serializeGetCredential, toRequestOptions } from '../utils/webauthn';
 
 /**
- * SignInScreen — account sign-in by email code, or by passkey once the
- * account has one. Rendered by App BEFORE the vault (onboarding / lock)
- * whenever an API base URL is configured and no valid session token is
- * stored.
+ * SignInScreen — account sign-in with Google, Apple (each only when the
+ * server's GET auth/providers lists it), an email code, or a passkey once
+ * the account has one. Rendered by App BEFORE the vault (onboarding /
+ * lock) whenever no valid session token is stored. There is no way past it
+ * without an account.
+ *
+ * Google / Apple: POST auth/oauth/start (single-use ticket + nonce) -> the
+ * provider's ID token bound to that nonce (oauth.ts) -> POST
+ * auth/oauth/:provider/session with this device's proof signed over the
+ * nonce -> the same handling as the email path (MFA, finishSignIn). On the
+ * web the ticket is fetched ahead of the click (popups must open straight
+ * from the click) and replaced after every attempt and before it expires.
  *
  * There is no password login. A passkey is an optional upgrade added
  * later in the Security Center; it is never required to sign up. Flow
@@ -68,9 +93,7 @@ import { serializeGetCredential, toRequestOptions } from '../utils/webauthn';
  * ceremony, generic verification failure (the server returns one
  * generic 401 and never says which check failed), expired
  * challenge / MFA token (both single-use — restart from email),
- * offline. "Continue without signing in" keeps the local vault
- * usable when the server is unreachable or the user wants
- * local-only: account features then stay signed out.
+ * offline.
  *
  * Device binding (specs/device-identity.md): every passkey verify
  * carries a device proof signed over that ceremony's challenge (the email
@@ -95,7 +118,17 @@ export interface SignInScreenProps {
   /** True when the previous session expired (401) — shown as a note. */
   sessionExpired?: boolean;
   onSignedIn: (email: string) => void;
-  onContinueLocalOnly: () => void;
+  /** Back to the "connect to your account server" step. */
+  onChangeServer: () => void;
+}
+
+const isDesktop = isTauriRuntime();
+const DESKTOP_GOOGLE_CLIENT_ID: string = import.meta.env.VITE_GOOGLE_DESKTOP_CLIENT_ID ?? '';
+const DESKTOP_GOOGLE_CLIENT_SECRET: string = import.meta.env.VITE_GOOGLE_DESKTOP_CLIENT_SECRET ?? '';
+
+/** A prefetched oauth/start ticket, with Apple's hashed nonce ready. */
+interface OAuthAttempt extends OAuthStartResponse {
+  appleNonce: string;
 }
 
 function webAuthnAvailable(): boolean {
@@ -124,13 +157,15 @@ function errorText(kind: SignInErrorKind, s: Record<string, string>): string {
     case 'signup-expired': return s.signupExpired;
     case 'device-rejected': return s.deviceRejected;
     case 'device-approval-required': return s.deviceApprovalRequired;
+    case 'oauth-failed': return s.oauthFailed;
+    case 'oauth-unavailable': return s.oauthUnavailable;
     case 'offline': return s.offline;
     default: return s.unknownError;
   }
 }
 
-export default function SignInScreen({ security, sessionExpired, onSignedIn, onContinueLocalOnly }: SignInScreenProps) {
-  const { dict } = useTranslation();
+export default function SignInScreen({ security, sessionExpired, onSignedIn, onChangeServer }: SignInScreenProps) {
+  const { dict, locale } = useTranslation();
   const s = dict.signin;
   const [machine, setMachine] = useState<SignInState>(() => initialSignInState('login'));
   const [emailInput, setEmailInput] = useState('');
@@ -321,6 +356,153 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
     }
   };
 
+  // --- Google / Apple -------------------------------------------------------
+  const [providers, setProviders] = useState<AuthProvidersResponse | null>(null);
+  const [attempt, setAttempt] = useState<OAuthAttempt | null>(null);
+  const [providerWait, setProviderWait] = useState<OAuthProvider | null>(null);
+  const [scriptsReady, setScriptsReady] = useState(false);
+  const googleButtonRef = useRef<HTMLDivElement>(null);
+  // Bumped by "Cancel" so a desktop browser round trip that finishes later is ignored.
+  const runId = useRef(0);
+  const shown = visibleProviders(providers, isDesktop ? 'desktop' : 'web', DESKTOP_GOOGLE_CLIENT_ID);
+
+  useEffect(() => {
+    let live = true;
+    // No providers (or an unreachable server): the buttons stay hidden.
+    security.authProviders().then((p) => { if (live) setProviders(p); }, () => undefined);
+    return () => { live = false; };
+  }, [security]);
+
+  /** Web: a fresh ticket for the next click (single-use, 10 minutes). */
+  const refreshAttempt = useCallback(async () => {
+    try {
+      const start = await security.oauthStart();
+      setAttempt({ ...start, appleNonce: await sha256Hex(start.nonce) });
+    } catch {
+      setAttempt(null);
+    }
+  }, [security]);
+
+  const webProviders = isDesktop ? [] : shown;
+  const wantsWebOAuth = webProviders.length > 0;
+  useEffect(() => {
+    if (!wantsWebOAuth) return;
+    let live = true;
+    const scripts = webProviders.map((p) => loadScript(p === 'google' ? GOOGLE_GSI_SRC : APPLE_JS_SRC));
+    Promise.all(scripts).then(
+      () => { if (live) setScriptsReady(true); },
+      () => { if (live) setMachine((prev) => signInFailed(prev, 'oauth-unavailable')); },
+    );
+    void refreshAttempt();
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantsWebOAuth, refreshAttempt]);
+
+  // Replace the ticket a minute before it expires.
+  useEffect(() => {
+    if (!attempt) return;
+    const ms = Math.max(5_000, Date.parse(attempt.expires_at) - Date.now() - 60_000);
+    const id = window.setTimeout(() => void refreshAttempt(), Number.isFinite(ms) ? ms : 540_000);
+    return () => window.clearTimeout(id);
+  }, [attempt, refreshAttempt]);
+
+  /** Spend `ticket` with the provider's ID token; same tail as the email path. */
+  const finishOAuth = async (provider: OAuthProvider, start: OAuthStartResponse, idToken: string, fullName?: string) => {
+    const email = idTokenEmail(idToken);
+    if (!email) {
+      setMachine((prev) => signInFailed(prev, 'oauth-failed'));
+      return;
+    }
+    const device = await prepareDevice(email, start.nonce);
+    try {
+      const res = await security.oauthSession(provider, {
+        ticket: start.ticket,
+        id_token: idToken,
+        ...(device ? { device: device.proof } : {}),
+        ...(fullName ? { full_name: fullName } : {}),
+      });
+      const st = oauthSignedIn(machine, email, res);
+      setMachine(st);
+      if (isMfaRequiredResult(res)) {
+        pendingDevice.current = device;
+      } else if (st.step === 'signed-in') {
+        await device?.confirm(res.device_id);
+        await finishSignIn(email, res.token, res.expires_in);
+      }
+    } catch (err) {
+      if (isDeviceVerificationFailed(err)) {
+        // The ticket is spent with this attempt; the next one enrols a fresh key.
+        await device?.reject();
+        setMachine((prev) => signInFailed(prev, 'device-rejected'));
+        return;
+      }
+      setMachine((prev) => signInFailed(prev, err instanceof TypeError ? 'offline' : 'oauth-failed'));
+    }
+  };
+
+  const failOAuth = (err: unknown) => {
+    setProviderWait(null);
+    if (err instanceof OAuthCancelled) setMachine((prev) => ({ ...prev, busy: false, error: null }));
+    else setMachine((prev) => signInFailed(prev, err instanceof TypeError ? 'offline' : 'oauth-failed'));
+  };
+
+  // Web Google: Google renders its own button; its popup returns the ID token here.
+  const googleClientId = providers?.google?.web_client_id ?? '';
+  const onGoogleIdToken = useRef<(t: string) => void>(() => undefined);
+  onGoogleIdToken.current = (idToken: string) => {
+    if (!attempt) return;
+    const start = attempt;
+    setAttempt(null);
+    setMachine((prev) => ({ ...prev, busy: true, error: null }));
+    void finishOAuth('google', start, idToken).finally(() => void refreshAttempt());
+  };
+  const showEmailStep = machine.step !== 'mfa' && machine.step !== 'email-code';
+  useEffect(() => {
+    const el = googleButtonRef.current;
+    if (isDesktop || !scriptsReady || !attempt || !googleClientId || !el || !showEmailStep) return;
+    try {
+      renderGoogleButton(el, googleClientId, attempt.nonce, locale, (t) => onGoogleIdToken.current(t));
+    } catch {
+      setMachine((prev) => signInFailed(prev, 'oauth-unavailable'));
+    }
+  }, [scriptsReady, attempt, googleClientId, locale, showEmailStep]);
+
+  /** Web Apple (popup straight from the click, with the prefetched ticket). */
+  const continueWithApple = () => {
+    const servicesId = providers?.apple?.services_id;
+    if (!attempt || !servicesId) return;
+    const start = attempt;
+    setAttempt(null);
+    setMachine((prev) => ({ ...prev, busy: true, error: null }));
+    appleSignIn(servicesId, start.appleNonce)
+      .then(({ idToken, fullName }) => finishOAuth('apple', start, idToken, fullName))
+      .catch(failOAuth)
+      .finally(() => void refreshAttempt());
+  };
+
+  /** Desktop Google: system browser + loopback (Rust), then the API. */
+  const continueWithGoogleDesktop = async () => {
+    const run = ++runId.current;
+    setMachine((prev) => ({ ...prev, busy: true, error: null }));
+    setProviderWait('google');
+    try {
+      const start = await security.oauthStart();
+      const idToken = await desktopGoogleSignIn(DESKTOP_GOOGLE_CLIENT_ID, DESKTOP_GOOGLE_CLIENT_SECRET, start.nonce);
+      if (run !== runId.current) return;
+      setProviderWait(null);
+      await finishOAuth('google', start, idToken);
+    } catch (err) {
+      if (run === runId.current) failOAuth(err);
+    }
+  };
+
+  const cancelProviderWait = () => {
+    if (isDesktop && providerWait === 'google') cancelDesktopGoogleSignIn();
+    runId.current++;
+    setProviderWait(null);
+    setMachine((prev) => ({ ...prev, busy: false, error: null }));
+  };
+
   const submitMfa = async (e: FormEvent) => {
     e.preventDefault();
     const token = machine.mfaToken;
@@ -428,6 +610,32 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
             </form>
           )}
 
+          {machine.step !== 'mfa' && !onCodeStep && shown.length > 0 && (
+            <div className="si-providers">
+              {shown.includes('google') && (isDesktop ? (
+                <button type="button" className="si-btn" disabled={machine.busy} onClick={() => void continueWithGoogleDesktop()}>
+                  <GoogleMark />
+                  {s.continueWithGoogle}
+                </button>
+              ) : (
+                <div ref={googleButtonRef} className="si-google" aria-busy={!scriptsReady || !attempt} data-testid="google-button" />
+              ))}
+              {shown.includes('apple') && (
+                <button type="button" className="si-btn si-btn--apple" disabled={machine.busy || !scriptsReady || !attempt} onClick={continueWithApple}>
+                  <AppleMark />
+                  {s.continueWithApple}
+                </button>
+              )}
+              {providerWait && (
+                <p className="si-hint" role="status">
+                  {s.oauthWaiting}{' '}
+                  <button type="button" className="si-link si-link--brand" onClick={cancelProviderWait}>{s.cancel}</button>
+                </p>
+              )}
+              <p className="si-or" aria-hidden="true"><span>{s.orDivider}</span></p>
+            </div>
+          )}
+
           {machine.step !== 'mfa' && !onCodeStep && (
             <>
               <div className="si-tabs" data-mode={machine.mode} role="tablist" aria-label="Sign-in mode">
@@ -518,7 +726,7 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
           )}
 
           <p className="si-foot">
-            <button type="button" className="si-link" onClick={onContinueLocalOnly}>{s.continueLocalOnly}</button>
+            <button type="button" className="si-link" onClick={onChangeServer}>{s.changeServer}</button>
           </p>
           <p className="si-fine">{s.footerNote}</p>
         </div>
@@ -549,5 +757,25 @@ function OtpField({ id, value, onChange, label }: { id: string; value: string; o
         </span>
       ))}
     </div>
+  );
+}
+
+/** Google "G" (brand colours, as Google's sign-in guidelines require). */
+function GoogleMark() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+    </svg>
+  );
+}
+
+function AppleMark() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 17 20" aria-hidden="true" fill="currentColor">
+      <path d="M14.04 10.63c-.02-2.3 1.88-3.41 1.97-3.46-1.07-1.57-2.74-1.78-3.33-1.8-1.42-.14-2.77.83-3.49.83-.72 0-1.83-.81-3.01-.79-1.55.02-2.98.9-3.78 2.29-1.61 2.8-.41 6.94 1.16 9.21.77 1.11 1.68 2.36 2.88 2.31 1.16-.05 1.59-.75 2.99-.75 1.4 0 1.79.75 3.01.72 1.24-.02 2.03-1.13 2.79-2.25.88-1.29 1.24-2.54 1.26-2.6-.03-.01-2.42-.93-2.45-3.71zM11.75 3.88c.64-.77 1.07-1.85.95-2.92-.92.04-2.03.61-2.69 1.38-.59.68-1.11 1.77-.97 2.82 1.03.08 2.07-.52 2.71-1.28z" />
+    </svg>
   );
 }

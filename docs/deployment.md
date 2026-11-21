@@ -258,7 +258,12 @@ restore test. All PENDING.
   see `apps/api/.env.example` and `specs/account-sign-in.md`). The API fetches
   Google's and Apple's JWKS over HTTPS, so it needs outbound access to
   `www.googleapis.com` and `appleid.apple.com`. `infra/docker/docker-compose.yml`
-  does not pass these variables yet — PENDING.
+  passes them through from `.env`, including `GOOGLE_DESKTOP_CLIENT_ID` (the
+  desktop app's Google "Desktop app" client, accepted but not listed by
+  `auth/providers`).
+- The browser extension calls the API from `chrome-extension://<extension id>`;
+  add that exact origin to `CORS_ORIGINS` (comma-separated, no wildcard) or the
+  extension cannot sign in or sync.
 
 ## 6. Backup [RUN, A.0]
 

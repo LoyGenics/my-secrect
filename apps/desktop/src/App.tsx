@@ -53,6 +53,7 @@ import StepUpDialog from './components/StepUpDialog';
 import { useSync } from './sync/useSync';
 import SyncBar from './sync/SyncBar';
 import SignInScreen from './components/SignInScreen';
+import ConnectServerScreen from './components/ConnectServerScreen';
 import {
   SecurityApiClient,
   isStepUpFresh,
@@ -64,7 +65,8 @@ import {
 } from '../../../packages/sdk/src/security';
 import { VaultApiClient } from '../../../packages/sdk/src/index';
 import { RestoreBackup, RestoreSuccess } from './components/RestoreBackup';
-import { afterUnauthorized, shouldShowSignInGate } from './authGate';
+import { authGateStep, resolveApiBaseUrl, verifyStoredSession, type StoredSession } from './authGate';
+import { providerScriptsLoaded } from './oauth';
 import { I18nProvider } from '../../../packages/i18n/src/react';
 import { detectLocale, format, getDictionary, plural, storeLocale, type Locale, type PluralForms } from '../../../packages/i18n/src/index';
 import {
@@ -109,9 +111,9 @@ import {
  */
 
 const LS_AUTOLOCK = 'my-secrect.local-vault.autolock-minutes.v1';
-/** API base URL for the account server. Empty = local-only: no
- *  SecurityApiClient is constructed and the Security Center shows its
- *  not-configured state. The server never sees vault content. */
+/** API base URL for the account server, saved on this device. Empty =
+ *  use the build default; with neither, the app asks for one before
+ *  anything else (authGate.ts). The server never sees vault content. */
 const LS_API_BASE_URL = 'my-secrect:api-base-url';
 
 // AutoLockMinutes (1 | 5 | 15 | 0 = never) is imported from SettingsView.
@@ -206,17 +208,19 @@ export default function App({
   const filterButtonRef = useRef<HTMLButtonElement>(null);
   const searchButtonRef = useRef<HTMLButtonElement>(null);
   const [bulkIds, setBulkIds] = useState<Set<string>>(new Set());
-  // Account server (local-first): the client exists only when a base URL
-  // is configured. The token getter reads the stored account session
-  // token, if a sign-in flow has stored one; otherwise calls go out
-  // without Authorization and the server answers 401.
+  // Account server: the saved URL, else the build default. Without either
+  // the gate asks for one (ConnectServerScreen). The token getter reads the
+  // stored account session token, if a sign-in flow has stored one;
+  // otherwise calls go out without Authorization and the server answers 401.
   const [apiBaseUrl, setApiBaseUrl] = useState<string>(() => {
     try {
-      return localStorage.getItem(LS_API_BASE_URL) ?? defaultApiBaseUrl;
+      return resolveApiBaseUrl(localStorage.getItem(LS_API_BASE_URL), defaultApiBaseUrl);
     } catch {
-      return defaultApiBaseUrl;
+      return resolveApiBaseUrl(null, defaultApiBaseUrl);
     }
   });
+  // "Use a different server" from the sign-in screen: show the URL step again.
+  const [changingServer, setChangingServer] = useState(false);
   const securityClient = useMemo<SecurityApiClient | null>(() => {
     const base = apiBaseUrl.trim();
     if (!base) return null;
@@ -239,17 +243,14 @@ export default function App({
     return new VaultApiClient({ baseUrl: base, getToken: () => getValidToken(store) });
   }, [apiBaseUrl]);
   // --- Account sign-in state (WorkOS scope) --------------------------
-  // Signed-in = a valid (unexpired) session token is stored. The
-  // gate below shows SignInScreen before the vault whenever a server
-  // is configured and there is no valid session. Vault unlock
-  // (master passphrase) stays a SEPARATE step after sign-in.
-  const [signedIn, setSignedIn] = useState<boolean>(() => {
-    try {
-      return getValidTokenSync(webTokenStore()) !== null;
-    } catch {
-      return false;
-    }
-  });
+  // Signed-in = a stored session token the server accepted (or, offline,
+  // one with a known unexpired expiry): verifyStoredSession. A stored
+  // token alone is never trusted, so the app starts signed out and checks
+  // it first. The gate below shows SignInScreen before the vault whenever
+  // there is no verified session. Vault unlock (master passphrase) stays
+  // a SEPARATE step after sign-in.
+  const [signedIn, setSignedIn] = useState(false);
+  const [sessionChecked, setSessionChecked] = useState<boolean>(() => getValidTokenSync(webTokenStore()) === null);
   const [accountEmail, setAccountEmail] = useState<string>(() => {
     try {
       return localStorage.getItem(LS_ACCOUNT_EMAIL) ?? '';
@@ -257,18 +258,21 @@ export default function App({
       return '';
     }
   });
-  // 'Continue without signing in' — local-only escape hatch so a
-  // configured-but-unreachable server can never brick the local
-  // vault. Account features stay signed out until sign-in succeeds.
-  const [localOnlyBypass, setLocalOnlyBypass] = useState(false);
   // Set when a server call answers 401: the gate reappears with a
   // 'session expired' note instead of silently retrying.
   const [sessionExpired, setSessionExpired] = useState(false);
 
   const handleSignedIn = useCallback((email: string) => {
+    // Web: when the sign-in screen loaded an identity provider's script
+    // (Google GSI, Apple JS), reload so it and its globals never share a
+    // page with the vault. The session and email are already stored; the
+    // reload verifies them like any start.
+    if (providerScriptsLoaded()) {
+      window.location.reload();
+      return;
+    }
     setAccountEmail(email);
     setSignedIn(true);
-    setLocalOnlyBypass(false);
     setSessionExpired(false);
   }, []);
 
@@ -279,24 +283,43 @@ export default function App({
     try { localStorage.removeItem(LS_ACCOUNT_EMAIL); } catch { /* non-critical */ }
     setAccountEmail('');
     setSignedIn(false);
-    setLocalOnlyBypass(false);
     setSessionExpired(false);
   }, []);
 
-  // Mirror of the local-only choice for callbacks created once (handleUnauthorized).
-  const localOnlyBypassRef = useRef(localOnlyBypass);
-  localOnlyBypassRef.current = localOnlyBypass;
   const handleUnauthorized = useCallback(() => {
     // A 401 means the stored session is gone server-side (revoked
     // or expired). Clear it locally and send the user back to
-    // SignIn; never retry with the same stale token. A user who chose
-    // local-only keeps that choice for the session (afterUnauthorized).
+    // SignIn with a "session expired" note; never retry with the
+    // same stale token.
     void clearSessionToken(webTokenStore());
-    const next = afterUnauthorized({ signedIn: false, localOnlyBypass: localOnlyBypassRef.current, sessionExpired: false });
-    setSignedIn(next.signedIn);
-    setLocalOnlyBypass(next.localOnlyBypass);
-    setSessionExpired(next.sessionExpired);
+    setSignedIn(false);
+    setSessionExpired(true);
   }, []);
+
+  /** Checks the stored session with the server (verifyStoredSession) and
+   *  updates the gate. Runs at start and before unlock; creating or
+   *  restoring a vault passes `requireOnline` (offline -> 'offline', the
+   *  screen stays and says so). */
+  const confirmSession = useCallback(async (requireOnline = false): Promise<StoredSession> => {
+    const verdict = securityClient
+      ? await verifyStoredSession(webTokenStore(), () => securityClient.listSessions(), { requireOnline })
+      : 'signed-out';
+    if (verdict !== 'offline') setSignedIn(verdict === 'signed-in');
+    if (verdict === 'revoked') setSessionExpired(true);
+    return verdict;
+  }, [securityClient]);
+
+  /** Create / restore entry: true only when the server confirmed the session now. */
+  const confirmSessionOnline = async (): Promise<boolean> => {
+    const verdict = await confirmSession(true);
+    if (verdict === 'offline') setOnboardingError(dict.onboarding.needsOnlineCheck);
+    return verdict === 'signed-in';
+  };
+
+  useEffect(() => {
+    if (sessionChecked) return;
+    void confirmSession().finally(() => setSessionChecked(true));
+  }, [sessionChecked, confirmSession]);
   // Step-up (10-minute window, STEP_UP_WINDOW_MS in the SDK): a pending
   // action runs only after a fresh verification. requestStepUp runs the
   // action at once when the window is still fresh, otherwise it opens
@@ -333,21 +356,27 @@ export default function App({
     pending?.onCancel?.();
   }, []);
   const handleApiBaseUrlChange = useCallback((url: string) => {
-    setApiBaseUrl(url);
-    // A stored token belongs to the previous server (if any): a
-    // changed URL always requires signing in again. Clearing the URL
-    // returns to local-only, where the sign-in gate is off.
+    const next = resolveApiBaseUrl(url, defaultApiBaseUrl);
+    setChangingServer(false);
+    if (next === apiBaseUrl) return;
+    setApiBaseUrl(next);
+    // A stored token belongs to the previous server: a changed URL
+    // always requires signing in again. Clearing the URL falls back to
+    // the build default, or to the "connect to your server" step.
+    void clearSessionToken(webTokenStore());
+    setAccountEmail('');
     setSignedIn(false);
-    setLocalOnlyBypass(false);
     setSessionExpired(false);
+    doLock();
     try {
       const trimmed = url.trim();
-      if (trimmed || defaultApiBaseUrl) localStorage.setItem(LS_API_BASE_URL, trimmed);
+      if (trimmed) localStorage.setItem(LS_API_BASE_URL, trimmed);
       else localStorage.removeItem(LS_API_BASE_URL);
     } catch {
       // API URL persistence is non-critical; a full localStorage must not break the vault.
     }
-  }, [defaultApiBaseUrl]);
+    // doLock is declared below; it is only called, never read, during render.
+  }, [defaultApiBaseUrl, apiBaseUrl]);
 
   useEffect(() => initTheme().dispose, []);
 
@@ -368,7 +397,7 @@ export default function App({
 
   // Sync (packages/sync via SDK): runs only while signed in AND unlocked.
   const sync = useSync({
-    enabled: signedIn && unlocked && !localOnlyBypass,
+    enabled: signedIn && unlocked,
     apiBaseUrl,
     accountEmail,
     onItemsChanged: refresh,
@@ -410,7 +439,6 @@ export default function App({
     await clearSessionToken(webTokenStore());
     setAccountEmail('');
     setSignedIn(false);
-    setLocalOnlyBypass(false);
     setSessionExpired(false);
     doLock();
   }, [securityClient, doLock]);
@@ -530,6 +558,7 @@ export default function App({
 
   const handleUnlock = async () => {
     setLockError('');
+    if ((await confirmSession()) !== 'signed-in') return;
     setUnlocking(true);
     let ok = false;
     try {
@@ -557,6 +586,7 @@ export default function App({
 
   const handleCreateVault = async () => {
     setOnboardingError('');
+    if (!(await confirmSessionOnline())) return;
     if (newPass.length < 8) {
       setOnboardingError(dict.onboarding.tooShort);
       return;
@@ -682,10 +712,7 @@ export default function App({
 
   const handleLoadExampleData = async () => {
     try {
-      const existing = new Set([...listItems(true)].map((i) => i.id));
-      for (const item of buildExampleItems()) {
-        if (!existing.has(item.id)) await upsertItem(item);
-      }
+      for (const item of buildExampleItems()) await upsertItem(item);
       refresh();
       setView('all');
       setNotice(dict.notices.exampleLoaded);
@@ -920,20 +947,31 @@ export default function App({
   );
 
   // ---------- Account sign-in gate ----------
-  // When a server is configured and there is no valid session, the
-  // account sign-in comes FIRST — before vault onboarding / unlock.
-  // The vault itself stays local-first: 'Continue without signing
-  // in' skips the gate and the vault works offline, with account
-  // features signed out. With no server configured there is no gate
-  // at all. Sign-in never unlocks the vault: after it, the user
-  // still faces the lock screen / onboarding below.
-  if (securityClient && shouldShowSignInGate(true, { signedIn, localOnlyBypass, sessionExpired })) {
+  // Account sign-in comes FIRST — before vault onboarding / unlock —
+  // and there is no way around it (no local-only mode). Without a known
+  // account server the user is asked for one first. Sign-in never
+  // unlocks the vault: after it, the user still faces the lock screen /
+  // onboarding below.
+  const gate = changingServer ? 'connect-server' : authGateStep(apiBaseUrl, signedIn);
+  if (gate === 'sign-in' && !sessionChecked) {
+    return frame(<p role="status" className="grid min-h-screen place-items-center ms-text-secondary">{dict.common.loading}</p>);
+  }
+  if (gate === 'connect-server' || !securityClient) {
+    return frame(
+      <ConnectServerScreen
+        initialUrl={apiBaseUrl}
+        onConnect={handleApiBaseUrlChange}
+        onCancel={changingServer ? () => setChangingServer(false) : undefined}
+      />,
+    );
+  }
+  if (gate === 'sign-in') {
     return frame(
       <SignInScreen
         security={securityClient}
         sessionExpired={sessionExpired}
         onSignedIn={handleSignedIn}
-        onContinueLocalOnly={() => setLocalOnlyBypass(true)}
+        onChangeServer={() => setChangingServer(true)}
       />,
     );
   }
@@ -1006,7 +1044,7 @@ export default function App({
                     <Button type="submit" variant="primary" size="lg" block loading={creating}>
                       {creating ? o.creating : o.createVault}
                     </Button>
-                    <Button block icon="restore" onClick={() => setRestoreUi({ count: null })}>
+                    <Button block icon="restore" onClick={() => { setOnboardingError(''); void confirmSessionOnline().then((ok) => { if (ok) setRestoreUi({ count: null }); }); }}>
                       {o.restoreFromBackup}
                     </Button>
                   </form>
@@ -1178,7 +1216,8 @@ export default function App({
             align="end"
             items={accountItems}
             trigger={
-              <button type="button" className="ms-avatar" aria-label={sh.account}>
+              // The name starts with the visible initials (WCAG 2.5.3 label in name).
+              <button type="button" className="ms-avatar" aria-label={accountEmail ? `${accountEmail.slice(0, 2).toUpperCase()}, ${sh.account}` : sh.account}>
                 <span>{accountEmail ? accountEmail.slice(0, 2).toUpperCase() : <Icon name="identity" size="md" />}</span>
               </button>
             }
@@ -1248,7 +1287,7 @@ export default function App({
               onChangePassphrase={handleChangePassphraseRequest}
               onWipeVault={() => requestStepUp(handleWipeVault)}
               apiBaseUrl={apiBaseUrl}
-              onApiBaseUrlChange={handleApiBaseUrlChange}
+              onChangeServer={() => setChangingServer(true)}
             />
           </div>
         ) : view === 'security' ? (

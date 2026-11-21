@@ -7,7 +7,7 @@ import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-c
 import type { VaultItem } from '../../../packages/core/src/types';
 import { LS_API_TOKEN_EXPIRES_AT, SecurityApiClient } from '../../../packages/sdk/src/security';
 import SignInScreen from './screens/SignInScreen';
-import { endSessionAfterUnauthorized, loadAccountServer, resolveVaultEntry } from './accountServer';
+import { confirmSessionOnline, endSessionAfterUnauthorized, loadAccountServer, resolveVaultEntry } from './accountServer';
 import { asyncTokenStore, getApiToken } from './screens/SecurityScreen';
 import {
   hasVault, lockVault, signOutVault, isUnlocked, listItems, listTrash, upsertItem, importItems,
@@ -19,6 +19,7 @@ import MobileNavigator from './MobileNavigator';
 import { clearFilePreviews } from './storage/filePreviews';
 import { removeEncryptedFile } from './storage/localFiles';
 import { isFile } from '../../../packages/core/src/files';
+import { isExampleItem } from './utils/exampleData';
 import { I18nProvider, useTranslation } from '../../../packages/i18n/src/react';
 import { LOCALE_STORAGE_KEY, defaultLocale, type Locale } from '../../../packages/i18n/src/index';
 import OnboardingScreen from './screens/OnboardingScreen';
@@ -157,6 +158,14 @@ function AppShell() {
     if (returnToSignIn(true, shareItemId)) void endSessionAfterUnauthorized(asyncTokenStore, signOutVault);
   }, [returnToSignIn]);
 
+  // Create / restore entry points: the server must confirm the session now.
+  const confirmOnline = useCallback(async () => {
+    const result = await confirmSessionOnline(asyncTokenStore, () => checkAccountSession(apiBaseUrl));
+    if (result === 'revoked') handleUnauthorized();
+    else if (result === 'signin') returnToSignIn(true);
+    return result;
+  }, [apiBaseUrl, handleUnauthorized, returnToSignIn]);
+
   const handleServerSaved = useCallback((next: string) => {
     if (next === apiBaseUrl) return;
     setApiBaseUrl(next);
@@ -249,12 +258,12 @@ function AppShell() {
   async function handleRestore(id: string) { await restoreItem(id); refresh(); }
   function handleToggleFavorite(id: string) { toggleFavorite(id); refresh(); }
   async function handleLoadExamples(list: VaultItem[]) { for (const it of list) await upsertItem(it); refresh(); setNotice(dict.mobile.exampleLoaded); }
-  async function handleClearExamples(ids: string[]) { for (const id of ids) await permanentlyDeleteItem(id); refresh(); setNotice(dict.mobile.exampleCleared); }
+  async function handleClearExamples() { for (const it of listItems(true).filter(isExampleItem)) await permanentlyDeleteItem(it.id); refresh(); setNotice(dict.mobile.exampleCleared); }
 
   if (boot === 'loading') return <BootStatus />;
   if (boot === 'error') return <BootStatus onRetry={() => { setBoot('loading'); setBootAttempt(value => value + 1); }} />;
   if (boot === 'plans') return <BillingScreen billing={billing} baseUrl={apiBaseUrl} onContinue={continueFromPlans} />;
-  if (boot === 'onboarding') return <OnboardingScreen onDone={handleUnlocked}
+  if (boot === 'onboarding') return <OnboardingScreen onDone={handleUnlocked} confirmOnline={confirmOnline}
     onRestored={() => setBoot(current => current === 'onboarding' ? 'locked' : current)} />;
   if (boot === 'locked') return <LockScreen onUnlocked={handleUnlocked} accountJustSignedIn={accountJustSignedIn} />;
   if (boot === 'signin') {
@@ -273,7 +282,7 @@ function AppShell() {
       <MobileNavigator items={items} trash={trash} autoLock={autoLock} notice={notice} setNotice={setNotice}
         onSave={handleSaveItem} onDelete={handleDelete} onRestore={handleRestore} onToggleFavorite={handleToggleFavorite}
         onImportItems={async (selected) => { await importItems(selected); refresh(); }}
-        onLoadExamples={list => void handleLoadExamples(list)} onClearExamples={ids => void handleClearExamples(ids)}
+        onLoadExamples={list => void handleLoadExamples(list)} onClearExamples={() => void handleClearExamples()}
         onAutoLockChange={setAutoLock} onLock={doLock}
         onWiped={() => setBoot(current => current === 'unlocked' ? 'onboarding' : current)}
         apiBaseUrl={apiBaseUrl} billing={billing} initialShareItemId={shareAfterSignIn}

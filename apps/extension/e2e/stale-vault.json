@@ -1,0 +1,36 @@
+{
+  "passphrase": "qa-stale-Passphrase-Not-A-Real-Secret-7",
+  "recoveryKey": "MXvufiIpJy8VqDaBG_weDqHZBEUF78ier3L5By23D04",
+  "itemId": "81f2d1cb-a3e5-41c3-aa85-48b3c5802c11",
+  "storage": {
+    "my-secrect.ext.settings.v1": {
+      "allowedOrigins": [],
+      "appearance": "system",
+      "autoLockMinutes": 5,
+      "blockedOrigins": [],
+      "requireConfirmForBank": true,
+      "requireConfirmForPunycode": true
+    },
+    "my-secrect.ext.vault.keys.v1": {
+      "salt": "ss3dW1HbrMcp0upA9WlmYw==",
+      "wrapped_master": "OhgWSy92tM2B5o89z27PUtdSIYaDbzGkcvP7sjHL6PPYX7EjrVOGcsFjrvwq8ZGz",
+      "wrapped_master_nonce": "dNvRkb/2L37vMsctsE/FfFpzRPJMQs3m",
+      "wrapped_recovery": "SiciiQj/xuEM890bD82CWfZuBjOI6NuzjvEpsg58+TAE8kfWZ5rioJrpnCsXbB1l",
+      "wrapped_recovery_nonce": "HAqMM07uB1E2qHnrc+bHSRwh1IgXBWow",
+      "wrapped_vault": "eZKiwy6DvAqWMYuaRt7t1CzYX4vcxNXrmzGRZ1ijpdf4ZNdM7fvusCPbQgEXTScq",
+      "wrapped_vault_nonce": "qe5B2R/OfLx1hP/C7NsVLWUC5KNzgTWh"
+    },
+    "my-secrect.ext.vault.rows.v1": [
+      {
+        "ciphertext": "46Vy0sYlmWDDIFF3e/Ti2SdKCNAwBuaA6/TwyjNR3u66ErYiZcHKu0xBXS/7CHzRWP/hEnIiEBvWGvdI0iV9poE1nEIZL7o0RTDML5pU54NJYuKnGCG8JNuTY7toADSa6pNynqSWw4UcBTeonlQB1H46T8F84j9heB1KY55s5OovVHLxnKPnCh9cms5Z7s1zMrQqcv+JLxwWuAK5o5oFUg/qzCwtCgGm0slZeN+ZS+higa4pmeFpF6noG+61i+/ZTEHX5xUi04YjHEOrtLJGaLBt0gIg1n+41i3CfJBkmAgaYstFELbBT+3tBApWBuDEsJ4+FCEQqMFBySoEIbs4SAw6N/sjW5YzFn1MN7NGhxvNkv1Fk1Hi2FcI7rD+rtNjq/kWsNs89jD85xHO1Fmc4AX9dQQeg3JPwHP+JCrFkd7tcoG5Z3I=",
+        "deleted_at": null,
+        "id": "81f2d1cb-a3e5-41c3-aa85-48b3c5802c11",
+        "nonce": "5mJamTtMQrtB2Qt0alVIKF8pSkCdByez",
+        "revision": 1,
+        "wrapped_item_key": "M1DucC3148KAhQZ8LUxRzeIOyIj0/4eHYGlDcRaDtnVB2EDA3ON0bR6enyFmrfWl",
+        "wrapped_nonce": "FNL2QLwic3rqf1sknVEJOL1dNZpIIYJI"
+      }
+    ]
+  },
+  "exportJson": "{\"format\":\"my-secrect-vault-export\",\"format_version\":3,\"exported_at\":\"2026-11-21T07:14:05.171Z\",\"vault_id\":\"extension-local\",\"kdf\":{\"name\":\"argon2id\",\"opslimit\":2,\"memlimit\":67108864,\"salt_bytes\":16,\"output_bytes\":32,\"recovery_kek\":\"sha256\",\"cipher\":\"xchacha20poly1305-ietf\",\"nonce_bytes\":24,\"encryption_version\":1},\"keys\":{\"salt\":\"ss3dW1HbrMcp0upA9WlmYw==\",\"wrapped_master\":\"OhgWSy92tM2B5o89z27PUtdSIYaDbzGkcvP7sjHL6PPYX7EjrVOGcsFjrvwq8ZGz\",\"wrapped_master_nonce\":\"dNvRkb/2L37vMsctsE/FfFpzRPJMQs3m\",\"wrapped_vault\":\"eZKiwy6DvAqWMYuaRt7t1CzYX4vcxNXrmzGRZ1ijpdf4ZNdM7fvusCPbQgEXTScq\",\"wrapped_vault_nonce\":\"qe5B2R/OfLx1hP/C7NsVLWUC5KNzgTWh\",\"wrapped_recovery\":\"SiciiQj/xuEM890bD82CWfZuBjOI6NuzjvEpsg58+TAE8kfWZ5rioJrpnCsXbB1l\",\"wrapped_recovery_nonce\":\"HAqMM07uB1E2qHnrc+bHSRwh1IgXBWow\"},\"items\":[{\"item_id\":\"81f2d1cb-a3e5-41c3-aa85-48b3c5802c11\",\"revision\":1,\"encrypted_payload\":\"5mJamTtMQrtB2Qt0alVIKF8pSkCdByez46Vy0sYlmWDDIFF3e/Ti2SdKCNAwBuaA6/TwyjNR3u66ErYiZcHKu0xBXS/7CHzRWP/hEnIiEBvWGvdI0iV9poE1nEIZL7o0RTDML5pU54NJYuKnGCG8JNuTY7toADSa6pNynqSWw4UcBTeonlQB1H46T8F84j9heB1KY55s5OovVHLxnKPnCh9cms5Z7s1zMrQqcv+JLxwWuAK5o5oFUg/qzCwtCgGm0slZeN+ZS+higa4pmeFpF6noG+61i+/ZTEHX5xUi04YjHEOrtLJGaLBt0gIg1n+41i3CfJBkmAgaYstFELbBT+3tBApWBuDEsJ4+FCEQqMFBySoEIbs4SAw6N/sjW5YzFn1MN7NGhxvNkv1Fk1Hi2FcI7rD+rtNjq/kWsNs89jD85xHO1Fmc4AX9dQQeg3JPwHP+JCrFkd7tcoG5Z3I=\",\"encrypted_item_key\":\"FNL2QLwic3rqf1sknVEJOL1dNZpIIYJIM1DucC3148KAhQZ8LUxRzeIOyIj0/4eHYGlDcRaDtnVB2EDA3ON0bR6enyFmrfWl\",\"encryption_version\":1}],\"relations_included\":true,\"item_index\":{\"nonce\":\"8s8//wQztLkVB+VI5QfIjm9LSS+S3iMy\",\"sealed\":\"KIYnCAq3aE413zBr+jr5o7qvno124OyqsrWZECuMBZzwHzZbFrhsvl36RLrWwI4qb+0KNh+njoSBcXUbTC3A3iXUu85Z7j7HpgKbsusNKLSeVQe01UsYzdUExVbnh70ip3a2WsUu2WleFjsKj3nNdL1sinYVqg==\"}}"
+}

@@ -46,13 +46,13 @@ interface SettingsViewProps {
   onChangePassphrase: (oldPassphrase: string, newPassphrase: string) => Promise<void>;
   onWipeVault: () => void;
   /**
-   * Account server base URL ('' = local-only). The App persists it to
-   * localStorage 'my-secrect:api-base-url' and builds the
-   * SecurityApiClient from it. The server never sees vault content —
-   * only ciphertext and opaque ids.
+   * Account server base URL (shown read-only). Changing it goes through
+   * the App's "connect to your account server" step, which signs out and
+   * locks the vault. The server never sees vault content — only
+   * ciphertext and opaque ids.
    */
   apiBaseUrl: string;
-  onApiBaseUrlChange: (url: string) => void;
+  onChangeServer: () => void;
 }
 
 function downloadText(filename: string, text: string, type: string): void {
@@ -92,7 +92,7 @@ export default function SettingsView({
   onChangePassphrase,
   onWipeVault,
   apiBaseUrl,
-  onApiBaseUrlChange,
+  onChangeServer,
 }: SettingsViewProps) {
   const { dict, tp, locale, setLocale } = useTranslation();
   const st = dict.settings;
@@ -254,12 +254,15 @@ export default function SettingsView({
             type="url"
             mono
             value={apiBaseUrl}
-            onChange={(e) => onApiBaseUrlChange(e.target.value)}
+            readOnly
             placeholder={st.apiUrlPlaceholder}
             autoComplete="off"
             aria-label={st.apiUrlAria}
           />
         </Field>
+        <div className="mt-3">
+          <Button icon="server" onClick={onChangeServer}>{dict.signin.changeServer}</Button>
+        </div>
       </Section>
 
       {/* Recovery key */}

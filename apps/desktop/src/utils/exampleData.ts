@@ -5,7 +5,9 @@ import type { VaultItem } from '../../../../packages/core/src/types';
  * 4242, sk-example-…). Never present these items as real credentials.
  * One item per item type (12 types, covering all 8 modules) so every
  * screen is demonstrable on a fresh vault. Items are tagged `example`
- * so they can be found and cleared again as a group.
+ * so they can be found and cleared again as a group. Each build gets
+ * fresh random ids: the server keeps item ids unique across vaults, so
+ * fixed ids would collide between two accounts.
  */
 
 export const EXAMPLE_TAG = 'example';
@@ -29,23 +31,31 @@ function base(id: string, type: VaultItem['type'], title: string, fields: Record
   };
 }
 
+// Same id shape and CSPRNG as items created in ItemForm.
+function newItemId(): string {
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  return 'item_' + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 export function buildExampleItems(): VaultItem[] {
+  const [login, passkey, bank, card, identity, ssh, api, note, doc, media, collection, custom] = Array.from({ length: 12 }, newItemId);
   return [
-    base('example-login', 'login', 'Example Website', {
+    base(login, 'login', 'Example Website', {
       username: 'demo@example.com',
       password: 'ExamplePass123!',
       url: 'https://example.com',
       totp_secret: 'JBSWY3DPEHPK3PXP',
       notes: 'EXAMPLE DATA — fake login for example.com.',
     }),
-    base('example-passkey', 'passkey', 'Example Passkey', {
+    base(passkey, 'passkey', 'Example Passkey', {
       credential_id: 'example-credential-01',
       rp_id: 'example.com',
       public_key: 'example-public-key-not-a-real-key',
       notes: 'EXAMPLE DATA — fake passkey.',
     }),
     base(
-      'example-bank',
+      bank,
       'bank_account',
       'Example Bank',
       {
@@ -58,12 +68,12 @@ export function buildExampleItems(): VaultItem[] {
       },
       {
         relations: [
-          { type: 'has_login', target_id: 'example-login' },
-          { type: 'has_card', target_id: 'example-card' },
+          { type: 'has_login', target_id: login },
+          { type: 'has_card', target_id: card },
         ],
       },
     ),
-    base('example-card', 'card', 'Example Visa', {
+    base(card, 'card', 'Example Visa', {
       cardholder: 'Example Person',
       last4: '4242',
       brand: 'Visa',
@@ -71,7 +81,7 @@ export function buildExampleItems(): VaultItem[] {
       bank: 'Example Bank',
       notes: 'EXAMPLE DATA — fake card metadata.',
     }),
-    base('example-identity', 'identity', 'Example Passport', {
+    base(identity, 'identity', 'Example Passport', {
       full_name: 'Example Person',
       document_type: 'Passport',
       document_number: 'EX123456',
@@ -79,24 +89,24 @@ export function buildExampleItems(): VaultItem[] {
       expiry_date: '2034-01-01',
       notes: 'EXAMPLE DATA — fake identity document.',
     }),
-    base('example-ssh', 'ssh_key', 'Example SSH Key', {
+    base(ssh, 'ssh_key', 'Example SSH Key', {
       public_key: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExamplePublicKeyNotReal example@example.com',
       comment: 'example@example.com',
       notes: 'EXAMPLE DATA — fake SSH key. No real private key is included.',
     }),
-    base('example-api', 'api_key', 'Example Service API', {
+    base(api, 'api_key', 'Example Service API', {
       service: 'Example Service',
       key: 'sk-example-1234-not-a-real-key',
       scopes: 'read',
       expires_at: '2027-01-01',
       notes: 'EXAMPLE DATA — fake API key.',
     }),
-    base('example-note', 'secure_note', 'Example Secure Note', {
+    base(note, 'secure_note', 'Example Secure Note', {
       body: 'EXAMPLE DATA — this is a fake secure note.\n\nUse it to see how notes look in the vault.',
       checklist: 'Try the search\nTry favoriting this note\nTry exporting a backup',
       notes: 'EXAMPLE DATA.',
     }),
-    base('example-document', 'document', 'Example Contract.pdf', {
+    base(doc, 'document', 'Example Contract.pdf', {
       file_name: 'Example Contract.pdf',
       mime_type: 'application/pdf',
       size: '12345',
@@ -104,7 +114,7 @@ export function buildExampleItems(): VaultItem[] {
       sha256: 'example-sha256-not-a-real-hash',
       notes: 'EXAMPLE DATA — manifest only, no file bytes are stored.',
     }),
-    base('example-media', 'media', 'Example Photo.jpg', {
+    base(media, 'media', 'Example Photo.jpg', {
       file_name: 'Example Photo.jpg',
       mime_type: 'image/jpeg',
       size: '98765',
@@ -114,12 +124,12 @@ export function buildExampleItems(): VaultItem[] {
       sha256: 'example-sha256-not-a-real-hash',
       notes: 'EXAMPLE DATA — manifest only, no file bytes are stored.',
     }),
-    base('example-collection', 'collection', 'Example Project', {
+    base(collection, 'collection', 'Example Project', {
       description: 'EXAMPLE DATA — a fake collection linking the example login and bank account.',
       url: 'https://example.com',
       notes: 'EXAMPLE DATA.',
-    }, { relations: [{ type: 'related_to', target_id: 'example-login' }] }),
-    base('example-custom', 'custom', 'Example Custom Record', {
+    }, { relations: [{ type: 'related_to', target_id: login }] }),
+    base(custom, 'custom', 'Example Custom Record', {
       notes: 'EXAMPLE DATA — a fake custom record.',
       membership_id: 'EX-MEMBER-001',
       favourite_colour: 'Indigo',

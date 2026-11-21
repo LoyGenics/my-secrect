@@ -14,8 +14,14 @@ import { recoveryKeyFileText, saveRecoveryKeyFile } from '../utils/recoveryKeyFi
 import { matchesRecoveryKeyEnding, RECOVERY_REVIEW_LENGTH } from '../utils/authInput';
 import { createVault } from '../vault';
 import RestoreBackupPanel from './RestoreBackupPanel';
+import type { OnlineSession } from '../accountServer';
 
-export default function OnboardingScreen({ onDone, onRestored }: { onDone: () => void; onRestored?: () => void }) {
+export default function OnboardingScreen({ onDone, onRestored, confirmOnline }: {
+  onDone: () => void;
+  onRestored?: () => void;
+  /** Server check before create / restore ('confirmed' or not; App handles revoked). */
+  confirmOnline: () => Promise<OnlineSession>;
+}) {
   const { dict, t } = useTranslation();
   const { onboarding, mobileAuth: auth } = dict;
   const { colors, styles } = useMobileTheme();
@@ -70,6 +76,11 @@ export default function OnboardingScreen({ onDone, onRestored }: { onDone: () =>
     setBusy(true);
     Keyboard.dismiss();
     try {
+      const session = await confirmOnline();
+      if (session !== 'confirmed') {
+        if (session === 'offline') setError(onboarding.needsOnlineCheck);
+        return;
+      }
       const { recoveryKey } = await createVault(passphrase);
       setRecoveryKey(recoveryKey);
       setKeyVisible(AppState.currentState === 'active' || AppState.currentState === null);
@@ -78,6 +89,19 @@ export default function OnboardingScreen({ onDone, onRestored }: { onDone: () =>
       setStep('save');
     } catch {
       setError(onboarding.createFailed);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openRestore() {
+    Keyboard.dismiss();
+    setError('');
+    setBusy(true);
+    try {
+      const session = await confirmOnline();
+      if (session === 'confirmed') setRestoring(true);
+      else if (session === 'offline') setError(onboarding.needsOnlineCheck);
     } finally {
       setBusy(false);
     }
@@ -134,7 +158,7 @@ export default function OnboardingScreen({ onDone, onRestored }: { onDone: () =>
     <AppButton testID="create-vault-button" label={busy ? onboarding.creating : onboarding.createVault}
       loading={busy} onPress={() => void handleCreate()} />
     {onRestored && <AppButton testID="restore-from-backup-button" label={onboarding.restoreFromBackup}
-      variant="text" disabled={busy} onPress={() => { Keyboard.dismiss(); setRestoring(true); }} />}
+      variant="text" disabled={busy} onPress={() => void openRestore()} />}
   </View> : step === 'save' && !review ? <View style={local.actions}>
     <AppButton testID="recovery-review-button" label={auth.continue} disabled={!ack}
       accessibilityLabel={ack ? auth.continue : `${auth.continue}. ${auth.tickToContinue}`}

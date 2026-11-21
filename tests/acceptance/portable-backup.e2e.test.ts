@@ -2,8 +2,10 @@
  * Acceptance E — portable backup restored on a fresh device, every item and
  * relation verified, in REAL Chromium.
  *
- * The web app (apps/web -> desktop App) runs on the Vite dev server with no
- * API configured (backup/restore is local-first). Profile A holds the
+ * The web app (apps/web -> desktop App) runs on the Vite dev server against a
+ * real Rails API (lib/stack.ts): every vault needs an account, so each fresh
+ * profile first signs up with an email code (its own account); backup and
+ * restore themselves stay local. Profile A holds the
  * relation-rich data set from lib/vault-data.ts (typed relations, tags,
  * favorites, attachments, nested collections) — written through the SAME
  * vault module instance the app uses (dynamic import of the module URL in the
@@ -12,7 +14,8 @@
  * and one item moved to trash through the UI. Export goes through the UI
  * (step-up + real download). The downloaded file is restored through the UI
  * on brand-new browser profiles (passphrase, then recovery key) and through
- * the real MV3 extension's options page. Every restored item is compared
+ * the real MV3 extension's options page (signed in to the e2e mock account
+ * server first, apps/extension/e2e/fixtures.ts). Every restored item is compared
  * field-by-field with profile A; relations are checked in the item detail UI.
  *
  * Run: npx tsx --test --test-concurrency=1 tests/acceptance/portable-backup.e2e.test.ts
@@ -23,20 +26,25 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
-import { repoRoot, startWeb } from './lib/stack.ts';
-import { createVaultViaUi, restoreViaUi, unlockViaUi } from './lib/browser.ts';
+import { repoRoot, startApi, startWeb, type RunningApi } from './lib/stack.ts';
+import { createVaultViaUi, restoreViaUi, signUpWithEmailCodeViaUi, unlockViaUi, LS_API_BASE_URL } from './lib/browser.ts';
 import { IDS, byId, comparable, danglingReferences, richItems, trashedItem } from './lib/vault-data.ts';
-import { buildExtension } from '../../apps/extension/e2e/fixtures.ts';
+import { buildExtension, signInViaMessages, startMockApi, type MockApi } from '../../apps/extension/e2e/fixtures.ts';
 import type { VaultItem } from '../../packages/core/src/types';
 
+const API_PORT = Number(process.env.ACCEPT_E_API_PORT ?? 3257);
 const WEB_PORT = Number(process.env.ACCEPT_E_WEB_PORT ?? 5368);
+const DB = process.env.ACCEPT_E_DB ?? 'vault_e_a15_e2eauth';
 const WEB = `http://localhost:${WEB_PORT}`;
 const PASS = 'acceptance E passphrase 4';
 const VAULT_URL = `/@fs${path.join(repoRoot, 'apps/desktop/src/vault.ts')}`;
 const defect = (id: string) => (process.env.ACCEPTANCE_STRICT ? undefined : id);
 const UI_TITLE = 'E UI-made login';
 
+let api: RunningApi;
 let web: { stop(): Promise<void> };
+let accounts = 0;
+let mockApi: MockApi | undefined;
 let browser: Browser;
 let backup = '';
 let recoveryKey = '';
@@ -44,6 +52,7 @@ let expected: VaultItem[] = [];
 const open: BrowserContext[] = [];
 
 before(async () => {
+  api = await startApi({ port: API_PORT, db: DB, webOrigin: WEB });
   web = await startWeb(WEB_PORT);
   // Full Chromium, not chrome-headless-shell: the shell turns on macOS Secure Input.
   browser = await chromium.launch({ channel: 'chromium' });
@@ -52,6 +61,8 @@ after(async () => {
   for (const c of open) await c.close().catch(() => undefined);
   await browser?.close();
   await web?.stop();
+  await api?.stop();
+  await mockApi?.close();
 });
 
 /** Later tests restore profile A's file: fail fast (not by a 60 s timeout) when it was never produced. */
@@ -60,9 +71,12 @@ function needBackup() { assert.ok(backup, 'profile A did not produce a backup; s
 async function freshProfile(): Promise<Page> {
   const ctx = await browser.newContext({ acceptDownloads: true, viewport: { width: 1280, height: 900 } });
   open.push(ctx);
+  await ctx.addInitScript(([k, v]) => { try { if (localStorage.getItem(k) === null) localStorage.setItem(k, v); } catch { /* ignore */ } }, [LS_API_BASE_URL, api.apiBase]);
   const page = await ctx.newPage();
   page.setDefaultTimeout(30_000);
   await page.goto(WEB);
+  // Account first (no local-only vault): a new account per fresh profile.
+  await signUpWithEmailCodeViaUi(page, `e-backup-${Date.now()}-${++accounts}@example.test`, api.mailDir);
   return page;
 }
 
@@ -95,7 +109,7 @@ test('profile A: relation-rich vault (module + item form), one item trashed in t
   await page.getByText('E Main Bank').first().waitFor();
 
   // One item made entirely in the item form: tags, favorite, relation checkbox.
-  await page.getByRole('button', { name: '+ New item' }).click();
+  await page.getByRole('button', { name: /^New item/ }).click();
   await page.locator('#item-title').fill(UI_TITLE);
   await page.locator('#item-tags').fill('ui, web');
   await page.locator('#item-favorite').check();
@@ -107,7 +121,8 @@ test('profile A: relation-rich vault (module + item form), one item trashed in t
   // Trash one item through the UI.
   await page.getByRole('button', { name: 'All items' }).click();
   await page.getByText('E Old login (trashed)', { exact: true }).first().click();
-  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await page.getByRole('button', { name: 'More actions' }).click();
+  await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
   await page.getByText('E Old login (trashed)', { exact: true }).waitFor({ state: 'detached' });
 
   const all = await vaultItems(page);
@@ -122,7 +137,8 @@ test('profile A: relation-rich vault (module + item form), one item trashed in t
   const [download] = await Promise.all([
     page.waitForEvent('download'),
     (async () => {
-      await page.getByRole('button', { name: /Export encrypted backup/ }).click();
+      await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Settings' }).click();
+      await page.getByRole('button', { name: /Export encrypted backup/ }).first().click();
       await page.locator('#step-up-passphrase').fill(PASS);
       await page.locator('form button[type="submit"]').filter({ hasText: /.+/ }).last().click();
     })(),
@@ -182,12 +198,15 @@ test('the same web backup restores in the real MV3 extension (options UI), every
   const extId = new URL(sw.url()).host;
   const page = await ctx.newPage();
   await page.goto(`chrome-extension://${extId}/options/index.html`);
+  const bg = (m: Record<string, unknown>) => page.evaluate((x) => chrome.runtime.sendMessage(x) as Promise<any>, m);
+  mockApi = await startMockApi();
+  await signInViaMessages(bg, mockApi.base);
+  await page.reload(); // the options page reads the account state on load
   await page.setInputFiles('#restore-file', { name: 'b.json', mimeType: 'application/json', buffer: Buffer.from(backup) });
   await page.getByRole('radio', { name: 'Passphrase' }).click();
   await page.locator('#restore-secret').fill(PASS);
   await page.getByRole('button', { name: 'Restore backup', exact: true }).click();
   await page.getByTestId('restore-success').waitFor({ timeout: 60_000 });
-  const bg = (m: Record<string, unknown>) => page.evaluate((x) => chrome.runtime.sendMessage(x) as Promise<any>, m);
   assert.equal((await bg({ type: 'unlock', passphrase: PASS })).unlocked, true);
   const got: VaultItem[] = [];
   for (const it of expected) {

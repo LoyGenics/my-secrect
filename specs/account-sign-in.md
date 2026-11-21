@@ -37,6 +37,12 @@ id is `null`; a provider with no id set is `null` (clients hide its button) and
 the server accepts none of its tokens. These are public client ids, not
 secrets; the server needs no Google/Apple client secret.
 
+`GOOGLE_DESKTOP_CLIENT_ID` is the Google "Desktop app" client the Tauri app
+uses (its build-time `VITE_GOOGLE_DESKTOP_CLIENT_ID`). The server accepts it
+as a Google audience and counts it when deciding whether Google is on, but
+`auth/providers` does not list it: the desktop app already ships that id and
+needs nothing from the server except `google` being non-null.
+
 ## 3. Google / Apple flow
 
 1. `POST /auth/oauth/start` (body `{}`) -> `200 { ticket, nonce, expires_at }`.
@@ -99,6 +105,30 @@ secrets; the server needs no Google/Apple client secret.
 3. **Never by email to an account with an active passkey** (`401
    verification_failed`): email possession alone is not enough there
    (`specs/device-identity.md` §6.3, same rule as the email session).
+
+### 3.3 Client rules (desktop / web)
+
+* A stored session token is never trusted on its own. At start and before
+  creating, unlocking or restoring a vault the client checks it with the
+  server (`GET /auth/sessions`): `401` clears it and returns to sign-in. If
+  the server cannot be reached, only a token with a known, unexpired expiry
+  may reach the lock screen (offline, local-first); a token without a stored
+  expiry stays on sign-in until it can be verified. Same policy as mobile.
+  Creating or restoring a vault (desktop, web, mobile) always needs the
+  server to confirm the session at that moment: offline, the screen stays
+  and asks the user to connect. Unlocking an existing vault keeps the
+  offline rule above.
+* Apple: the `state` sent to Apple must come back unchanged in the popup
+  answer, or the answer is dropped.
+* Web: when the sign-in screen loaded the Google or Apple script, a
+  successful sign-in reloads the page, so those scripts and their globals
+  never share a page with the unlocked vault.
+* Desktop (Tauri) CSP: `connect-src` allows any `https:` origin (plus
+  `http://localhost:*` / `http://127.0.0.1:*`) because the account server URL
+  is chosen by the user at run time; a static allow-list is impossible. Only
+  `connect-src` is opened this way: scripts, frames and objects stay `'self'`.
+  The desktop Google sign-in stops its loopback listener as soon as the user
+  cancels.
 
 ## 4. What the server learns and stores
 
