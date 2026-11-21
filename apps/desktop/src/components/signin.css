@@ -106,6 +106,14 @@
 /* ---- feedback ------------------------------------------------------------- */
 .si-alert { margin: 0; padding: 12px 16px; border-radius: 16px; font-size: var(--ms-type-caption-size); line-height: var(--ms-type-caption-leading); background: var(--si-danger-soft); color: var(--si-danger); animation: si-shake 420ms var(--si-ease) both; }
 .si-note { margin: 0; padding: 12px 16px; border-radius: 16px; font-size: var(--ms-type-caption-size); line-height: var(--ms-type-caption-leading); background: var(--ms-color-warning-soft); color: var(--ms-color-warning-text); }
+/* Google / Apple, above the email form. Google draws its own button (GIS);
+   Apple's follows its guidelines: solid, ink-on-paper inverted. */
+.si-providers { display: grid; gap: 12px; margin-top: 28px; }
+.si-google { display: flex; justify-content: center; min-height: 44px; }
+.si-btn--apple { background: var(--si-ink); color: var(--si-bg); }
+.si-btn--apple:hover:not(:disabled) { background: var(--si-ink); box-shadow: none; opacity: 0.88; }
+.si-or { display: flex; align-items: center; gap: 12px; margin: 4px 0 -12px; color: var(--si-ink-3); font-size: var(--ms-type-caption-size); }
+.si-or::before, .si-or::after { content: ''; flex: 1; height: 1px; background: var(--si-line); }
 .si-foot { margin: 18px 0 0; text-align: center; }
 .si-fine { margin: 32px 0 0; padding-top: 16px; border-top: 1px solid var(--si-line); font-size: var(--ms-type-caption-size); line-height: var(--ms-type-caption-leading); color: var(--si-ink-2); text-align: left; }
 

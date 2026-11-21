@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The main window may only read the encrypted vault store (kv_snapshot) and write it atomically (kv_commit). No core:default, no filesystem, shell, dialog, notification, or network permission is granted; every other command is rejected by the ACL.",
+  "description": "The main window may only read the encrypted vault store (kv_snapshot), write it atomically (kv_commit) and run Google sign-in in the system browser (google_sign_in, returns an ID token only). No core:default, no filesystem, shell, dialog, notification, or network permission is granted; every other command is rejected by the ACL.",
   "windows": ["main"],
-  "permissions": ["allow-kv-snapshot", "allow-kv-commit"]
+  "permissions": ["allow-kv-snapshot", "allow-kv-commit", "allow-google-sign-in"]
 }

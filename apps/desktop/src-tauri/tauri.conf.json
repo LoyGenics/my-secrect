@@ -25,7 +25,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' vaultkv: http://vaultkv.localhost https://vaultkv.localhost http://localhost:1420 ws://localhost:1420; font-src 'self' data:"
+      "csp": "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' vaultkv: http://vaultkv.localhost https://vaultkv.localhost http://localhost:1420 ws://localhost:1420 https: http://localhost:* http://127.0.0.1:*; font-src 'self' data:"
     }
   },
   "bundle": {

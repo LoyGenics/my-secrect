@@ -296,6 +296,21 @@ export interface MfaRequiredResult {
 
 export type SignInResult = SessionResult | MfaRequiredResult;
 
+export type OAuthProvider = 'google' | 'apple';
+
+/** GET /v1/auth/providers. */
+export interface AuthProvidersResponse {
+  google: { web_client_id?: string; ios_client_id?: string; android_client_id?: string; extension_client_id?: string } | null;
+  apple: { services_id?: string; bundle_id?: string } | null;
+}
+
+/** POST /v1/auth/oauth/start. */
+export interface OAuthStartResponse {
+  ticket: string;
+  nonce: string;
+  expires_at: string;
+}
+
 /** True when the verify response parked the login at MFA. */
 export function isMfaRequiredResult(res: SignInResult): res is MfaRequiredResult {
   return (res as MfaRequiredResult).mfa_required === true;
@@ -531,6 +546,30 @@ export class SecurityApiClient {
     return this.post<SignInResult>('/v1/auth/email/session', {
       email, registration_ticket: registrationTicket, ...(device ? { device } : {}),
     });
+  }
+
+  /** Sign-in providers this server accepts. A provider is null when the
+   *  server has no client ids for it: the app hides its button. */
+  authProviders(): Promise<AuthProvidersResponse> {
+    return this.req<AuthProvidersResponse>('/v1/auth/providers');
+  }
+
+  /** Google / Apple step 1: a single-use ticket and the raw nonce to hand
+   *  the identity provider (Apple wants its SHA-256 hex, see sha256Hex in
+   *  oauth.ts). 10 minutes. */
+  oauthStart(): Promise<OAuthStartResponse> {
+    return this.post<OAuthStartResponse>('/v1/auth/oauth/start', {});
+  }
+
+  /** Google / Apple step 2: spend the ticket with the provider's ID token.
+   *  `device` is this device's proof signed over the NONCE. Same answers
+   *  as emailSessionVerify; 401 verification_failed for any token problem,
+   *  401 device_verification_failed for a bad device proof. */
+  oauthSession(
+    provider: OAuthProvider,
+    body: { ticket: string; id_token: string; device?: SignInDeviceProof; full_name?: string },
+  ): Promise<SignInResult> {
+    return this.post<SignInResult>(`/v1/auth/oauth/${provider}/session`, body);
   }
 
   /** Sign-up step 3: creation options. Requires the ticket from

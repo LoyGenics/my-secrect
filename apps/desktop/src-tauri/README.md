@@ -71,6 +71,7 @@ src-tauri/src/lib.rs ──> store.rs (SQLCipher, vault.db) ──key──> key
 |---|---|
 | command `kv_snapshot` | every stored pair + generation (used to verify the migration) |
 | command `kv_commit(expectedGeneration, ops)` | atomic batch of `set`/`remove`, compare-and-swap on the generation |
+| command `google_sign_in(clientId, clientSecret?, nonce)` | "Continue with Google": returns Google's ID token (see below) |
 | protocol `vaultkv://localhost/snapshot` (`http://vaultkv.localhost/…` on Windows) | the same snapshot, readable by a **synchronous** XHR |
 
 Why a protocol: the vault's storage contract is synchronous and
@@ -81,24 +82,41 @@ async-only. The handler is read-only, `GET /snapshot` only, answers only the
 
 `build.rs` declares an app ACL manifest, so **every** command is checked
 against `capabilities/default.json`, which grants exactly
-`allow-kv-snapshot` and `allow-kv-commit` — no `core:default`, no fs,
+`allow-kv-snapshot`, `allow-kv-commit` and `allow-google-sign-in` — no `core:default`, no fs,
 shell, dialog, http or notification plugin. The e2e confirms that
 `plugin:app|version`, `plugin:window|title` and the removed
 `vault_database_path` command are rejected.
+
+### Continue with Google (`src/google_oauth.rs`)
+
+Google blocks OAuth inside embedded webviews, so the sign-in runs in the
+system browser (OAuth 2.0 for installed apps, RFC 8252): the command binds
+`127.0.0.1:<random port>`, opens Google's consent page with PKCE (S256), a
+random `state` and the API's single-use `nonce`, waits up to 5 minutes for
+the one matching redirect, then exchanges the code at
+`oauth2.googleapis.com/token` (reqwest, OS TLS via `native-tls`) and returns
+only the ID token. The webview sends it to `POST /v1/auth/oauth/google/session`
+with its device proof; the API verifies it. Nothing is stored. It needs a
+Google OAuth client of type "Desktop app" (`VITE_GOOGLE_DESKTOP_CLIENT_ID`,
+`VITE_GOOGLE_DESKTOP_CLIENT_SECRET` — see `../.env.example`), and the API
+must accept that client id as an audience. Without it the button is hidden.
+**Apple is not offered on desktop:** Apple's web flow only redirects to a
+registered https URL, so a loopback redirect is impossible.
 
 ## Files
 
 ```
 Cargo.toml                 tauri 2, rusqlite (SQLCipher), keyring 4, getrandom, zeroize
-build.rs                   tauri-build + app ACL manifest (kv_snapshot, kv_commit)
+build.rs                   tauri-build + app ACL manifest (kv_snapshot, kv_commit, google_sign_in)
 src/main.rs                calls my_secrect_lib::run()
 src/lib.rs                 commands, vaultkv:// protocol, window creation, setup
+src/google_oauth.rs        Google sign-in: loopback + PKCE in the system browser
 src/store.rs               SQLCipher key/value store + unit tests
 src/keychain.rs            key creation/lookup policy + Keychain tests (ignored by default)
 tests/e2e_app.rs           UI-driven restart/migration e2e (opt-in)
 tests/e2e_driver.js        the page-side driver for it
 tauri.conf.json            app id, window (`create: false`, built in setup), CSP, bundle
-capabilities/default.json  allow-kv-snapshot + allow-kv-commit only
+capabilities/default.json  allow-kv-snapshot + allow-kv-commit + allow-google-sign-in only
 icons/                     generated with `npx tauri icon` (from the extension icon)
 ```
 
@@ -160,8 +178,11 @@ Keychain service per run (deleted at the end), and never touches the real
   900×600). `create: false`: `lib.rs` builds it in `setup` after the store
   is opened.
 - CSP: `default-src 'self'`; `script-src 'self' 'wasm-unsafe-eval'`;
-  `connect-src` adds `vaultkv:` / `http(s)://vaultkv.localhost` (snapshot)
-  and the Vite dev server (dev only).
+  `connect-src` adds `vaultkv:` / `http(s)://vaultkv.localhost` (snapshot),
+  the Vite dev server (dev only), and the account server: any `https:`
+  origin (users choose their server) plus `http://localhost:*` /
+  `http://127.0.0.1:*` for a local API. Sign-in is mandatory, so the
+  webview must reach the API.
 - **`'wasm-unsafe-eval'` is required.** Without it WebKit refuses to compile
   libsodium's WebAssembly, libsodium silently falls back to its asm.js
   build, and that build returned stale heap bytes as "random" output in the
