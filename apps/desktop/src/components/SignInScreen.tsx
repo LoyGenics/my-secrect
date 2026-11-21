@@ -24,6 +24,7 @@ import {
   OAuthCancelled,
   appleSignIn,
   desktopGoogleSignIn,
+  cancelDesktopGoogleSignIn,
   loadScript,
   renderGoogleButton,
   visibleProviders,
@@ -496,6 +497,7 @@ export default function SignInScreen({ security, sessionExpired, onSignedIn, onC
   };
 
   const cancelProviderWait = () => {
+    if (isDesktop && providerWait === 'google') cancelDesktopGoogleSignIn();
     runId.current++;
     setProviderWait(null);
     setMachine((prev) => ({ ...prev, busy: false, error: null }));

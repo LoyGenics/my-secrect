@@ -65,7 +65,8 @@ import {
 } from '../../../packages/sdk/src/security';
 import { VaultApiClient } from '../../../packages/sdk/src/index';
 import { RestoreBackup, RestoreSuccess } from './components/RestoreBackup';
-import { authGateStep, resolveApiBaseUrl } from './authGate';
+import { authGateStep, resolveApiBaseUrl, verifyStoredSession } from './authGate';
+import { providerScriptsLoaded } from './oauth';
 import { I18nProvider } from '../../../packages/i18n/src/react';
 import { detectLocale, format, getDictionary, plural, storeLocale, type Locale, type PluralForms } from '../../../packages/i18n/src/index';
 import {
@@ -242,17 +243,14 @@ export default function App({
     return new VaultApiClient({ baseUrl: base, getToken: () => getValidToken(store) });
   }, [apiBaseUrl]);
   // --- Account sign-in state (WorkOS scope) --------------------------
-  // Signed-in = a valid (unexpired) session token is stored. The
-  // gate below shows SignInScreen before the vault whenever there is
-  // no valid session. Vault unlock
-  // (master passphrase) stays a SEPARATE step after sign-in.
-  const [signedIn, setSignedIn] = useState<boolean>(() => {
-    try {
-      return getValidTokenSync(webTokenStore()) !== null;
-    } catch {
-      return false;
-    }
-  });
+  // Signed-in = a stored session token the server accepted (or, offline,
+  // one with a known unexpired expiry): verifyStoredSession. A stored
+  // token alone is never trusted, so the app starts signed out and checks
+  // it first. The gate below shows SignInScreen before the vault whenever
+  // there is no verified session. Vault unlock (master passphrase) stays
+  // a SEPARATE step after sign-in.
+  const [signedIn, setSignedIn] = useState(false);
+  const [sessionChecked, setSessionChecked] = useState<boolean>(() => getValidTokenSync(webTokenStore()) === null);
   const [accountEmail, setAccountEmail] = useState<string>(() => {
     try {
       return localStorage.getItem(LS_ACCOUNT_EMAIL) ?? '';
@@ -265,6 +263,14 @@ export default function App({
   const [sessionExpired, setSessionExpired] = useState(false);
 
   const handleSignedIn = useCallback((email: string) => {
+    // Web: when the sign-in screen loaded an identity provider's script
+    // (Google GSI, Apple JS), reload so it and its globals never share a
+    // page with the vault. The session and email are already stored; the
+    // reload verifies them like any start.
+    if (providerScriptsLoaded()) {
+      window.location.reload();
+      return;
+    }
     setAccountEmail(email);
     setSignedIn(true);
     setSessionExpired(false);
@@ -289,6 +295,23 @@ export default function App({
     setSignedIn(false);
     setSessionExpired(true);
   }, []);
+
+  /** Checks the stored session with the server (verifyStoredSession) and
+   *  updates the gate; true when the vault may be created, unlocked or
+   *  restored. Runs at start and before each of those actions. */
+  const confirmSession = useCallback(async (): Promise<boolean> => {
+    const verdict = securityClient
+      ? await verifyStoredSession(webTokenStore(), () => securityClient.listSessions())
+      : 'signed-out';
+    setSignedIn(verdict === 'signed-in');
+    if (verdict === 'revoked') setSessionExpired(true);
+    return verdict === 'signed-in';
+  }, [securityClient]);
+
+  useEffect(() => {
+    if (sessionChecked) return;
+    void confirmSession().finally(() => setSessionChecked(true));
+  }, [sessionChecked, confirmSession]);
   // Step-up (10-minute window, STEP_UP_WINDOW_MS in the SDK): a pending
   // action runs only after a fresh verification. requestStepUp runs the
   // action at once when the window is still fresh, otherwise it opens
@@ -527,6 +550,7 @@ export default function App({
 
   const handleUnlock = async () => {
     setLockError('');
+    if (!(await confirmSession())) return;
     setUnlocking(true);
     let ok = false;
     try {
@@ -554,6 +578,7 @@ export default function App({
 
   const handleCreateVault = async () => {
     setOnboardingError('');
+    if (!(await confirmSession())) return;
     if (newPass.length < 8) {
       setOnboardingError(dict.onboarding.tooShort);
       return;
@@ -920,6 +945,9 @@ export default function App({
   // unlocks the vault: after it, the user still faces the lock screen /
   // onboarding below.
   const gate = changingServer ? 'connect-server' : authGateStep(apiBaseUrl, signedIn);
+  if (gate === 'sign-in' && !sessionChecked) {
+    return frame(<p role="status" className="grid min-h-screen place-items-center ms-text-secondary">{dict.common.loading}</p>);
+  }
   if (gate === 'connect-server' || !securityClient) {
     return frame(
       <ConnectServerScreen
@@ -1008,7 +1036,7 @@ export default function App({
                     <Button type="submit" variant="primary" size="lg" block loading={creating}>
                       {creating ? o.creating : o.createVault}
                     </Button>
-                    <Button block icon="restore" onClick={() => setRestoreUi({ count: null })}>
+                    <Button block icon="restore" onClick={() => void confirmSession().then((ok) => { if (ok) setRestoreUi({ count: null }); })}>
                       {o.restoreFromBackup}
                     </Button>
                   </form>

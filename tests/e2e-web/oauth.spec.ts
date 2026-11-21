@@ -31,6 +31,8 @@ async function mockOAuthApi(page: Page, providers: unknown) {
     sessions.push({ url: route.request().url(), body: route.request().postDataJSON() });
     return route.fulfill({ json: { token: `sess_${'0'.repeat(64)}`, user_id: 'u1', device_id: null, expires_in: 3600 } });
   });
+  // The app reloads after sign-in and verifies the stored session first.
+  await page.route('**/v1/auth/sessions', (route) => route.fulfill({ json: { sessions: [{ id: 's1', current: true }] } }));
   return sessions;
 }
 
@@ -49,8 +51,8 @@ test('Apple (mocked IdP): hashed nonce to Apple, ID token + ticket + device proo
   await page.route('https://appleid.cdn-apple.com/**', (route) => route.fulfill({
     contentType: 'text/javascript',
     body: `window.AppleID = { auth: {
-      init(cfg) { window.__appleCfg = cfg; },
-      signIn() { return Promise.resolve({ authorization: { id_token: ${JSON.stringify(fakeIdToken(email))} }, user: { name: { firstName: 'Ann', lastName: 'Lee' } } }); },
+      init(cfg) { window.__appleCfg = cfg; sessionStorage.setItem('appleCfg', JSON.stringify(cfg)); },
+      signIn() { return Promise.resolve({ authorization: { id_token: ${JSON.stringify(fakeIdToken(email))}, state: window.__appleCfg.state }, user: { name: { firstName: 'Ann', lastName: 'Lee' } } }); },
     } };`,
   }));
   await page.goto('/');
@@ -59,8 +61,10 @@ test('Apple (mocked IdP): hashed nonce to Apple, ID token + ticket + device proo
   await expect(apple).toBeEnabled();
   await apple.click();
   await expect(page.getByRole('heading', { name: 'Create passphrase', level: 1 })).toBeVisible();
+  // The page reloaded after sign-in: Apple's script is gone from the vault page.
+  expect(await page.evaluate(() => [typeof (window as any).AppleID, document.querySelectorAll('script[src*="appleid"]').length])).toEqual(['undefined', 0]);
 
-  const cfg = await page.evaluate(() => (window as any).__appleCfg);
+  const cfg = await page.evaluate(() => JSON.parse(sessionStorage.getItem('appleCfg') ?? 'null'));
   expect(cfg.nonce).toBe(createHash('sha256').update(NONCE).digest('hex'));
   expect(cfg.clientId).toBe('com.example.web');
   expect(cfg.usePopup).toBe(true);
@@ -76,7 +80,7 @@ test('Google (mocked IdP): raw nonce to Google, ID token + ticket + device proof
   await page.route('https://accounts.google.com/gsi/client', (route) => route.fulfill({
     contentType: 'text/javascript',
     body: `window.google = { accounts: { id: {
-      initialize(cfg) { window.__gCfg = cfg; },
+      initialize(cfg) { window.__gCfg = cfg; sessionStorage.setItem('gCfg', JSON.stringify({ nonce: cfg.nonce, client_id: cfg.client_id })); },
       renderButton(el) {
         const b = document.createElement('button');
         b.type = 'button';
@@ -90,8 +94,10 @@ test('Google (mocked IdP): raw nonce to Google, ID token + ticket + device proof
   await expect(page.getByRole('button', { name: 'Continue with Apple' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Google stub' }).click();
   await expect(page.getByRole('heading', { name: 'Create passphrase', level: 1 })).toBeVisible();
+  // The page reloaded after sign-in: Google's script is gone from the vault page.
+  expect(await page.evaluate(() => [typeof (window as any).google, document.querySelectorAll('script[src*="accounts.google.com"]').length])).toEqual(['undefined', 0]);
 
-  const cfg = await page.evaluate(() => (window as any).__gCfg);
+  const cfg = await page.evaluate(() => JSON.parse(sessionStorage.getItem('gCfg') ?? 'null'));
   expect(cfg.nonce).toBe(NONCE);
   expect(cfg.client_id).toBe('web.apps.googleusercontent.com');
   expect(sessions).toHaveLength(1);
@@ -99,4 +105,20 @@ test('Google (mocked IdP): raw nonce to Google, ID token + ticket + device proof
   expect(sessions[0].body).toMatchObject({ ticket: TICKET, id_token: fakeIdToken(email) });
   expect(sessions[0].body.full_name).toBeUndefined();
   expect(sessions[0].body.device.signature).toMatch(/^[A-Za-z0-9_-]+$/);
+});
+
+test('Apple (mocked IdP): an answer with another attempt\'s state is refused', async ({ page }) => {
+  const sessions = await mockOAuthApi(page, { google: null, apple: { services_id: 'com.example.web', bundle_id: null } });
+  await page.route('https://appleid.cdn-apple.com/**', (route) => route.fulfill({
+    contentType: 'text/javascript',
+    body: `window.AppleID = { auth: {
+      init() {},
+      signIn() { return Promise.resolve({ authorization: { id_token: ${JSON.stringify(fakeIdToken('x@example.test'))}, state: 'someone-else' } }); },
+    } };`,
+  }));
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Continue with Apple' }).click();
+  await expect(page.getByRole('alert')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Sign in to your account' })).toBeVisible();
+  expect(sessions).toHaveLength(0);
 });

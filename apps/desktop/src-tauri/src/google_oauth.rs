@@ -11,10 +11,12 @@
 //! The API's single-use `nonce` is passed through so the ID token is bound
 //! to that sign-in attempt. `state` (random) guards the redirect; the
 //! listener answers only one matching redirect and stops after
-//! `WAIT_FOR_REDIRECT`.
+//! `WAIT_FOR_REDIRECT`, or at once when the user cancels in the app
+//! (`google_sign_in_cancel`) or a newer sign-in starts.
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -25,6 +27,10 @@ use url::Url;
 const AUTH_ENDPOINT: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_ENDPOINT: &str = "https://oauth2.googleapis.com/token";
 const WAIT_FOR_REDIRECT: Duration = Duration::from_secs(300);
+
+/// Bumped by every sign-in start and every cancel: a loopback listener
+/// keeps waiting only while the generation it started with is current.
+static ATTEMPT: AtomicU64 = AtomicU64::new(0);
 
 const DONE_PAGE: &str = "<!doctype html><meta charset=utf-8><title>My Secret</title>\
 <p style=\"font:16px system-ui;margin:3em auto;max-width:28em\">You can close this tab and return to My Secret.</p>";
@@ -86,10 +92,10 @@ pub fn parse_redirect(request_line: &str, expected_state: &str) -> Redirect {
     }
 }
 
-fn wait_for_code(listener: TcpListener, state: &str) -> Result<String, String> {
+fn wait_for_code(listener: TcpListener, state: &str, still_wanted: impl Fn() -> bool) -> Result<String, String> {
     listener.set_nonblocking(true).map_err(|e| e.to_string())?;
     let deadline = Instant::now() + WAIT_FOR_REDIRECT;
-    while Instant::now() < deadline {
+    while Instant::now() < deadline && still_wanted() {
         let stream = match listener.accept() {
             Ok((s, _)) => s,
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -124,6 +130,7 @@ fn wait_for_code(listener: TcpListener, state: &str) -> Result<String, String> {
 /// never finished within five minutes.
 #[tauri::command]
 pub async fn google_sign_in(client_id: String, client_secret: Option<String>, nonce: String) -> Result<String, String> {
+    let attempt = ATTEMPT.fetch_add(1, Ordering::SeqCst) + 1;
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
     let redirect_uri = format!("http://127.0.0.1:{}", listener.local_addr().map_err(|e| e.to_string())?.port());
     let verifier = random_b64(32)?;
@@ -146,7 +153,9 @@ pub async fn google_sign_in(client_id: String, client_secret: Option<String>, no
     .map_err(|e| e.to_string())?;
     open_in_browser(auth_url.as_str())?;
 
-    let code = tauri::async_runtime::spawn_blocking(move || wait_for_code(listener, &state))
+    let code = tauri::async_runtime::spawn_blocking(move || {
+        wait_for_code(listener, &state, || ATTEMPT.load(Ordering::SeqCst) == attempt)
+    })
         .await
         .map_err(|e| e.to_string())??;
 
@@ -180,6 +189,13 @@ pub async fn google_sign_in(client_id: String, client_secret: Option<String>, no
     }
 }
 
+/// "Cancel" while waiting for the browser: the loopback listener stops
+/// (and its port closes) within one poll instead of after five minutes.
+#[tauri::command]
+pub fn google_sign_in_cancel() {
+    ATTEMPT.fetch_add(1, Ordering::SeqCst);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -192,6 +208,14 @@ mod tests {
     #[test]
     fn denied_consent_is_reported() {
         assert_eq!(parse_redirect("GET /?error=access_denied&state=abc HTTP/1.1", "abc"), Redirect::Denied);
+    }
+
+    #[test]
+    fn cancel_stops_the_listener_at_once() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let started = Instant::now();
+        assert_eq!(wait_for_code(listener, "abc", || false), Err("cancelled".into()));
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 
     #[test]

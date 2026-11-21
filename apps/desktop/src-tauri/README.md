@@ -72,6 +72,7 @@ src-tauri/src/lib.rs ──> store.rs (SQLCipher, vault.db) ──key──> key
 | command `kv_snapshot` | every stored pair + generation (used to verify the migration) |
 | command `kv_commit(expectedGeneration, ops)` | atomic batch of `set`/`remove`, compare-and-swap on the generation |
 | command `google_sign_in(clientId, clientSecret?, nonce)` | "Continue with Google": returns Google's ID token (see below) |
+| command `google_sign_in_cancel()` | "Cancel" in the app: stops the loopback listener at once |
 | protocol `vaultkv://localhost/snapshot` (`http://vaultkv.localhost/…` on Windows) | the same snapshot, readable by a **synchronous** XHR |
 
 Why a protocol: the vault's storage contract is synchronous and
@@ -107,7 +108,7 @@ registered https URL, so a loopback redirect is impossible.
 
 ```
 Cargo.toml                 tauri 2, rusqlite (SQLCipher), keyring 4, getrandom, zeroize
-build.rs                   tauri-build + app ACL manifest (kv_snapshot, kv_commit, google_sign_in)
+build.rs                   tauri-build + app ACL manifest (kv_snapshot, kv_commit, google_sign_in, google_sign_in_cancel)
 src/main.rs                calls my_secrect_lib::run()
 src/lib.rs                 commands, vaultkv:// protocol, window creation, setup
 src/google_oauth.rs        Google sign-in: loopback + PKCE in the system browser
@@ -182,7 +183,11 @@ Keychain service per run (deleted at the end), and never touches the real
   the Vite dev server (dev only), and the account server: any `https:`
   origin (users choose their server) plus `http://localhost:*` /
   `http://127.0.0.1:*` for a local API. Sign-in is mandatory, so the
-  webview must reach the API.
+  webview must reach the API, and its URL is chosen at run time (Settings /
+  connect step), so no static host list is possible; JSON has no comments,
+  so the reason lives here and in `specs/account-sign-in.md`. Only
+  `connect-src` is open this way: scripts, frames and objects stay `'self'`
+  (default-src), images `'self' data: blob:`.
 - **`'wasm-unsafe-eval'` is required.** Without it WebKit refuses to compile
   libsodium's WebAssembly, libsodium silently falls back to its asm.js
   build, and that build returned stale heap bytes as "random" output in the

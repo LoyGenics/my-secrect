@@ -10,6 +10,7 @@
 //!   on the generation;
 //! - command `google_sign_in` — "Continue with Google" in the system browser
 //!   (loopback + PKCE, `google_oauth.rs`); returns only the ID token;
+//!   `google_sign_in_cancel` stops its loopback listener;
 //! - protocol `vaultkv://localhost/snapshot` — the same snapshot, but
 //!   readable with a synchronous XHR. The frontend storage contract is
 //!   synchronous (`getItem` returns a value, not a promise) and the vault
@@ -156,7 +157,7 @@ pub struct Options {
 pub fn builder(options: Options) -> tauri::Builder<Wry> {
     let Options { data_dir, keychain_service, window_hook } = options;
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![kv_snapshot, kv_commit, google_oauth::google_sign_in])
+        .invoke_handler(tauri::generate_handler![kv_snapshot, kv_commit, google_oauth::google_sign_in, google_oauth::google_sign_in_cancel])
         .register_uri_scheme_protocol(SNAPSHOT_SCHEME, snapshot_protocol)
         .setup(move |app| {
             let handle = app.handle().clone();

@@ -106,6 +106,26 @@ needs nothing from the server except `google` being non-null.
    verification_failed`): email possession alone is not enough there
    (`specs/device-identity.md` §6.3, same rule as the email session).
 
+### 3.3 Client rules (desktop / web)
+
+* A stored session token is never trusted on its own. At start and before
+  creating, unlocking or restoring a vault the client checks it with the
+  server (`GET /auth/sessions`): `401` clears it and returns to sign-in. If
+  the server cannot be reached, only a token with a known, unexpired expiry
+  may reach the lock screen (offline, local-first); a token without a stored
+  expiry stays on sign-in until it can be verified. Same policy as mobile.
+* Apple: the `state` sent to Apple must come back unchanged in the popup
+  answer, or the answer is dropped.
+* Web: when the sign-in screen loaded the Google or Apple script, a
+  successful sign-in reloads the page, so those scripts and their globals
+  never share a page with the unlocked vault.
+* Desktop (Tauri) CSP: `connect-src` allows any `https:` origin (plus
+  `http://localhost:*` / `http://127.0.0.1:*`) because the account server URL
+  is chosen by the user at run time; a static allow-list is impossible. Only
+  `connect-src` is opened this way: scripts, frames and objects stay `'self'`.
+  The desktop Google sign-in stops its loopback listener as soon as the user
+  cancels.
+
 ## 4. What the server learns and stores
 
 * From Google/Apple: the stable subject id (`sub`) and the verified email (an

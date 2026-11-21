@@ -66,6 +66,12 @@ export function loadScript(src: string): Promise<void> {
   return p;
 }
 
+/** True once a provider script was added to this page (it stays loaded,
+ *  with its globals, until the page reloads). */
+export function providerScriptsLoaded(): boolean {
+  return loading.size > 0;
+}
+
 /* Minimal shapes of the two provider SDKs (only what is used here). */
 interface GoogleId {
   initialize(cfg: {
@@ -81,7 +87,7 @@ interface GoogleId {
 interface AppleAuth {
   init(cfg: { clientId: string; scope: string; redirectURI: string; nonce: string; state: string; usePopup: boolean }): void;
   signIn(): Promise<{
-    authorization?: { id_token?: string };
+    authorization?: { id_token?: string; state?: string };
     user?: { name?: { firstName?: string; lastName?: string } };
   }>;
 }
@@ -112,12 +118,13 @@ export function renderGoogleButton(el: HTMLElement, clientId: string, nonce: str
 export async function appleSignIn(servicesId: string, hashedNonce: string): Promise<{ idToken: string; fullName?: string }> {
   const auth = (window as ProviderWindow).AppleID?.auth;
   if (!auth) throw new Error('Sign in with Apple did not load');
+  const state = crypto.randomUUID();
   auth.init({
     clientId: servicesId,
     scope: 'name email',
     redirectURI: `${window.location.origin}/`,
     nonce: hashedNonce,
-    state: crypto.randomUUID(),
+    state,
     usePopup: true,
   });
   let res: Awaited<ReturnType<AppleAuth['signIn']>>;
@@ -128,11 +135,18 @@ export async function appleSignIn(servicesId: string, hashedNonce: string): Prom
     if (code === 'popup_closed_by_user' || code === 'user_cancelled_authorize') throw new OAuthCancelled();
     throw err;
   }
+  // The popup answer must belong to this attempt.
+  if (res.authorization?.state !== state) throw new Error('Apple returned a different state');
   const idToken = res.authorization?.id_token;
   if (!idToken) throw new Error('Apple returned no ID token');
   // Apple sends the name on the FIRST authorization only.
   const name = [res.user?.name?.firstName, res.user?.name?.lastName].filter(Boolean).join(' ').trim();
   return { idToken, ...(name ? { fullName: name } : {}) };
+}
+
+/** Desktop: stop waiting for the browser (closes the loopback listener). */
+export function cancelDesktopGoogleSignIn(): void {
+  void invoke('google_sign_in_cancel').catch(() => undefined);
 }
 
 /** Desktop: the system-browser round trip in Rust. */
