@@ -1,5 +1,8 @@
 export const mobileAuthEn = {
   continueEmail: 'Continue with email',
+  continueGoogle: 'Continue with Google',
+  orEmail: 'or',
+  providerFailed: 'Could not verify that sign-in. Try again or continue with email.',
   newAccountHint: 'Verify your email to sign in or create an account and continue to your vault.',
   advancedRecovery: 'Account recovery',
   accountRecoveryBody: 'Use your recovery key if you previously set up account recovery. The session lasts 15 minutes and only allows recovery actions.',
@@ -76,6 +79,9 @@ export const mobileAuthEn = {
 
 export const mobileAuthVi: Record<keyof typeof mobileAuthEn, string> = {
   continueEmail: 'Tiếp tục bằng email',
+  continueGoogle: 'Tiếp tục với Google',
+  orEmail: 'hoặc',
+  providerFailed: 'Không xác minh được lần đăng nhập này. Hãy thử lại hoặc tiếp tục bằng email.',
   newAccountHint: 'Xác minh email để đăng nhập hoặc tạo tài khoản và tiếp tục vào kho.',
   advancedRecovery: 'Khôi phục tài khoản',
   accountRecoveryBody: 'Dùng khóa khôi phục nếu trước đây bạn đã thiết lập khôi phục tài khoản. Phiên kéo dài 15 phút và chỉ dành cho thao tác khôi phục.',
