@@ -56,6 +56,15 @@ RSpec.describe 'Sign in with Google / Apple', type: :request do
       with_env(unset) { get '/api/v1/auth/providers' }
       expect(json_body).to eq('google' => nil, 'apple' => nil)
     end
+
+    it 'turns Google on for the desktop client id without listing it' do
+      unset = OauthHelper::OAUTH_ENV.transform_values { nil }
+      with_env(unset.merge('GOOGLE_DESKTOP_CLIENT_ID' => OauthHelper::GOOGLE_DESKTOP)) { get '/api/v1/auth/providers' }
+      expect(json_body).to eq(
+        'google' => { 'web_client_id' => nil, 'ios_client_id' => nil, 'android_client_id' => nil, 'extension_client_id' => nil },
+        'apple' => nil
+      )
+    end
   end
 
   describe 'POST /api/v1/auth/oauth/start' do
@@ -103,7 +112,8 @@ RSpec.describe 'Sign in with Google / Apple', type: :request do
     end
 
     it 'accepts every configured Google client id as audience' do
-      [OauthHelper::GOOGLE_IOS, OauthHelper::GOOGLE_ANDROID, OauthHelper::GOOGLE_EXTENSION].each_with_index do |aud, i|
+      [OauthHelper::GOOGLE_IOS, OauthHelper::GOOGLE_ANDROID, OauthHelper::GOOGLE_EXTENSION,
+       OauthHelper::GOOGLE_DESKTOP].each_with_index do |aud, i|
         sign_in_with('google', sub: "g-aud-#{i}", email: "aud#{i}-#{email}", aud: aud, iss: 'accounts.google.com')
         expect(response).to have_http_status(:ok)
       end
@@ -305,7 +315,7 @@ RSpec.describe 'Sign in with Google / Apple', type: :request do
 
       it 'provider not configured' do
         with_env('GOOGLE_WEB_CLIENT_ID' => nil, 'GOOGLE_IOS_CLIENT_ID' => nil, 'GOOGLE_ANDROID_CLIENT_ID' => nil,
-                 'GOOGLE_EXTENSION_CLIENT_ID' => nil) { refuse(id_token_for('google', nonce: nonce, email: email)) }
+                 'GOOGLE_EXTENSION_CLIENT_ID' => nil, 'GOOGLE_DESKTOP_CLIENT_ID' => nil) { refuse(id_token_for('google', nonce: nonce, email: email)) }
       end
     end
 

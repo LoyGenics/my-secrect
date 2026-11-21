@@ -37,6 +37,12 @@ id is `null`; a provider with no id set is `null` (clients hide its button) and
 the server accepts none of its tokens. These are public client ids, not
 secrets; the server needs no Google/Apple client secret.
 
+`GOOGLE_DESKTOP_CLIENT_ID` is the Google "Desktop app" client the Tauri app
+uses (its build-time `VITE_GOOGLE_DESKTOP_CLIENT_ID`). The server accepts it
+as a Google audience and counts it when deciding whether Google is on, but
+`auth/providers` does not list it: the desktop app already ships that id and
+needs nothing from the server except `google` being non-null.
+
 ## 3. Google / Apple flow
 
 1. `POST /auth/oauth/start` (body `{}`) -> `200 { ticket, nonce, expires_at }`.
