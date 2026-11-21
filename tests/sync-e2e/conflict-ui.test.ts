@@ -75,7 +75,8 @@ before(async () => {
     if (i > 100) throw new Error('vite did not start');
     await new Promise((r) => setTimeout(r, 300));
   }
-  browser = await chromium.launch();
+  // Full Chromium, not chrome-headless-shell: the shell turns on macOS Secure Input.
+  browser = await chromium.launch({ channel: 'chromium' });
   ctx = await browser.newContext();
   const token = seed['sync-e2e.token'];
   const toSeed: Record<string, string> = {};

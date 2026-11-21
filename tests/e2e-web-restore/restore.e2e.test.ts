@@ -52,7 +52,8 @@ before(async () => {
     stdio: 'ignore',
   });
   await waitForServer();
-  browser = await chromium.launch();
+  // Full Chromium, not chrome-headless-shell: the shell turns on macOS Secure Input.
+  browser = await chromium.launch({ channel: 'chromium' });
 });
 
 after(async () => {

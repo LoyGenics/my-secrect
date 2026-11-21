@@ -45,7 +45,8 @@ const open: BrowserContext[] = [];
 
 before(async () => {
   web = await startWeb(WEB_PORT);
-  browser = await chromium.launch();
+  // Full Chromium, not chrome-headless-shell: the shell turns on macOS Secure Input.
+  browser = await chromium.launch({ channel: 'chromium' });
 });
 after(async () => {
   for (const c of open) await c.close().catch(() => undefined);

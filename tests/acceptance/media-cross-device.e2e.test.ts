@@ -47,7 +47,8 @@ before(async () => {
   if (!minio) return;
   api = await startApi({ port: API_PORT, db: DB, webOrigin: WEB, s3: minio });
   web = await startWeb(WEB_PORT);
-  browser = await chromium.launch();
+  // Full Chromium, not chrome-headless-shell: the shell turns on macOS Secure Input.
+  browser = await chromium.launch({ channel: 'chromium' });
 });
 after(async () => {
   await A?.ctx.close().catch(() => undefined);
