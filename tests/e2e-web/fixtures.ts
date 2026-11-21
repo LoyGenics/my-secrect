@@ -170,7 +170,8 @@ export async function registerAccountViaUi(page: Page, email: string): Promise<v
   await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
   await page.getByLabel('Verification code').fill(await waitForMailCode(email, seen));
   await page.getByRole('button', { name: 'Create account', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'My Secret', level: 1 })).toBeVisible();
+  // Vault onboarding: the paper's heading is the current setup step.
+  await expect(page.getByRole('heading', { name: 'Create passphrase', level: 1 })).toBeVisible();
 }
 
 /** Add the first passkey from the Security Center. The account has no
