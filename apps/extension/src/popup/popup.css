@@ -1,93 +1,62 @@
 /*
  * Popup + options styles: Pocket Ledger (design-lab/extension/round-01).
- * Light = pale plum cover band, Dark = plum cover. Plum is structure; orange
- * with dark ink is the one primary action per view. Theme follows
- * <html data-theme="system|light|dark"> (the Appearance setting).
+ * Colours and fonts come from packages/ui (tokens.css, fonts.css); the --pl-*
+ * names below are local aliases. Light = pale plum cover band, Dark = plum
+ * cover. Plum is structure; orange with dark ink is the one primary action
+ * per view. Theme follows <html data-theme="system|light|dark"> (the
+ * Appearance setting), resolved by tokens.css.
  */
+@import '../../../../packages/ui/src/fonts.css';
+@import '../../../../packages/ui/src/tokens.css';
 @tailwind base;
 @tailwind utilities;
 
-:root,
-[data-theme='light'] {
-  color-scheme: light;
-  --pl-cover: #f4eef6; --pl-on-cover: #2a1c33; --pl-on-cover2: #5e4d68; --pl-cover-line: #e2d7e6;
-  --pl-cover-chip: #ffffff; --pl-cover-chip-edge: #d6c8db;
-  --pl-field-bg: #ffffff; --pl-field-ink: #1e1923; --pl-field-ph: #6b6474; --pl-field-edge: #8a7c94; --pl-danger-cover: #b3261e;
-  --pl-paper: #ffffff; --pl-sheet: #ffffff; --pl-sunken: #f4f1f5; --pl-sunken-press: #eae4ec; --pl-dock: #ffffff; --pl-dock-sel: #f1e8f3;
-  --pl-ink: #1e1923; --pl-ink2: #5b5463; --pl-ink3: #6b6474;
-  --pl-line: #e8e3ea; --pl-edge: #8a8394;
-  --pl-primary: #ff7a3d; --pl-primary-press: #f0692c; --pl-on-primary: #2a1205;
-  --pl-plum: #6a4479; --pl-sel: #33233d; --pl-on-sel: #ffffff; --pl-knob: #ffffff;
-  --pl-press: rgba(45, 34, 54, 0.06); --pl-hover: rgba(45, 34, 54, 0.04);
-  --pl-danger: #b3261e; --pl-success: #1e7044; --pl-warn: #8a5300;
+:root {
+  --pl-cover: var(--ms-color-cover-bg); --pl-on-cover: var(--ms-color-cover-ink); --pl-on-cover2: var(--ms-color-cover-ink-secondary);
+  --pl-cover-line: var(--ms-color-cover-line); --pl-cover-chip: var(--ms-color-cover-chip); --pl-cover-chip-edge: var(--ms-color-cover-chip-edge);
+  --pl-field-bg: var(--ms-color-cover-chip); --pl-field-ink: var(--ms-color-text-primary); --pl-field-ph: var(--ms-color-cover-ink-secondary);
+  --pl-field-edge: var(--ms-color-cover-field-edge); --pl-danger-cover: var(--ms-color-danger-soft-text);
+  --pl-paper: var(--ms-color-bg-base); --pl-sheet: var(--ms-color-bg-surface); --pl-sunken: var(--ms-color-bg-sunken);
+  --pl-sunken-press: color-mix(in srgb, var(--ms-color-bg-sunken) 92%, var(--ms-color-text-primary));
+  --pl-dock: var(--ms-color-dock-bg); --pl-dock-sel: var(--ms-color-dock-selected);
+  --pl-ink: var(--ms-color-text-primary); --pl-ink2: var(--ms-color-text-secondary); --pl-ink3: var(--ms-color-text-muted);
+  --pl-line: var(--ms-color-border-default); --pl-edge: var(--ms-color-border-control);
+  --pl-primary: var(--ms-color-accent); --pl-on-primary: var(--ms-color-accent-ink);
+  --pl-primary-press: color-mix(in srgb, var(--ms-color-accent) 92%, var(--ms-color-accent-ink));
+  --pl-plum: var(--ms-color-plum); --pl-sel: var(--ms-color-selected); --pl-on-sel: var(--ms-color-on-selected); --pl-knob: var(--ms-color-on-selected);
+  --pl-hover: color-mix(in srgb, var(--ms-color-text-primary) 5%, transparent);
+  --pl-press: color-mix(in srgb, var(--ms-color-text-primary) 8%, transparent);
+  --pl-danger: var(--ms-color-danger-soft-text); --pl-danger-fill: var(--ms-color-danger); --pl-on-danger: var(--ms-color-text-on-danger);
+  --pl-success: var(--ms-color-success-text); --pl-warn: var(--ms-color-warning-text);
+  --pl-toast-bg: var(--ms-color-selected); --pl-toast-ink: var(--ms-color-on-selected);
+  --pl-st-access-b: var(--ms-color-stamp-access-bg); --pl-st-access-f: var(--ms-color-stamp-access-ink);
+  --pl-st-money-b: var(--ms-color-stamp-money-bg); --pl-st-money-f: var(--ms-color-stamp-money-ink);
+  --pl-st-id-b: var(--ms-color-stamp-identity-bg); --pl-st-id-f: var(--ms-color-stamp-identity-ink);
+  --pl-st-note-b: var(--ms-color-stamp-note-bg); --pl-st-note-f: var(--ms-color-stamp-note-ink);
+  --pl-st-file-b: var(--ms-color-stamp-file-bg); --pl-st-file-f: var(--ms-color-stamp-file-ink);
+  --pl-st-dev-b: var(--ms-color-stamp-dev-bg); --pl-st-dev-f: var(--ms-color-stamp-dev-ink);
+  --pl-st-group-b: var(--ms-color-stamp-group-bg); --pl-st-group-f: var(--ms-color-stamp-group-ink);
+  /* Scrim and shadows have no token: light values here, dark below. */
   --pl-scrim: rgba(25, 16, 33, 0.45);
-  --pl-toast-bg: #33233d; --pl-toast-ink: #ffffff;
   --pl-shadow-dock: 0 6px 20px rgba(30, 20, 40, 0.14), 0 0 0 1px rgba(30, 20, 40, 0.07);
   --pl-shadow-sheet: 0 -8px 28px rgba(30, 20, 40, 0.18);
-  --pl-st-access-b: #f1e8f3; --pl-st-access-f: #6b3f78;
-  --pl-st-money-b: #e3f0f0; --pl-st-money-f: #1f6068;
-  --pl-st-id-b: #e7f0e2; --pl-st-id-f: #3b6b2c;
-  --pl-st-note-b: #f5eddc; --pl-st-note-f: #7a5a12;
-  --pl-st-file-b: #e5ecf6; --pl-st-file-f: #2f5a8e;
-  --pl-st-dev-b: #e9eaee; --pl-st-dev-f: #474c5c;
-  --pl-st-group-b: #f5e6ec; --pl-st-group-f: #8c3b5a;
 }
-
 [data-theme='dark'] {
-  color-scheme: dark;
-  --pl-cover: #2a1b2f; --pl-on-cover: #ffffff; --pl-on-cover2: #d2c2da; --pl-cover-line: #2a1b2f;
-  --pl-cover-chip: #3d2b44; --pl-cover-chip-edge: #3d2b44;
-  --pl-field-bg: #3d2b44; --pl-field-ink: #f3f0f6; --pl-field-ph: #c2b3ca; --pl-field-edge: #9a88a4; --pl-danger-cover: #ffb4ab;
-  --pl-paper: #141117; --pl-sheet: #1e1a23; --pl-sunken: #28232e; --pl-sunken-press: #332d3a; --pl-dock: #26212c; --pl-dock-sel: #3a2942;
-  --pl-ink: #f3f0f6; --pl-ink2: #b5adbe; --pl-ink3: #a39bad;
-  --pl-line: #2e2935; --pl-edge: #7c7486;
-  --pl-primary: #ff8a52; --pl-primary-press: #ff9c6b; --pl-on-primary: #2a1205;
-  --pl-plum: #d7bee3; --pl-sel: #eadcf0; --pl-on-sel: #2a1b2f; --pl-knob: #2a1b2f;
-  --pl-press: rgba(243, 240, 246, 0.08); --pl-hover: rgba(243, 240, 246, 0.05);
-  --pl-danger: #ff8a80; --pl-success: #6fd49a; --pl-warn: #f2c14e;
   --pl-scrim: rgba(0, 0, 0, 0.6);
-  --pl-toast-bg: #eadcf0; --pl-toast-ink: #2a1b2f;
   --pl-shadow-dock: 0 6px 20px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.06);
   --pl-shadow-sheet: 0 -8px 28px rgba(0, 0, 0, 0.6);
-  --pl-st-access-b: #3a2942; --pl-st-access-f: #ddbde8;
-  --pl-st-money-b: #1e3a3d; --pl-st-money-f: #9fd6d9;
-  --pl-st-id-b: #253a22; --pl-st-id-f: #afd69c;
-  --pl-st-note-b: #3d3220; --pl-st-note-f: #e6c77e;
-  --pl-st-file-b: #22314a; --pl-st-file-f: #a9c4ea;
-  --pl-st-dev-b: #2e3038; --pl-st-dev-f: #c3c7d3;
-  --pl-st-group-b: #3e2430; --pl-st-group-f: #eab0c6;
 }
-
 @media (prefers-color-scheme: dark) {
   [data-theme='system'] {
-    color-scheme: dark;
-    --pl-cover: #2a1b2f; --pl-on-cover: #ffffff; --pl-on-cover2: #d2c2da; --pl-cover-line: #2a1b2f;
-    --pl-cover-chip: #3d2b44; --pl-cover-chip-edge: #3d2b44;
-    --pl-field-bg: #3d2b44; --pl-field-ink: #f3f0f6; --pl-field-ph: #c2b3ca; --pl-field-edge: #9a88a4; --pl-danger-cover: #ffb4ab;
-    --pl-paper: #141117; --pl-sheet: #1e1a23; --pl-sunken: #28232e; --pl-sunken-press: #332d3a; --pl-dock: #26212c; --pl-dock-sel: #3a2942;
-    --pl-ink: #f3f0f6; --pl-ink2: #b5adbe; --pl-ink3: #a39bad;
-    --pl-line: #2e2935; --pl-edge: #7c7486;
-    --pl-primary: #ff8a52; --pl-primary-press: #ff9c6b; --pl-on-primary: #2a1205;
-    --pl-plum: #d7bee3; --pl-sel: #eadcf0; --pl-on-sel: #2a1b2f; --pl-knob: #2a1b2f;
-    --pl-press: rgba(243, 240, 246, 0.08); --pl-hover: rgba(243, 240, 246, 0.05);
-    --pl-danger: #ff8a80; --pl-success: #6fd49a; --pl-warn: #f2c14e;
     --pl-scrim: rgba(0, 0, 0, 0.6);
-    --pl-toast-bg: #eadcf0; --pl-toast-ink: #2a1b2f;
     --pl-shadow-dock: 0 6px 20px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.06);
     --pl-shadow-sheet: 0 -8px 28px rgba(0, 0, 0, 0.6);
-    --pl-st-access-b: #3a2942; --pl-st-access-f: #ddbde8;
-    --pl-st-money-b: #1e3a3d; --pl-st-money-f: #9fd6d9;
-    --pl-st-id-b: #253a22; --pl-st-id-f: #afd69c;
-    --pl-st-note-b: #3d3220; --pl-st-note-f: #e6c77e;
-    --pl-st-file-b: #22314a; --pl-st-file-f: #a9c4ea;
-    --pl-st-dev-b: #2e3038; --pl-st-dev-f: #c3c7d3;
-    --pl-st-group-b: #3e2430; --pl-st-group-f: #eab0c6;
   }
 }
 
 :root {
-  --pl-f: 'Be Vietnam Pro', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --pl-f-mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Roboto Mono', monospace;
+  --pl-f: var(--ms-font-sans);
+  --pl-f-mono: var(--ms-font-mono);
   --pl-g: 16px;
   /* Type roles: D2's nine roles one step denser for a pointer popup; line-heights on the 4 px grid. */
   --pl-t-display: 700 24px/32px var(--pl-f);
@@ -193,7 +162,7 @@ input[type='checkbox'] { accent-color: var(--pl-plum); }
 .btn-primary:disabled { background: var(--pl-sunken); color: var(--pl-ink3); box-shadow: inset 0 0 0 1px var(--pl-line); }
 .btn-quiet, .btn-secondary { background: var(--pl-sunken); color: var(--pl-ink); }
 .btn-quiet:hover, .btn-secondary:hover { background: var(--pl-sunken-press); }
-.btn-danger { background: var(--pl-danger); color: var(--pl-paper); }
+.btn-danger { background: var(--pl-danger-fill); color: var(--pl-on-danger); }
 .btn-secondary:disabled, .btn-danger:disabled, .btn-quiet:disabled { opacity: 0.5; }
 .btn.sm { height: 32px; padding: 0 16px; border-radius: 16px; font: var(--pl-t-control); }
 .btn-link { height: 32px; padding: 0 8px; display: inline-flex; align-items: center; gap: 8px; color: var(--pl-plum); font: var(--pl-t-control); border-radius: 16px; }
