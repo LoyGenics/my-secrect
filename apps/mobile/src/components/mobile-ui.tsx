@@ -431,7 +431,7 @@ const local = StyleSheet.create({
   sheetSearch: { marginBottom: space[3] },
   sheetBody: { flexGrow: 0, flexShrink: 1 },
   sheetFooter: { paddingTop: space[3], borderTopWidth: StyleSheet.hairlineWidth, gap: space[3] },
-  empty: { alignItems: 'center', paddingVertical: space[10], gap: space[2] },
+  empty: { alignItems: 'center', paddingVertical: space[10], paddingHorizontal: space[4], gap: space[2] },
   emptyArt: { width: size.emptyArt, height: size.emptyArt, marginBottom: space[2] },
   emptyActions: { marginTop: space[3], alignSelf: 'stretch', gap: space[3] },
   progress: { gap: space[2], paddingVertical: space[2] },

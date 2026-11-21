@@ -11,8 +11,9 @@ export interface VaultFilter {
   sort: VaultSort;
 }
 
+/** The ledger opens on Title A–Z; Recently updated is one tap away in Sort. */
 export function createVaultFilter(): VaultFilter {
-  return { scope: 'all', types: new Set(), tags: new Set(), collectionIds: new Set(), sort: 'updatedDesc' };
+  return { scope: 'all', types: new Set(), tags: new Set(), collectionIds: new Set(), sort: 'titleAsc' };
 }
 
 export function clearVaultFilters(filter: VaultFilter): VaultFilter {
@@ -88,4 +89,38 @@ export function filterVaultItems(
   items: readonly VaultItem[], filter: VaultFilter, locale?: string, collectionContext: readonly VaultItem[] = items,
 ): VaultItem[] {
   return items.filter(vaultFilterPredicate(filter, collectionContext)).sort(vaultComparator(filter.sort, locale));
+}
+
+export interface VaultFacetCounts {
+  all: number;
+  favorites: number;
+  types: Map<ItemType, number>;
+  tags: Map<string, number>;
+  collections: Map<string, number>;
+}
+
+/**
+ * Honest faceted counts: each value counts the items that would match if it
+ * were the only choice in its own group, with every other group applied.
+ */
+export function vaultFacetCounts(
+  items: readonly VaultItem[], filter: VaultFilter, collectionIds: readonly string[] = [], allItems: readonly VaultItem[] = items,
+): VaultFacetCounts {
+  const counts: VaultFacetCounts = { all: 0, favorites: 0, types: new Map(), tags: new Map(), collections: new Map() };
+  const add = <T>(map: Map<T, number>, key: T) => map.set(key, (map.get(key) ?? 0) + 1);
+  const withoutScope = vaultFilterPredicate({ ...filter, scope: 'all' }, allItems);
+  const withoutTypes = vaultFilterPredicate({ ...filter, types: new Set() }, allItems);
+  const withoutTags = vaultFilterPredicate({ ...filter, tags: new Set() }, allItems);
+  const withoutCollections = vaultFilterPredicate({ ...filter, collectionIds: new Set() }, allItems);
+  const inCollection = collectionIds.map((id) => [id, collectionMatches(allItems, new Set([id]))] as const);
+  for (const item of items) {
+    if (withoutScope(item)) {
+      counts.all += 1;
+      if (item.favorite === true) counts.favorites += 1;
+    }
+    if (withoutTypes(item)) add(counts.types, item.type);
+    if (withoutTags(item)) for (const tag of new Set(item.tags ?? [])) add(counts.tags, tag);
+    if (withoutCollections(item)) for (const [id, matches] of inCollection) if (matches(item)) add(counts.collections, id);
+  }
+  return counts;
 }

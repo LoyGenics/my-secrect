@@ -52,6 +52,15 @@ export const mobileEditorEn = {
   passwordHistory: 'Password history',
   noteHistory: 'Note revisions',
   itemType: 'Item type',
+  chooserTitle: 'New item',
+  searchTypes: { one: 'Search {0} type', other: 'Search {0} types' },
+  chooserGroups: { signIns: 'Sign-ins', money: 'Money', you: 'You', notesFiles: 'Notes & files', developer: 'Developer', misc: 'Other' },
+  chooserHints: {
+    login: 'Website or app sign-in', passkey: 'Reference to a passkey you use', card: 'Payment card, CVV kept on this device',
+    bank_account: 'Account number, branch, SWIFT', identity: 'Passport, citizen ID, licence', secure_note: 'Private text and checklists',
+    document: 'PDF or scan from this phone', media: 'Photos and videos from this phone', ssh_key: 'Public key and private key reference',
+    api_key: 'Service key, scopes and expiry', collection: 'Group related items', custom: 'Your own fields',
+  },
 };
 
 export const mobileEditorVi: typeof mobileEditorEn = {
@@ -108,4 +117,13 @@ export const mobileEditorVi: typeof mobileEditorEn = {
   passwordHistory: 'Lịch sử mật khẩu',
   noteHistory: 'Lịch sử ghi chú',
   itemType: 'Loại mục',
+  chooserTitle: 'Mục mới',
+  searchTypes: { one: 'Tìm trong {0} loại', other: 'Tìm trong {0} loại' },
+  chooserGroups: { signIns: 'Đăng nhập', money: 'Tiền', you: 'Bản thân', notesFiles: 'Ghi chú & tệp', developer: 'Lập trình', misc: 'Khác' },
+  chooserHints: {
+    login: 'Đăng nhập trang web hoặc ứng dụng', passkey: 'Tham chiếu tới passkey bạn dùng', card: 'Thẻ thanh toán, CVV chỉ lưu trên máy này',
+    bank_account: 'Số tài khoản, chi nhánh, SWIFT', identity: 'Hộ chiếu, CCCD, giấy phép lái xe', secure_note: 'Văn bản riêng tư và danh sách việc',
+    document: 'PDF hoặc bản quét từ điện thoại này', media: 'Ảnh và video từ điện thoại này', ssh_key: 'Khóa công khai và tham chiếu khóa riêng',
+    api_key: 'Khóa dịch vụ, phạm vi và hạn dùng', collection: 'Gom các mục liên quan', custom: 'Trường của riêng bạn',
+  },
 };
