@@ -27,6 +27,7 @@ import { isValidBase32Secret } from '../utils/totp';
 import { renderMarkdownToHtml } from '../utils/markdown';
 import { readLocalCardCode } from '../vault';
 import TypeStamp from './TypeStamp';
+import { isWebsiteAddress } from '../utils/website';
 import {
   getPasswordHistory,
   appendPasswordHistory,
@@ -247,6 +248,9 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
 
   const totpSecret = fieldValue('totp_secret');
   const totpInvalid = type === 'login' && totpSecret.trim() !== '' && !isValidBase32Secret(totpSecret);
+  // Login website: checked on blur (and on save), cleared live once it is valid.
+  const [urlTouched, setUrlTouched] = useState(false);
+  const urlInvalid = type === 'login' && fieldValue('url').trim() !== '' && !isWebsiteAddress(fieldValue('url'));
 
   const handleTypeChange = (next: ItemType) => {
     setType(next);
@@ -384,6 +388,11 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
     }
     if (totpInvalid) {
       setError(dict.itemForm.totpInvalid);
+      return;
+    }
+    if (urlInvalid) {
+      setUrlTouched(true);
+      document.getElementById("field-url")?.focus();
       return;
     }
     if (type === 'card') {
@@ -578,7 +587,13 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
         key={def.key}
         id={inputId}
         label={label(def.key)}
-        error={type === 'login' && def.key === 'totp_secret' && totpInvalid ? f.totpInvalid : undefined}
+        error={
+          type === 'login' && def.key === 'totp_secret' && totpInvalid
+            ? f.totpInvalid
+            : def.key === 'url' && urlTouched && urlInvalid
+              ? dict.mobileEditor.enterValidWebsite
+              : undefined
+        }
       >
         <Input
           name={inputName}
@@ -590,6 +605,7 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
           aria-label={label(def.key)}
           mono={def.key === 'totp_secret' || def.key === 'sha256' || def.key === 'blob_id'}
           onChange={(e) => setField(def.key, e.target.value)}
+          onBlur={def.key === 'url' ? () => setUrlTouched(true) : undefined}
         />
       </Field>
     );

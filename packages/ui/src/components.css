@@ -318,7 +318,7 @@ select.ms-input { padding-right: var(--ms-space-8); cursor: pointer; }
 .ms-input-wrap__button:hover { color: var(--ms-color-text-primary); background: color-mix(in srgb, var(--ms-color-text-primary) 6%, transparent); }
 /* Search: a sunken rounded field with the glass at the start (not an underline field). */
 .ms-search-field .ms-input {
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 var(--ms-space-3) 0 40px;
   border: 0;
   border-radius: var(--ms-radius-cover-field);
@@ -928,7 +928,9 @@ select.ms-input { padding-right: var(--ms-space-8); cursor: pointer; }
 /* Item form: the save bar stays in reach at the bottom of the page. */
 .ms-form-foot {
   position: sticky;
-  bottom: 0;
+  /* Sticky insets count from the pane's padding edge: sit on the visible bottom
+   * edge (the pane's 32 px bottom padding) so no field shows below the bar. */
+  bottom: calc(-1 * var(--ms-space-8));
   z-index: 1;
   display: flex;
   flex-wrap: wrap;
@@ -1388,7 +1390,7 @@ select.ms-input { padding-right: var(--ms-space-8); cursor: pointer; }
 .ms-sort select {
   appearance: none;
   field-sizing: content;
-  height: 32px;
+  height: 44px;
   padding: 0 var(--ms-space-2);
   border: 0;
   border-radius: var(--ms-radius-full);
