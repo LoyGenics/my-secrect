@@ -27,7 +27,7 @@ export const InputControl = forwardRef<TextInput, InputControlProps>(function In
   const marked = focused || invalid;
   return (
     <View style={[styles.inputShell, boxed && styles.inputBoxed, containerStyle,
-      marked && (boxed ? styles.inputBoxedFocused : styles.inputFocused), invalid && { borderColor: colors.dangerText }, disabled && local.disabled]}>
+      marked && (boxed ? styles.inputBoxedFocused : styles.inputFocused), invalid && { borderColor: colors.dangerText, borderBottomColor: colors.dangerText, borderBottomWidth: 2 }, disabled && local.disabled]}>
       {leading && <View style={local.leading}>{leading}</View>}
       <TextInput
         ref={ref}

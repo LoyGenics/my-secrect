@@ -42,7 +42,7 @@ export function FloatingDock({ state, navigation, descriptors, tabs, searchRoute
       <View style={[android && local.m3Indicator, android && focused && { backgroundColor: colors.dockSelected }]}>
         <Icon name={tab.icon} size="xl" color={ink} />
       </View>
-      <Text numberOfLines={1} allowFontScaling={false} style={[textStyle.micro, { color: focused ? colors.plum : colors.secondaryText }]}>{tab.label}</Text>
+      <Text numberOfLines={1} maxFontSizeMultiplier={1.3} style={[textStyle.micro, { color: focused ? colors.plum : colors.secondaryText }]}>{tab.label}</Text>
     </Pressable>;
   });
 
@@ -52,10 +52,10 @@ export function FloatingDock({ state, navigation, descriptors, tabs, searchRoute
     </View>;
   }
   return <View style={[local.frame, { backgroundColor: colors.canvas, paddingBottom: Math.max(insets?.bottom ?? 0, space[3]) }]}>
-    <View accessibilityRole="tablist" style={[local.dock, local.shadow, { backgroundColor: colors.dock, borderColor: colors.border }]}>{buttons}</View>
+    <View accessibilityRole="tablist" style={[local.dock, local.shadow, { backgroundColor: colors.dock, borderColor: colors.border, shadowColor: colors.text }]}>{buttons}</View>
     <Pressable testID="dock-search" accessibilityRole="tab" accessibilityLabel={dict.mobileVault.search} accessibilityState={{ selected: searching }} onPress={onSearch}
       style={({ pressed }) => [local.search, local.shadow, {
-        backgroundColor: searching ? colors.selected : pressed ? colors.dockSelected : colors.dock, borderColor: searching ? colors.selected : colors.border,
+        backgroundColor: searching ? colors.selected : pressed ? colors.dockSelected : colors.dock, borderColor: searching ? colors.selected : colors.border, shadowColor: colors.text,
       }]}>
       <Icon name="search" size="xl" color={searching ? colors.onSelected : colors.text} />
     </Pressable>
@@ -68,8 +68,8 @@ const local = StyleSheet.create({
     flex: 1, minWidth: 0, height: size.dock, borderRadius: radius.dock, borderWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space[1],
   },
-  shadow: { shadowColor: '#1e1923', shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
-  tab: { flex: 1, minWidth: 0, maxWidth: 72, height: 52, borderRadius: radius.chip + 4, alignItems: 'center', justifyContent: 'center' },
+  shadow: { shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
+  tab: { flex: 1, minWidth: 0, maxWidth: 72, minHeight: 52, borderRadius: radius.chip + 4, alignItems: 'center', justifyContent: 'center' },
   search: { width: size.dockSearch, height: size.dockSearch, borderRadius: size.dockSearch / 2, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
   m3Bar: { flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, paddingTop: space[3] },
   m3Tab: { flex: 1, minHeight: 64, alignItems: 'center', gap: space[1] },

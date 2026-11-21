@@ -69,8 +69,9 @@ export function createStyles(c: MobileColors) {
     // Body fields are an underline only; cover fields (sign-in, search) add inputBoxed.
     inputShell: { borderBottomColor: c.controlBorder, borderBottomWidth: 1, minHeight: size.field, flexDirection: 'row', alignItems: 'center' },
     inputFocused: { borderBottomColor: c.focus, borderBottomWidth: 2 },
-    inputBoxed: { backgroundColor: c.surface, borderColor: c.coverFieldEdge, borderWidth: 1, borderBottomWidth: 1, borderRadius: radius.coverField, paddingHorizontal: space[4] },
-    inputBoxedFocused: { borderColor: c.focus, borderWidth: 2, borderBottomWidth: 2, paddingHorizontal: space[4] - 1 },
+    // borderBottomColor beats borderColor in RN, so every edge state sets both.
+    inputBoxed: { backgroundColor: c.surface, borderColor: c.coverFieldEdge, borderBottomColor: c.coverFieldEdge, borderWidth: 1, borderBottomWidth: 1, borderRadius: radius.coverField, paddingHorizontal: space[4] },
+    inputBoxedFocused: { borderColor: c.focus, borderBottomColor: c.focus, borderWidth: 2, borderBottomWidth: 2, paddingHorizontal: space[4] - 1 },
     input: { ...textStyle.value, flex: 1, minWidth: 0, color: c.text, paddingHorizontal: 0, paddingVertical: space[3] },
     inputMultiline: { minHeight: space[12] * 2, textAlignVertical: 'top' },
     iconButton: { width: size.touch, height: size.touch, flexShrink: 0, borderRadius: radius.chip, alignItems: 'center', justifyContent: 'center' },

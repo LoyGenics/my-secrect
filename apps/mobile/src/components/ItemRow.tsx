@@ -65,7 +65,8 @@ export default function ItemRow({ item, selected, onPress, letter, quickCopy = t
   const favorite = item.favorite === true;
   const archived = isArchived(item);
   const action = quickCopy && !item.deleted_at ? getPrimaryDetailAction(item) : undefined;
-  const copy = action?.type === 'copy' ? action : undefined;
+  // Quick copy only where the prototype offers it: a login's password and a card's last four digits.
+  const copy = action?.type === 'copy' && (action.key === 'password' || action.key === 'last4') ? action : undefined;
   const margin = letter !== undefined;
   useEffect(() => {
     if (!copied) return;

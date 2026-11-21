@@ -106,9 +106,11 @@ export function FieldGroup({ children, style }: { children: ReactNode; style?: S
 
 export function Group({ title, footer, children }: { title?: string; footer?: string; children: ReactNode }) {
   const { colors, styles } = useMobileTheme();
+  // Rows run edge to edge of the page column while their content stays on the gutter.
+  const gutter = getPageGutter(useWindowDimensions().width);
   return <View style={local.group}>
     {title && <Text accessibilityRole="header" style={[textStyle.strong, local.groupLabel, { color: colors.plum }]}>{title}</Text>}
-    <View style={local.groupSurface}>{children}</View>
+    <View style={{ marginHorizontal: -gutter, paddingHorizontal: gutter - space[4] }}>{children}</View>
     {footer && <Text style={[styles.small, local.groupFooter]}>{footer}</Text>}
   </View>;
 }
@@ -281,8 +283,8 @@ export function SegmentedControl({ label, labelHidden, choices, value, onChange,
   </View>;
 }
 
-export function FilterChip({ label, selected, onPress, onRemove, icon, testID, count, facet, disabled, tone = 'default' }: {
-  label: string; selected?: boolean; onPress?: () => void; onRemove?: () => void; icon?: NativeIconName; testID?: string;
+export function FilterChip({ label, accessibilityLabel, selected, onPress, onRemove, icon, testID, count, facet, disabled, tone = 'default' }: {
+  label: string; accessibilityLabel?: string; selected?: boolean; onPress?: () => void; onRemove?: () => void; icon?: NativeIconName; testID?: string;
   /** A plum badge (active filter count). */
   count?: number;
   /** A faceted result count shown after the label. */
@@ -299,7 +301,7 @@ export function FilterChip({ label, selected, onPress, onRemove, icon, testID, c
   const ink = selected ? (cover ? colors.onCoverChipSelected : colors.onSelected) : cover ? colors.onCover : colors.text;
   const quiet = selected ? ink : cover ? colors.onCoverSecondary : colors.secondaryText;
   const iconOnly = !!icon && !label;
-  return <Pressable testID={testID} accessibilityLabel={label || undefined} accessibilityRole="button"
+  return <Pressable testID={testID} accessibilityLabel={accessibilityLabel ?? label} accessibilityRole="button"
     accessibilityHint={onRemove ? dict.common.remove : undefined} accessibilityState={{ selected, disabled }} disabled={disabled} onPress={onRemove ?? onPress}
     style={({ pressed }) => [local.filterChip, iconOnly && local.iconChip, { borderColor: edge, backgroundColor: pressed && !selected ? colors.selection : fill }, disabled && local.disabled]}>
     {selected && !onRemove && !icon && <Icon name="check" size={size.inlineIcon} color={ink} />}
@@ -404,7 +406,6 @@ const local = StyleSheet.create({
   fieldGroup: { gap: space[4] },
   group: { marginBottom: space[6] },
   groupLabel: { marginBottom: space[1], paddingTop: space[2] },
-  groupSurface: { marginHorizontal: -space[4] },
   groupFooter: { marginTop: space[2] },
   row: { minHeight: size.settingsRow, paddingHorizontal: space[4], paddingVertical: space[3], flexDirection: 'row', alignItems: 'center', gap: space[4] },
   rowText: { flex: 1, minWidth: 0 },

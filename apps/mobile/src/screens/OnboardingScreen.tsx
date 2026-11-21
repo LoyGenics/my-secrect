@@ -136,7 +136,8 @@ export default function OnboardingScreen({ onDone, onRestored }: { onDone: () =>
     {onRestored && <AppButton testID="restore-from-backup-button" label={onboarding.restoreFromBackup}
       variant="text" disabled={busy} onPress={() => { Keyboard.dismiss(); setRestoring(true); }} />}
   </View> : step === 'save' && !review ? <View style={local.actions}>
-    <AppButton testID="recovery-review-button" label={auth.continue} disabled={!ack} accessibilityLabel={auth.continue}
+    <AppButton testID="recovery-review-button" label={auth.continue} disabled={!ack}
+      accessibilityLabel={ack ? auth.continue : `${auth.continue}. ${auth.tickToContinue}`}
       onPress={() => { setKeyVisible(false); setReview(true); }} />
     {!ack && <Text testID="recovery-continue-reason" style={[styles.small, local.center]}>{auth.tickToContinue}</Text>}
   </View> : step === 'save' ? <View style={local.actions}>
