@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import * as RadixDialog from '@radix-ui/react-dialog';
 import type { Locale } from '@my-secrect/i18n';
 import { cn } from '../utils';
@@ -35,6 +35,8 @@ export interface CommandPaletteProps {
   placeholder?: string;
   /** Empty message; a function receives the current query. */
   emptyLabel?: string | ((query: string) => string);
+  /** Where focus goes when the palette closes (e.g. the search field that opened it). Default: Radix's focus return. */
+  returnFocusRef?: RefObject<HTMLElement>;
 }
 
 /**
@@ -43,7 +45,7 @@ export interface CommandPaletteProps {
  * move the active option (aria-activedescendant), Enter runs it. Mounting
  * the hotkey is the app's job (`useCommandPaletteHotkey`).
  */
-export function CommandPalette({ open, onOpenChange, items, title, onQueryChange, limit, locale, placeholder, emptyLabel }: CommandPaletteProps) {
+export function CommandPalette({ open, onOpenChange, items, title, onQueryChange, limit, locale, placeholder, emptyLabel, returnFocusRef }: CommandPaletteProps) {
   const strings = useUiStrings({ locale });
   const [query, setQuery] = useState('');
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -86,6 +88,11 @@ export function CommandPalette({ open, onOpenChange, items, title, onQueryChange
         <RadixDialog.Overlay className="ms-dialog-overlay" />
         <RadixDialog.Content
           className={cn('ms-dialog', 'ms-command-palette')}
+          onCloseAutoFocus={(e) => {
+            if (!returnFocusRef?.current) return;
+            e.preventDefault();
+            returnFocusRef.current.focus();
+          }}
           aria-describedby={undefined}
           onOpenAutoFocus={(e) => {
             e.preventDefault();

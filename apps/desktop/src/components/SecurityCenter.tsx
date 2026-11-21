@@ -637,9 +637,9 @@ export default function SecurityCenter({
   };
 
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-6 p-5">
+    <div className="ms-view ms-view--narrow ms-sections space-y-6">
       <div>
-        <h2 className="text-lg font-semibold">{s.title}</h2>
+        <h2 className="ms-page-title">{s.title}</h2>
         <p className="mt-1 text-sm text-ms-muted">{s.subtitle}</p>
         {security && onSignOut && (
           <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-ms-line bg-ms-surface2 px-3 py-2 text-sm">

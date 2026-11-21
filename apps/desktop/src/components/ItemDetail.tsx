@@ -8,19 +8,17 @@ import { renderMarkdownToHtml } from '../utils/markdown';
 import { getPasswordHistory, getNoteRevisions, isArchived } from '../utils/itemMeta';
 import {
   Alert,
-  Badge,
   Button,
   Card,
   DropdownMenu,
   Icon,
   IconButton,
-  ItemTypeArt,
-  Led,
-  Ring,
+  Progress,
   copyWithClear,
   useClipboardStatus,
   type MenuItemDef,
 } from '../theme';
+import TypeStamp from './TypeStamp';
 import { useTranslation } from '../../../../packages/i18n/src/react';
 import { format, formatDate, plural, type Dictionary, type Locale } from '../../../../packages/i18n/src/index';
 
@@ -31,7 +29,6 @@ interface ItemDetailProps {
   onDelete: (id: string) => void;
   onRestore: (id: string) => void;
   onToggleFavorite: (id: string) => void;
-  onClose: () => void;
   onSelectRelated?: (id: string) => void;
   /** Archive / unarchive (moves the item to / from the Archived view). */
   onArchive?: (id: string) => void;
@@ -98,7 +95,7 @@ function Revealed({ text }: { text: string }) {
   );
 }
 
-const SECRET_ORDER = ['password', 'key', 'account_number', 'document_number', 'private_key'];
+const SECRET_ORDER = ['password', 'card_number', 'key', 'account_number', 'document_number', 'private_key'];
 const ID_ORDER = ['username', 'holder_name', 'cardholder', 'full_name', 'service', 'rp_id', 'file_name', 'bank_name'];
 
 /**
@@ -117,7 +114,6 @@ export default function ItemDetail({
   onDelete,
   onRestore,
   onToggleFavorite,
-  onClose,
   onSelectRelated,
   onArchive,
   onRestoreRevision,
@@ -127,7 +123,7 @@ export default function ItemDetail({
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [totp, setTotp] = useState<TotpResult | null>(null);
   const [localCode, setLocalCode] = useState<{ id: string; value: string }>();
-  const { copiedKey, secondsLeft } = useClipboardStatus();
+  const { copiedKey } = useClipboardStatus();
 
   const itemId = item?.id ?? null;
   const cardId = item?.type === 'card' ? item.id : undefined;
@@ -180,12 +176,6 @@ export default function ItemDetail({
   const typeLabel = (dict.itemTypes as Record<string, string>)[item.type] ?? item.type;
   const copyKey = (key: string) => `${item.id}:${key}`;
   const copy = (key: string, text: string) => void copyWithClear(copyKey(key), text);
-  const copiedLed = (key: string) =>
-    copiedKey === copyKey(key) ? (
-      <span className="ms-copy-led ms-legend" role="status">
-        <Led tone="ok" /> {format(d.copied, secondsLeft)}
-      </span>
-    ) : null;
   const toggleReveal = (key: string) => setRevealed((prev) => ({ ...prev, [key]: !prev[key] }));
 
   // Meta fields get their own sections below — never rendered as raw JSON.
@@ -213,8 +203,6 @@ export default function ItemDetail({
   const openableUrl = /^https?:\/\//i.test(url) ? url : '';
 
   const moreItems: MenuItemDef[] = [
-    ...(!trashed ? [{ key: 'edit', label: d.edit, icon: 'edit' as const, onSelect: () => onEdit(item) }] : []),
-    { key: 'fav', label: favorite ? d.unfavoriteAction : d.favoriteAction, icon: 'favorite' as const, onSelect: () => onToggleFavorite(item.id) },
     ...(!trashed && onArchive
       ? [{ key: 'archive', label: archived ? d.unarchive : d.archive, icon: (archived ? 'unarchive' : 'archive') as 'archive', onSelect: () => onArchive(item.id) }]
       : []),
@@ -232,54 +220,66 @@ export default function ItemDetail({
       <span>{target.title}</span>
     );
 
+  const primaryKey = trashed ? undefined : secretKey;
+  const primaryCopied = primaryKey !== undefined && copiedKey === copyKey(`field:${primaryKey}`);
+  const primaryLabel = primaryKey === 'password' ? d.copyPassword : primaryKey ? format(d.copy, fieldLabel(dict, primaryKey)) : '';
+  const urlHost = (() => {
+    try {
+      return openableUrl ? new URL(openableUrl).host : url;
+    } catch {
+      return url;
+    }
+  })();
+  const metaLine = [typeLabel, urlHost, archived ? d.archived : '', trashed ? d.inTrash : ''].filter(Boolean).join(' · ');
+  const copyButton = (key: string, label: string, text: string) => {
+    const done = copiedKey === copyKey(key);
+    return <IconButton icon={done ? 'check' : 'copy'} size="sm" data-done={done} label={format(d.copy, label)} onClick={() => copy(key, text)} />;
+  };
+
   return (
     <article className="ms-spec" aria-labelledby={`detail-title-${item.id}`}>
       <header className="ms-spec__head">
-        <ItemTypeArt type={item.type} size="lg" />
+        <TypeStamp type={item.type} size="lg" />
         <div className="ms-spec__title">
-          <h2 id={`detail-title-${item.id}`} className="ms-heading ms-heading--lg">{displayTitle}</h2>
-          <div className="ms-spec__meta">
-            <Badge legend>{typeLabel}</Badge>
-            {favorite && (
-              <span className="ms-copy-led ms-legend"><Icon name="favorite" size="xs" /> {d.favorite}</span>
-            )}
-            {archived && (
-              <span className="ms-copy-led ms-legend"><Icon name="archive" size="xs" /> {d.archived}</span>
-            )}
-            {trashed && (
-              <span className="ms-copy-led ms-legend"><Led tone="danger" /> {d.inTrash}</span>
-            )}
-          </div>
+          <h2 id={`detail-title-${item.id}`} className="ms-spec__name">{displayTitle}</h2>
+          <p className="ms-spec__meta">{metaLine}</p>
           {parent && (
-            <p className="ms-text-sm ms-text-muted mt-1 mb-0">
+            <p className="ms-spec__meta">
               {d.inCollection}: {relatedButton(parent)}
             </p>
           )}
         </div>
-        <IconButton icon="close" label={d.close} onClick={onClose} className="ms-spec__toolbar--wide" />
+        <div className="ms-spec__tools">
+          <IconButton
+            icon="favorite"
+            size="sm"
+            label={favorite ? d.unfavoriteAction : d.favoriteAction}
+            aria-pressed={favorite}
+            className={favorite ? 'ms-favorite--on' : undefined}
+            onClick={() => onToggleFavorite(item.id)}
+          />
+          {!trashed && (
+            <Button size="sm" variant="secondary" icon="edit" onClick={() => onEdit(item)}>
+              {d.edit}
+            </Button>
+          )}
+          <DropdownMenu label={d.more} align="end" items={moreItems} trigger={<IconButton icon="more" size="sm" label={d.more} />} />
+        </div>
       </header>
 
-      <div className="ms-spec__toolbar ms-spec__toolbar--wide">
-        {!trashed && (
-          <Button variant="secondary" icon="edit" onClick={() => onEdit(item)}>
-            {d.edit}
-          </Button>
-        )}
-        <Button variant="secondary" icon="favorite" aria-pressed={favorite} onClick={() => onToggleFavorite(item.id)}>
-          {favorite ? d.unfavoriteAction : d.favoriteAction}
-        </Button>
-        {!trashed && onArchive && (
-          <Button variant="secondary" icon={archived ? 'unarchive' : 'archive'} onClick={() => onArchive(item.id)}>
-            {archived ? d.unarchive : d.archive}
-          </Button>
-        )}
+      <div className="ms-spec__actions">
         {trashed ? (
           <Button variant="primary" icon="restore" onClick={() => onRestore(item.id)}>
             {d.restore}
           </Button>
-        ) : (
-          <Button variant="danger-outline" icon="trash" onClick={() => onDelete(item.id)}>
-            {d.delete}
+        ) : primaryKey ? (
+          <Button variant="primary" icon={primaryCopied ? 'check' : 'copy'} onClick={() => copy(`field:${primaryKey}`, fieldString(item, primaryKey))}>
+            {primaryCopied ? dict.itemForm.copied : primaryLabel}
+          </Button>
+        ) : null}
+        {!trashed && idKey && (
+          <Button variant="secondary" icon="copy" onClick={() => copy(`field:${idKey}`, fieldString(item, idKey))}>
+            {idKey === 'username' ? d.copyUsername : format(d.copy, fieldLabel(dict, idKey))}
           </Button>
         )}
       </div>
@@ -290,81 +290,79 @@ export default function ItemDetail({
         </Alert>
       )}
 
-      {item.type === 'login' && totpSecret !== '' && (
-        <Card as="section" className="ms-spec__section" aria-label={d.totp}>
-          {!totpValid ? (
-            <Alert tone="danger">{d.totpInvalid}</Alert>
-          ) : totp ? (
-            <div className="ms-totp">
-              <Ring
-                value={(totp.secondsRemaining / totp.period) * 100}
-                tone={totp.secondsRemaining <= 5 ? 'danger' : 'success'}
-                label={d.totp}
-                valueText={plural(locale, d.totpRefresh, totp.secondsRemaining)}
-              />
-              <div className="ms-totp__info">
-                <span className="ms-text-sm ms-text-muted">{d.totp}</span>
-                <span className="ms-totp__code" aria-live="off">{groupCode(totp.code)}</span>
-                <span className="ms-text-sm ms-text-muted">{plural(locale, d.totpRefresh, totp.secondsRemaining)}</span>
-              </div>
-              <div className="ms-totp__copy">
-                {copiedLed('totp')}
-                <IconButton icon="copy" variant="secondary" label={d.copyCode} onClick={() => copy('totp', totp.code)} />
-              </div>
-            </div>
-          ) : (
-            <p className="ms-text-muted m-0">{d.totpLoading}</p>
-          )}
-        </Card>
-      )}
-
-      <Card as="section" padding="none" className="ms-spec__section" aria-label={d.fields}>
-        {fieldEntries.length === 0 ? (
-          <p className="ms-text-muted m-0 p-4">{d.noFields}</p>
-        ) : (
-          <ul className="ms-spec__rows">
-            {fieldEntries.map(([key, value]) => {
-              let text = formatValue(value);
-              if (item.type === 'card' && key === 'card_type' && (value === 'credit' || value === 'debit')) text = dict.card[value];
-              if (item.type === 'card' && key === 'brand' && value === 'other') text = dict.card.otherBrand;
-              const label = fieldLabel(dict, key);
-              const sensitive = isSensitiveKey(key);
-              const isRevealed = Boolean(revealed[key]);
-              const isNote = item.type === 'secure_note' && key === 'body';
-              return (
-                <li key={key} className="ms-spec__row">
-                  <span className="ms-spec__label">{label}</span>
-                  <span className={sensitive ? 'ms-spec__value ms-spec__value--secret' : 'ms-spec__value'}>
-                    {isNote ? (
-                      <span className="block" dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(text) }} />
-                    ) : sensitive && !isRevealed ? (
-                      <span>{key === 'card_number' ? `•••• ${cardLast4(item.fields)}` : MASK}</span>
-                    ) : sensitive ? (
-                      <Revealed text={item.type === 'card' && key === 'card_number'
-                        ? formatCardNumber(text, fieldString(item, 'brand') || undefined) : text} />
-                    ) : (
-                      text
-                    )}
-                    {copiedLed(`field:${key}`)}
-                  </span>
-                  <span className="ms-spec__keys">
-                    {sensitive && (
-                      <IconButton
-                        icon={isRevealed ? 'hide' : 'show'}
-                        size="sm"
-                        label={format(isRevealed ? d.hide : d.show, label)}
-                        aria-pressed={isRevealed}
-                        onClick={() => toggleReveal(key)}
+      {fieldEntries.length === 0 && !(item.type === 'login' && totpSecret !== '') ? (
+        <p className="ms-text-muted">{d.noFields}</p>
+      ) : (
+        <ul className="ms-spec__rows" aria-label={d.fields}>
+          {item.type === 'login' && totpSecret !== '' && (
+            <li className="ms-spec__row ms-spec__row--totp">
+              <span className="ms-spec__label">{d.totp}</span>
+              <span className="ms-spec__value">
+                {!totpValid ? (
+                  <span className="ms-spec__error">{d.totpInvalid}</span>
+                ) : totp ? (
+                  <>
+                    <span className="ms-totp__code" aria-live="off">{groupCode(totp.code)}</span>
+                    <span className="ms-totp__bar">
+                      <Progress
+                        value={(totp.secondsRemaining / totp.period) * 100}
+                        label={d.totp}
+                        valueText={plural(locale, d.totpRefresh, totp.secondsRemaining)}
+                        tone={totp.secondsRemaining <= 5 ? 'danger' : 'brand'}
                       />
-                    )}
-                    <IconButton icon="copy" size="sm" label={format(d.copy, label)} onClick={() => copy(`field:${key}`, text)} />
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </Card>
+                      <span>{plural(locale, d.totpRefresh, totp.secondsRemaining)}</span>
+                    </span>
+                  </>
+                ) : (
+                  <span className="ms-text-muted">{d.totpLoading}</span>
+                )}
+              </span>
+              <span className="ms-spec__keys">{totp && copyButton('totp', d.totp, totp.code)}</span>
+            </li>
+          )}
+          {fieldEntries.map(([key, value]) => {
+            let text = formatValue(value);
+            if (item.type === 'card' && key === 'card_type' && (value === 'credit' || value === 'debit')) text = dict.card[value];
+            if (item.type === 'card' && key === 'brand' && value === 'other') text = dict.card.otherBrand;
+            const label = fieldLabel(dict, key);
+            const sensitive = isSensitiveKey(key);
+            const isRevealed = Boolean(revealed[key]);
+            const isNote = item.type === 'secure_note' && key === 'body';
+            return (
+              <li key={key} className="ms-spec__row">
+                <span className="ms-spec__label">{label}</span>
+                <span className={sensitive ? 'ms-spec__value ms-spec__value--secret' : 'ms-spec__value'}>
+                  {isNote ? (
+                    <span className="block" dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(text) }} />
+                  ) : sensitive && !isRevealed ? (
+                    <span className="ms-spec__mask">{key === 'card_number' ? `•••• ${cardLast4(item.fields)}` : MASK}</span>
+                  ) : sensitive ? (
+                    <Revealed text={item.type === 'card' && key === 'card_number'
+                      ? formatCardNumber(text, fieldString(item, 'brand') || undefined) : text} />
+                  ) : (
+                    text
+                  )}
+                </span>
+                <span className="ms-spec__keys">
+                  {sensitive && (
+                    <IconButton
+                      icon={isRevealed ? 'hide' : 'show'}
+                      size="sm"
+                      label={format(isRevealed ? d.hide : d.show, label)}
+                      aria-pressed={isRevealed}
+                      onClick={() => toggleReveal(key)}
+                    />
+                  )}
+                  {key === 'url' && openableUrl && (
+                    <IconButton icon="open" size="sm" label={d.openWebsite} onClick={() => window.open(openableUrl, '_blank', 'noopener,noreferrer')} />
+                  )}
+                  {!isCardVerificationField(key) && copyButton(`field:${key}`, label, text)}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
       {(item.type === 'media' || item.type === 'document') && fieldString(item, 'sha256') && (
         <p className="ms-text-sm ms-text-muted mt-3">{d.manifestOnly}</p>
@@ -374,8 +372,7 @@ export default function ItemDetail({
         <section className="ms-spec__section" aria-labelledby={`history-${item.id}`}>
           <h3 id={`history-${item.id}`} className="ms-legend">{d.previousPasswords}</h3>
           <p className="ms-text-sm ms-text-muted mt-0 mb-2">{d.previousPasswordsHint}</p>
-          <Card padding="none">
-            <ul className="ms-spec__rows">
+          <ul className="ms-spec__rows">
               {passwordHistory.map((entry, i) => {
                 const key = `history:${i}`;
                 const shown = Boolean(revealed[key]);
@@ -385,17 +382,15 @@ export default function ItemDetail({
                     <span className="ms-spec__label">{label}</span>
                     <span className="ms-spec__value ms-spec__value--secret">
                       {shown ? <Revealed text={entry.password} /> : MASK}
-                      {copiedLed(key)}
                     </span>
                     <span className="ms-spec__keys">
                       <IconButton icon={shown ? 'hide' : 'show'} size="sm" label={format(shown ? d.hide : d.show, label)} aria-pressed={shown} onClick={() => toggleReveal(key)} />
-                      <IconButton icon="copy" size="sm" label={format(d.copy, label)} onClick={() => copy(key, entry.password)} />
+                      {copyButton(key, label, entry.password)}
                     </span>
                   </li>
                 );
               })}
-            </ul>
-          </Card>
+          </ul>
         </section>
       )}
 
@@ -478,50 +473,19 @@ export default function ItemDetail({
       {item.tags.length > 0 && (
         <section className="ms-spec__section" aria-labelledby={`tags-${item.id}`}>
           <h3 id={`tags-${item.id}`} className="ms-legend">{d.tags}</h3>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="ms-chips">
             {item.tags.map((tag) => (
-              <Badge key={tag}>
-                <Icon name="tag" size="xs" />
-                {tag}
-              </Badge>
+              <span key={tag} className="ms-chip">#{tag}</span>
             ))}
           </div>
         </section>
       )}
 
-      <p className="ms-text-sm ms-text-muted mt-6 mb-0">
-        {format(d.created, displayDate(locale, item.created_at))}
-        <br />
+      <p className="ms-spec__stamp">
         {format(d.updated, displayDate(locale, item.updated_at))}
+        <br />
+        {format(d.created, displayDate(locale, item.created_at))}
       </p>
-
-      {/* Phone: thumb-reach action rail (hidden >= 768px by CSS). */}
-      <div className="ms-action-rail">
-        <Button
-          variant="primary"
-          icon="copy"
-          disabled={!secretKey}
-          onClick={() => secretKey && copy(`field:${secretKey}`, fieldString(item, secretKey))}
-        >
-          {secretKey ? format(d.copy, fieldLabel(dict, secretKey)) : d.copyPassword}
-        </Button>
-        <Button icon="copy" disabled={!idKey} onClick={() => idKey && copy(`field:${idKey}`, fieldString(item, idKey))}>
-          {idKey ? format(d.copy, fieldLabel(dict, idKey)) : d.copyUsername}
-        </Button>
-        <Button icon="open" disabled={!openableUrl} onClick={() => window.open(openableUrl, '_blank', 'noopener,noreferrer')}>
-          {d.openWebsite}
-        </Button>
-        <DropdownMenu
-          label={d.more}
-          align="end"
-          items={moreItems}
-          trigger={
-            <Button icon="more" aria-label={d.more}>
-              {d.more}
-            </Button>
-          }
-        />
-      </div>
     </article>
   );
 }

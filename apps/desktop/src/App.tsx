@@ -35,12 +35,14 @@ import Sidebar, {
   CATEGORIES,
   categoryForType,
   emptyCounts,
+  SETTINGS_VIEWS,
   type SidebarCounts,
   type SidebarView,
 } from './components/Sidebar';
 import SearchPalette from './components/SearchPalette';
 import HealthView from './components/HealthView';
-import ItemList from './components/ItemList';
+import ItemList, { itemDisplayTitle } from './components/ItemList';
+import FilterPopover from './components/FilterPopover';
 import ItemDetail from './components/ItemDetail';
 import ItemForm from './components/ItemForm';
 import PasswordGenerator from './components/PasswordGenerator';
@@ -76,20 +78,18 @@ import {
   Icon,
   IconButton,
   Input,
+  DropdownMenu,
   Kbd,
-  Led,
-  LedStrip,
   Progress,
   SecureField,
-  Select,
   Sheet,
   brandMark,
   copyWithClear,
   illustrations,
   initTheme,
+  useClipboardStatus,
   type IconName,
-  type LedStripState,
-  type LedTone,
+  type MenuItemDef,
   type ArtSource,
 } from './theme';
 
@@ -156,6 +156,7 @@ export default function App({
   const [editingItem, setEditingItem] = useState<VaultItem | null>(null);
   const [showRecovery, setShowRecovery] = useState(false);
   const [generatedPassword, setGeneratedPassword] = useState('');
+  const { copiedKey, secondsLeft } = useClipboardStatus();
   // Phone navigation drawer, unlock "key turn" overlay, KDF busy flags.
   const [navOpen, setNavOpen] = useState(false);
   const [keyTurn, setKeyTurn] = useState(false);
@@ -197,8 +198,13 @@ export default function App({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lockTimerRef = useRef<number | null>(null);
   // List sorting + bulk selection.
-  const [sort, setSort] = useState<ItemSort>('updated');
+  const [sort, setSort] = useState<ItemSort>('title');
   const [selectionMode, setSelectionMode] = useState(false);
+  const [filterCats, setFilterCats] = useState<ReadonlySet<string>>(new Set());
+  const [filterTags, setFilterTags] = useState<ReadonlySet<string>>(new Set());
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filterButtonRef = useRef<HTMLButtonElement>(null);
+  const searchButtonRef = useRef<HTMLButtonElement>(null);
   const [bulkIds, setBulkIds] = useState<Set<string>>(new Set());
   // Account server (local-first): the client exists only when a base URL
   // is configured. The token getter reads the stored account session
@@ -479,7 +485,8 @@ export default function App({
     return c;
   }, [liveItems, archivedItems, health]);
 
-  const visibleItems = useMemo(() => {
+  /** Items of the current view (scope + search), before the filter popover. */
+  const scopedItems = useMemo(() => {
     let base: VaultItem[];
     if (view === 'trash') base = trash;
     else if (view === 'archived') base = archivedItems;
@@ -501,12 +508,19 @@ export default function App({
       const matched = new Set(searchLocal(q).map((i) => i.id));
       base = base.filter((i) => matched.has(i.id));
     }
-    const sorted = [...base];
-    if (sort === 'title') sorted.sort((a, b) => a.title.localeCompare(b.title));
+    return base;
+  }, [view, liveItems, archivedItems, trash, searchQuery]);
+
+  // Filter popover: categories OR'ed, tags OR'ed, the two groups AND'ed.
+  const inCategories = (item: VaultItem, cats: ReadonlySet<string>) => cats.size === 0 || cats.has(categoryForType(item.type));
+  const inTags = (item: VaultItem, tagSet: ReadonlySet<string>) => tagSet.size === 0 || (item.tags ?? []).some((t) => tagSet.has(t));
+  const visibleItems = useMemo(() => {
+    const sorted = scopedItems.filter((i) => inCategories(i, filterCats) && inTags(i, filterTags));
+    if (sort === 'title') sorted.sort((a, b) => itemDisplayTitle(a).localeCompare(itemDisplayTitle(b)));
     else if (sort === 'created') sorted.sort((a, b) => b.created_at.localeCompare(a.created_at));
     else sorted.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
     return sorted;
-  }, [view, liveItems, archivedItems, trash, searchQuery, sort]);
+  }, [scopedItems, filterCats, filterTags, sort]);
 
   const selectedItem = useMemo(
     () =>
@@ -853,6 +867,9 @@ export default function App({
   /** Navigate: every view change also closes the detail/form (phones pop back to the list). */
   const go = (v: SidebarView) => {
     setView(v);
+    setFilterCats(new Set());
+    setFilterTags(new Set());
+    setFilterOpen(false);
     setSelectedId(null);
     setShowForm(false);
     setEditingItem(null);
@@ -869,27 +886,31 @@ export default function App({
     return { art: illustrations.emptyVault, title: sh.empty.allTitle, body: sh.empty.allBody };
   };
 
-  // ---------- Device face (sign-in gate aside: onboarding, restore, lock) ----------
+  // ---------- Device face (onboarding, restore, lock): cover panel | paper ----------
   const deviceFace = (opts: {
     art?: ArtSource;
-    artWideOnly?: boolean;
-    led: LedStripState;
+    /** The paper's heading (Display). */
+    title: string;
     lede?: string;
+    /** Extra content on the cover panel (setup steps). */
+    cover?: ReactNode;
     wide?: boolean;
     children: ReactNode;
     footnote?: string;
   }) => (
     <div className="ms-device-screen">
-      <div className="ms-device-stage">
-        {opts.art && (
-          <Art src={opts.art} size={240} eager className={opts.artWideOnly ? 'ms-device__art ms-device__art--wide' : 'ms-device__art'} />
-        )}
+      <aside className="ms-device-cover">
+        <span className="ms-device-cover__brand">
+          {brandMark.src && <img className="ms-brand-img" src={brandMark.src} alt="" width={28} height={28} />}
+          {dict.common.appName}
+        </span>
+        {opts.art && <Art src={opts.art} size={160} eager className="ms-device__art" />}
+        <p className="ms-device-cover__promise">{sh.tagline}</p>
+        {opts.cover}
+      </aside>
+      <div className="ms-device-paper">
         <section className={opts.wide ? 'ms-device ms-device--wide' : 'ms-device'} aria-labelledby="device-wordmark">
-          <div className="ms-device__head">
-            {brandMark.src && <img className="ms-brand-img" src={brandMark.src} alt="" width={40} height={40} />}
-            <h1 id="device-wordmark" className="ms-device__wordmark">{dict.common.appName}</h1>
-            <LedStrip state={opts.led} />
-          </div>
+          <h1 id="device-wordmark" className="ms-device__wordmark">{opts.title}</h1>
           {opts.lede && <p className="ms-device__lede">{opts.lede}</p>}
           {opts.children}
           {opts.footnote && <p className="ms-device__foot">{opts.footnote}</p>}
@@ -943,23 +964,24 @@ export default function App({
       deviceFace({
         art,
         wide: true,
-        led: onboardingStep === 2 || restoreUi?.count != null ? 'open' : creating ? 'working' : 'locked',
+        title: restoreUi ? o.restoreFromBackup : onboardingStep === 2 ? o.readyTitle : steps[onboardingStep],
         lede: o.lede,
+        cover: !restoreUi && (
+          <ol className="ms-steps" aria-label={o.stepsLabel}>
+            {steps.map((label, i) => (
+              <li key={label} className="ms-steps__item" aria-current={i === onboardingStep ? 'step' : undefined} data-done={i < onboardingStep}>
+                <span className="ms-steps__dot" aria-hidden="true">{i < onboardingStep ? <Icon name="check" size="md" /> : i + 1}</span>
+                <span>{label}</span>
+              </li>
+            ))}
+          </ol>
+        ),
         children: (
           <>
             {restoreUi && restoreUi.count === null && <RestoreBackup onRestored={(count, itemList) => setRestoreUi({ count, itemList })} onCancel={() => setRestoreUi(null)} />}
             {restoreUi && restoreUi.count !== null && <RestoreSuccess itemCount={restoreUi.count} itemList={restoreUi.itemList} onContinue={() => { setRestoreUi(null); setVaultExists(true); }} />}
             {!restoreUi && (
               <>
-                <ol className="ms-steps" aria-label={o.stepsLabel}>
-                  {steps.map((label, i) => (
-                    <li key={label} className="ms-steps__item" aria-current={i === onboardingStep ? 'step' : undefined}>
-                      <Led tone={i === onboardingStep ? 'active' : i < onboardingStep ? 'ok' : 'off'} />
-                      <span className="ms-legend">{label}</span>
-                    </li>
-                  ))}
-                </ol>
-
                 {onboardingStep === 0 && (
                   <form className="ms-device__body" onSubmit={(e) => { e.preventDefault(); void handleCreateVault(); }} noValidate>
                     <Field id="new-pass" label={o.passphrase} flush>
@@ -996,16 +1018,21 @@ export default function App({
                       <strong>{o.saveTitle}</strong> <span className="ms-text-secondary">{o.saveBody}</span>
                     </p>
                     <div className="ms-secret-box font-mono">{recoveryKey}</div>
-                    <Button
-                      block
-                      icon={recoveryCopied ? 'check' : 'copy'}
-                      onClick={() => {
-                        void navigator.clipboard?.writeText(recoveryKey).catch(() => undefined);
-                        setRecoveryCopied(true);
-                      }}
-                    >
-                      {recoveryCopied ? o.copied : o.copyKey}
-                    </Button>
+                    <div className="ms-device__pair">
+                      <Button
+                        icon={recoveryCopied ? 'check' : 'copy'}
+                        onClick={() => {
+                          void navigator.clipboard?.writeText(recoveryKey).catch(() => undefined);
+                          setRecoveryCopied(true);
+                        }}
+                      >
+                        {recoveryCopied ? o.copied : o.copyKey}
+                      </Button>
+                      <Button icon="export" aria-describedby="recovery-download-note" onClick={() => downloadText('my-secret-recovery-key.txt', `${recoveryKey}\n`, 'text/plain')}>
+                        {o.downloadKey}
+                      </Button>
+                    </div>
+                    <p id="recovery-download-note" className="ms-device__note">{o.downloadNote}</p>
                     <Checkbox checked={recoveryAck} onChange={(e) => setRecoveryAck(e.target.checked)} label={o.ack} />
                     <Button variant="primary" size="lg" block disabled={!recoveryAck} onClick={() => { setRecoveryKey(''); setRecoveryCopied(false); setRecoveryAck(false); setOnboardingStep(2); }}>
                       {o.done}
@@ -1014,8 +1041,7 @@ export default function App({
                 )}
 
                 {onboardingStep === 2 && (
-                  <div className="ms-device__body text-center">
-                    <h2 className="ms-heading ms-heading--lg">{o.readyTitle}</h2>
+                  <div className="ms-device__body">
                     <p className="ms-text-secondary m-0">{o.readyBody}</p>
                     <Button variant="primary" size="lg" block icon="unlock" onClick={() => { setRecoveryKey(''); setOnboardingStep(0); setView('all'); setVaultExists(true); }}>
                       {o.openVault}
@@ -1036,15 +1062,10 @@ export default function App({
     return frame(
       deviceFace({
         art: unlocking ? illustrations.working : illustrations.splash,
-        artWideOnly: true,
-        led: unlocking ? 'working' : lockError ? 'error' : 'locked',
+        title: lk.status,
+        lede: lk.lede,
         children: (
           <>
-            <p className="ms-device__lede">
-              <strong className="ms-text-secondary">{lk.status}</strong>
-              <br />
-              {lk.lede}
-            </p>
             <form className="ms-device__body" onSubmit={(e) => { e.preventDefault(); void handleUnlock(); }}>
               {useRecovery ? (
                 <Field id="lock-recovery-key" label={lk.recoveryKey} flush>
@@ -1071,24 +1092,14 @@ export default function App({
     );
   }
 
-  // ---------- Unlocked shell: rail | topbar + content | phone tab bar ----------
-  const syncTone: LedTone | null =
-    sync.status.state === 'disabled'
-      ? null
-      : sync.status.state === 'idle'
-        ? 'ok'
-        : sync.status.state === 'syncing'
-          ? 'active'
-          : sync.status.state === 'offline'
-            ? 'attention'
-            : 'danger';
+  // ---------- Unlocked shell: cover bar | spine + paper (ledger | page) ----------
   const syncLabel =
-    sync.status.state === 'idle'
-      ? sh.syncState.ok
-      : sync.status.state === 'syncing'
-        ? sh.syncState.busy
-        : sync.status.state === 'disabled'
-          ? sh.syncState.off
+    sync.status.state === 'disabled'
+      ? undefined
+      : sync.status.state === 'idle'
+        ? sh.syncState.ok
+        : sync.status.state === 'syncing'
+          ? sh.syncState.busy
           : sh.syncState.attention;
   const pushed = isListView && (showForm || selectedItem !== null);
   const closeDetail = () => { setSelectedId(null); setShowForm(false); setEditingItem(null); };
@@ -1099,7 +1110,7 @@ export default function App({
       setView={go}
       counts={counts}
       tags={tags}
-      healthScore={liveItems.length > 0 ? health.score : undefined}
+      syncLabel={syncLabel}
       onLock={doLock}
       onExport={() => { setNavOpen(false); handleExport(); }}
       onImport={() => { setNavOpen(false); fileInputRef.current?.click(); }}
@@ -1107,19 +1118,90 @@ export default function App({
       inDrawer={inDrawer}
     />
   );
-  const tab = (key: 'vault' | 'search' | 'generator' | 'watchtower' | 'settings', icon: IconName, current: boolean, onClick: () => void) => (
-    <button type="button" className="ms-tabbar__item" aria-current={current ? 'page' : undefined} onClick={onClick}>
-      <Icon name={icon} size="lg" />
-      <span>{sh.tabs[key]}</span>
+  const settingsTab = SETTINGS_VIEWS.includes(view);
+  const tab = (key: keyof typeof sh.dock, icon: IconName, current: boolean, onClick: () => void) => (
+    <button type="button" className="ms-dock__item" aria-current={current ? 'page' : undefined} onClick={onClick}>
+      <Icon name={icon} size="md" />
+      <span>{sh.dock[key]}</span>
     </button>
   );
+  const accountItems: MenuItemDef[] = [
+    { key: 'security', label: sh.securityCenter, icon: 'shield', onSelect: () => go('security') },
+    { key: 'settings', label: sh.settings, icon: 'settings', onSelect: () => go('settings') },
+    { key: 'lock', label: sh.lockVault, icon: 'lock', onSelect: doLock },
+    ...(signedIn ? [{ key: 'signout', label: dict.signin.signOut, icon: 'export' as const, onSelect: () => void handleSignOut() }] : []),
+  ];
 
+  const filterCount = filterCats.size + filterTags.size;
+  const toggled = (set: ReadonlySet<string>, key: string) => {
+    const next = new Set(set);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    return next;
+  };
+  const resetFilters = () => { setFilterCats(new Set()); setFilterTags(new Set()); };
   const emptyList = emptyListState();
   const viewRegion = { className: 'ms-content', role: 'region', 'aria-label': viewTitle, tabIndex: 0 } as const;
 
   return frame(
-    <div className="ms-app" data-pushed={pushed}>
+    <div className="ms-app" data-pushed={pushed} data-web={allowPlaintextExport ? undefined : 'true'}>
       <a href="#ms-main" className="ms-skip-link ms-button ms-button--primary">{sh.skipToContent}</a>
+      <header className="ms-cover-bar">
+        <div className="ms-cover-bar__lead">
+          <IconButton className="ms-cover-bar__menu" icon="menu" label={sh.openMenu} onClick={() => setNavOpen(true)} />
+          <span className="ms-cover-bar__brand">
+            {brandMark.src && <img className="ms-brand-img" src={brandMark.src} alt="" width={28} height={28} />}
+            <span className="ms-cover-bar__name">{dict.common.appName}</span>
+          </span>
+        </div>
+        <nav className="ms-dock" aria-label={sh.phoneNav}>
+          {tab('vault', 'lock', isListView, () => go('all'))}
+          {tab('files', 'collections', view === 'media-gallery', () => go('media-gallery'))}
+          {tab('generate', 'generate', view === 'generator', () => go('generator'))}
+          {tab('health', 'shield', view === 'health', () => go('health'))}
+          {tab('settings', 'settings', settingsTab, () => go('settings'))}
+        </nav>
+        <div className="ms-cover-bar__end">
+          <button ref={searchButtonRef} type="button" className="ms-cover-search" aria-keyshortcuts="Meta+K Control+K" onClick={() => setShowPalette(true)}>
+            <Icon name="search" size="md" />
+            <span className="ms-cover-search__label">{sh.openSearch}</span>
+            <Kbd>⌘K</Kbd>
+          </button>
+          <button type="button" className="ms-cover-new" aria-keyshortcuts="Meta+N Control+N" onClick={newItem}>
+            <Icon name="add" size="md" />
+            <span className="ms-cover-new__label">{sh.newItem}</span>
+            <Kbd>⌘N</Kbd>
+          </button>
+          <IconButton className="ms-cover-bar__lock" icon="lock" label={sh.lockVault} onClick={doLock} />
+          <DropdownMenu
+            label={accountEmail || sh.localAccount}
+            align="end"
+            items={accountItems}
+            trigger={
+              <button type="button" className="ms-avatar" aria-label={sh.account}>
+                <span>{accountEmail ? accountEmail.slice(0, 2).toUpperCase() : <Icon name="identity" size="md" />}</span>
+              </button>
+            }
+          />
+        </div>
+      </header>
+      {!allowPlaintextExport && (
+        <div className="ms-webstrip" role="note">
+          <Icon name="info" size="md" />
+          <details>
+            <summary>
+              <span className="ms-webstrip__text">{dict.web.banner}</span> <span className="ms-webstrip__why">{dict.web.why}</span>
+            </summary>
+            <ul>
+              <li>{dict.web.reasonCompromised}</li>
+              <li>{dict.web.reasonAutofill}</li>
+              <li>{dict.web.reasonUpload}</li>
+              <li>{dict.web.reasonExport}</li>
+              <li>{dict.web.reasonNarrow}</li>
+            </ul>
+          </details>
+        </div>
+      )}
       {rail(false)}
       <input
         ref={fileInputRef}
@@ -1136,20 +1218,6 @@ export default function App({
       />
 
       <main id="ms-main" className="ms-main" tabIndex={-1}>
-        <header className="ms-topbar" data-list={isListView}>
-          <IconButton className="ms-topbar__menu" icon="menu" label={sh.openMenu} variant="secondary" onClick={() => setNavOpen(true)} />
-          <h1 className="ms-heading ms-heading--md ms-topbar__title">{viewTitle}</h1>
-          <div className="ms-topbar__end">
-            {syncTone && !isListView && (
-              <span className="ms-copy-led ms-topbar__wide">
-                <Led tone={syncTone} /> {syncLabel}
-              </span>
-            )}
-            <Button variant="primary" onClick={newItem}>{sh.newItem}</Button>
-            <IconButton className="ms-topbar__phone" icon="lock" label={sh.lockVault} variant="secondary" onClick={doLock} />
-          </div>
-        </header>
-
         <div className="ms-notices">
           {notice && (
             <Alert tone="info" announce action={<IconButton icon="close" size="sm" label={sh.dismiss} onClick={() => setNotice('')} />}>
@@ -1239,20 +1307,67 @@ export default function App({
           </div>
         ) : (
           <div className="ms-content ms-content--split">
+            <FilterPopover
+              open={filterOpen}
+              onClose={() => setFilterOpen(false)}
+              anchorRef={filterButtonRef}
+              categories={CATEGORIES.map((c) => ({
+                key: c.key,
+                label: categoryTitle(c.key),
+                count: scopedItems.filter((i) => c.types.includes(i.type) && inTags(i, filterTags)).length,
+              }))}
+              tags={tags.map((tag) => ({
+                key: tag,
+                label: `#${tag}`,
+                count: scopedItems.filter((i) => (i.tags ?? []).includes(tag) && inCategories(i, filterCats)).length,
+              }))}
+              selectedCategories={filterCats}
+              selectedTags={filterTags}
+              onToggleCategory={(key) => setFilterCats((prev) => toggled(prev, key))}
+              onToggleTag={(tag) => setFilterTags((prev) => toggled(prev, tag))}
+              onReset={resetFilters}
+              shown={visibleItems.length}
+              total={scopedItems.length}
+            />
             <div className="ms-split" data-pushed={pushed}>
               <section className="ms-pane ms-pane--list" aria-label={viewTitle}>
                 <div className="ms-pane__top">
-                <div className="ms-pane__head">
-                  <div className="ms-pane__head-row">
-                    <h1 className="ms-heading ms-heading--lg ms-pane__title">{viewTitle}</h1>
-                    {syncTone && (
-                      <span className="ms-copy-led ms-pane__sync" title={syncLabel}>
-                        <Led tone={syncTone} />
-                        <span className="ms-pane__sync-text">{syncLabel}</span>
-                      </span>
-                    )}
-                    <Button variant="primary" size="sm" onClick={newItem}>{sh.newItem}</Button>
+                  <div className="ms-pane__head">
+                    <h1 className="ms-pane__title">{viewTitle}</h1>
+                    <button
+                      ref={filterButtonRef}
+                      type="button"
+                      className="ms-filter-button"
+                      aria-pressed={filterCount > 0}
+                      aria-expanded={filterOpen}
+                      aria-haspopup="dialog"
+                      onClick={() => setFilterOpen((v) => !v)}
+                    >
+                      <Icon name="checklist" size="md" />
+                      {sh.filter}
+                      {filterCount > 0 && <span className="ms-filter-button__badge" aria-label={tp(sh.filterActive, filterCount)}>{filterCount}</span>}
+                    </button>
+                    <Button size="sm" variant="ghost" aria-pressed={selectionMode} onClick={() => { setSelectionMode((v) => !v); setBulkIds(new Set()); }}>
+                      {selectionMode ? sh.doneSelecting : sh.selectMode}
+                    </Button>
                   </div>
+                  {filterCount > 0 && (
+                    <div className="ms-tokens">
+                      {[...filterCats].map((key) => (
+                        <button key={`c:${key}`} type="button" className="ms-token" aria-label={format(sh.removeFilter, categoryTitle(key))} onClick={() => setFilterCats((prev) => toggled(prev, key))}>
+                          {categoryTitle(key)}
+                          <Icon name="close" size="md" />
+                        </button>
+                      ))}
+                      {[...filterTags].map((tag) => (
+                        <button key={`t:${tag}`} type="button" className="ms-token" aria-label={format(sh.removeFilter, `#${tag}`)} onClick={() => setFilterTags((prev) => toggled(prev, tag))}>
+                          #{tag}
+                          <Icon name="close" size="md" />
+                        </button>
+                      ))}
+                      <Button variant="link" onClick={resetFilters}>{sh.clearAll}</Button>
+                    </div>
+                  )}
                   <span className="ms-input-wrap ms-search-field">
                     <span className="ms-search-field__icon" aria-hidden="true"><Icon name="search" /></span>
                     <input
@@ -1266,45 +1381,43 @@ export default function App({
                       aria-label={sh.searchLabel}
                       autoComplete="off"
                     />
-                    <button type="button" className="ms-input-wrap__button" aria-label={`${sh.openSearch} ⌘K`} title={sh.openSearch} onClick={() => setShowPalette(true)}>
-                      <Kbd>⌘K</Kbd>
-                    </button>
                   </span>
-                </div>
-                <div className="ms-pane__toolbar">
-                  <Button size="sm" aria-pressed={selectionMode} onClick={() => { setSelectionMode((v) => !v); setBulkIds(new Set()); }}>
-                    {selectionMode ? sh.doneSelecting : sh.selectMode}
-                  </Button>
-                  {selectionMode ? (
-                    <>
-                      <Button size="sm" onClick={() => setBulkIds(new Set(visibleItems.map((i) => i.id)))}>{sh.selectAll}</Button>
-                      <span className="ms-legend">{tp(sh.selectedCount, bulkIds.size)}</span>
-                    </>
-                  ) : (
-                    <span className="ml-auto flex min-w-0 items-center gap-2">
-                      <Icon name="sort" size="sm" className="ms-text-muted" />
-                      <Select id="header-sort" name="sort" aria-label={sh.sortLabel} value={sort} onChange={(e) => setSort(e.target.value as ItemSort)}>
-                        <option value="updated">{sh.sortUpdated}</option>
-                        <option value="created">{sh.sortCreated}</option>
-                        <option value="title">{sh.sortTitle}</option>
-                      </Select>
-                    </span>
-                  )}
-                  {selectionMode && bulkIds.size > 0 && (
-                    <div className="flex w-full flex-wrap gap-2">
-                      {view !== 'trash' && <Button size="sm" icon="favorite" onClick={() => void handleBulkFavorite()}>{sh.bulkFavorite}</Button>}
-                      {view === 'trash' ? (
-                        <>
-                          <Button size="sm" icon="restore" onClick={() => void handleBulkRestore()}>{sh.bulkRestore}</Button>
-                          <Button size="sm" variant="danger" icon="trash" onClick={() => void handleBulkDelete()}>{sh.bulkDeleteForever}</Button>
-                        </>
-                      ) : (
-                        <Button size="sm" variant="danger-outline" icon="trash" onClick={() => void handleBulkDelete()}>{sh.bulkMoveToTrash}</Button>
-                      )}
-                      <Button size="sm" variant="ghost" onClick={() => setBulkIds(new Set())}>{sh.clearSelection}</Button>
-                    </div>
-                  )}
-                </div>
+                  <div className="ms-pane__toolbar">
+                    {selectionMode ? (
+                      <>
+                        <Button size="sm" onClick={() => setBulkIds(new Set(visibleItems.map((i) => i.id)))}>{sh.selectAll}</Button>
+                        <span className="ms-pane__count">{tp(sh.selectedCount, bulkIds.size)}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="ms-pane__count">
+                          {filterCount > 0 ? tp(sh.filteredCount, scopedItems.length, visibleItems.length) : tp(sh.itemCount, visibleItems.length)}
+                        </span>
+                        <span className="ms-sort">
+                          <Icon name="sort" size="md" />
+                          <select id="header-sort" name="sort" aria-label={sh.sortLabel} value={sort} onChange={(e) => setSort(e.target.value as ItemSort)}>
+                            <option value="title">{sh.sortTitle}</option>
+                            <option value="updated">{sh.sortUpdated}</option>
+                            <option value="created">{sh.sortCreated}</option>
+                          </select>
+                        </span>
+                      </>
+                    )}
+                    {selectionMode && bulkIds.size > 0 && (
+                      <div className="flex w-full flex-wrap gap-2">
+                        {view !== 'trash' && <Button size="sm" icon="favorite" onClick={() => void handleBulkFavorite()}>{sh.bulkFavorite}</Button>}
+                        {view === 'trash' ? (
+                          <>
+                            <Button size="sm" icon="restore" onClick={() => void handleBulkRestore()}>{sh.bulkRestore}</Button>
+                            <Button size="sm" variant="danger" icon="trash" onClick={() => void handleBulkDelete()}>{sh.bulkDeleteForever}</Button>
+                          </>
+                        ) : (
+                          <Button size="sm" variant="danger-outline" icon="trash" onClick={() => void handleBulkDelete()}>{sh.bulkMoveToTrash}</Button>
+                        )}
+                        <Button size="sm" variant="ghost" onClick={() => setBulkIds(new Set())}>{sh.clearSelection}</Button>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 {visibleItems.length === 0 ? (
                   <EmptyState
@@ -1320,8 +1433,7 @@ export default function App({
                     items={visibleItems}
                     selectedId={selectedId}
                     onSelect={(id: string) => { setSelectedId(id); setShowForm(false); setEditingItem(null); }}
-                    onToggleFavorite={handleToggleFavorite}
-                    onDelete={handleDelete}
+                    letters={sort === 'title' && !searchQuery.trim()}
                     selectionMode={selectionMode}
                     selectedIds={bulkIds}
                     onToggleSelect={(id: string) => {
@@ -1358,7 +1470,6 @@ export default function App({
                     onDelete={() => handleDelete(selectedItem.id)}
                     onRestore={() => handleRestore(selectedItem.id)}
                     onToggleFavorite={() => handleToggleFavorite(selectedItem.id)}
-                    onClose={() => setSelectedId(null)}
                     onSelectRelated={(id) => { setSelectedId(id); setShowForm(false); setEditingItem(null); }}
                     onArchive={(id) => void handleArchive(id)}
                     onRestoreRevision={(item: VaultItem) => void handleRestoreRevision(item)}
@@ -1383,13 +1494,12 @@ export default function App({
           </div>
         )}
 
-        <nav className="ms-tabbar" aria-label={sh.phoneNav}>
-          {tab('vault', 'items', isListView, () => go('all'))}
-          {tab('search', 'search', false, () => setShowPalette(true))}
-          {tab('generator', 'generate', view === 'generator', () => go('generator'))}
-          {tab('watchtower', 'health', view === 'health', () => go('health'))}
-          {tab('settings', 'settings', view === 'settings', () => go('settings'))}
-        </nav>
+        {copiedKey && (
+          <div className="ms-copy-toast" role="status">
+            <Icon name="success" size="lg" />
+            {format(dict.itemDetail.copied, secondsLeft)}
+          </div>
+        )}
       </main>
 
       <Sheet side="left" flush hideTitle title={sh.navLabel} open={navOpen} onOpenChange={setNavOpen}>
@@ -1399,6 +1509,7 @@ export default function App({
       <SearchPalette
         open={showPalette}
         onClose={() => setShowPalette(false)}
+        returnFocusRef={searchButtonRef}
         items={items}
         onSelect={(item) => {
           setSelectedId(item.id);
@@ -1417,7 +1528,7 @@ export default function App({
       />
       {keyTurn && (
         <div className="ms-keyturn" aria-hidden="true">
-          {deviceFace({ led: 'turn', children: <div className="ms-device__body" /> })}
+          {deviceFace({ title: dict.lock.working, children: <div className="ms-device__body" /> })}
         </div>
       )}
     </div>,

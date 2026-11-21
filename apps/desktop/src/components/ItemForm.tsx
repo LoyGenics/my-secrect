@@ -14,7 +14,6 @@ import {
   Field,
   IconButton,
   Input,
-  ItemTypeArt,
   Led,
   SecureField,
   Select,
@@ -27,6 +26,8 @@ import { format, type Dictionary } from '../../../../packages/i18n/src/index';
 import { isValidBase32Secret } from '../utils/totp';
 import { renderMarkdownToHtml } from '../utils/markdown';
 import { readLocalCardCode } from '../vault';
+import TypeStamp from './TypeStamp';
+import { isWebsiteAddress } from '../utils/website';
 import {
   getPasswordHistory,
   appendPasswordHistory,
@@ -247,6 +248,9 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
 
   const totpSecret = fieldValue('totp_secret');
   const totpInvalid = type === 'login' && totpSecret.trim() !== '' && !isValidBase32Secret(totpSecret);
+  // Login website: checked on blur (and on save), cleared live once it is valid.
+  const [urlTouched, setUrlTouched] = useState(false);
+  const urlInvalid = type === 'login' && fieldValue('url').trim() !== '' && !isWebsiteAddress(fieldValue('url'));
 
   const handleTypeChange = (next: ItemType) => {
     setType(next);
@@ -384,6 +388,11 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
     }
     if (totpInvalid) {
       setError(dict.itemForm.totpInvalid);
+      return;
+    }
+    if (urlInvalid) {
+      setUrlTouched(true);
+      document.getElementById("field-url")?.focus();
       return;
     }
     if (type === 'card') {
@@ -578,7 +587,13 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
         key={def.key}
         id={inputId}
         label={label(def.key)}
-        error={type === 'login' && def.key === 'totp_secret' && totpInvalid ? f.totpInvalid : undefined}
+        error={
+          type === 'login' && def.key === 'totp_secret' && totpInvalid
+            ? f.totpInvalid
+            : def.key === 'url' && urlTouched && urlInvalid
+              ? dict.mobileEditor.enterValidWebsite
+              : undefined
+        }
       >
         <Input
           name={inputName}
@@ -590,6 +605,7 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
           aria-label={label(def.key)}
           mono={def.key === 'totp_secret' || def.key === 'sha256' || def.key === 'blob_id'}
           onChange={(e) => setField(def.key, e.target.value)}
+          onBlur={def.key === 'url' ? () => setUrlTouched(true) : undefined}
         />
       </Field>
     );
@@ -597,10 +613,10 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
 
   return (
     <form onSubmit={handleSave} className="ms-spec" aria-labelledby="item-form-title" noValidate>
-      <header className="ms-spec__head mb-4">
-        <ItemTypeArt type={type} size="lg" />
+      <header className="ms-spec__head mb-6">
+        <TypeStamp type={type} size="lg" />
         <div className="ms-spec__title">
-          <h2 id="item-form-title" className="ms-heading ms-heading--lg">{initial ? f.editTitle : f.newTitle}</h2>
+          <h2 id="item-form-title" className="ms-spec__name">{initial ? f.editTitle : f.newTitle}</h2>
         </div>
       </header>
       {error && (
@@ -608,7 +624,7 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
           {error}
         </Alert>
       )}
-      <Card as="section" padding="lg" aria-labelledby="item-form-title">
+      <Card as="section" padding="none" className="ms-card--flat" aria-labelledby="item-form-title">
         <div className="grid gap-x-4 sm:grid-cols-2">
           <Field id="item-type" label={f.type}>
             <Select name="item-type" value={type} onChange={(e) => handleTypeChange(e.target.value as ItemType)} aria-label={f.typeAria}>
@@ -762,7 +778,7 @@ export default function ItemForm({ initial = null, defaultType = 'login', onSave
         )}
       </Card>
 
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="ms-form-foot">
         <Button type="submit" variant="primary" icon="check" loading={saving}>
           {saving ? f.saving : f.save}
         </Button>

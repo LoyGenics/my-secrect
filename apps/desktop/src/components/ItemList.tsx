@@ -2,7 +2,8 @@ import type { VaultItem } from '../../../../packages/core/src/types';
 import { cardIssuer, cardLast4 } from '../../../../packages/core/src/card';
 import { isFavorite } from '../utils/password';
 import { isArchived } from '../utils/itemMeta';
-import { Badge, IconButton, TypeModule } from '../theme';
+import { Icon, IconButton, copyWithClear, useClipboardStatus } from '../theme';
+import TypeStamp from './TypeStamp';
 import { useTranslation } from '../../../../packages/i18n/src/react';
 import { format } from '../../../../packages/i18n/src/index';
 
@@ -10,8 +11,8 @@ interface ItemListProps {
   items: VaultItem[];
   selectedId: string | null;
   onSelect: (id: string) => void;
-  onToggleFavorite: (id: string) => void;
-  onDelete: (id: string) => void;
+  /** Title A–Z: print the first letter of each new letter group in the margin. */
+  letters?: boolean;
   /** Bulk-selection mode (driven by App.tsx): rows get checkboxes and activating a row toggles selection instead of opening the item. */
   selectionMode?: boolean;
   selectedIds?: Set<string>;
@@ -25,6 +26,11 @@ function fieldString(item: VaultItem, key: string): string {
 
 function truncate(text: string, max = 60): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+/** The title the ledger prints (cards show their issuer); Title A–Z sorts by it. */
+export function itemDisplayTitle(item: VaultItem): string {
+  return item.type === 'card' ? cardIssuer(item.title, item.fields.bank) : item.title;
 }
 
 /** Short identifying subtitle per item type, from its fields. */
@@ -61,24 +67,38 @@ export function itemSubtitle(item: VaultItem): string {
   }
 }
 
+/** The field a row's quick-copy button copies (logins and cards only), with its label key. */
+function quickCopyField(item: VaultItem): { key: string; label: 'copyPassword' | 'copyCardNumber' } | null {
+  if (item.type === 'login' && fieldString(item, 'password')) return { key: 'password', label: 'copyPassword' };
+  if (item.type === 'card' && fieldString(item, 'card_number')) return { key: 'card_number', label: 'copyCardNumber' };
+  return null;
+}
+
 /**
- * Item rows: the type's pastel tile, title, one secondary line, tags;
- * favorite and delete buttons appear on hover/focus (always on touch). The
- * row's main area is a real button, so the list is fully keyboard operable.
- * The selected row is tinted with the soft brand colour.
+ * The ledger: A–Z margin letters (when sorted by title), the type stamp, the
+ * title (+ star for favorites) and one subtitle line. Logins and cards carry
+ * a quick-copy button (password / card number) that uses the same
+ * clear-after-30s clipboard as the detail page. The row's main area is a
+ * real button, so the list is fully keyboard operable.
  */
-export default function ItemList({ items, selectedId, onSelect, onToggleFavorite, onDelete, selectionMode = false, selectedIds, onToggleSelect }: ItemListProps) {
+export default function ItemList({ items, selectedId, onSelect, letters = false, selectionMode = false, selectedIds, onToggleSelect }: ItemListProps) {
   const { dict } = useTranslation();
   const l = dict.itemList;
+  const { copiedKey } = useClipboardStatus();
+  let lastLetter = '';
   return (
-    <ul className="ms-list" aria-label={l.label}>
+    <ul className="ms-list" aria-label={l.label} data-letters={letters}>
       {items.map((item) => {
         const favorite = isFavorite(item);
-        const title = item.type === 'card' ? cardIssuer(item.title, item.fields.bank) : item.title;
-        const subtitle = itemSubtitle(item);
+        const title = itemDisplayTitle(item);
+        const subtitle = itemSubtitle(item) || ((dict.itemTypes as Record<string, string>)[item.type] ?? item.type);
         const checked = selectedIds?.has(item.id) ?? false;
         const selected = selectionMode ? checked : item.id === selectedId;
-        const typeLabel = (dict.itemTypes as Record<string, string>)[item.type] ?? item.type;
+        const letter = title.charAt(0).toLocaleUpperCase();
+        const margin = letters && letter !== lastLetter ? letter : '';
+        lastLetter = letter;
+        const quick = selectionMode ? null : quickCopyField(item);
+        const quickKey = quick ? `${item.id}:field:${quick.key}` : '';
         return (
           <li key={item.id} className="ms-row" data-selected={selected}>
             {selectionMode && (
@@ -100,34 +120,30 @@ export default function ItemList({ items, selectedId, onSelect, onToggleFavorite
                 else onSelect(item.id);
               }}
             >
-              <TypeModule type={item.type} />
+              {letters && <span className="ms-row__letter" aria-hidden="true">{margin}</span>}
+              <TypeStamp type={item.type} />
               <span className="ms-row__text">
-                <span className="ms-row__title">{title}</span>
+                <span className="ms-row__title">
+                  <span>{title}</span>
+                  {favorite && <Icon name="favorite" size="md" className="ms-row__star" label={l.favorite} />}
+                </span>
                 <span className="ms-row__meta">
-                  {typeLabel}
-                  {subtitle ? ` · ${subtitle}` : ''}
+                  {subtitle}
                   {isArchived(item) ? ` · ${l.archived}` : ''}
                 </span>
-                {item.tags.length > 0 && (
-                  <span className="ms-row__tags">
-                    {item.tags.map((tag) => (
-                      <Badge key={tag}>{tag}</Badge>
-                    ))}
-                  </span>
-                )}
               </span>
             </button>
-            <span className="ms-row__actions" data-pinned={favorite}>
+            {quick && (
               <IconButton
-                icon="favorite"
+                icon={copiedKey === quickKey ? 'check' : 'copy'}
                 size="sm"
-                label={favorite ? l.removeFavorite : l.addFavorite}
-                aria-pressed={favorite}
-                className={favorite ? 'ms-favorite--on' : undefined}
-                onClick={() => onToggleFavorite(item.id)}
+                variant="ghost"
+                className="ms-row__copy"
+                data-done={copiedKey === quickKey}
+                label={format(l[quick.label], title)}
+                onClick={() => void copyWithClear(quickKey, fieldString(item, quick.key))}
               />
-              <IconButton icon="trash" size="sm" label={format(l.delete, title)} onClick={() => onDelete(item.id)} />
-            </span>
+            )}
           </li>
         );
       })}

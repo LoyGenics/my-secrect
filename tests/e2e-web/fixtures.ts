@@ -170,7 +170,8 @@ export async function registerAccountViaUi(page: Page, email: string): Promise<v
   await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
   await page.getByLabel('Verification code').fill(await waitForMailCode(email, seen));
   await page.getByRole('button', { name: 'Create account', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'My Secret', level: 1 })).toBeVisible();
+  // Vault onboarding: the paper's heading is the current setup step.
+  await expect(page.getByRole('heading', { name: 'Create passphrase', level: 1 })).toBeVisible();
 }
 
 /** Add the first passkey from the Security Center. The account has no
@@ -216,8 +217,14 @@ export async function unlockVaultViaUi(page: Page, passphrase = DEFAULT_PASSPHRA
   await page.getByRole('button', { name: 'Unlock', exact: true }).click();
 }
 
-export async function openSecurityCenter(page: Page): Promise<void> {
+/** Security Center lives in the Settings tab's spine (Settings index). */
+export async function openSecurityCenterTab(page: Page): Promise<void> {
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Settings' }).click();
   await page.getByRole('button', { name: /Security Center/ }).first().click();
+}
+
+export async function openSecurityCenter(page: Page): Promise<void> {
+  await openSecurityCenterTab(page);
   await expect(page.getByRole('heading', { name: 'Security Center', level: 2 })).toBeVisible();
   // Wait for the first load to settle (loading text gone) so specs act on real server state.
   await expect(page.getByText('Loading…')).toHaveCount(0);
