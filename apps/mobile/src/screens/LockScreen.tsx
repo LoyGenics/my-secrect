@@ -7,7 +7,7 @@ import { illustrations } from '../../../../packages/ui/src/native';
 import type { Biometry } from '../../modules/device-key';
 import AppTextField from '../components/Field';
 import { AppButton, FieldGroup, InlineError, Progress } from '../components/mobile-ui';
-import { AuthLayout } from '../components/soft';
+import { AuthLayout } from '../components/AuthLayout';
 import { space } from '../ui/tokens';
 import {
   enableDeviceUnlock, getDeviceUnlockState, getStorageError, unlockVault, unlockWithDeviceKey, unlockWithRecoveryKey,
@@ -213,7 +213,7 @@ export default function LockScreen({ onUnlocked, accountJustSignedIn = false }: 
         <FieldGroup>
           <AppTextField key={mode} flush revealable label={useRecovery ? lock.recoveryKey : lock.passphrase}
             testID={useRecovery ? 'recovery-key-input' : 'master-passphrase'}
-            leadingIcon={useRecovery ? 'recovery' : 'lock'} placeholder={useRecovery ? lock.recoveryPlaceholder : lock.passphrase}
+            boxed placeholder={useRecovery ? lock.recoveryPlaceholder : lock.passphrase}
             value={secret} onChangeText={(value) => { setSecret(value); setError(''); }}
             disabled={busy} autoCapitalize="none" autoCorrect={false} autoComplete="off" returnKeyType="go"
             onSubmitEditing={() => void unlockWithSecret()} />

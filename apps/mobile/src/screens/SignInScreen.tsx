@@ -14,8 +14,8 @@ import { fromBase64Url, sodiumReady, toBase64 } from '../../../../packages/crypt
 import { legacyRecoveryVerifierKeyPair, recoveryVerifierKeyPair } from '../../../../packages/sdk/src/recovery-verifier';
 import AppTextField from '../components/Field';
 import { AppButton, FieldGroup, InlineError } from '../components/mobile-ui';
-import { AuthLayout } from '../components/soft';
-import { useMobileTheme } from '../theme';
+import { AuthLayout } from '../components/AuthLayout';
+import { monoText, useMobileTheme } from '../theme';
 import { radius, space, textStyle } from '../ui/tokens';
 import { EMAIL_CODE_LENGTH, isAccountEmail, normalizeMfaRecoveryCode, normalizeOtp } from '../utils/authInput';
 import { apiStatus, isNetworkError } from '../utils/stepUp';
@@ -48,7 +48,7 @@ function OtpField({ value, onChange, label, helper, disabled, onSubmit }: {
 
   return (
     <View style={{ gap: space[2] }}>
-      <Text style={[textStyle.helper, { color: colors.text, fontWeight: '600' }]}>{label}</Text>
+      <Text style={[textStyle.label, { color: colors.secondaryText }]}>{label}</Text>
       <View>
         <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ flexDirection: 'row', gap }}>
           {Array.from({ length: EMAIL_CODE_LENGTH }, (_, index) => {
@@ -56,10 +56,10 @@ function OtpField({ value, onChange, label, helper, disabled, onSubmit }: {
             return (
               <View key={index} style={{
                 flex: 1, minWidth: 0, paddingVertical: space[3], alignItems: 'center', justifyContent: 'center',
-                borderRadius: radius.field, borderWidth: active ? 2 : 1,
-                borderColor: active ? colors.focus : colors.controlBorder, backgroundColor: colors.surfaceMuted,
+                borderRadius: radius.coverField, borderWidth: active ? 2 : 1,
+                borderColor: active ? colors.focus : colors.coverFieldEdge, backgroundColor: colors.surface,
               }}>
-                <Text style={[textStyle.title, { color: colors.text, fontVariant: ['tabular-nums'] }]}>{value[index] ?? ' '}</Text>
+                <Text style={[monoText.code, { color: colors.text, fontVariant: ['tabular-nums'] }]}>{value[index] ?? ' '}</Text>
               </View>
             );
           })}
@@ -277,7 +277,7 @@ export default function SignInScreen({ baseUrl, sessionExpired, onSignedIn }: Si
       testID="signin-email"
       label={signin.emailLabel}
       placeholder={signin.emailPlaceholder}
-      leadingIcon="mail"
+      boxed
       value={email}
       error={emailError || undefined}
       disabled={Boolean(busy)}
@@ -336,6 +336,7 @@ export default function SignInScreen({ baseUrl, sessionExpired, onSignedIn }: Si
       <FieldGroup>
         <AppTextField
           flush
+          boxed
           key={mfaMode}
           label={usingRecovery ? signin.recoveryCodeLabel : signin.mfaCodeLabel}
           helper={usingRecovery ? signin.recoveryCodeHint : signin.mfaTotpHint}
@@ -369,6 +370,7 @@ export default function SignInScreen({ baseUrl, sessionExpired, onSignedIn }: Si
         {emailField}
         <AppTextField
           flush
+          boxed
           revealable
           ref={recoveryInput}
           testID="signin-recovery-key"

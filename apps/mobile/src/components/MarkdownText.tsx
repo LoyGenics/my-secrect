@@ -2,7 +2,8 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from '../../../../packages/i18n/src/react';
 import { useMobileTheme } from '../theme';
-import { radius, space, textStyle } from '../ui/tokens';
+import { fontFamily, radius, space, textStyle } from '../ui/tokens';
+import { monoFamily } from '../ui/fonts';
 import { parseMarkdown, type InlineSegment } from '../utils/markdown';
 
 /** Render a secure note's Markdown as native text. */
@@ -57,10 +58,10 @@ export default function MarkdownText({ source, testID = 'markdown-preview' }: { 
 
 const local = StyleSheet.create({
   blocks: { gap: space[2] },
-  bold: { fontWeight: '700' },
+  bold: { fontFamily: fontFamily.bold },
   italic: { fontStyle: 'italic' },
   code: { padding: space[3], borderRadius: radius.glyph },
-  codeText: { fontFamily: 'monospace' },
+  codeText: { fontFamily: monoFamily },
   listRow: { flexDirection: 'row', gap: space[2] },
   listText: { flex: 1, minWidth: 0 },
 });

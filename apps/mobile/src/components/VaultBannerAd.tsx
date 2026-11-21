@@ -99,7 +99,7 @@ export function VaultBannerAd({ sdk, unitId }: { sdk: Ads; unitId: string }) {
       { alignItems: 'center', paddingVertical: space[3], gap: space[1], backgroundColor: colors.canvas },
       !loaded && { position: 'absolute', bottom: 0, left: 0, right: 0, opacity: 0 },
     ]}>
-    {loaded && <Text style={[textStyle.caption, { color: colors.secondaryText }]}>{t('mobileBilling.adLabel')}</Text>}
+    {loaded && <Text style={[textStyle.micro, { color: colors.secondaryText }]}>{t('mobileBilling.adLabel')}</Text>}
     <sdk.BannerAd unitId={unitId} size={sdk.BannerAdSize.BANNER} requestOptions={{ requestNonPersonalizedAdsOnly: true }}
       onAdLoaded={() => setLoaded(true)} onAdFailedToLoad={() => setFailed(true)} />
   </View>;

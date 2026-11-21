@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { ItemType, VaultItem } from '../../../packages/core/src/types';
-import { activeFilterCount, clearVaultFilters, createVaultFilter, filterVaultItems, toggleFilterValue } from '../src/utils/vaultFilter';
+import { activeFilterCount, clearVaultFilters, createVaultFilter, filterVaultItems, toggleFilterValue, vaultFacetCounts } from '../src/utils/vaultFilter';
 import { indexVaultSearch, normalizeVaultQuery, searchVaultIndex } from '../src/utils/vaultSearch';
 
 const created = '2026-01-01T00:00:00Z';
@@ -53,7 +53,8 @@ test('sort keys are independent from filters and order duplicates deterministica
     item('a0', { title: 'Account 2', updated_at: '2026-04-01T00:00:00Z' }),
   ];
   const base = createVaultFilter();
-  assert.deepEqual(filterVaultItems(entries, base).map((row) => row.id), ['a0', 'a1', 'b']);
+  assert.equal(base.sort, 'titleAsc');
+  assert.deepEqual(filterVaultItems(entries, { ...base, sort: 'updatedDesc' }).map((row) => row.id), ['a0', 'a1', 'b']);
   assert.deepEqual(filterVaultItems(entries, { ...base, sort: 'titleAsc' }).map((row) => row.id), ['a0', 'a1', 'b']);
   assert.deepEqual(filterVaultItems(entries, { ...base, sort: 'createdDesc' }).map((row) => row.id), ['b', 'a0', 'a1']);
 });
@@ -101,3 +102,22 @@ for (const count of [0, 1, 50, 1000, 5000]) {
     assert.equal(filterVaultItems(entries, { ...createVaultFilter(), tags: new Set(['tag-0']) }).length, Math.min(1, count));
   });
 }
+
+test('facet counts apply every other group and ignore their own', () => {
+  const entries = [
+    item('login-work', { tags: ['work'], favorite: true }),
+    item('login-home', { tags: ['home'] }),
+    item('card-work', { type: 'card', tags: ['work'] }),
+    item('note-work', { type: 'secure_note', tags: ['work', 'home'], fields: { parent_id: 'box' } }),
+    item('box', { type: 'collection' }),
+    item('gone', { tags: ['work'], deleted_at: updated }),
+  ];
+  const filter = { ...createVaultFilter(), types: new Set<ItemType>(['login']), tags: new Set(['work']) };
+  const counts = vaultFacetCounts(entries, filter, ['box']);
+  assert.deepEqual([counts.all, counts.favorites], [1, 1]);
+  assert.deepEqual(Object.fromEntries(counts.types), { login: 1, card: 1, secure_note: 1 });
+  assert.deepEqual(Object.fromEntries(counts.tags), { work: 1, home: 1 });
+  assert.deepEqual(Object.fromEntries(counts.collections), {});
+  const open = vaultFacetCounts(entries, createVaultFilter(), ['box']);
+  assert.deepEqual([open.all, open.favorites, open.types.get('login'), open.tags.get('work'), open.collections.get('box')], [5, 1, 2, 3, 1]);
+});

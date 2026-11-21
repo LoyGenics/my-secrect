@@ -1,15 +1,17 @@
 import React, { useMemo, useState } from 'react';
 import { Alert, FlatList, Platform, Text, View, useWindowDimensions } from 'react-native';
 import { NavigationContainer, DarkTheme, DefaultTheme, StackActions, useIsFocused, usePreventRemove, type NavigationAction } from '@react-navigation/native';
-import { createNativeStackNavigator, type NativeStackNavigationProp, type NativeStackScreenProps } from '@react-navigation/native-stack';
+import { createNativeStackNavigator, type NativeStackNavigationOptions, type NativeStackNavigationProp, type NativeStackScreenProps } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Icon, illustrations, type NativeIconName } from '../../../packages/ui/src/native';
 import type { ItemType, VaultItem } from '../../../packages/core/src/types';
 import { isFile, isFileFolder } from '../../../packages/core/src/files';
 import { useTranslation } from '../../../packages/i18n/src/react';
 import { useMobileTheme } from './theme';
-import { AppPage, EmptyState, IconButton, Toast } from './components/mobile-ui';
+import { AppPage, BottomSheet, EmptyState, Group, IconButton, Rule, SettingsRow, Toast } from './components/mobile-ui';
 import ItemRow from './components/ItemRow';
+import { FloatingDock, type DockTab } from './components/FloatingDock';
+import { Avatar, Cover, useAccountEmail } from './components/ledger';
 import VaultScreen from './screens/VaultScreen';
 import SearchScreen from './screens/SearchScreen';
 import GeneratorScreen from './screens/GeneratorScreen';
@@ -152,17 +154,19 @@ function MainTabs({ data, navigation, filter, onFilterChange }: {
   const { dict, t } = useTranslation();
   const { colors } = useMobileTheme();
   const expanded = useWindowDimensions().width >= size.navigationRailBreakpoint;
+  const dock = dict.mobileVault.dock;
   const entries = [
-    { key: 'vault', title: dict.shell.tabs.vault, label: dict.shell.tabs.vault, icon: 'items' },
-    { key: 'files', title: t('mobileUI.files'), label: t('mobileUI.files'), icon: 'documents' },
-    { key: 'generator', title: dict.shell.tabs.generator, label: t('mobileUI.generateTab'), icon: 'generate' },
-    { key: 'health', title: dict.shell.tabs.watchtower, label: t('mobileUI.healthTab'), icon: 'health' },
-    { key: 'settings', title: dict.shell.tabs.settings, label: dict.shell.tabs.settings, icon: 'settings' },
-  ] as const;
+    { key: 'vault', title: dict.shell.tabs.vault, label: dock.vault, icon: 'lock' },
+    { key: 'files', title: t('mobileUI.files'), label: dock.files, icon: 'collections' },
+    { key: 'generator', title: dict.shell.tabs.generator, label: dock.generate, icon: 'generate' },
+    { key: 'health', title: t('mobileUI.healthTab'), label: dock.health, icon: 'shield' },
+    { key: 'settings', title: dict.shell.tabs.settings, label: dock.settings, icon: 'settings' },
+  ] as const satisfies readonly (DockTab & { title: string })[];
   const [active, setActive] = useState<(typeof entries)[number]['key']>('vault');
+  const [account, setAccount] = useState(false);
+  const email = useAccountEmail();
   const homeFocused = useIsFocused();
   const { banner, onAdPrivacy } = useVaultBannerAds(data.billing.access?.tier === 'free', homeFocused && active === 'vault');
-  const title = entries.find(entry => entry.key === active)?.title;
   const newItem = () => navigation.navigate('Templates');
   const search = (context: SearchContext) => navigation.navigate('Search', { context });
   const open = (screen: 'Security' | 'Shares' | 'Family') => navigation.navigate(screen);
@@ -170,57 +174,75 @@ function MainTabs({ data, navigation, filter, onFilterChange }: {
   const archive = () => navigation.navigate('Archive');
   const trash = () => navigation.navigate('Trash');
 
-  React.useLayoutEffect(() => {
-    navigation.setOptions({
-      title,
-      headerRight: () => (
-        <View style={{ flexDirection: 'row' }}>
-          {active !== 'vault' && <ScreenHeaderAction icon="search" label={t('mobileUI.searchAll')} testID="header-global-search" onPress={() => search('global')} />}
-          {active !== 'files' && <ScreenHeaderAction icon="add" label={t('mobileUI.newItem')} testID="new-item-button" onPress={newItem} />}
-        </View>
-      ),
-    });
-  }, [active, title, t, navigation]);
-
   return (
-    <Tabs.Navigator screenOptions={{
-      headerShown: false,
-      tabBarActiveTintColor: colors.primaryTextLink,
-      tabBarActiveBackgroundColor: expanded ? colors.selection : undefined,
-      tabBarInactiveTintColor: colors.secondaryText,
-      tabBarStyle: {
-        backgroundColor: colors.surface, borderTopColor: colors.border,
-        width: expanded ? size.navigationRailWidth : undefined,
-        minWidth: expanded ? size.navigationRailWidth : undefined,
-      },
-      tabBarLabelStyle: { fontSize: textStyle.caption.fontSize, fontWeight: '600' },
-      tabBarAllowFontScaling: expanded || undefined,
-      tabBarPosition: expanded ? 'left' : 'bottom',
-      tabBarVariant: expanded && Platform.OS === 'android' ? 'material' : 'uikit',
-      tabBarHideOnKeyboard: true,
-      sceneStyle: { backgroundColor: colors.canvas },
-    }}>
-      {entries.map(entry => (
-        <Tabs.Screen key={entry.key} name={entry.key}
-          options={{ title: entry.title, tabBarLabel: entry.label, tabBarAccessibilityLabel: entry.title, tabBarButtonTestID: `tab-${entry.key}`, tabBarIcon: ({ color }) => <Icon name={entry.icon} color={color} size={size.tabIcon} /> }}
-          listeners={{ focus: () => setActive(entry.key) }}>
-          {() => (
-            <View style={{ flex: 1 }}>
-              {entry.key === 'vault' && <>
-                <VaultScreen {...data} filter={filter} onFilterChange={onFilterChange} onSelect={select} onNew={newItem} onSearch={() => search('vault')} onOpen={open} onViewArchive={archive} onViewTrash={trash} />
-                {banner && <VaultBannerAd {...banner} />}
-              </>}
-              {entry.key === 'files' && <FilesScreen items={data.items} onSave={data.onSave} onDelete={data.onDelete} onOpenFolder={id => navigation.navigate('Folder', { id })} onOpenFile={id => navigation.navigate('File', { id })} />}
-              {entry.key === 'generator' && <GeneratorScreen />}
-              {entry.key === 'health' && <HealthScreen items={data.items} onFix={item => navigation.navigate('Form', { id: item.id })} />}
-              {entry.key === 'settings' && <SettingsScreen {...data} onViewTrash={trash} onViewArchive={archive} onViewSecurity={() => open('Security')} onOpen={open} onAppearance={() => navigation.navigate('Appearance')} onImportItems={() => navigation.navigate('ImportItems')}
-                onBilling={() => navigation.navigate('Billing')} onAdPrivacy={onAdPrivacy} />}
-              <AppNotice data={data} />
-            </View>
-          )}
+    <>
+      <Tabs.Navigator
+        tabBar={expanded ? undefined : props => <FloatingDock {...props} tabs={entries} searchRoute="search" />}
+        screenOptions={{
+          headerShown: false,
+          tabBarActiveTintColor: colors.plum,
+          tabBarActiveBackgroundColor: expanded ? colors.selection : undefined,
+          tabBarInactiveTintColor: colors.secondaryText,
+          tabBarStyle: {
+            backgroundColor: colors.surface, borderTopColor: colors.border,
+            width: expanded ? size.navigationRailWidth : undefined,
+            minWidth: expanded ? size.navigationRailWidth : undefined,
+          },
+          tabBarLabelStyle: textStyle.micro,
+          tabBarAllowFontScaling: expanded || undefined,
+          tabBarPosition: expanded ? 'left' : 'bottom',
+          tabBarVariant: expanded && Platform.OS === 'android' ? 'material' : 'uikit',
+          tabBarHideOnKeyboard: true,
+          sceneStyle: { backgroundColor: colors.canvas },
+        }}>
+        {entries.map(entry => (
+          <Tabs.Screen key={entry.key} name={entry.key}
+            options={{ title: entry.title, tabBarLabel: entry.label, tabBarAccessibilityLabel: entry.title, tabBarButtonTestID: `tab-${entry.key}`, tabBarIcon: ({ color }) => <Icon name={entry.icon} color={color} size={size.tabIcon} /> }}
+            listeners={{ focus: () => setActive(entry.key) }}>
+            {() => (
+              <View style={{ flex: 1 }}>
+                {entry.key === 'vault' ? <>
+                  <VaultScreen {...data} filter={filter} onFilterChange={onFilterChange} onSelect={select} onNew={newItem}
+                    onSearch={Platform.OS === 'android' || expanded ? () => search('vault') : undefined} onOpen={open} onViewArchive={archive} onViewTrash={trash}
+                    title={entry.title} accountEmail={email} onAccount={() => setAccount(true)} />
+                  {banner && <VaultBannerAd {...banner} />}
+                </> : <>
+                  <Cover title={entry.title} titleTestID={`cover-title-${entry.key}`}>
+                    {entry.key === 'settings' && <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[3] }}>
+                      <Avatar email={email} large />
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={[textStyle.strong, { color: colors.onCover }]} numberOfLines={1}>{dict.mobileVault.signedIn}</Text>
+                        {!!email && <Text style={[textStyle.caption, { color: colors.onCoverSecondary }]} numberOfLines={1}>{email}</Text>}
+                      </View>
+                    </View>}
+                  </Cover>
+                  {entry.key === 'files' && <FilesScreen items={data.items} onSave={data.onSave} onDelete={data.onDelete} onOpenFolder={id => navigation.navigate('Folder', { id })} onOpenFile={id => navigation.navigate('File', { id })} />}
+                  {entry.key === 'generator' && <GeneratorScreen />}
+                  {entry.key === 'health' && <HealthScreen items={data.items} onFix={item => navigation.navigate('Form', { id: item.id })} />}
+                  {entry.key === 'settings' && <SettingsScreen {...data} onViewTrash={trash} onViewArchive={archive} onViewSecurity={() => open('Security')} onOpen={open} onAppearance={() => navigation.navigate('Appearance')} onImportItems={() => navigation.navigate('ImportItems')}
+                    onBilling={() => navigation.navigate('Billing')} onAdPrivacy={onAdPrivacy} />}
+                </>}
+                <AppNotice data={data} />
+              </View>
+            )}
+          </Tabs.Screen>
+        ))}
+        <Tabs.Screen name="search" options={{ title: dict.search.title, tabBarButton: () => null, tabBarItemStyle: { display: 'none' } }}>
+          {() => <View style={{ flex: 1 }}>
+            <SearchScreen items={data.items} title={dict.search.title} onNew={newItem} onSelect={select} />
+          </View>}
         </Tabs.Screen>
-      ))}
-    </Tabs.Navigator>
+      </Tabs.Navigator>
+      <BottomSheet compact visible={account} title={dict.mobileVault.account} testID="account-sheet" onClose={() => setAccount(false)}>
+        <Group>
+          {!!email && <><SettingsRow label={email} icon="person" /><Rule leading /></>}
+          <SettingsRow testID="account-settings" label={dict.shell.tabs.settings} icon="settings" navigation
+            onPress={() => { setAccount(false); navigation.navigate('Home', { screen: 'settings' } as never); }} />
+          <Rule leading />
+          <SettingsRow testID="account-lock" label={t('mobileUI.lockNow')} icon="lock" onPress={() => { setAccount(false); data.onLock(); }} />
+        </Group>
+      </BottomSheet>
+    </>
   );
 }
 
@@ -237,6 +259,15 @@ export default function MobileNavigator(data: MobileNavigationProps) {
   const findLive = (id: string) => data.items.find(item => item.id === id);
   const find = (id: string) => findLive(id) ?? data.trash.find(item => item.id === id);
   const shareItem = data.initialShareItemId ? findLive(data.initialShareItemId) : undefined;
+  // Details, filters and New item are sheets over the ledger (iOS form sheet with a grabber); Android slides up a modal.
+  const sheet: NativeStackNavigationOptions = {
+    headerShown: false,
+    presentation: Platform.OS === 'ios' ? 'formSheet' : 'modal',
+    sheetAllowedDetents: [0.94],
+    sheetGrabberVisible: true,
+    sheetCornerRadius: 20,
+    contentStyle: { backgroundColor: colors.surface },
+  };
 
   return (
     <NavigationContainer theme={theme} initialState={shareItem ? {
@@ -248,9 +279,11 @@ export default function MobileNavigator(data: MobileNavigationProps) {
       ],
     } : undefined}>
       <Stack.Navigator screenOptions={({ navigation }) => ({
-        headerStyle: { backgroundColor: colors.canvas },
-        headerTintColor: colors.primaryTextLink,
-        headerTitle: ({ children }) => <Text accessibilityRole="header" style={[textStyle.nav, { color: colors.text }]} numberOfLines={1}>{children}</Text>,
+        // Pushed screens keep the cover band as their header.
+        headerStyle: { backgroundColor: colors.cover },
+        headerTitleStyle: textStyle.strong,
+        headerTintColor: colors.onCover,
+        headerTitle: ({ children }) => <Text accessibilityRole="header" style={[textStyle.strong, { color: colors.onCover }]} numberOfLines={1}>{children}</Text>,
         headerShadowVisible: false,
         headerBackButtonDisplayMode: 'minimal',
         ...(Platform.OS === 'android' && { statusBarStyle: scheme === 'light' ? 'dark' : 'light' }),
@@ -258,7 +291,7 @@ export default function MobileNavigator(data: MobileNavigationProps) {
         contentStyle: { backgroundColor: colors.canvas },
         animation: reducedMotion ? 'none' : 'default',
       })}>
-        <Stack.Screen name="Home" options={{ title: dict.shell.tabs.vault }}>
+        <Stack.Screen name="Home" options={{ title: dict.shell.tabs.vault, headerShown: false }}>
           {props => <MainTabs {...props} data={data} filter={filter} onFilterChange={setFilter} />}
         </Stack.Screen>
         <Stack.Screen name="Search" options={({ navigation }) => ({
@@ -270,34 +303,41 @@ export default function MobileNavigator(data: MobileNavigationProps) {
             const archived = context === 'archive';
             const active = archived ? archiveFilter : filter;
             const setActive = archived ? setArchiveFilter : setFilter;
-            return <SearchScreen items={data.items} onToggleFavorite={data.onToggleFavorite} archived={archived}
+            return <SearchScreen items={data.items} archived={archived}
               filter={context === 'global' ? undefined : active}
               onClearFilters={context === 'global' ? undefined : () => setActive(clearVaultFilters(active))}
               onSelect={id => openItem(navigation, findLive(id), id, true)} />;
           }}
         </Stack.Screen>
-        <Stack.Screen name="Templates" options={{ title: dict.mobileEditor.templatesTitle, headerRight: () => null }}>
-          {({ navigation }) => <ItemTemplateScreen onSelect={template => navigation.replace('Form', { template })} onImport={picker => navigation.replace('ImportFiles', { picker })} />}
+        <Stack.Screen name="Templates" options={{ title: dict.mobileEditor.templatesTitle, headerRight: () => null, ...sheet }}>
+          {({ navigation }) => <ItemTemplateScreen onClose={() => navigation.goBack()} onSelect={template => navigation.replace('Form', { template })} onImport={picker => navigation.replace('ImportFiles', { picker })} />}
         </Stack.Screen>
         <Stack.Screen name="ImportItems" options={{ title: dict.itemImport.title, headerRight: () => null }}>
           {() => <ImportItemsScreen items={data.items} apiBaseUrl={data.apiBaseUrl}
             getToken={getApiToken} onImport={data.onImportItems}
             onUnauthorized={data.onUnauthorized} />}
         </Stack.Screen>
-        <Stack.Screen name="Form" options={({ route }) => ({
+        <Stack.Screen name="Form" options={({ route, navigation }) => ({
           title: 'id' in route.params ? t('mobileUI.editFormTitle', dict.itemTypes[findLive(route.params.id)?.type ?? 'custom']) : dict.mobileEditor.newTemplates[route.params.template],
+          presentation: Platform.OS === 'ios' ? 'fullScreenModal' : 'modal',
+          headerBackVisible: false,
+          headerTitleAlign: 'center',
+          headerStyle: { backgroundColor: colors.canvas },
+          headerShadowVisible: true,
+          headerTitle: ({ children }) => <Text accessibilityRole="header" style={[textStyle.strong, { color: colors.text }]} numberOfLines={1}>{children}</Text>,
+          headerLeft: () => <ScreenHeaderAction icon="close" label={dict.common.close} testID="form-close" onPress={() => navigation.goBack()} />,
           headerRight: () => null,
         })}>
           {props => <FormRoute {...props} data={data} />}
         </Stack.Screen>
         <Stack.Screen name="Detail" options={({ route }) => {
           const type = find(route.params.id)?.type;
-          return { title: type ? dict.itemTypes[type] : t('mobileUI.viewItem') };
+          return { title: type ? dict.itemTypes[type] : t('mobileUI.viewItem'), ...sheet };
         }}>
           {({ navigation, route }) => {
             const item = find(route.params.id);
             if (!item) return <AppPage><EmptyState title={t('mobileUI.notFound')} /></AppPage>;
-            return <ItemDetailScreen item={item} allItems={data.items} inTrash={data.trash.some(value => value.id === item.id)}
+            return <ItemDetailScreen item={item} allItems={data.items} inTrash={data.trash.some(value => value.id === item.id)} onClose={() => navigation.goBack()}
               onShare={() => navigation.navigate('ShareLink', { id: item.id })}
               onSelectRelated={id => openItem(navigation, findLive(id), id, true)}
               onOpenCollection={() => navigation.push('Collection', { id: item.id })}
@@ -308,14 +348,17 @@ export default function MobileNavigator(data: MobileNavigationProps) {
               onToggleFavorite={() => data.onToggleFavorite(item.id)} />;
           }}
         </Stack.Screen>
-        <Stack.Screen name="ShareLink" options={{ title: t('mobileUI.shareLink'), headerRight: () => null }}>
+        <Stack.Screen name="ShareLink" options={({ navigation }) => ({
+          title: t('mobileUI.shareLink'), presentation: 'modal', headerBackVisible: false,
+          headerRight: () => <ScreenHeaderAction icon="close" label={dict.common.close} testID="share-link-close" onPress={() => navigation.goBack()} />,
+        })}>
           {({ route }) => {
             const item = findLive(route.params.id);
             return item ? <ShareLinkScreen item={item} baseUrl={data.apiBaseUrl} onUnauthorized={data.onUnauthorized} /> : <AppPage><EmptyState title={t('mobileUI.notFound')} /></AppPage>;
           }}
         </Stack.Screen>
-        <Stack.Screen name="Archive" options={{ title: dict.shell.archived, headerRight: () => null }}>
-          {({ navigation }) => <VaultScreen {...data} filter={archiveFilter} onFilterChange={setArchiveFilter} mode="archive"
+        <Stack.Screen name="Archive" options={{ title: dict.shell.archived, headerShown: false }}>
+          {({ navigation }) => <VaultScreen {...data} filter={archiveFilter} onFilterChange={setArchiveFilter} mode="archive" title={dict.shell.archived} onBack={() => navigation.goBack()}
             onSelect={id => openItem(navigation, findLive(id), id)} onNew={() => navigation.navigate('Templates')}
             onSearch={() => navigation.navigate('Search', { context: 'archive' })} onViewTrash={() => navigation.navigate('Trash')} />}
         </Stack.Screen>
@@ -344,18 +387,24 @@ export default function MobileNavigator(data: MobileNavigationProps) {
           {({ navigation, route }) => <FilesScreen initialPicker={route.params.picker} items={data.items} onSave={data.onSave} onDelete={data.onDelete}
             onOpenFolder={id => navigation.push('Folder', { id })} onOpenFile={id => navigation.navigate('File', { id })} />}
         </Stack.Screen>
-        <Stack.Screen name="Collection" options={({ route }) => ({ title: findLive(route.params.id)?.title ?? dict.itemTypes.collection })}>
+        <Stack.Screen name="Collection" options={({ route, navigation }) => ({
+          title: findLive(route.params.id)?.title ?? dict.itemTypes.collection, presentation: 'modal', headerBackVisible: false,
+          headerRight: () => <ScreenHeaderAction icon="close" label={dict.common.close} testID="collection-close" onPress={() => navigation.goBack()} />,
+        })}>
           {({ navigation, route }) => {
             const linked = new Set(findLive(route.params.id)?.relations.filter(relation => relation.type === 'contains').map(relation => relation.target_id));
             const members = data.items.filter(item => item.fields.parent_id === route.params.id || linked.has(item.id));
             return <AppPage width="list" scroll={false} safeArea="bottom">
               <FlatList data={members} keyExtractor={item => item.id}
                 ListEmptyComponent={<EmptyState image={illustrations.emptyVault} title={t('mobileUI.noItems')} />}
-                renderItem={({ item }) => <ItemRow item={item} onPress={() => openItem(navigation, item, item.id, true)} onToggleFavorite={() => data.onToggleFavorite(item.id)} />} />
+                renderItem={({ item }) => <ItemRow item={item} onPress={() => openItem(navigation, item, item.id, true)} />} />
             </AppPage>;
           }}
         </Stack.Screen>
-        <Stack.Screen name="File" options={{ title: t('mobileUI.files') }}>
+        <Stack.Screen name="File" options={({ navigation }) => ({
+          title: t('mobileUI.files'), presentation: 'modal', headerBackVisible: false,
+          headerRight: () => <ScreenHeaderAction icon="close" label={dict.common.close} testID="file-close" onPress={() => navigation.goBack()} />,
+        })}>
           {({ route }) => {
             const item = findLive(route.params.id);
             return item ? <FilePreviewScreen item={item} /> : <AppPage><EmptyState title={t('mobileUI.fileUnavailable')} /></AppPage>;

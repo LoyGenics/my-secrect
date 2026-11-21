@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Platform, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useTranslation } from '../../../../packages/i18n/src/react';
-import { useMobileTheme } from '../theme';
+import { monoText, useMobileTheme } from '../theme';
 import { generatePassword, generatePassphrase } from '../utils/password';
 import StrengthMeter from '../components/StrengthMeter';
 import { AppButton, AppPage, FormSection, Group, InlineError, Rule, SegmentedControl, SelectField, ToggleRow } from '../components/mobile-ui';
@@ -56,13 +56,13 @@ export default function GeneratorScreen({ onApply, embedded = false }: { onApply
           value={kind}
           onChange={changeKind}
         />
-        <View style={{ backgroundColor: colors.card, gap: space[3], padding: space[4], borderRadius: radius.surface, minHeight: space[12] * 3, justifyContent: 'center' }}>
+        <View style={{ backgroundColor: colors.sunken, gap: space[3], padding: space[4], borderRadius: radius.surface, minHeight: space[12] * 3, justifyContent: 'center' }}>
           <Text testID="generated-password" selectable={Boolean(result)} accessibilityLiveRegion="polite"
-            style={[textStyle.title, { color: colors.text }, result && { fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }) }]}>
+            style={[result ? monoText.key : textStyle.title, { color: colors.text }]}>
             {result || t('mobileUI.generateFirst')}
           </Text>
           {result && password ? <StrengthMeter password={result} /> : !result && (
-            <Text style={[textStyle.helper, { color: colors.muted }]}>{t('mobileUI.generateBody')}</Text>
+            <Text style={[textStyle.caption, { color: colors.secondaryText }]}>{t('mobileUI.generateBody')}</Text>
           )}
         </View>
         {error ? <InlineError testID="generator-error">{error}</InlineError> : null}

@@ -3,15 +3,31 @@ import { test } from 'node:test';
 import {
   APP_PREFERENCES_KEY, createPreferenceWriter, DEFAULT_APP_PREFERENCES, loadAppPreferences, resolveAppearance,
 } from '../src/ui/preferences';
-import { getButtonState, getPageGutter, mobileDarkRoles, mobileLightRoles, radius, size, space, textStyle } from '../src/ui/tokens';
+import { getButtonState, getPageGutter, mobileDarkRoles, mobileLightRoles, radius, size, space, stampFamilies, textStyle } from '../src/ui/tokens';
 
-test('page gutters and sizes preserve the mobile layout contract', () => {
-  assert.deepEqual([320, 359, 360, 390, 430, 599, 600, 768, 1024].map(getPageGutter), [16, 16, 20, 20, 20, 20, 24, 24, 24]);
+test('page gutters and sizes follow the Pocket Ledger layout contract', () => {
+  assert.deepEqual([320, 359, 360, 390, 430, 599, 600, 768, 1024].map(getPageGutter), [16, 16, 16, 16, 16, 16, 24, 24, 24]);
   assert.deepEqual([size.formWidth, size.listWidth], [720, 840]);
-  assert.deepEqual([size.action, size.touch, size.androidTouch, size.field, size.settingsRow, size.itemRow, size.fileRow], [52, 44, 48, 52, 56, 72, 76]);
-  assert.deepEqual([radius.glyph, radius.field, radius.surface, radius.sheet], [10, 14, 16, 24]);
-  assert.deepEqual([space[2], space[3], space[4], space[6], space[8]], [8, 12, 16, 24, 32]);
-  assert.deepEqual([textStyle.display.lineHeight, textStyle.title.lineHeight, textStyle.body.lineHeight], [34, 28, 24]);
+  assert.deepEqual([size.action, size.touch, size.androidTouch, size.field, size.chip, size.settingsRow, size.itemRow, size.detailRow, size.chooserRow, size.dock],
+    [52, 44, 48, 48, 44, 48, 56, 56, 60, 60]);
+  assert.deepEqual([size.marginLetter, size.stamp, size.marginLetter + size.stamp + space[3]], [40, 32, 84]);
+  assert.deepEqual([radius.chip, radius.button, radius.dock, radius.sheet, radius.keyCell, radius.coverField, radius.search], [22, 26, 30, 20, 12, 12, 24]);
+  assert.deepEqual([space[1], space[2], space[3], space[4], space[5], space[6], space[8]], [4, 8, 12, 16, 20, 24, 32]);
+});
+
+test('type roles sit on the 4 pt grid, name a Be Vietnam Pro face and stay at 12 pt or larger', () => {
+  const sans = ['display', 'title', 'strong', 'value', 'body', 'control', 'caption', 'label', 'micro'] as const;
+  assert.deepEqual(sans.map(role => [textStyle[role].fontSize, textStyle[role].lineHeight]),
+    [[30, 36], [22, 28], [16, 24], [16, 24], [16, 24], [15, 20], [14, 20], [13, 16], [12, 16]]);
+  for (const role of sans) {
+    assert.match(textStyle[role].fontFamily, /^BeVietnamPro-(Regular|Medium|SemiBold|Bold)$/);
+    assert.equal('fontWeight' in textStyle[role], false, `${role} must not synthesise a weight`);
+  }
+  assert.deepEqual([textStyle.secret, textStyle.key, textStyle.code].map(role => [role.fontSize, role.lineHeight]), [[16, 24], [18, 24], [24, 32]]);
+  for (const role of Object.values(textStyle)) {
+    assert.ok(role.fontSize >= 12);
+    assert.equal(role.lineHeight % 4, 0);
+  }
 });
 
 test('buttons retain their baseline while loading and reserve accessible touch dimensions', () => {
@@ -44,17 +60,25 @@ function contrast(ink: string, background: string) {
 for (const [name, colors] of Object.entries({ light: mobileLightRoles, dark: mobileDarkRoles })) {
   test(`${name} text, action, input and focus roles meet AA contrast pairs`, () => {
     type Color = keyof typeof colors;
-    const pairs: ReadonlyArray<readonly [Color, Color, number]> = [
-      ['text', 'canvas', 4.5], ['text', 'surface', 4.5], ['secondaryText', 'surface', 4.5],
+    type Flat = Exclude<Color, 'stamp'>;
+    const pairs: ReadonlyArray<readonly [Flat, Flat, number]> = [
+      ['text', 'canvas', 4.5], ['text', 'surface', 4.5], ['secondaryText', 'surface', 4.5], ['mutedText', 'canvas', 4.5],
       ['primaryTextLink', 'canvas', 4.5], ['primaryTextLink', 'surface', 4.5], ['mutedText', 'inputSurface', 4.5],
       ['onPrimary', 'primaryFill', 4.5], ['onPrimary', 'primaryPressed', 4.5],
-      ['onPrimary', 'danger', 4.5], ['onPrimary', 'dangerPressed', 4.5],
+      ['onDanger', 'danger', 4.5], ['onDanger', 'dangerPressed', 4.5], ['mutedText', 'sunken', 4.5], ['text', 'sunken', 4.5],
       ['dangerText', 'surface', 4.5], ['successText', 'surface', 4.5], ['warningText', 'surface', 4.5],
-      ['controlBorder', 'inputSurface', 3], ['focus', 'surface', 3],
+      ['onCover', 'cover', 4.5], ['onCoverSecondary', 'cover', 4.5], ['onCover', 'coverChip', 4.5],
+      ['onCoverChipSelected', 'coverChipSelected', 4.5], ['onSelected', 'selected', 4.5], ['plum', 'selection', 4.5],
+      ['text', 'dock', 4.5], ['plum', 'dockSelected', 4.5], ['canvas', 'plum', 4.5],
+      ['controlBorder', 'inputSurface', 3], ['controlBorder', 'canvas', 3], ['coverFieldEdge', 'surface', 3], ['focus', 'surface', 3],
     ];
     for (const [fg, bg, minimum] of pairs) {
       const ratio = contrast(colors[fg], colors[bg]);
       assert.ok(ratio >= minimum, `${fg} on ${bg} is ${ratio.toFixed(2)}:1 (minimum ${minimum}:1)`);
+    }
+    for (const family of stampFamilies) {
+      const ratio = contrast(colors.stamp[family].ink, colors.stamp[family].bg);
+      assert.ok(ratio >= 4.5, `${family} stamp glyph is ${ratio.toFixed(2)}:1`);
     }
   });
 }

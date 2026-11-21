@@ -8,14 +8,15 @@ import { format, formatDate, type Dictionary, type Locale } from '../../../../pa
 import { useTranslation } from '../../../../packages/i18n/src/react';
 import { Icon } from '../../../../packages/ui/src/native';
 import { moduleIcon } from '../../../../packages/ui/src/modules';
-import { typeLabel } from '../components/ItemRow';
+import { copyLabel, typeLabel } from '../components/ItemRow';
+import { FilledStar, TypeStamp } from '../components/ledger';
 import MarkdownText from '../components/MarkdownText';
 import {
   AppButton, AppPage, BottomSheet, Group, IconButton, InlineError, Progress, Rule, SettingsRow,
 } from '../components/mobile-ui';
-import { useMobileTheme } from '../theme';
+import { monoText, useMobileTheme } from '../theme';
 import { radius, size, space, textStyle } from '../ui/tokens';
-import { detailString, formatDetailFieldsForClipboard, getPrimaryDetailAction, type DetailCopyKey } from '../utils/detailAction';
+import { detailString, formatDetailFieldsForClipboard, getPrimaryDetailAction } from '../utils/detailAction';
 import { normalizeCardExpiry, readCustomFields } from '../utils/itemEditor';
 import { getNoteRevisions, getPasswordHistory, isArchived } from '../utils/itemMeta';
 import { generateTotp, type TotpResult } from '../utils/totp';
@@ -107,16 +108,16 @@ function FieldRow({ field, canReveal, copied, onCopy, testID }: {
   testID: string;
 }) {
   const { dict: { itemDetail: d, common } } = useTranslation();
-  const { styles } = useMobileTheme();
+  const { colors } = useMobileTheme();
   const [revealed, setRevealed] = useState(false);
   useEffect(() => { if (!canReveal) setRevealed(false); }, [canReveal]);
   const showing = revealed && canReveal;
   const { label, value, display, mask = '••••••••', secret } = field;
   return (
-    <View style={local.field}>
-      <Text style={styles.small}>{label}</Text>
+    <View style={local.detailRow}>
+      <Text style={[textStyle.label, local.detailLabel, { color: colors.secondaryText }]}>{label}</Text>
       <View style={local.valueRow}>
-        <Text selectable={!secret || showing} style={[styles.body, local.fill]}>
+        <Text selectable={!secret || showing} style={[secret ? monoText.secret : textStyle.value, local.fill, { color: colors.text }]}>
           {secret && !showing ? mask : display ?? value}
         </Text>
         {secret && <IconButton testID={`${testID}-toggle`} icon={showing ? 'hide' : 'show'}
@@ -129,7 +130,7 @@ function FieldRow({ field, canReveal, copied, onCopy, testID }: {
   );
 }
 
-export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDelete, onRestore, onToggleFavorite, onSelectRelated, onShare, onOpenCollection, onOpenFile }: {
+export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDelete, onRestore, onToggleFavorite, onClose, onSelectRelated, onShare, onOpenCollection, onOpenFile }: {
   item: VaultItem;
   allItems: VaultItem[];
   inTrash: boolean;
@@ -192,7 +193,8 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
 
   const displayTitle = item.type === 'card' ? cardIssuer(item.title, item.fields.bank) : item.title;
   const type = typeLabel(dict, item.type);
-  const subtitle = [type, item.favorite && d.favorite, inTrash && d.inTrash, isArchived(item) && d.archived].filter(Boolean).join(' · ');
+  const website = item.type === 'login' ? detailString(item, 'url').replace(/^https?:\/\//, '').replace(/\/$/, '') : '';
+  const subtitle = [type, website, inTrash && d.inTrash, isArchived(item) && d.archived].filter(Boolean).join(' · ');
   const related = item.relations.map((relation) => allItems.find((entry) => entry.id === relation.target_id)).filter((entry): entry is VaultItem => !!entry);
   const parent = allItems.find((entry) => entry.id === item.fields.parent_id && entry.id !== item.id);
   const children = item.type === 'collection' ? allItems.filter((entry) => entry.fields.parent_id === item.id && entry.id !== item.id) : [];
@@ -225,17 +227,6 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
   }
 
   const action = getPrimaryDetailAction(item, { inTrash, canOpenCollection: !!onOpenCollection, canOpenFile: !!onOpenFile });
-  const copyLabels: Record<DetailCopyKey, string> = {
-    password: d.copyPassword,
-    username: d.copyUsername,
-    account_number: detail.copyAccountNumber,
-    last4: detail.copyCardLast4,
-    document_number: detail.copyDocumentNumber,
-    key: detail.copyApiKey,
-    body: detail.copyNote,
-    public_key: detail.copyPublicKey,
-    private_key_ref: detail.copyPrivateKeyRef,
-  };
   let primary: React.ReactNode;
   switch (action.type) {
     case 'restore':
@@ -243,7 +234,7 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
         disabled={pending === 'delete'} onPress={() => void update('restore')} style={local.fill} />;
       break;
     case 'copy':
-      primary = <AppButton label={copied === action.key ? dict.common.copied : copyLabels[action.key]}
+      primary = <AppButton label={copied === action.key ? dict.common.copied : copyLabel(dict, action.key)}
         icon={copied === action.key ? 'check' : 'copy'} testID="detail-copy-secret"
         disabled={!!pending} onPress={() => void copy(action.key, action.value)} style={local.fill} />;
       break;
@@ -266,24 +257,30 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
     <View style={local.noticeStack}>
       {!!error && <InlineError testID="detail-action-error">{error}</InlineError>}
       <View style={local.actions}>
+        {!inTrash && <IconButton testID="detail-favorite-toggle" accessibilityLabel={item.favorite ? d.unfavoriteAction : d.favoriteAction}
+          accessibilityState={{ selected: !!item.favorite }} disabled={!!pending} onPress={onToggleFavorite} style={{ backgroundColor: colors.sunken }}>
+          {item.favorite ? <FilledStar size={size.icon} color={colors.star} /> : <Icon name="favorite" color={colors.text} />}
+        </IconButton>}
+        {!!canShare && <IconButton testID="detail-share" icon="share" accessibilityLabel={dict.mobileUI.share} disabled={!!pending} onPress={onShare}
+          style={{ backgroundColor: colors.sunken }} />}
+        <IconButton testID="detail-more" icon="more" accessibilityLabel={d.more} disabled={!!pending} onPress={() => setMenu('actions')}
+          style={{ backgroundColor: colors.sunken }} />
         {primary}
-        {!!canShare && <IconButton testID="detail-share" icon="share" accessibilityLabel={dict.mobileUI.share} disabled={!!pending} onPress={onShare} />}
-        <IconButton testID="detail-more" icon="more" accessibilityLabel={d.more} disabled={!!pending} onPress={() => setMenu('actions')} />
       </View>
     </View>
   );
 
   return (
-    <AppPage safeArea="bottom" footer={footer}>
+    <AppPage safeArea="bottom" footer={footer} style={{ backgroundColor: colors.surface }} header={
       <View style={local.heading}>
-        <View style={[local.headingGlyph, { backgroundColor: colors.surfaceMuted }]}>
-          <Icon name={moduleIcon[item.type]} color={colors.secondaryText} size="xl" />
-        </View>
+        <TypeStamp type={item.type} large />
         <View style={local.fill}>
-          <Text accessibilityRole="header" style={styles.heading}>{displayTitle}</Text>
-          <Text style={styles.small}>{subtitle}</Text>
+          <Text accessibilityRole="header" style={[textStyle.title, { color: colors.text }]}>{displayTitle}</Text>
+          <Text style={[textStyle.caption, { color: colors.secondaryText }]} numberOfLines={1}>{subtitle}</Text>
         </View>
-      </View>
+        {!inTrash && <AppButton testID="detail-edit-header" label={d.edit} variant="text" size="compact" onPress={onEdit} />}
+        {onClose && <IconButton testID="detail-close" icon="close" accessibilityLabel={dict.common.close} onPress={onClose} />}
+      </View>}>
 
       {parent && (
         <Group>
@@ -296,7 +293,7 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
         <Group title={d.totp}>
           <View style={local.field}>
             <View style={local.valueRow}>
-              <Text testID="totp-code" style={[textStyle.title, local.fill, { color: colors.text, fontVariant: ['tabular-nums'] }]}>
+              <Text testID="totp-code" style={[monoText.code, local.fill, { color: colors.text, fontVariant: ['tabular-nums'] }]}>
                 {totp?.code ? `${totp.code.slice(0, 3)} ${totp.code.slice(3)}` : totp ? d.totpInvalid : d.totpLoading}
               </Text>
               {!!totp?.code && <IconButton testID="totp-copy" icon={copied === 'totp' ? 'check' : 'copy'}
@@ -380,10 +377,10 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
 
       {item.tags.length > 0 && (
         <View style={local.tagSection}>
-          <Text style={styles.label}>{d.tags}</Text>
+          <Text accessibilityRole="header" style={[textStyle.strong, { color: colors.text }]}>{d.tags}</Text>
           <View style={local.tags}>
             {item.tags.map((tag) => (
-              <Text key={tag} style={[styles.chipText, local.tag, { color: colors.secondaryText, backgroundColor: colors.surfaceMuted }]}>{tag}</Text>
+              <Text key={tag} style={[styles.chipText, local.tag, { backgroundColor: colors.sunken }]}>#{tag}</Text>
             ))}
           </View>
         </View>
@@ -436,16 +433,17 @@ export default function ItemDetailScreen({ item, allItems, inTrash, onEdit, onDe
 }
 
 const local = StyleSheet.create({
-  heading: { flexDirection: 'row', alignItems: 'center', gap: space[3], marginBottom: space[6] },
-  headingGlyph: { width: space[12], height: space[12], borderRadius: radius.glyph, alignItems: 'center', justifyContent: 'center' },
+  heading: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
   fill: { flex: 1, minWidth: 0 },
   field: { paddingHorizontal: space[4], paddingVertical: space[3], gap: space[1] },
-  valueRow: { flexDirection: 'row', alignItems: 'center', gap: space[1] },
+  detailRow: { minHeight: size.detailRow, paddingLeft: space[4], paddingRight: space[2], paddingVertical: space[1], flexDirection: 'row', alignItems: 'center' },
+  detailLabel: { width: size.detailLabel, paddingRight: space[2] },
+  valueRow: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: space[1] },
   noticeStack: { gap: space[2] },
   actions: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
   confirmation: { gap: space[3] },
   tagSection: { marginBottom: space[6] },
-  tags: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
-  tag: { maxWidth: '100%', borderRadius: radius.full, paddingHorizontal: space[3], paddingVertical: space[1] },
+  tags: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2], marginTop: space[2] },
+  tag: { maxWidth: '100%', borderRadius: radius.full, paddingHorizontal: space[4], paddingVertical: space[2], overflow: 'hidden' },
   timestamp: { gap: space[1], paddingTop: space[1] },
 });
