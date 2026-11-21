@@ -4,7 +4,8 @@ import { apiStatus } from './utils/stepUp';
 
 export const API_BASE_URL_KEY = 'my-secrect:api-base-url';
 export const SHARE_WEB_ORIGIN_KEY = 'my-secrect:share-web-origin';
-export const HOSTED_API_BASE_URL = 'https://my.msecret.app/api';
+export { HOSTED_API_BASE_URL } from '../../../packages/sdk/src/hosted';
+import { HOSTED_API_BASE_URL } from '../../../packages/sdk/src/hosted';
 
 type Storage = Pick<typeof AsyncStorage, 'getItem' | 'multiRemove' | 'setItem'>;
 

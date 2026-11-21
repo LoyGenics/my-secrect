@@ -245,7 +245,8 @@ export default function SettingsView({
         </Field>
       </Section>
 
-      {/* Account server (Security Center) */}
+      {/* Account server: a developer override only; users always sync to the hosted cloud. */}
+      {import.meta.env.DEV && (
       <Section id="settings-server-heading" icon="server" title={st.serverTitle}>
         <p className="ms-text-sm ms-text-muted mt-0 ms-prose">{st.serverBody}</p>
         <Field id="settings-api-base-url" label={st.apiUrl} flush>
@@ -264,6 +265,7 @@ export default function SettingsView({
           <Button icon="server" onClick={onChangeServer}>{dict.signin.changeServer}</Button>
         </div>
       </Section>
+      )}
 
       {/* Recovery key */}
       <Section id="settings-recovery-heading" icon="recovery" title={st.recoveryTitle}>
