@@ -14,6 +14,7 @@ import {
   radii,
   spacing,
   textScale,
+  typeRoles,
   type ThemeTokens,
 } from './tokens';
 
@@ -40,13 +41,24 @@ export function themeVariables(theme: ThemeTokens): Array<[string, string]> {
   const out: Array<[string, string]> = [];
   for (const [group, values] of Object.entries(theme)) {
     if (group === 'colorScheme') continue;
-    for (const [key, value] of Object.entries(values as Record<string, string>)) {
+    const prefix = GROUP_PREFIX[group] ?? kebab(group);
+    if (typeof values === 'string') {
+      out.push([`--ms-color-${prefix}`, normalizeColor(values)]); // plum, selected, onSelected
+      continue;
+    }
+    for (const [key, value] of Object.entries(values as Record<string, string | Record<string, string>>)) {
       if (group === 'focus' && (key === 'width' || key === 'offset')) continue; // scale vars
+      if (typeof value !== 'string') {
+        // stamp.<family>.{bg,ink} -> --ms-color-stamp-<family>-<key>
+        for (const [sub, color] of Object.entries(value)) {
+          out.push([`--ms-color-${prefix}-${kebab(key)}-${kebab(sub)}`, normalizeColor(color)]);
+        }
+        continue;
+      }
       if (group === 'shadow') {
         out.push([`--ms-shadow-${kebab(key)}`, normalizeColor(value)]);
         continue;
       }
-      const prefix = GROUP_PREFIX[group] ?? group;
       const name = key === 'DEFAULT' ? `--ms-color-${prefix}` : `--ms-color-${prefix}-${kebab(key)}`;
       out.push([name, normalizeColor(value)]);
     }
@@ -73,7 +85,11 @@ function scaleBlock(): string {
   for (const [step, [size, leading]] of Object.entries(textScale)) {
     lines.push(`  --ms-text-${step}: ${size}px;`, `  --ms-leading-${step}: ${leading}px;`);
   }
-  for (const [key, value] of Object.entries(radii)) lines.push(`  --ms-radius-${key}: ${value}px;`);
+  for (const [role, { fontSize, lineHeight, fontWeight }] of Object.entries(typeRoles)) {
+    const name = `--ms-type-${kebab(role)}`;
+    lines.push(`  ${name}-size: ${fontSize}px;`, `  ${name}-leading: ${lineHeight}px;`, `  ${name}-weight: ${fontWeight};`);
+  }
+  for (const [key, value] of Object.entries(radii)) lines.push(`  --ms-radius-${kebab(key)}: ${value}px;`);
   for (const [key, value] of Object.entries(spacing)) {
     if (Number(key) > 0) lines.push(`  --ms-space-${key}: ${value}px;`);
   }

@@ -1,28 +1,49 @@
 ---
 name: My Secret Mobile
-description: A personal vault with platform-native navigation, warm grouped surfaces and composable search.
+description: Pocket Ledger — a plum cover band over an A–Z ledger, orange only for the one primary action, tinted type stamps.
 colors:
-  primary-fill: "#D23F0C"
-  on-primary: "#FFFFFF"
-  link-light: "#B83C0A"
-  link-dark: "#FF9A70"
-  canvas-light: "#F6F4F1"
-  canvas-dark: "#17191C"
+  primary-fill: "#FF7A3D"
+  primary-fill-dark: "#FF8A52"
+  on-primary: "#2A1205"
+  plum-light: "#6A4479"
+  plum-dark: "#D7BEE3"
+  cover-light: "#F4EEF6"
+  cover-dark: "#2A1B2F"
+  on-cover-light: "#2A1C33"
+  on-cover-dark: "#FFFFFF"
+  selected-light: "#33233D"
+  selected-dark: "#EADCF0"
+  canvas-light: "#FFFFFF"
+  canvas-dark: "#141117"
   surface-light: "#FFFFFF"
-  surface-dark: "#212429"
+  surface-dark: "#1E1A23"
+  text-light: "#1E1923"
+  text-dark: "#F3F0F6"
+  stamp-families: "access, money, identity, note, file, dev, group (bg/ink pairs in packages/ui/src/tokens.ts)"
 typography:
-  display: { fontSize: "28px", lineHeight: "34px", fontWeight: 700 }
+  font: "Be Vietnam Pro 400/500/600/700; platform monospace for secrets"
+  display: { fontSize: "30px", lineHeight: "36px", fontWeight: 700 }
   title: { fontSize: "22px", lineHeight: "28px", fontWeight: 700 }
-  navigation-title: { fontSize: "18px", lineHeight: "24px", fontWeight: 600 }
-  body: { fontSize: "16px", lineHeight: "24px" }
-  helper: { fontSize: "14px", lineHeight: "20px" }
-  caption: { fontSize: "12px", lineHeight: "16px" }
+  strong: { fontSize: "16px", lineHeight: "24px", fontWeight: 600 }
+  value: { fontSize: "16px", lineHeight: "24px", fontWeight: 500 }
+  body: { fontSize: "16px", lineHeight: "24px", fontWeight: 400 }
+  control: { fontSize: "15px", lineHeight: "20px", fontWeight: 600 }
+  caption: { fontSize: "14px", lineHeight: "20px", fontWeight: 500 }
+  label: { fontSize: "13px", lineHeight: "16px", fontWeight: 600 }
+  micro: { fontSize: "12px", lineHeight: "16px", fontWeight: 600 }
+  mono-secret: { fontSize: "16px", lineHeight: "24px", fontWeight: 500 }
+  mono-key: { fontSize: "18px", lineHeight: "24px", fontWeight: 600 }
+  mono-code: { fontSize: "24px", lineHeight: "32px", fontWeight: 600 }
 rounded:
-  glyph: "10px"
-  field: "14px"
-  button: "14px"
-  surface: "16px"
-  sheet: "24px"
+  chip: "22px"
+  button: "26px"
+  dock: "30px"
+  sheet: "20px"
+  search-field: "24px"
+  card-strip: "16px"
+  cover-field: "12px"
+  key-cell: "12px"
+  field: "underline (no box)"
 spacing:
   field-label: "8px"
   button-stack: "12px"
@@ -33,19 +54,21 @@ components:
   primary-action:
     backgroundColor: "{colors.primary-fill}"
     textColor: "{colors.on-primary}"
-    typography: "{typography.body}"
+    typography: "{typography.strong}"
     rounded: "{rounded.button}"
     height: "52px"
   field:
-    typography: "{typography.body}"
+    typography: "{typography.value}"
     rounded: "{rounded.field}"
-    height: "52px"
+    height: "48px"
   settings-row: { height: "56px" }
   vault-row: { height: "72px" }
   file-row: { height: "76px" }
 ---
 
 # My Secret mobile design system
+
+The front matter is the approved Pocket Ledger target (`design-lab/mobile/round-02/D2` on branch `design/approved`; shared colours, type roles and radii in [packages/ui tokens](../../packages/ui/src/tokens.ts)). Screens move to it in the mobile phase; until then the sections below describe the current soft-light layout in `src/ui/tokens.ts`.
 
 The vault opens on its contents. Use a compact native title bar, quiet grouped rows and clear actions for finding, inspecting and copying items. Keep account sign-in separate from vault unlock. The ghost mark and warm palette establish the brand. Native stacks, tabs, keyboards, confirmations and pickers retain platform behavior.
 
