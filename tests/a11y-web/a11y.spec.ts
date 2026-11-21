@@ -35,7 +35,9 @@ for (const theme of ['dark', 'light'] as const) {
     test(`main screens: ${theme} @ ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: width > 600 ? 800 : 844 });
       await page.emulateMedia({ reducedMotion: 'reduce' });
-      await page.addInitScript((t) => localStorage.setItem('my-secrect:theme', t), theme);
+      // Local-only: the production web build defaults to a same-origin account server, which
+      // puts the sign-in gate first; this scan covers the local vault flow.
+      await page.addInitScript((t) => { localStorage.setItem('my-secrect:theme', t); localStorage.setItem('my-secrect:api-base-url', ''); }, theme);
       const tag = `${theme}@${width}`;
 
       await page.goto('/');
