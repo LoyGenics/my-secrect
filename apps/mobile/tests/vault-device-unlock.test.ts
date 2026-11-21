@@ -159,6 +159,28 @@ test('disable, passphrase change and wipe each delete the row and the key', { ti
   assert.equal(await vault.hasVault(), false);
 });
 
+test('sign-out locks and leaves nothing for biometric unlock or the credential providers; the passphrase still opens the vault', { timeout: 120_000 }, async () => {
+  const { store, dk } = await setup();
+  await vault.createVault(PASS);
+  await vault.upsertItem(login);
+  vault.lockVault();
+  await vault.unlockVault(PASS);
+  await vault.enableDeviceUnlock('p');
+  assert.equal((await store.listAutofillIndex()).length, 1);
+
+  await vault.signOutVault();
+  assert.equal(vault.isUnlocked(), false);
+  assert.equal(await store.getDeviceUnlock(), null);
+  assert.deepEqual(await store.listAutofillIndex(), []);
+  assert.equal(dk.removeCalls, 1);
+  assert.deepEqual(await vault.unlockWithDeviceKey('p'), { ok: false, code: 'NOT_SET_UP' });
+
+  assert.equal(await vault.hasVault(), true);
+  assert.equal(await vault.unlockVault(PASS), true);
+  assert.equal(vault.listItems().find((i) => i.id === login.id)?.fields.password, 'pw-DO-NOT-LEAK');
+  assert.deepEqual(await store.listAutofillIndex(), []);
+});
+
 test('autofill index exists only while biometric unlock is on, and follows item writes', { timeout: 120_000 }, async () => {
   const { store } = await setup();
   await vault.createVault(PASS);

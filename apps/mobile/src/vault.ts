@@ -352,6 +352,18 @@ export async function disableDeviceUnlock(): Promise<void> {
 }
 
 /**
+ * The account session ended (sign-out, account deletion, server change, a
+ * server 401; not a local expiry): lock, then drop
+ * biometric unlock with the autofill index, so neither this app nor the
+ * credential providers open the vault until the user signs in again and
+ * enters the passphrase. The encrypted vault stays on the device.
+ */
+export async function signOutVault(): Promise<void> {
+  lockVault();
+  await disableDeviceUnlock();
+}
+
+/**
  * Encrypt / decrypt short display strings (e.g. device names) with the
  * in-memory Vault Key, as nonce-prefixed base64 (24-byte nonce ||
  * ciphertext) — the same envelope layout exportEncrypted() uses for item

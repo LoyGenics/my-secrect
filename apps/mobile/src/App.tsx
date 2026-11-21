@@ -5,12 +5,12 @@ import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import type { VaultItem } from '../../../packages/core/src/types';
-import { LS_API_TOKEN_EXPIRES_AT, clearSessionToken } from '../../../packages/sdk/src/security';
+import { LS_API_TOKEN_EXPIRES_AT, SecurityApiClient } from '../../../packages/sdk/src/security';
 import SignInScreen from './screens/SignInScreen';
-import { loadAccountServer, resolveVaultEntry } from './accountServer';
+import { endSessionAfterUnauthorized, loadAccountServer, resolveVaultEntry } from './accountServer';
 import { asyncTokenStore, getApiToken } from './screens/SecurityScreen';
 import {
-  hasVault, lockVault, isUnlocked, listItems, listTrash, upsertItem, importItems,
+  hasVault, lockVault, signOutVault, isUnlocked, listItems, listTrash, upsertItem, importItems,
   deleteItem, restoreItem, permanentlyDeleteItem, toggleFavorite,
 } from './vault';
 import { useMobileTheme } from './theme';
@@ -27,6 +27,11 @@ import BillingScreen from './screens/BillingScreen';
 import { useMobileBilling } from './useMobileBilling';
 import { AppearanceProvider, useAppPreferences } from './ui/AppearanceProvider';
 import { fontAssets } from './ui/fonts';
+
+/** Any authenticated call proves the stored session is still live. */
+function checkAccountSession(baseUrl: string) {
+  return new SecurityApiClient({ baseUrl, getToken: getApiToken }).listSessions();
+}
 
 type Boot = 'loading' | 'error' | 'signin' | 'plans' | 'onboarding' | 'locked' | 'unlocked';
 
@@ -94,6 +99,7 @@ function AppShell() {
   const lastActivity = useRef(Date.now());
   const [apiBaseUrl, setApiBaseUrl] = useState('');
   const [sessionExpired, setSessionExpired] = useState(false);
+  const [accountUnverified, setAccountUnverified] = useState(false);
   const [accountJustSignedIn, setAccountJustSignedIn] = useState(false);
   const [afterPlans, setAfterPlans] = useState<'locked' | 'onboarding'>('onboarding');
   const [shareAfterSignIn, setShareAfterSignIn] = useState<string>();
@@ -108,11 +114,15 @@ function AppShell() {
     void (async () => {
       await clearFilePreviews().catch(() => undefined);
       const url = await loadAccountServer(AsyncStorage, !__DEV__, process.env.EXPO_PUBLIC_ACCOUNT_API_URL);
-      const next = await resolveVaultEntry(asyncTokenStore, hasVault);
+      const next = await resolveVaultEntry(asyncTokenStore, hasVault, () => checkAccountSession(url));
+      // The server revoked the session: biometric unlock and autofill go with it. A local expiry keeps them.
+      if (next === 'revoked') await signOutVault().catch(() => undefined);
       if (!active) return;
       setApiBaseUrl(url);
+      setAccountUnverified(next === 'unverified');
       if (next === 'onboarding') setAfterPlans(next);
-      setBoot(next === 'onboarding' ? 'plans' : next);
+      const entry = next === 'unverified' || next === 'revoked' ? 'signin' : next;
+      setBoot(entry === 'onboarding' ? 'plans' : entry);
     })().catch(() => { if (active) setBoot('error'); });
     return () => { active = false; };
   }, [bootAttempt]);
@@ -129,11 +139,14 @@ function AppShell() {
     setBoot(current => current === 'unlocked' ? 'locked' : current);
   }, [lockAndClear]);
 
-  const returnToSignIn = useCallback((expired: boolean, shareItemId?: string) => {
+  /** `endSession`: sign-out, account deletion, server change: also drop biometric unlock and autofill. */
+  const returnToSignIn = useCallback((expired: boolean, shareItemId?: string, endSession = false) => {
     if (currentSession !== sessionGeneration.current) return false;
     sessionGeneration.current += 1;
     lockAndClear();
+    if (endSession) void signOutVault().catch(() => undefined);
     setSessionExpired(expired);
+    setAccountUnverified(false);
     setAccountJustSignedIn(false);
     setShareAfterSignIn(shareItemId);
     setBoot('signin');
@@ -141,25 +154,26 @@ function AppShell() {
   }, [currentSession, lockAndClear]);
 
   const handleUnauthorized = useCallback((shareItemId?: string) => {
-    if (returnToSignIn(true, shareItemId)) void clearSessionToken(asyncTokenStore);
+    if (returnToSignIn(true, shareItemId)) void endSessionAfterUnauthorized(asyncTokenStore, signOutVault);
   }, [returnToSignIn]);
 
   const handleServerSaved = useCallback((next: string) => {
     if (next === apiBaseUrl) return;
     setApiBaseUrl(next);
-    returnToSignIn(false);
+    returnToSignIn(false, undefined, true);
   }, [apiBaseUrl, returnToSignIn]);
 
   const handleSignedIn = useCallback((_email: string, recoverySession: boolean, accountCreated: boolean) => {
     setSessionExpired(false);
+    setAccountUnverified(false);
     setBoot('loading');
-    void resolveVaultEntry(asyncTokenStore, hasVault).then(next => {
+    void resolveVaultEntry(asyncTokenStore, hasVault, () => checkAccountSession(apiBaseUrl)).then(next => {
       setAccountJustSignedIn(next === 'locked');
-      if (next === 'signin') { setBoot(next); return; }
+      if (next === 'signin' || next === 'revoked' || next === 'unverified') { setAccountUnverified(next === 'unverified'); setBoot('signin'); return; }
       setAfterPlans(next);
       setBoot(!recoverySession && (accountCreated || next === 'onboarding') ? 'plans' : next);
     }).catch(() => setBoot('error'));
-  }, []);
+  }, [apiBaseUrl]);
 
   const billing = useMobileBilling(apiBaseUrl, hasAccountSession ? currentSession : null, handleUnauthorized);
   const continueFromPlans = useCallback(() => {
@@ -248,6 +262,7 @@ function AppShell() {
       <SignInScreen
         baseUrl={apiBaseUrl}
         sessionExpired={sessionExpired}
+        accountUnverified={accountUnverified}
         onSignedIn={handleSignedIn}
       />
     );
@@ -262,7 +277,7 @@ function AppShell() {
         onAutoLockChange={setAutoLock} onLock={doLock}
         onWiped={() => setBoot(current => current === 'unlocked' ? 'onboarding' : current)}
         apiBaseUrl={apiBaseUrl} billing={billing} initialShareItemId={shareAfterSignIn}
-        onSignedOut={() => returnToSignIn(false)} onUnauthorized={handleUnauthorized} onServerSaved={handleServerSaved} />
+        onSignedOut={() => returnToSignIn(false, undefined, true)} onUnauthorized={handleUnauthorized} onServerSaved={handleServerSaved} />
     </View>
   );
 }

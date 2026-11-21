@@ -4,7 +4,7 @@
     "slug": "my-secrect",
     "version": "0.1.0",
     "orientation": "portrait",
-    "scheme": "my-secrect",
+    "scheme": ["my-secrect", "com.loygenics.mysecrect"],
     "userInterfaceStyle": "automatic",
     "icon": "./assets/icon.png",
     "splash": {
@@ -15,6 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.loygenics.my-secrect",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "NSFaceIDUsageDescription": "Unlock your my-secrect vault with Face ID. Your passphrase is still required the first time after install."
       }
@@ -30,6 +31,7 @@
     },
     "plugins": [
       "expo-local-authentication",
+      "expo-apple-authentication",
       [
         "expo-sqlite",
         {
