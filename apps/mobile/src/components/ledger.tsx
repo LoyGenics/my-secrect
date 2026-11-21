@@ -10,18 +10,8 @@ import { moduleIcon } from '../../../../packages/ui/src/modules';
 import { iconStrokeWidth } from '../../../../packages/ui/src/icons';
 import { useTranslation } from '../../../../packages/i18n/src/react';
 import { useMobileTheme } from '../theme';
-import { radius, size, space, textStyle, type StampFamily } from '../ui/tokens';
-
-/** Which calm stamp family each item type wears. */
-export const typeStampFamily: Record<ItemType, StampFamily> = {
-  login: 'access', passkey: 'access',
-  card: 'money', bank_account: 'money',
-  identity: 'identity',
-  secure_note: 'note', custom: 'note',
-  document: 'file', media: 'file',
-  ssh_key: 'dev', api_key: 'dev',
-  collection: 'group',
-};
+import { typeStampFamily } from '../../../../packages/ui/src/tokens';
+import { radius, size, space, textStyle } from '../ui/tokens';
 
 /** 32 pt tinted stamp with the type glyph; cards wear a mini card in their family tint. */
 export function TypeStamp({ type, large }: { type: ItemType; large?: boolean }) {
