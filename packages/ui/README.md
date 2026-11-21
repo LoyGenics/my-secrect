@@ -11,6 +11,7 @@ Phase A found three divergent implementations of one intended dark theme
 |---|---|
 | `src/tokens.ts` | Platform-neutral token values (color, type, spacing, radii, shadows, motion, breakpoints, density). Importable from web, desktop **and** React Native. |
 | `src/tokens.css` | The same tokens as CSS custom properties (`--ms-*`), light + dark themes, global focus ring, reduced-motion. |
+| `src/fonts.css` | Be Vietnam Pro 400/500/600/700 (latin, latin-ext, vietnamese) from `@fontsource/be-vietnam-pro`, for web, desktop and the extension. Import once per app. |
 | `src/theme.ts` | DOM theme helpers (`initTheme`, `applyTheme`, `resolveTheme`, storage). **Do not import from React Native.** |
 | `src/components.css` | Styles for every component below, driven by the `--ms-*` variables. Plain CSS on purpose (see decisions). |
 | `src/components/*` | Accessible React components on Radix primitives. Web/desktop only. |
