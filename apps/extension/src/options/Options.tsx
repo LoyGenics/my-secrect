@@ -4,6 +4,7 @@ import RestoreBackupExt from './RestoreBackupExt';
 import { DEFAULT_SETTINGS, type AutoLockMinutes, type ExtSettings } from '../lib/settings';
 import { applyAppearance } from '../popup/theme';
 import ghostMark from '../../../../packages/ui/assets/brand/ghost-mark.webp';
+import { useTranslation } from '../../../../packages/i18n/src/react';
 
 /**
  * Options page. Settings only — no keys, no vault contents here either.
@@ -20,6 +21,7 @@ function send(req: ExtRequest): Promise<ExtResponse> {
 }
 
 export default function Options() {
+  const x = useTranslation().dict.extension;
   const [settings, setSettings] = useState<ExtSettings>(DEFAULT_SETTINGS);
   const [loaded, setLoaded] = useState(false);
   const [notice, setNotice] = useState('');
@@ -102,9 +104,9 @@ export default function Options() {
     <>
     <header className="opt-cover">
       <div className="inner">
-        <div className="topbar"><span className="brand"><img src={ghostMark} alt="" />My Secret</span></div>
-        <h1>Extension settings</h1>
-        <p>The vault itself lives only in the background service worker's memory while unlocked.</p>
+        <div className="topbar"><span className="brand"><img src={ghostMark} alt="" />{x.brand}</span></div>
+        <h1>{x.optionsTitle}</h1>
+        <p>{x.optionsLede}</p>
       </div>
     </header>
     <main className="opt-main space-y-4">

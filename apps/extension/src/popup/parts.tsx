@@ -1,24 +1,26 @@
 import type { ReactNode } from 'react';
 import ghostMark from '../../../../packages/ui/assets/brand/ghost-mark.webp';
+import type { Dictionary } from '../../../../packages/i18n/src/index';
+import { useTranslation } from '../../../../packages/i18n/src/react';
 import { Icon, type IconName } from './icons';
 
-/** Item type -> label, icon and stamp family (the seven Pocket Ledger families). */
-const TYPES: Record<string, { label: string; icon: IconName; fam: string }> = {
-  login: { label: 'Login', icon: 'key-round', fam: 'access' },
-  passkey: { label: 'Passkey', icon: 'fingerprint', fam: 'access' },
-  card: { label: 'Card', icon: 'credit-card', fam: 'money' },
-  bank_account: { label: 'Bank account', icon: 'landmark', fam: 'money' },
-  identity: { label: 'Identity', icon: 'id-card', fam: 'id' },
-  secure_note: { label: 'Secure note', icon: 'notebook-text', fam: 'note' },
-  document: { label: 'Document', icon: 'file-text', fam: 'file' },
-  media: { label: 'Photo & video', icon: 'image', fam: 'file' },
-  ssh_key: { label: 'SSH key', icon: 'square-terminal', fam: 'dev' },
-  api_key: { label: 'API key', icon: 'braces', fam: 'dev' },
-  collection: { label: 'Collection', icon: 'boxes', fam: 'group' },
-  custom: { label: 'Custom', icon: 'shapes', fam: 'group' },
+/** Item type -> icon and stamp family (the seven Pocket Ledger families). */
+const TYPES: Record<string, { icon: IconName; fam: string }> = {
+  login: { icon: 'key-round', fam: 'access' },
+  passkey: { icon: 'fingerprint', fam: 'access' },
+  card: { icon: 'credit-card', fam: 'money' },
+  bank_account: { icon: 'landmark', fam: 'money' },
+  identity: { icon: 'id-card', fam: 'id' },
+  secure_note: { icon: 'notebook-text', fam: 'note' },
+  document: { icon: 'file-text', fam: 'file' },
+  media: { icon: 'image', fam: 'file' },
+  ssh_key: { icon: 'square-terminal', fam: 'dev' },
+  api_key: { icon: 'braces', fam: 'dev' },
+  collection: { icon: 'boxes', fam: 'group' },
+  custom: { icon: 'shapes', fam: 'group' },
 };
-const typeOf = (type: string) => TYPES[type] ?? { label: type, icon: 'shapes' as IconName, fam: 'group' };
-export const typeLabel = (type: string) => typeOf(type).label;
+const typeOf = (type: string) => TYPES[type] ?? { icon: 'shapes' as IconName, fam: 'group' };
+export const typeLabel = (dict: Dictionary, type: string): string => (dict.itemTypes as Record<string, string>)[type] ?? type;
 
 export function Stamp({ type, big }: { type: string; big?: boolean }) {
   const t = typeOf(type);
@@ -30,34 +32,37 @@ export function SiteStamp({ host }: { host: string }) {
 }
 
 export function Star() {
-  return <><span className="sr">, favorite</span><Icon name="star" className="star" /></>;
+  const x = useTranslation().dict.extension;
+  return <><span className="sr">{x.favoriteSr}</span><Icon name="star" className="star" /></>;
 }
 
 export function Topbar({ onLock }: { onLock: () => void }) {
+  const x = useTranslation().dict.extension;
   return (
     <div className="topbar">
-      <span className="brand"><img src={ghostMark} alt="" />My Secret</span>
-      <button className="pill" type="button" onClick={onLock}><Icon name="lock" />Lock</button>
+      <span className="brand"><img src={ghostMark} alt="" />{x.brand}</span>
+      <button className="pill" type="button" onClick={onLock}><Icon name="lock" />{x.lock}</button>
     </div>
   );
 }
 
 export type Tab = 'site' | 'all' | 'gen' | 'settings';
-const DOCK: [Tab, string, IconName][] = [
-  ['site', 'This site', 'globe'],
-  ['all', 'All items', 'list'],
-  ['gen', 'Generate', 'dices'],
-  ['settings', 'Settings', 'settings'],
+const DOCK: [Tab, 'thisSite' | 'allItems' | 'generate' | 'settings', IconName][] = [
+  ['site', 'thisSite', 'globe'],
+  ['all', 'allItems', 'list'],
+  ['gen', 'generate', 'dices'],
+  ['settings', 'settings', 'settings'],
 ];
 
 export function Dock({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
+  const x = useTranslation().dict.extension;
   return (
     <>
       <div className="dockfade" aria-hidden="true" />
-      <nav className="dock" aria-label="Sections">
+      <nav className="dock" aria-label={x.sections}>
         {DOCK.map(([id, label, icon]) => (
           <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} onClick={() => onTab(id)}>
-            <Icon name={icon} /><span>{label}</span>
+            <Icon name={icon} /><span>{x[label]}</span>
           </button>
         ))}
       </nav>

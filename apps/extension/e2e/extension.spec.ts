@@ -98,7 +98,7 @@ test.describe.serial('MV3 extension in real Chromium', () => {
     await popup.getByRole('button', { name: 'Create vault' }).click();
     const keyBox = popup.getByTestId('recovery-key');
     await expect(keyBox).toBeVisible({ timeout: 60_000 });
-    recoveryKey = (await keyBox.innerText()).trim();
+    recoveryKey = (await keyBox.innerText()).replace(/\s+/g, ''); // shown in groups of 4
     expect(recoveryKey.length).toBeGreaterThanOrEqual(40);
     // Regression: with a CSP that blocked wasm, libsodium's randombytes returned
     // WASM heap contents (the key embedded the passphrase). Key must be 32 bytes
