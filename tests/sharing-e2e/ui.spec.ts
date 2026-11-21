@@ -34,7 +34,7 @@ async function freshBrowser(browser: Browser, apiUrl: string): Promise<Page> {
 
 /** Open (or re-open, which reloads the share list) the Sharing view. */
 async function openSharing(page: Page): Promise<string> {
-  await page.getByRole('button', { name: /All items/i }).click();
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Settings' }).click();
   await page.getByRole('button', { name: /Sharing/ }).click();
   const fp = page.getByTestId('my-fingerprint');
   await expect(fp).toHaveText(/^\d{5}( \d{5}){5}$/);
@@ -43,7 +43,7 @@ async function openSharing(page: Page): Promise<string> {
 
 /** First visit: creating the sharing key needs a server step-up (passkey). */
 async function createSharingKey(page: Page): Promise<string> {
-  await page.getByRole('button', { name: /All items/i }).click();
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Settings' }).click();
   await page.getByRole('button', { name: /Sharing/ }).click();
   await expect(page.getByText('Creating your sharing key needs a fresh verification')).toBeVisible();
   await expect(page.getByTestId('my-fingerprint')).toHaveCount(0);
@@ -65,9 +65,9 @@ test('A shares an item read-only with B through the UI; B verifies, accepts, ope
   const fingerprintB = await createSharingKey(pageB);
 
   // A creates an item.
-  await page.getByRole('button', { name: /All items/i }).click();
-  await page.getByRole('button', { name: '+ New item' }).click();
-  await page.getByLabel('Title', { exact: true }).fill(TITLE);
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Vault' }).click();
+  await page.getByRole('button', { name: /^New item/ }).click();
+  await page.locator('#item-title').fill(TITLE);
   await page.getByLabel('Username').fill('alice');
   await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
   await page.getByRole('button', { name: 'Save', exact: true }).click();

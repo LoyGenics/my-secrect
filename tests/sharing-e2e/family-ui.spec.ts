@@ -29,9 +29,9 @@ test('Family: owner invites, member accepts then leaves, and both personal vault
   await familyB.getByRole('button', { name: 'Leave family' }).click();
   await familyB.getByRole('button', { name: 'Confirm', exact: true }).click();
   await expect(familyB.getByRole('button', { name: 'Create a family' })).toBeVisible();
-  await page.getByRole('button', { name: /All items/i }).click();
-  await pageB.getByRole('button', { name: /All items/i }).click();
-  await expect(page.getByRole('button', { name: '+ New item' })).toBeVisible();
-  await expect(pageB.getByRole('button', { name: '+ New item' })).toBeVisible();
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Vault' }).click();
+  await pageB.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Vault' }).click();
+  await expect(page.getByRole('button', { name: /^New item/ })).toBeVisible();
+  await expect(pageB.getByRole('button', { name: /^New item/ })).toBeVisible();
   await contextB.close();
 });

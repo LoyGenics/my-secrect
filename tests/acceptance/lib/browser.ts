@@ -57,18 +57,27 @@ export async function freshDevice(browser: Browser, apiBase: string): Promise<{ 
   return { ctx, page, auth };
 }
 
-/** Sign-up on the gate: email -> code from the mailed message -> passkey
- *  (the app enrols this browser's device key in the same ceremony). */
+/** Sign-up on the gate: email -> code from the mailed message (the app
+ *  enrols this browser's device key in the same step). No passkey yet:
+ *  add one after the vault exists with addPasskeyViaUi. */
 export async function registerViaUi(page: Page, webUrl: string, email: string, mailDir: string): Promise<void> {
   await page.goto(webUrl);
-  await page.getByRole('tab', { name: 'Create account' }).click();
-  await page.getByLabel('Account email').fill(email);
+  await signUpWithEmailCodeViaUi(page, email, mailDir);
+}
+
+/** First passkey of an email-only account, from the Security Center; the
+ *  step-up is a code mailed to the account (it has no passkey or MFA yet). */
+export async function addPasskeyViaUi(page: Page, email: string, mailDir: string): Promise<void> {
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: /Security Center/ }).first().click();
+  await page.getByRole('heading', { name: 'Security Center', level: 2 }).waitFor();
   const seen = mailCodes(mailDir, email).length;
-  await page.getByRole('button', { name: 'Email me a code' }).click();
-  await page.getByRole('heading', { name: 'Check your email' }).waitFor();
-  await page.getByLabel('Verification code').fill(await waitForMailCode(mailDir, email, seen));
-  await page.getByRole('button', { name: 'Create account with passkey' }).click();
-  await page.getByText('Create your local vault').waitFor();
+  await page.getByRole('button', { name: 'Add passkey', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: 'Email me a code' }).click();
+  await dialog.getByLabel('Verification code').fill(await waitForMailCode(mailDir, email, seen));
+  await dialog.getByRole('button', { name: 'Verify it’s you' }).click();
+  await page.getByText(/Passkey added/).waitFor();
 }
 
 /** Sign-up on the gate with an email code only (no passkey); stops at the
