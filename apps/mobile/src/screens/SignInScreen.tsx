@@ -48,7 +48,7 @@ function OtpField({ value, onChange, label, helper, disabled, onSubmit }: {
 
   return (
     <View style={{ gap: space[2] }}>
-      <Text style={[textStyle.helper, { color: colors.text, fontWeight: '600' }]}>{label}</Text>
+      <Text style={[textStyle.label, { color: colors.secondaryText }]}>{label}</Text>
       <View>
         <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ flexDirection: 'row', gap }}>
           {Array.from({ length: EMAIL_CODE_LENGTH }, (_, index) => {

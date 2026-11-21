@@ -14,21 +14,25 @@ interface InputControlProps extends TextInputProps {
   invalid?: boolean;
   disabled?: boolean;
   busy?: boolean;
+  /** Cover fields (sign-in, search) are boxed with a >= 3:1 edge; body fields are an underline. */
+  boxed?: boolean;
 }
 
 export const InputControl = forwardRef<TextInput, InputControlProps>(function InputControl(
-  { leading, trailing, containerStyle, invalid, disabled, busy, multiline, onFocus, onBlur, style, keyboardAppearance, editable, accessibilityState, ...props }, ref,
+  { leading, trailing, containerStyle, invalid, disabled, busy, boxed, multiline, onFocus, onBlur, style, keyboardAppearance, editable, accessibilityState, ...props }, ref,
 ) {
   const { colors, styles, scheme } = useMobileTheme();
   const [focused, setFocused] = useState(false);
   const off = !!disabled || !!busy || editable === false;
+  const marked = focused || invalid;
   return (
-    <View style={[styles.inputShell, containerStyle, focused && styles.inputFocused, invalid && { borderColor: colors.dangerText }, disabled && local.disabled]}>
+    <View style={[styles.inputShell, boxed && styles.inputBoxed, containerStyle,
+      marked && (boxed ? styles.inputBoxedFocused : styles.inputFocused), invalid && { borderColor: colors.dangerText }, disabled && local.disabled]}>
       {leading && <View style={local.leading}>{leading}</View>}
       <TextInput
         ref={ref}
         multiline={multiline}
-        placeholderTextColor={colors.muted}
+        placeholderTextColor={colors.mutedText}
         selectionColor={colors.focus}
         underlineColorAndroid="transparent"
         keyboardAppearance={keyboardAppearance ?? scheme}
@@ -60,6 +64,7 @@ export const AppTextField = forwardRef<TextInput, AppTextFieldProps>(function Ap
   const { colors, styles } = useMobileTheme();
   const { dict } = useTranslation();
   const [show, setShow] = useState(false);
+  const message = error ?? helper;
   return (
     <View style={flush ? undefined : local.field}>
       <Text style={styles.label}>{label}</Text>
@@ -85,8 +90,11 @@ export const AppTextField = forwardRef<TextInput, AppTextFieldProps>(function Ap
           </View> : trailing}
         {...props}
       />
-      {error ? <Text accessibilityRole="alert" accessibilityLiveRegion="polite" testID={testID && `${testID}-error`} style={[styles.error, local.message]}>{error}</Text>
-        : helper ? <Text style={[styles.small, local.message]}>{helper}</Text> : null}
+      {error ? <View style={local.messageRow}>
+          <Icon name="error" size={size.inlineIcon} color={colors.dangerText} />
+          <Text accessibilityRole="alert" accessibilityLiveRegion="polite" testID={testID && `${testID}-error`} style={[styles.error, local.flexText]}>{error}</Text>
+        </View>
+        : message ? <Text style={[styles.small, local.message]}>{message}</Text> : null}
     </View>
   );
 });
@@ -94,9 +102,11 @@ export const AppTextField = forwardRef<TextInput, AppTextFieldProps>(function Ap
 export default AppTextField;
 
 const local = StyleSheet.create({
-  field: { marginBottom: space[4] },
-  leading: { width: size.icon, alignItems: 'center', marginLeft: space[3] },
+  field: { marginBottom: space[5] },
+  leading: { width: size.icon, alignItems: 'center', marginRight: space[3] },
   actions: { flexDirection: 'row', alignItems: 'center' },
-  message: { marginTop: space[1] },
+  message: { marginTop: space[2] },
+  messageRow: { flexDirection: 'row', alignItems: 'flex-start', gap: space[2], marginTop: space[2] },
+  flexText: { flex: 1, minWidth: 0 },
   disabled: { opacity: 0.52 },
 });
