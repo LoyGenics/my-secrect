@@ -1,17 +1,17 @@
 /*
  * Shared classes for the screens that are not yet built from the design-system
  * components (Security Center, sign-in, step-up, media, shares, sync bar).
- * Same soft grammar as components.css: white card, pill buttons, soft fields.
- * Both apps import this file inside the Tailwind `components` layer, so
- * Tailwind utilities on the element (padding, width, margin) still win.
- * New code uses the components, never these classes.
+ * Same Pocket Ledger grammar as components.css: quiet sunken pills, the orange
+ * primary with dark ink, underline fields. Both apps import this file inside
+ * the Tailwind `components` layer, so Tailwind utilities on the element
+ * (padding, width, margin) still win. New code uses the components, never
+ * these classes.
  */
 @layer components {
   .card {
-    border-radius: var(--ms-radius-lg);
+    border-radius: var(--ms-radius-card-strip);
     background-color: var(--ms-color-bg-surface);
     border: 1px solid var(--ms-color-border-default);
-    box-shadow: var(--ms-shadow-sm);
   }
   .btn,
   .btn-primary,
@@ -21,23 +21,28 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    padding: 10px 16px;
+    gap: var(--ms-space-2);
+    min-height: var(--ms-control-height);
+    padding: 0 var(--ms-space-4);
     border-radius: var(--ms-radius-full);
-    border: 1px solid var(--ms-color-border-default);
-    background-color: var(--ms-color-bg-surface);
+    border: 0;
+    background-color: var(--ms-color-bg-sunken);
     color: var(--ms-color-text-primary);
-    font-size: var(--ms-text-sm);
-    line-height: var(--ms-leading-sm);
-    font-weight: 600;
+    font-size: var(--ms-type-control-size);
+    line-height: var(--ms-type-control-leading);
+    font-weight: var(--ms-type-control-weight);
     cursor: pointer;
     transition: background-color var(--ms-duration-base) var(--ms-easing-out),
       box-shadow var(--ms-duration-base) var(--ms-easing-out);
   }
+  .btn-ghost { background-color: transparent; color: var(--ms-color-text-secondary); }
   .btn:hover:not(:disabled),
-  .btn-ghost:hover:not(:disabled),
   .btn-secondary:hover:not(:disabled) {
-    box-shadow: var(--ms-shadow-sm);
+    box-shadow: inset 0 0 0 1px var(--ms-color-border-control);
+  }
+  .btn-ghost:hover:not(:disabled) {
+    color: var(--ms-color-text-primary);
+    background-color: color-mix(in srgb, var(--ms-color-text-primary) 6%, transparent);
   }
   .btn:focus-visible,
   .btn-primary:focus-visible,
@@ -53,38 +58,36 @@
   .btn-secondary:disabled,
   .btn-danger:disabled {
     cursor: not-allowed;
-    background-color: var(--ms-color-bg-muted);
-    border-color: transparent;
-    color: var(--ms-color-text-faint);
-    box-shadow: none;
+    background-color: var(--ms-color-bg-sunken);
+    color: var(--ms-color-text-muted);
+    box-shadow: inset 0 0 0 1px var(--ms-color-border-default);
   }
   .btn-primary {
-    background-color: var(--ms-color-brand);
-    border-color: transparent;
-    color: var(--ms-color-text-on-brand);
-    box-shadow: 0 6px 16px color-mix(in srgb, var(--ms-color-brand) 28%, transparent);
+    background-color: var(--ms-color-accent);
+    color: var(--ms-color-accent-ink);
   }
   .btn-primary:hover:not(:disabled) {
     background-color: var(--ms-color-brand-hover);
   }
   .btn-danger {
     background-color: var(--ms-color-danger-soft);
-    border-color: var(--ms-color-danger-border);
     color: var(--ms-color-danger-soft-text);
   }
   .btn-danger:hover:not(:disabled) {
-    box-shadow: var(--ms-shadow-sm);
+    box-shadow: inset 0 0 0 1px var(--ms-color-danger-border);
   }
   .input {
     width: 100%;
-    padding: 10px 14px;
     min-height: 44px;
-    border-radius: var(--ms-radius-md);
-    background-color: var(--ms-color-bg-input);
-    border: 1px solid var(--ms-color-border-default);
+    padding: var(--ms-space-2) 0;
+    border: 0;
+    border-bottom: 1.5px solid var(--ms-color-border-control);
+    border-radius: 0;
+    background-color: transparent;
     color: var(--ms-color-text-primary);
-    font-size: var(--ms-text-md);
-    line-height: var(--ms-leading-md);
+    font-size: var(--ms-type-value-size);
+    line-height: var(--ms-type-value-leading);
+    font-weight: var(--ms-type-value-weight);
   }
   .input::placeholder {
     color: var(--ms-color-text-muted);
@@ -92,15 +95,15 @@
   }
   .input:focus {
     outline: none;
-    border-color: var(--ms-color-focus-ring);
-    box-shadow: 0 0 0 3px var(--ms-color-brand-soft);
+    border-bottom: 2px solid var(--ms-color-plum);
+    box-shadow: 0 1px 0 0 var(--ms-color-plum);
   }
   .label {
     display: block;
-    margin-bottom: 6px;
-    font-size: var(--ms-text-sm);
-    line-height: var(--ms-leading-sm);
-    font-weight: 500;
-    color: var(--ms-color-text-muted);
+    margin-bottom: var(--ms-space-1);
+    font-size: var(--ms-type-label-size);
+    line-height: var(--ms-type-label-leading);
+    font-weight: var(--ms-type-label-weight);
+    color: var(--ms-color-text-secondary);
   }
 }
