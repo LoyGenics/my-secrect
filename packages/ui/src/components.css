@@ -905,6 +905,7 @@ select.ms-input { padding-right: var(--ms-space-8); cursor: pointer; }
 .ms-sections section.card { border-top: 1px solid var(--ms-color-border-default); }
 .ms-sections section.ms-card--danger { border-top-color: var(--ms-color-danger-border); }
 .ms-sections .ms-plate__head > .ms-heading,
+.ms-sections section.ms-card h3.ms-heading--md,
 .ms-sections section.card > h3:first-child {
   font-size: var(--ms-type-strong-size);
   line-height: var(--ms-type-strong-leading);
