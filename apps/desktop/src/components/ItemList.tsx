@@ -28,6 +28,11 @@ function truncate(text: string, max = 60): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
+/** The title the ledger prints (cards show their issuer); Title A–Z sorts by it. */
+export function itemDisplayTitle(item: VaultItem): string {
+  return item.type === 'card' ? cardIssuer(item.title, item.fields.bank) : item.title;
+}
+
 /** Short identifying subtitle per item type, from its fields. */
 export function itemSubtitle(item: VaultItem): string {
   switch (item.type) {
@@ -82,10 +87,10 @@ export default function ItemList({ items, selectedId, onSelect, letters = false,
   const { copiedKey } = useClipboardStatus();
   let lastLetter = '';
   return (
-    <ul className="ms-list" aria-label={l.label}>
+    <ul className="ms-list" aria-label={l.label} data-letters={letters}>
       {items.map((item) => {
         const favorite = isFavorite(item);
-        const title = item.type === 'card' ? cardIssuer(item.title, item.fields.bank) : item.title;
+        const title = itemDisplayTitle(item);
         const subtitle = itemSubtitle(item) || ((dict.itemTypes as Record<string, string>)[item.type] ?? item.type);
         const checked = selectedIds?.has(item.id) ?? false;
         const selected = selectionMode ? checked : item.id === selectedId;

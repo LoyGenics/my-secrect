@@ -1,3 +1,4 @@
+@import '../../../packages/ui/src/fonts.css';
 @import '../../../packages/ui/src/tokens.css';
 @import '../../../packages/ui/src/legacy.css';
 @tailwind base;
@@ -8,7 +9,7 @@
  * Web shell styles: token-driven and identical to desktop. The shared
  * classes of the screens not yet migrated come from
  * packages/ui/src/legacy.css (same file as desktop). The only web-only rules
- * are the .web-shell responsive layout below; the warning banner is in App.tsx.
+ * are the frame rules below.
  */
 
 html,
@@ -46,35 +47,6 @@ body {
   scrollbar-color: var(--ms-color-border-strong) var(--ms-color-bg-base);
 }
 
-/* Focus rings come from tokens.css (:focus-visible). No sky overrides. */
-
-/* Responsive web shell: the shared desktop App is a wide flex-row layout
- * (sidebar | item list | detail). Below 900px the shell stacks vertically
- * so every screen stays reachable on a narrow browser window instead of
- * overflowing sideways. Scoped under .web-shell so desktop is untouched. */
-@media (max-width: 900px) {
-  .web-shell .flex.h-full {
-    flex-direction: column;
-    height: auto;
-    min-height: 100%;
-  }
-  .web-shell .flex.h-full > aside,
-  .web-shell .flex.h-full > nav {
-    width: 100% !important;
-    max-height: 220px;
-    overflow-y: auto;
-    border-right: 0 !important;
-    border-bottom: 1px solid var(--ms-color-border-default);
-  }
-  .web-shell .flex.min-h-0.flex-1 {
-    flex-direction: column;
-  }
-  .web-shell .flex.min-h-0.flex-1 > section {
-    width: 100% !important;
-    border-right: 0 !important;
-    border-bottom: 1px solid var(--ms-color-border-default);
-  }
-  .web-shell header {
-    flex-wrap: wrap;
-  }
-}
+/* Focus rings come from tokens.css (:focus-visible). The responsive shell
+ * (spine drawer below 1100 px, phone tab bar below 768 px) and the web-limits
+ * banner live in the shared desktop App and packages/ui/src/components.css. */

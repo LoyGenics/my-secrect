@@ -41,7 +41,8 @@ import Sidebar, {
 } from './components/Sidebar';
 import SearchPalette from './components/SearchPalette';
 import HealthView from './components/HealthView';
-import ItemList from './components/ItemList';
+import ItemList, { itemDisplayTitle } from './components/ItemList';
+import FilterPopover from './components/FilterPopover';
 import ItemDetail from './components/ItemDetail';
 import ItemForm from './components/ItemForm';
 import PasswordGenerator from './components/PasswordGenerator';
@@ -81,7 +82,6 @@ import {
   Kbd,
   Progress,
   SecureField,
-  Select,
   Sheet,
   brandMark,
   copyWithClear,
@@ -200,6 +200,11 @@ export default function App({
   // List sorting + bulk selection.
   const [sort, setSort] = useState<ItemSort>('title');
   const [selectionMode, setSelectionMode] = useState(false);
+  const [filterCats, setFilterCats] = useState<ReadonlySet<string>>(new Set());
+  const [filterTags, setFilterTags] = useState<ReadonlySet<string>>(new Set());
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filterButtonRef = useRef<HTMLButtonElement>(null);
+  const searchButtonRef = useRef<HTMLButtonElement>(null);
   const [bulkIds, setBulkIds] = useState<Set<string>>(new Set());
   // Account server (local-first): the client exists only when a base URL
   // is configured. The token getter reads the stored account session
@@ -480,7 +485,8 @@ export default function App({
     return c;
   }, [liveItems, archivedItems, health]);
 
-  const visibleItems = useMemo(() => {
+  /** Items of the current view (scope + search), before the filter popover. */
+  const scopedItems = useMemo(() => {
     let base: VaultItem[];
     if (view === 'trash') base = trash;
     else if (view === 'archived') base = archivedItems;
@@ -502,12 +508,19 @@ export default function App({
       const matched = new Set(searchLocal(q).map((i) => i.id));
       base = base.filter((i) => matched.has(i.id));
     }
-    const sorted = [...base];
-    if (sort === 'title') sorted.sort((a, b) => a.title.localeCompare(b.title));
+    return base;
+  }, [view, liveItems, archivedItems, trash, searchQuery]);
+
+  // Filter popover: categories OR'ed, tags OR'ed, the two groups AND'ed.
+  const inCategories = (item: VaultItem, cats: ReadonlySet<string>) => cats.size === 0 || cats.has(categoryForType(item.type));
+  const inTags = (item: VaultItem, tagSet: ReadonlySet<string>) => tagSet.size === 0 || (item.tags ?? []).some((t) => tagSet.has(t));
+  const visibleItems = useMemo(() => {
+    const sorted = scopedItems.filter((i) => inCategories(i, filterCats) && inTags(i, filterTags));
+    if (sort === 'title') sorted.sort((a, b) => itemDisplayTitle(a).localeCompare(itemDisplayTitle(b)));
     else if (sort === 'created') sorted.sort((a, b) => b.created_at.localeCompare(a.created_at));
     else sorted.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
     return sorted;
-  }, [view, liveItems, archivedItems, trash, searchQuery, sort]);
+  }, [scopedItems, filterCats, filterTags, sort]);
 
   const selectedItem = useMemo(
     () =>
@@ -854,6 +867,9 @@ export default function App({
   /** Navigate: every view change also closes the detail/form (phones pop back to the list). */
   const go = (v: SidebarView) => {
     setView(v);
+    setFilterCats(new Set());
+    setFilterTags(new Set());
+    setFilterOpen(false);
     setSelectedId(null);
     setShowForm(false);
     setEditingItem(null);
@@ -1116,6 +1132,14 @@ export default function App({
     ...(signedIn ? [{ key: 'signout', label: dict.signin.signOut, icon: 'export' as const, onSelect: () => void handleSignOut() }] : []),
   ];
 
+  const filterCount = filterCats.size + filterTags.size;
+  const toggled = (set: ReadonlySet<string>, key: string) => {
+    const next = new Set(set);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    return next;
+  };
+  const resetFilters = () => { setFilterCats(new Set()); setFilterTags(new Set()); };
   const emptyList = emptyListState();
   const viewRegion = { className: 'ms-content', role: 'region', 'aria-label': viewTitle, tabIndex: 0 } as const;
 
@@ -1138,7 +1162,7 @@ export default function App({
           {tab('settings', 'settings', settingsTab, () => go('settings'))}
         </nav>
         <div className="ms-cover-bar__end">
-          <button type="button" className="ms-cover-search" aria-keyshortcuts="Meta+K Control+K" onClick={() => setShowPalette(true)}>
+          <button ref={searchButtonRef} type="button" className="ms-cover-search" aria-keyshortcuts="Meta+K Control+K" onClick={() => setShowPalette(true)}>
             <Icon name="search" size="md" />
             <span className="ms-cover-search__label">{sh.openSearch}</span>
             <Kbd>⌘K</Kbd>
@@ -1283,15 +1307,67 @@ export default function App({
           </div>
         ) : (
           <div className="ms-content ms-content--split">
+            <FilterPopover
+              open={filterOpen}
+              onClose={() => setFilterOpen(false)}
+              anchorRef={filterButtonRef}
+              categories={CATEGORIES.map((c) => ({
+                key: c.key,
+                label: categoryTitle(c.key),
+                count: scopedItems.filter((i) => c.types.includes(i.type) && inTags(i, filterTags)).length,
+              }))}
+              tags={tags.map((tag) => ({
+                key: tag,
+                label: `#${tag}`,
+                count: scopedItems.filter((i) => (i.tags ?? []).includes(tag) && inCategories(i, filterCats)).length,
+              }))}
+              selectedCategories={filterCats}
+              selectedTags={filterTags}
+              onToggleCategory={(key) => setFilterCats((prev) => toggled(prev, key))}
+              onToggleTag={(tag) => setFilterTags((prev) => toggled(prev, tag))}
+              onReset={resetFilters}
+              shown={visibleItems.length}
+              total={scopedItems.length}
+            />
             <div className="ms-split" data-pushed={pushed}>
               <section className="ms-pane ms-pane--list" aria-label={viewTitle}>
                 <div className="ms-pane__top">
                   <div className="ms-pane__head">
                     <h1 className="ms-pane__title">{viewTitle}</h1>
-                    <Button size="sm" aria-pressed={selectionMode} onClick={() => { setSelectionMode((v) => !v); setBulkIds(new Set()); }}>
+                    <button
+                      ref={filterButtonRef}
+                      type="button"
+                      className="ms-filter-button"
+                      aria-pressed={filterCount > 0}
+                      aria-expanded={filterOpen}
+                      aria-haspopup="dialog"
+                      onClick={() => setFilterOpen((v) => !v)}
+                    >
+                      <Icon name="checklist" size="md" />
+                      {sh.filter}
+                      {filterCount > 0 && <span className="ms-filter-button__badge" aria-label={tp(sh.filterActive, filterCount)}>{filterCount}</span>}
+                    </button>
+                    <Button size="sm" variant="ghost" aria-pressed={selectionMode} onClick={() => { setSelectionMode((v) => !v); setBulkIds(new Set()); }}>
                       {selectionMode ? sh.doneSelecting : sh.selectMode}
                     </Button>
                   </div>
+                  {filterCount > 0 && (
+                    <div className="ms-tokens">
+                      {[...filterCats].map((key) => (
+                        <button key={`c:${key}`} type="button" className="ms-token" aria-label={format(sh.removeFilter, categoryTitle(key))} onClick={() => setFilterCats((prev) => toggled(prev, key))}>
+                          {categoryTitle(key)}
+                          <Icon name="close" size="md" />
+                        </button>
+                      ))}
+                      {[...filterTags].map((tag) => (
+                        <button key={`t:${tag}`} type="button" className="ms-token" aria-label={format(sh.removeFilter, `#${tag}`)} onClick={() => setFilterTags((prev) => toggled(prev, tag))}>
+                          #{tag}
+                          <Icon name="close" size="md" />
+                        </button>
+                      ))}
+                      <Button variant="link" onClick={resetFilters}>{sh.clearAll}</Button>
+                    </div>
+                  )}
                   <span className="ms-input-wrap ms-search-field">
                     <span className="ms-search-field__icon" aria-hidden="true"><Icon name="search" /></span>
                     <input
@@ -1314,7 +1390,9 @@ export default function App({
                       </>
                     ) : (
                       <>
-                        <span className="ms-pane__count">{tp(sh.itemCount, visibleItems.length)}</span>
+                        <span className="ms-pane__count">
+                          {filterCount > 0 ? tp(sh.filteredCount, scopedItems.length, visibleItems.length) : tp(sh.itemCount, visibleItems.length)}
+                        </span>
                         <span className="ms-sort">
                           <Icon name="sort" size="md" />
                           <select id="header-sort" name="sort" aria-label={sh.sortLabel} value={sort} onChange={(e) => setSort(e.target.value as ItemSort)}>
@@ -1431,6 +1509,7 @@ export default function App({
       <SearchPalette
         open={showPalette}
         onClose={() => setShowPalette(false)}
+        returnFocusRef={searchButtonRef}
         items={items}
         onSelect={(item) => {
           setSelectedId(item.id);

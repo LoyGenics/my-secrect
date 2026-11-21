@@ -138,9 +138,9 @@ export default function SettingsView({
   };
 
   return (
-    <div className="ms-view ms-view--narrow grid gap-4">
+    <div className="ms-view ms-view--narrow ms-sections grid gap-4">
       <div>
-        <h2 className="ms-heading ms-heading--lg">{st.title}</h2>
+        <h2 className="ms-page-title">{st.title}</h2>
         <p className="ms-text-sm ms-text-muted mb-0 mt-1">{tp(st.summary, itemCount)}</p>
       </div>
 
@@ -305,9 +305,18 @@ export default function SettingsView({
             </div>
           </div>
         ) : (
-          <Alert tone="info" title={st.plaintextDisabledTitle} className="mt-4">
-            {st.plaintextDisabledBody}
-          </Alert>
+          <>
+            <Alert tone="info" title={st.plaintextDisabledTitle} className="mt-4">
+              {st.plaintextDisabledBody}
+            </Alert>
+            <ul className="ms-reasons" aria-label={dict.web.why}>
+              <li>{dict.web.reasonCompromised}</li>
+              <li>{dict.web.reasonAutofill}</li>
+              <li>{dict.web.reasonUpload}</li>
+              <li>{dict.web.reasonExport}</li>
+              <li>{dict.web.reasonNarrow}</li>
+            </ul>
+          </>
         )}
       </Section>
 

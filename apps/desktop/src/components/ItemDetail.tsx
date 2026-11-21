@@ -356,7 +356,7 @@ export default function ItemDetail({
                   {key === 'url' && openableUrl && (
                     <IconButton icon="open" size="sm" label={d.openWebsite} onClick={() => window.open(openableUrl, '_blank', 'noopener,noreferrer')} />
                   )}
-                  {copyButton(`field:${key}`, label, text)}
+                  {!isCardVerificationField(key) && copyButton(`field:${key}`, label, text)}
                 </span>
               </li>
             );
