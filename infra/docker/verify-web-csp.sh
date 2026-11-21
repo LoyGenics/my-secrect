@@ -56,10 +56,10 @@ hdr() { curl -sS -D - -o /dev/null --cacert "$WORK/caddy-root.crt" "$1" | tr -d 
 doc=$(hdr "$ORIGIN/")
 csp=$(echo "$doc" | grep -i '^content-security-policy:' | cut -d' ' -f2-)
 [ "$(echo "$doc" | grep -ci '^content-security-policy:')" = 1 ] || fail "document CSP missing or duplicated"
-echo "$csp" | grep -qF "connect-src 'self' https://s3.localhost:$HTTPS_PORT;" || fail "CSP connect-src does not name the S3 endpoint"
+echo "$csp" | grep -qF "connect-src 'self' https://s3.localhost:$HTTPS_PORT https://accounts.google.com/gsi/;" || fail "CSP connect-src does not name the S3 endpoint"
 echo "$csp" | grep -qE "unsafe-inline|'unsafe-eval'" && fail "CSP allows unsafe-inline/unsafe-eval"
 for h in 'strict-transport-security: max-age=31536000; includesubdomains' 'x-frame-options: deny' 'x-content-type-options: nosniff' \
-         'referrer-policy: no-referrer' 'cross-origin-opener-policy: same-origin' 'cross-origin-resource-policy: same-origin' 'cache-control: no-cache'; do
+         'referrer-policy: no-referrer' 'cross-origin-opener-policy: same-origin-allow-popups' 'cross-origin-resource-policy: same-origin' 'cache-control: no-cache'; do
   echo "$doc" | tr 'A-Z' 'a-z' | grep -qxF "$h" || fail "document header missing: $h"
 done
 asset=$(ls "$WEB_DIST/assets" | grep '\.js$' | head -1)
@@ -67,7 +67,7 @@ echo "$(hdr "$ORIGIN/assets/$asset")" | tr 'A-Z' 'a-z' | grep -qxF 'cache-contro
 [ "$(curl -s -o /dev/null -w '%{http_code}' --cacert "$WORK/caddy-root.crt" "$ORIGIN/assets/does-not-exist.js")" = 404 ] || fail "missing asset is not a 404"
 s3=$(curl -sS -D - -o /dev/null --cacert "$WORK/caddy-root.crt" "https://s3.localhost:$HTTPS_PORT/" | tr -d '\r' | tr 'A-Z' 'a-z')
 echo "$s3" | grep -qxF "content-security-policy: default-src 'none'; sandbox; frame-ancestors 'none'" || fail "s3 site lacks the sandbox CSP"
-say "   document: CSP (enforced, 1x), HSTS, XFO DENY, nosniff, no-referrer, COOP/CORP same-origin, no-cache"
+say "   document: CSP (enforced, 1x), HSTS, XFO DENY, nosniff, no-referrer, COOP same-origin-allow-popups, CORP same-origin, no-cache"
 say "   /assets: immutable; missing asset 404; s3.<site>: sandbox CSP"
 say "   CSP: $csp"
 
