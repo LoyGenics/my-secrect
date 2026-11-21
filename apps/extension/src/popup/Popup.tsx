@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
-import type { ExtRequest, ExtResponse, LoginMeta, ItemMeta, HealthSummary, PendingForm, SaveOffer } from '../lib/messages';
+import type { AccountStatus, ExtRequest, ExtResponse, LoginMeta, ItemMeta, HealthSummary, PendingForm, SaveOffer } from '../lib/messages';
 import type { VaultItem } from '../../../../packages/core/src/types';
 import { DEFAULT_SETTINGS, type AutoLockMinutes, type Appearance, type ExtSettings } from '../lib/settings';
 import { generateTotp } from '../lib/totp';
@@ -8,6 +8,7 @@ import ghostSearching from '../../../../packages/ui/assets/mascot/ghost-searchin
 import { Icon, type IconName } from './icons';
 import { Code, Colorized, Dock, Msg, OtpRing, Seg, SiteStamp, Stamp, Star, Switch, Topbar, typeLabel, type Tab } from './parts';
 import { applyAppearance } from './theme';
+import SignIn from './SignIn';
 import { formatDate, format } from '../../../../packages/i18n/src/index';
 import { useTranslation } from '../../../../packages/i18n/src/react';
 
@@ -55,7 +56,7 @@ const hostOfUrl = (url: string): string => {
 const byTitle = (a: { title: string }, b: { title: string }) => a.title.localeCompare(b.title, 'en', { sensitivity: 'base' });
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 
-type Screen = 'loading' | 'onboarding' | 'locked' | 'unlocked';
+type Screen = 'loading' | 'signin' | 'onboarding' | 'locked' | 'unlocked';
 type Toast = { text: string; icon: IconName; on: boolean };
 
 export default function Popup() {
@@ -99,6 +100,8 @@ export default function Popup() {
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [useRecovery, setUseRecovery] = useState(false);
   const [recoveryInput, setRecoveryInput] = useState('');
+  const [account, setAccount] = useState<AccountStatus | null>(null);
+  const [vaultExists, setVaultExists] = useState(false);
   // Add-login form state.
   const [addTitle, setAddTitle] = useState('');
   const [addUsername, setAddUsername] = useState('');
@@ -154,17 +157,23 @@ export default function Popup() {
         if (res.ok && 'settings' in res) { setSettings(res.settings); applyAppearance(res.settings.appearance); setSettingsLoaded(true); }
       })
       .catch(() => undefined);
-    send({ type: 'getStatus' })
-      .then((res) => {
+    // Account first, then status: a dead session locks the vault before the status is read.
+    send({ type: 'getAccount' })
+      .then(async (acc) => [acc, await send({ type: 'getStatus' })] as const)
+      .then(([acc, res]) => {
+        if (acc.ok && 'account' in acc) setAccount(acc.account);
         if (!res.ok || !('status' in res)) { setScreen('locked'); return; }
+        setVaultExists(res.status.vaultExists);
         // Opening the popup grants activeTab for this tab: let the background
         // watch for a login submission here so it can offer to save it.
         if (res.status.vaultExists) {
           void send({ type: 'armActiveTab' }).then((r) => setArmed(r.ok && 'armed' in r && r.armed)).catch(() => undefined);
         }
-        if (!res.status.vaultExists) setScreen('onboarding');
-        else if (res.status.locked) setScreen('locked');
-        else { setScreen('unlocked'); void refreshUnlocked(true); }
+        // Account first: no vault is created or unlocked before sign-in.
+        const signedIn = acc.ok && 'account' in acc && acc.account.step === 'signed-in';
+        if (!signedIn) setScreen('signin');
+        else if (!res.status.locked) { setScreen('unlocked'); void refreshUnlocked(true); }
+        else setScreen(res.status.vaultExists ? 'locked' : 'onboarding');
       })
       .catch(() => setScreen('locked'));
   }, [refreshUnlocked]);
@@ -242,11 +251,33 @@ export default function Popup() {
     else setError(x.copyFailed);
   };
 
+  /** The background refused because the account session is gone: back to sign-in. */
+  const toSignIn = async () => {
+    const acc = await send({ type: 'getAccount' });
+    if (acc.ok && 'account' in acc) setAccount(acc.account);
+    setError(''); setScreen('signin');
+  };
+
+  const onAccount = (next: AccountStatus) => {
+    setAccount(next);
+    if (next.step === 'signed-in') { setError(''); setScreen(vaultExists ? 'locked' : 'onboarding'); }
+  };
+
+  const handleSignOut = async () => {
+    const res = await send({ type: 'signOut' });
+    setDetail(null); setAddOpen(false); setLogins([]); setItems([]); setHealth(null); setRowCodes({});
+    setSaveOffer(null); setGenerated(''); setQuery(''); setFillConfirm(null); setError('');
+    if (res.ok && 'account' in res) setAccount(res.account);
+    setScreen('signin');
+    showToast(x.signedOutToast, 'lock');
+  };
+
   const handleUnlock = async () => {
     setError('');
     const value = useRecovery ? recoveryInput.trim() : passphrase;
     if (!value) { setError(useRecovery ? x.pasteRecoveryKey : x.enterPassphrase); passRef.current?.focus(); return; }
     const res = await send(useRecovery ? { type: 'unlockRecovery', recoveryKey: value } : { type: 'unlock', passphrase });
+    if (!res.ok && res.authError === 'signed-out') { await toSignIn(); return; }
     if (res.ok && 'unlocked' in res && res.unlocked) {
       setPassphrase(''); setRecoveryInput(''); setUseRecovery(false); setShowPass(false);
       setScreen('unlocked'); void refreshUnlocked(true);
@@ -261,8 +292,9 @@ export default function Popup() {
     if (newPass.length < 8) { setError(x.passphraseTooShort); return; }
     if (newPass !== newPassConfirm) { setError(x.passphraseMismatch); return; }
     const res = await send({ type: 'createVault', passphrase: newPass });
+    if (!res.ok && res.authError === 'signed-out') { await toSignIn(); return; }
     if (res.ok && 'recoveryKey' in res) {
-      setRecoveryKey(res.recoveryKey); setNewPass(''); setNewPassConfirm(''); setOnboardingStep(1);
+      setRecoveryKey(res.recoveryKey); setNewPass(''); setNewPassConfirm(''); setOnboardingStep(1); setVaultExists(true);
     } else {
       setError(res.ok ? x.createFailed : res.error);
     }
@@ -378,6 +410,25 @@ export default function Popup() {
 
   if (screen === 'loading') return <div className="popup" />;
 
+  // ---------- Account sign-in (before any vault screen) ----------
+  if (screen === 'signin') {
+    if (!account) return <div className="popup" />;
+    return (
+      <div className="popup">
+        <section className="view lock" aria-labelledby="signin-h">
+          <div className="inner">
+            <img className="mark" src={ghostMark} alt="" />
+            <h1 id="signin-h">{x.signInTitle}</h1>
+            <p className="lede">{x.signInLede}</p>
+            <SignIn account={account} onChange={onAccount} tone="cover" />
+            <Msg icon="shield-check" className="oncover lockfoot">{x.cryptoNote}</Msg>
+          </div>
+        </section>
+        {toastEl(true)}
+      </div>
+    );
+  }
+
   // ---------- Onboarding ----------
   if (screen === 'onboarding') {
     const strength = passphraseScore(newPass);
@@ -474,6 +525,10 @@ export default function Popup() {
             <Msg icon="timer" className="oncover lockfoot">
               {lockMins ? tp(x.locksAfter, lockMins) : x.staysUnlocked}
             </Msg>
+            <p className="msg oncover" data-testid="signed-in-as">
+              <span>{account?.email ? format(x.signedInAs, account.email) : x.signedIn}</span>
+              <button className="btn-link alt" type="button" style={{ marginTop: 0 }} onClick={() => void handleSignOut()}>{x.signOut}</button>
+            </p>
           </div>
         </section>
         {toastEl(true)}
@@ -649,6 +704,9 @@ export default function Popup() {
           <button className="linkrow" type="button" onClick={() => { void chrome.runtime.openOptionsPage(); }}>
             <span className="txt"><span className="k">{x.allSettings}</span><span className="h">{x.allSettingsHint}</span></span><Icon name="external-link" />
           </button>
+          <h2>{x.account}</h2>
+          <div className="setrow"><span className="k">{account?.email ? format(x.signedInAs, account.email) : x.signedIn}</span>
+            <button className="btn sm btn-quiet" type="button" onClick={() => void handleSignOut()}>{x.signOut}</button></div>
           <Msg icon="info">{x.noSyncNote}</Msg>
         </div>
       ),

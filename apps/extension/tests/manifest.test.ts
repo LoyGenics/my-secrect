@@ -31,9 +31,10 @@ test('no standing host permissions (activeTab + on-demand injection only)', () =
 });
 
 // Each permission is used: storage (vault), activeTab + scripting (on-demand
-// injection into the clicked tab), alarms (auto-lock). Nothing else.
+// injection into the clicked tab), alarms (auto-lock), identity (the Google
+// sign-in window, chrome.identity.launchWebAuthFlow). Nothing else.
 test('least privilege: exact permission set, no page-facing surface', () => {
-  assert.deepEqual([...manifest.permissions].sort(), ['activeTab', 'alarms', 'scripting', 'storage']);
+  assert.deepEqual([...manifest.permissions].sort(), ['activeTab', 'alarms', 'identity', 'scripting', 'storage']);
   for (const key of ['optional_permissions', 'optional_host_permissions', 'content_scripts', 'web_accessible_resources']) {
     assert.equal(manifest[key], undefined, `${key} must not be declared`);
   }

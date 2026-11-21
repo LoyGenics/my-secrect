@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { ExtRequest, ExtResponse } from '../lib/messages';
 import { describeRestoreError } from '../../../desktop/src/components/restoreErrors';
 import { en } from '../../../../packages/i18n/src/index';
+import { useTranslation } from '../../../../packages/i18n/src/react';
 import type { ItemListCheck } from '../../../../packages/import-export/src/index';
 
 /**
@@ -19,7 +20,8 @@ function send(req: ExtRequest): Promise<ExtResponse> {
   });
 }
 
-export default function RestoreBackupExt({ vaultExists, onRestored }: { vaultExists: boolean; onRestored: () => void }) {
+export default function RestoreBackupExt({ vaultExists, signedIn, onRestored }: { vaultExists: boolean; signedIn: boolean; onRestored: () => void }) {
+  const x = useTranslation().dict.extension;
   const [file, setFile] = useState<File | null>(null);
   const [mode, setMode] = useState<'passphrase' | 'recovery'>('passphrase');
   const [secret, setSecret] = useState('');
@@ -79,6 +81,7 @@ export default function RestoreBackupExt({ vaultExists, onRestored }: { vaultExi
       <h2>Restore from backup</h2>
       <p className="ink2">This extension has no vault yet. Restore an encrypted backup (format version 3, or 2 from older versions); nothing is overwritten.</p>
       <p className="ink2" data-testid="restore-sync-note">Sync with your other devices is not available in the extension yet. To use your desktop vault here, export an encrypted backup in the desktop app (Settings), then restore it below with that vault&apos;s passphrase or recovery key. The restored items are a one-time copy: later changes on either side are not synced.</p>
+      {!signedIn ? <p className="note" data-testid="restore-needs-signin">{x.signInBeforeRestore}</p> : <>
       <div>
         <label className="label" htmlFor="restore-file">Backup file</label>
         <input id="restore-file" type="file" accept="application/json,.json" className="input" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setError(''); }} />
@@ -93,6 +96,7 @@ export default function RestoreBackupExt({ vaultExists, onRestored }: { vaultExi
       </div>
       {error && <p className="note err" role="alert" data-testid="restore-error">{error}</p>}
       <button className="btn btn-primary" disabled={busy} onClick={() => void submit()}>{busy ? 'Restoring…' : 'Restore backup'}</button>
+      </>}
     </section>
   );
 }
