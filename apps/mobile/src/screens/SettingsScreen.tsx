@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Text, View } from 'react-native';
+import { Alert, StyleSheet, Text, View, type DimensionValue } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import * as FileSystem from 'expo-file-system';
@@ -17,46 +17,61 @@ import { LS_API_TOKEN, LS_API_TOKEN_EXPIRES_AT, LS_ACCOUNT_EMAIL, SecurityApiCli
 import { getApiToken } from './SecurityScreen';
 import { API_BASE_URL_KEY, HOSTED_API_BASE_URL, SHARE_WEB_ORIGIN_KEY } from '../accountServer';
 import { isSessionUnauthorized, isStepUpRequired } from '../utils/stepUp';
-import { AppButton, AppPage, BottomSheet, FieldGroup, FormSection, Group, InlineError, PageSection, Rule, SettingsRow } from '../components/mobile-ui';
+import { AppButton, AppPage, BottomSheet, FieldGroup, FormSection, Group, InlineError, PageSection, Rule, SegmentedControl, SettingsRow } from '../components/mobile-ui';
 import { removeAllEncryptedFiles } from '../storage/localFiles';
-import { GhostBrandMark } from '../components/AuthLayout';
 import { useAppPreferences } from '../ui/AppearanceProvider';
 import { AUTO_LOCK_CHOICES, type AutoLockMinutes } from '../ui/preferences';
-import { space, textStyle } from '../ui/tokens';
+import { mobileDarkRoles, mobileLightRoles, radius, space, textStyle } from '../ui/tokens';
 
 export type { AutoLockMinutes } from '../ui/preferences';
 
 type PendingAction = 'export' | 'export-file' | 'change' | 'wipe';
 
+function ThemePreview({ scheme, current }: { scheme: 'light' | 'dark'; current: boolean }) {
+  const { colors } = useMobileTheme();
+  const { dict, t } = useTranslation();
+  const preview = scheme === 'dark' ? mobileDarkRoles : mobileLightRoles;
+  const bar = (width: DimensionValue, color: string, height: number = space[2]) => <View style={{ width, height, borderRadius: radius.full, backgroundColor: color }} />;
+  const stamps = [preview.stamp.access, preview.stamp.money, preview.stamp.access, preview.stamp.access];
+  return <View style={local.previewColumn} accessible accessibilityLabel={t('mobileVault.appearancePreview', dict.theme[scheme])}>
+    <View style={[local.preview, { backgroundColor: preview.canvas, borderColor: current ? colors.plum : colors.border, borderWidth: current ? 3 : 1 }]}>
+      <View style={[local.previewCover, { backgroundColor: preview.cover, borderBottomColor: preview.coverLine }]}>
+        {bar('60%', preview.onCover, space[2] + 2)}
+        <View style={local.previewChips}>
+          <View style={[local.previewChip, { backgroundColor: preview.coverChipSelected, borderColor: preview.coverChipSelected }]} />
+          <View style={[local.previewChip, { backgroundColor: preview.coverChip, borderColor: preview.coverChipEdge }]} />
+          <View style={[local.previewChip, { backgroundColor: preview.coverChip, borderColor: preview.coverChipEdge }]} />
+        </View>
+      </View>
+      <View style={local.previewRows}>
+        {stamps.map((stamp, index) => <View key={index} style={local.previewRow}>
+          <View style={[local.previewStamp, { backgroundColor: stamp.bg }]}><View style={[local.previewDot, { backgroundColor: stamp.ink }]} /></View>
+          {bar('78%', preview.sunken)}
+        </View>)}
+      </View>
+    </View>
+    <Text style={[current ? textStyle.strong : textStyle.value, local.center, { color: current ? colors.text : colors.secondaryText }]}>
+      {current ? t('mobileVault.showingNow', dict.theme[scheme]) : dict.theme[scheme]}
+    </Text>
+  </View>;
+}
+
 export function AppearanceScreen() {
   const { colors } = useMobileTheme();
   const { dict, t } = useTranslation();
-  const { preference, setPreference, persistenceError } = useAppPreferences();
-  const choices = [
-    { value: 'system', icon: 'system' },
-    { value: 'light', icon: 'light' },
-    { value: 'dark', icon: 'dark' },
-  ] as const;
+  const { preference, resolvedScheme, setPreference, persistenceError } = useAppPreferences();
+  const choices = (['system', 'light', 'dark'] as const).map((value) => ({ value, label: dict.theme[value] }));
   return (
     <AppPage testID="appearance-screen">
-      <PageSection description={t('mobileUI.appearanceHelp')}>
-        <Group>
-          {choices.map(({ value, icon }, index) => (
-            <React.Fragment key={value}>
-              {index > 0 && <Rule leading />}
-              <SettingsRow
-                testID={`appearance-${value}`}
-                label={dict.theme[value]}
-                icon={<Icon name={icon} color={colors.secondary} size="lg" />}
-                accessibilityRole="radio"
-                accessibilityState={{ checked: preference === value }}
-                selected={preference === value}
-                onPress={() => void setPreference(value)}
-              />
-            </React.Fragment>
-          ))}
-        </Group>
-      </PageSection>
+      <SegmentedControl label={dict.theme.label} labelHidden testID="appearance" value={preference} choices={choices}
+        onChange={(value) => void setPreference(value as typeof preference)} />
+      <Text style={[textStyle.body, local.help, { color: colors.secondaryText }]}>
+        {preference === 'system' ? `${t('mobileUI.appearanceHelp')} ${t('mobileVault.appearanceNow', dict.theme[resolvedScheme])}` : t('mobileUI.appearanceHelp')}
+      </Text>
+      <View style={local.previews}>
+        <ThemePreview scheme="light" current={resolvedScheme === 'light'} />
+        <ThemePreview scheme="dark" current={resolvedScheme === 'dark'} />
+      </View>
       {persistenceError && <InlineError testID="appearance-save-error">{t('mobileUI.settingsSaveFailed')}</InlineError>}
     </AppPage>
   );
@@ -253,13 +268,6 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
   return (
     <>
       <AppPage testID="settings-screen">
-        <View style={{ flexDirection: 'row', gap: space[4], alignItems: 'center' }}>
-          <GhostBrandMark />
-          <View style={{ flex: 1 }}>
-            <Text style={[textStyle.title, { color: colors.text }]}>My Secret</Text>
-          </View>
-        </View>
-
         <Group title={t('mobileUI.vaultSettings')}>
           <SettingsRow testID="lock-now-button" icon={icon('lock')} label={t('mobileUI.lockNow')} onPress={onLock} navigation={false} />
           {onViewArchive && <><Rule leading /><SettingsRow testID="view-archive-button" icon={icon('archive')} label={dict.shell.archived} onPress={onViewArchive} navigation /></>}
@@ -419,3 +427,18 @@ export default function SettingsScreen({ autoLock, onAutoLockChange, onLock, onW
     </>
   );
 }
+
+const local = StyleSheet.create({
+  center: { textAlign: 'center' },
+  help: { marginTop: space[4], marginBottom: space[5] },
+  previews: { flexDirection: 'row', gap: space[4] },
+  previewColumn: { flex: 1, minWidth: 0, gap: space[3] },
+  preview: { aspectRatio: 0.62, borderRadius: radius.sheet, overflow: 'hidden' },
+  previewCover: { padding: space[3], gap: space[3], borderBottomWidth: StyleSheet.hairlineWidth },
+  previewChips: { flexDirection: 'row', gap: space[1] },
+  previewChip: { width: space[6], height: space[3], borderRadius: radius.full, borderWidth: 1 },
+  previewRows: { padding: space[3], gap: space[4] },
+  previewRow: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
+  previewStamp: { width: space[4], height: space[4], borderRadius: space[2], alignItems: 'center', justifyContent: 'center' },
+  previewDot: { width: space[2], height: space[2], borderRadius: space[1] },
+});

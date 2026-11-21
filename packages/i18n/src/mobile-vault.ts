@@ -33,6 +33,9 @@ export const mobileVaultEn = {
   signedIn: 'Signed in',
   search: 'Search',
   clearSearch: 'Clear search',
+  appearanceNow: 'Right now that’s {0}.',
+  showingNow: '{0} · showing now',
+  appearancePreview: '{0} preview',
   filtersActive: { one: 'Filter, {0} active', other: 'Filters, {0} active' },
   dock: { vault: 'Vault', files: 'Files', generate: 'Generate', health: 'Health', settings: 'Settings' },
 };
@@ -72,6 +75,9 @@ export const mobileVaultVi: typeof mobileVaultEn = {
   signedIn: 'Đã đăng nhập',
   search: 'Tìm',
   clearSearch: 'Xóa tìm kiếm',
+  appearanceNow: 'Hiện đang là {0}.',
+  showingNow: '{0} · đang hiển thị',
+  appearancePreview: 'Xem trước {0}',
   filtersActive: { one: 'Bộ lọc, {0} đang bật', other: 'Bộ lọc, {0} đang bật' },
   dock: { vault: 'Kho', files: 'Tệp', generate: 'Tạo', health: 'Kiểm tra', settings: 'Cài đặt' },
 };

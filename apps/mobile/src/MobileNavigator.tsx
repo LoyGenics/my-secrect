@@ -279,10 +279,11 @@ export default function MobileNavigator(data: MobileNavigationProps) {
       ],
     } : undefined}>
       <Stack.Navigator screenOptions={({ navigation }) => ({
-        headerStyle: { backgroundColor: colors.canvas },
+        // Pushed screens keep the cover band as their header.
+        headerStyle: { backgroundColor: colors.cover },
         headerTitleStyle: textStyle.strong,
-        headerTintColor: colors.primaryTextLink,
-        headerTitle: ({ children }) => <Text accessibilityRole="header" style={[textStyle.nav, { color: colors.text }]} numberOfLines={1}>{children}</Text>,
+        headerTintColor: colors.onCover,
+        headerTitle: ({ children }) => <Text accessibilityRole="header" style={[textStyle.strong, { color: colors.onCover }]} numberOfLines={1}>{children}</Text>,
         headerShadowVisible: false,
         headerBackButtonDisplayMode: 'minimal',
         ...(Platform.OS === 'android' && { statusBarStyle: scheme === 'light' ? 'dark' : 'light' }),
@@ -321,6 +322,9 @@ export default function MobileNavigator(data: MobileNavigationProps) {
           presentation: Platform.OS === 'ios' ? 'fullScreenModal' : 'modal',
           headerBackVisible: false,
           headerTitleAlign: 'center',
+          headerStyle: { backgroundColor: colors.canvas },
+          headerShadowVisible: true,
+          headerTitle: ({ children }) => <Text accessibilityRole="header" style={[textStyle.strong, { color: colors.text }]} numberOfLines={1}>{children}</Text>,
           headerLeft: () => <ScreenHeaderAction icon="close" label={dict.common.close} testID="form-close" onPress={() => navigation.goBack()} />,
           headerRight: () => null,
         })}>

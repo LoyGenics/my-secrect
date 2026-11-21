@@ -257,14 +257,14 @@ export function SelectField({ label, error, helper, flush, ...props }: SelectPro
   </View>;
 }
 
-export function SegmentedControl({ label, choices, value, onChange, testID, disabled }: {
-  label: string; choices: Choice[]; value: string; onChange: (value: string) => void; testID?: string; disabled?: boolean;
+export function SegmentedControl({ label, labelHidden, choices, value, onChange, testID, disabled }: {
+  label: string; labelHidden?: boolean; choices: Choice[]; value: string; onChange: (value: string) => void; testID?: string; disabled?: boolean;
 }) {
   const { colors, styles } = useMobileTheme();
   const { fontScale } = useWindowDimensions();
   const stack = fontScale >= 1.3 || choices.length > 3;
   return <View>
-    <Text style={styles.label}>{label}</Text>
+    {!labelHidden && <Text style={styles.label}>{label}</Text>}
     <View testID={testID} accessibilityRole="radiogroup" accessibilityLabel={label} style={[
       local.segmentGroup, { backgroundColor: colors.sunken }, stack && local.segmentStack,
     ]}>
