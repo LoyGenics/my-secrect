@@ -2,6 +2,9 @@
 
 export type AutoLockMinutes = 1 | 5 | 15 | 0; // 0 = never
 
+/** Popup/options theme. 'system' follows prefers-color-scheme. */
+export type Appearance = 'system' | 'light' | 'dark';
+
 export interface ExtSettings {
   autoLockMinutes: AutoLockMinutes;
   requireConfirmForBank: boolean;
@@ -10,6 +13,7 @@ export interface ExtSettings {
   allowedOrigins: string[];
   /** Origins the user explicitly blocks. Blocked wins over allowed. */
   blockedOrigins: string[];
+  appearance: Appearance;
 }
 
 export const DEFAULT_SETTINGS: ExtSettings = {
@@ -18,6 +22,7 @@ export const DEFAULT_SETTINGS: ExtSettings = {
   requireConfirmForPunycode: true,
   allowedOrigins: [],
   blockedOrigins: [],
+  appearance: 'system',
 };
 
 const SETTINGS_KEY = 'my-secrect.ext.settings.v1';
@@ -34,6 +39,7 @@ export async function loadSettings(): Promise<ExtSettings> {
     requireConfirmForPunycode: raw.requireConfirmForPunycode !== false,
     allowedOrigins: Array.isArray(raw.allowedOrigins) ? raw.allowedOrigins : [],
     blockedOrigins: Array.isArray(raw.blockedOrigins) ? raw.blockedOrigins : [],
+    appearance: raw.appearance === 'light' || raw.appearance === 'dark' ? raw.appearance : 'system',
   };
 }
 

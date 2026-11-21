@@ -34,7 +34,7 @@ test.describe('production build output', () => {
     expect(JSON.parse(text(path.join(dist, 'manifest.json')))).toEqual(
       JSON.parse(text(path.join(extDir, 'public', 'manifest.json'))),
     );
-    for (const f of all) expect(['.js', '.css', '.html', '.json', '.png'], rel(f)).toContain(path.extname(f));
+    for (const f of all) expect(['.js', '.css', '.html', '.json', '.png', '.webp', '.woff2'], rel(f)).toContain(path.extname(f));
   });
 
   test('no source maps and no eval-family code', () => {
