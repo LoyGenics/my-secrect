@@ -71,7 +71,7 @@ export interface MobileNavigationProps {
   onRestore: (id: string) => Promise<void>;
   onToggleFavorite: (id: string) => void;
   onLoadExamples: (items: VaultItem[]) => void;
-  onClearExamples: (ids: string[]) => void;
+  onClearExamples: () => void;
   onAutoLockChange: (minutes: AutoLockMinutes) => void;
   onLock: () => void;
   onWiped: () => void;

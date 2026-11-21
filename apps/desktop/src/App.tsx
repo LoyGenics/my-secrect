@@ -679,10 +679,7 @@ export default function App({
 
   const handleLoadExampleData = async () => {
     try {
-      const existing = new Set([...listItems(true)].map((i) => i.id));
-      for (const item of buildExampleItems()) {
-        if (!existing.has(item.id)) await upsertItem(item);
-      }
+      for (const item of buildExampleItems()) await upsertItem(item);
       refresh();
       setView('all');
       setNotice(dict.notices.exampleLoaded);
