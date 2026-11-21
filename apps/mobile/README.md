@@ -94,9 +94,10 @@ Real device-protected unlock (contract §4), not a presence check:
   passphrase — never to the device passcode.
 - Turning it off, wiping the vault and changing the passphrase delete
   the device key and the row.
-- Signing out, an expired session and any 401 that signs the user out
-  also delete the row, the device key and the autofill index
-  (`signOutVault`). The encrypted vault stays; sign in and enter the
+- Signing out, deleting the account, changing the server and a server 401
+  (revoked or invalid session) also delete the row, the device key and the
+  autofill index (`signOutVault`). A session that only expired locally
+  returns to sign-in and keeps them. The encrypted vault stays; sign in and enter the
   passphrase to open it again.
 - Auto-lock also applies when the app comes back from the background.
 

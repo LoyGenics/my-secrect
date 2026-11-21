@@ -1,5 +1,5 @@
 import type AsyncStorage from '@react-native-async-storage/async-storage';
-import { LS_ACCOUNT_EMAIL, LS_API_TOKEN, LS_API_TOKEN_EXPIRES_AT, clearSessionToken, getValidToken, type TokenStore } from '../../../packages/sdk/src/security';
+import { LS_ACCOUNT_EMAIL, LS_API_TOKEN, LS_API_TOKEN_EXPIRES_AT, clearSessionToken, getValidToken, readStoredToken, type TokenStore } from '../../../packages/sdk/src/security';
 import { apiStatus } from './utils/stepUp';
 
 export const API_BASE_URL_KEY = 'my-secrect:api-base-url';
@@ -23,13 +23,14 @@ async function hasKnownExpiry(store: TokenStore): Promise<boolean> {
   try { return /^\d+$/.test((await store.getItem(LS_API_TOKEN_EXPIRES_AT)) ?? ''); } catch { return false; }
 }
 
-export type VaultEntry = 'signin' | 'unverified' | 'locked' | 'onboarding';
+export type VaultEntry = 'signin' | 'revoked' | 'unverified' | 'locked' | 'onboarding';
 
 /**
  * No vault without an account session. A token with a known, unexpired
  * expiry may unlock offline; one without a stored expiry is checked with the
- * server first (`checkSession`, any authenticated call): 401 signs out, and
- * no answer keeps the user on sign-in ('unverified').
+ * server first (`checkSession`, any authenticated call): 401 signs out
+ * ('revoked'), and no answer keeps the user on sign-in ('unverified').
+ * A local expiry is plain 'signin'.
  */
 export async function resolveVaultEntry(store: TokenStore, vaultExists: () => Promise<boolean>, checkSession: () => Promise<unknown>): Promise<VaultEntry> {
   if (!await getValidToken(store)) return 'signin';
@@ -39,8 +40,22 @@ export async function resolveVaultEntry(store: TokenStore, vaultExists: () => Pr
     } catch (error) {
       if (apiStatus(error) !== 401) return 'unverified';
       await clearSessionToken(store);
-      return 'signin';
+      return 'revoked';
     }
   }
   return (await vaultExists()) ? 'locked' : 'onboarding';
+}
+
+/**
+ * After a 401: a token still stored means the server refused one this
+ * device considered valid (revoked / invalid), so `endSession` runs (drop
+ * biometric unlock and autofill). A token already gone expired locally,
+ * which only returns to sign-in. The token is cleared either way.
+ */
+export async function endSessionAfterUnauthorized(store: TokenStore, endSession: () => Promise<void>): Promise<void> {
+  try {
+    if (await readStoredToken(store)) await endSession().catch(() => undefined);
+  } finally {
+    await clearSessionToken(store);
+  }
 }

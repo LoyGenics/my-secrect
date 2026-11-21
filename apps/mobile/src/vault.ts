@@ -352,7 +352,8 @@ export async function disableDeviceUnlock(): Promise<void> {
 }
 
 /**
- * The account session ended (sign-out, expiry, 401): lock, then drop
+ * The account session ended (sign-out, account deletion, server change, a
+ * server 401; not a local expiry): lock, then drop
  * biometric unlock with the autofill index, so neither this app nor the
  * credential providers open the vault until the user signs in again and
  * enters the passphrase. The encrypted vault stays on the device.

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ApiError, LS_ACCOUNT_EMAIL, LS_API_TOKEN, LS_API_TOKEN_EXPIRES_AT } from '../../../packages/sdk/src/security';
-import { API_BASE_URL_KEY, HOSTED_API_BASE_URL, SHARE_WEB_ORIGIN_KEY, loadAccountServer, resolveVaultEntry } from '../src/accountServer';
+import { API_BASE_URL_KEY, HOSTED_API_BASE_URL, SHARE_WEB_ORIGIN_KEY, endSessionAfterUnauthorized, loadAccountServer, resolveVaultEntry } from '../src/accountServer';
 
 function memoryStorage(entries: [string, string][] = []) {
   const values = new Map(entries);
@@ -110,8 +110,26 @@ test('a session without a stored expiry opens the vault only after the server co
 
   assert.equal(await resolveVaultEntry(storage, async () => true, async () => { checks += 1; return { sessions: [] }; }), 'locked');
 
-  assert.equal(await resolveVaultEntry(storage, vaultExists, async () => { checks += 1; throw new ApiError(401, '/v1/auth/sessions'); }), 'signin');
+  assert.equal(await resolveVaultEntry(storage, vaultExists, async () => { checks += 1; throw new ApiError(401, '/v1/auth/sessions'); }), 'revoked');
   assert.equal(storage.values.has(LS_API_TOKEN), false);
   assert.equal(storage.values.has(LS_ACCOUNT_EMAIL), false);
   assert.equal(checks, 4);
+});
+
+test('a server 401 ends the device session; a local expiry only returns to sign-in', async () => {
+  let ended = 0;
+  const endSession = async () => { ended += 1; };
+
+  const revoked = memoryStorage([[LS_API_TOKEN, 'revoked-session'], [LS_API_TOKEN_EXPIRES_AT, String(Date.now() + 60_000)], [LS_ACCOUNT_EMAIL, 'user@example.test']]);
+  await endSessionAfterUnauthorized(revoked, endSession);
+  assert.equal(ended, 1);
+  assert.equal(revoked.values.has(LS_API_TOKEN), false);
+  assert.equal(revoked.values.has(LS_ACCOUNT_EMAIL), false);
+
+  // getValidToken already cleared a locally expired token before the app reported it.
+  const expired = memoryStorage([[LS_API_TOKEN, 'expired-session'], [LS_API_TOKEN_EXPIRES_AT, '1']]);
+  async function vaultExists() { assert.fail('an expired session must not open the vault'); }
+  assert.equal(await resolveVaultEntry(expired, vaultExists, offlineCheck), 'signin');
+  await endSessionAfterUnauthorized(expired, endSession);
+  assert.equal(ended, 1);
 });
