@@ -59,6 +59,9 @@ secrets; the server needs no Google/Apple client secret.
    * `401 { error: "verification_failed" }` for every token or ticket problem;
      `401 { error: "device_verification_failed" }` for a bad device proof (the
      ticket, user row and identity roll back; the ticket stays usable).
+   * An ID token that fails verification (§3.1) **spends the ticket**: one
+     ticket cannot be retried with other tokens. Only a bad device proof
+     leaves it usable.
 
 ### 3.1 ID-token verification (normative)
 
@@ -66,10 +69,11 @@ secrets; the server needs no Google/Apple client secret.
   provider's JWKS by `kid`: `https://www.googleapis.com/oauth2/v3/certs`,
   `https://appleid.apple.com/auth/keys`. Cached in-process for 1 hour; an
   unknown `kid` triggers one refetch, at most once a minute. A failed fetch
-  fails closed (`401 verification_failed`).
+  fails closed (`401 verification_failed`) and is not retried for 30 seconds.
 * `iss`: Google `accounts.google.com` or `https://accounts.google.com`; Apple
   `https://appleid.apple.com`.
-* `aud` is one of this deployment's client ids for that provider.
+* `aud` is one of this deployment's client ids for that provider. When `aud`
+  is an array, `azp` must be present and one of those client ids too.
 * `exp` not passed and `iat` not in the future, 60 seconds of clock skew.
 * `nonce` equals the ticket's nonce (Google) or its SHA-256 hex (Apple),
   compared in constant time.
@@ -84,6 +88,14 @@ secrets; the server needs no Google/Apple client secret.
 2. Otherwise the user is found or created by the verified email (lower-cased),
    and `(provider, sub, email)` is recorded. Apple private-relay addresses are
    accepted as-is, so the same person may end up with a separate account.
+   * Linking to an **existing** account needs an **authoritative** email.
+     Apple's verified email (relay included) is. A Google email is only
+     authoritative for `@gmail.com` / `@googlemail.com`, or for a Workspace
+     account whose `hd` claim equals the email's domain (Google's own rule:
+     `email_verified` alone is not proof for other domains). A
+     non-authoritative Google email that matches an existing account gets
+     `401 verification_failed`; it may only create a new account when no user
+     has that email.
 3. **Never by email to an account with an active passkey** (`401
    verification_failed`): email possession alone is not enough there
    (`specs/device-identity.md` §6.3, same rule as the email session).
@@ -98,7 +110,11 @@ secrets; the server needs no Google/Apple client secret.
   the nonce, which reveals nothing about the ticket. They learn nothing about
   the vault.
 * Audit events carry the provider name only (`{ method: "google" }`), never
-  the token, nonce, ticket or email.
+  the token, nonce, ticket or email. A refused sign-in (`sign_in_failed`) is
+  recorded on an account only when the token identifies it: a verified token
+  whose `(provider, sub)` is linked to it, or whose authoritative email is
+  its email. A failed token, or a non-authoritative email, is recorded on no
+  account.
 * Request logs filter `id_token`, `ticket`, `nonce`, `full_name`, `email`.
 
 ## 5. Rate limits (Rack::Attack)

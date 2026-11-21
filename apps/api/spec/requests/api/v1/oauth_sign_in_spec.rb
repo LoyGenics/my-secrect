@@ -112,9 +112,9 @@ RSpec.describe 'Sign in with Google / Apple', type: :request do
       expect(response).to have_http_status(:ok)
     end
 
-    it 'links a provider to the existing account with the same verified email' do
+    it 'links a provider to the existing account with the same authoritative email' do
       user = User.create!(email: email)
-      body = sign_in_with('google', sub: 'g-link', email: email)
+      body = sign_in_with('google', sub: 'g-link', email: email, hd: 'example.test')
 
       expect(body).to include('user_id' => user.id, 'account_created' => false)
       expect(User.where(email: email).count).to eq(1)
@@ -134,10 +134,64 @@ RSpec.describe 'Sign in with Google / Apple', type: :request do
       expect(UserIdentity.where(subject: 'g-stable').count).to eq(1)
     end
 
+    it 'links a gmail.com address (Google is authoritative for it)' do
+      user = User.create!(email: "g#{SecureRandom.hex(4)}@gmail.com")
+      sign_in_with('google', sub: 'g-gmail', email: user.email)
+      expect(response).to have_http_status(:ok)
+      expect(json_body).to include('user_id' => user.id, 'account_created' => false)
+    end
+
+    it 'does not link a non-authoritative Google email to an existing account, nor audit on it' do
+      user = User.create!(email: email)
+      [{}, { hd: 'other.test' }].each_with_index do |claims, i|
+        sign_in_with('google', sub: "g-nonauth-#{i}", email: email, **claims)
+        expect_verification_failed
+      end
+      expect(UserIdentity.count).to eq(0)
+      expect(user.audit_events.count).to eq(0)
+    end
+
+    it 'creates a new account from a non-authoritative Google email when nobody has it' do
+      sign_in_with('google', sub: 'g-new', email: email)
+      expect(response).to have_http_status(:ok)
+      expect(json_body['account_created']).to be(true)
+    end
+
+    it 'with several audiences, requires azp to be a configured client id' do
+      audiences = [OauthHelper::GOOGLE_WEB, 'other-app.apps.googleusercontent.test']
+      sign_in_with('google', sub: 'g-azp', email: email, aud: audiences, azp: OauthHelper::GOOGLE_IOS)
+      expect(response).to have_http_status(:ok)
+
+      [nil, 'other-app.apps.googleusercontent.test'].each do |azp|
+        sign_in_with('google', sub: 'g-azp', email: email, aud: audiences, azp: azp)
+        expect_verification_failed
+      end
+    end
+
+    it 'spends the ticket when the ID token fails verification' do
+      start = oauth_start
+      oauth_session('google', ticket: start['ticket'],
+                              id_token: id_token_for('google', nonce: start['nonce'], email: email, key: provider_key('attacker')))
+      expect_verification_failed
+
+      oauth_session('google', ticket: start['ticket'], id_token: id_token_for('google', nonce: start['nonce'], email: email))
+      expect_verification_failed
+      expect(User.where(email: email)).not_to exist
+    end
+
+    it 'does not audit a failed token on the account of its email' do
+      user = User.create!(email: "g#{SecureRandom.hex(4)}@gmail.com")
+      start = oauth_start
+      oauth_session('google', ticket: start['ticket'],
+                              id_token: id_token_for('google', nonce: start['nonce'], email: user.email, key: provider_key('attacker')))
+      expect_verification_failed
+      expect(user.audit_events.count).to eq(0)
+    end
+
     it 'does not link by email to an account with a passkey' do
       user = User.create!(email: email)
       Authenticator.create!(user: user, credential_id: SecureRandom.hex(8), public_key: 'pk', sign_count: 1)
-      sign_in_with('google', sub: 'g-passkey', email: email)
+      sign_in_with('apple', sub: 'a-passkey', email: email)
 
       expect_verification_failed
       expect(UserIdentity.count).to eq(0)
@@ -150,7 +204,7 @@ RSpec.describe 'Sign in with Google / Apple', type: :request do
       totp = ROTP::TOTP.new(secret)
       Authentication::Totp.confirm(user: user, code: totp.now)
       key = new_device_key
-      body = sign_in_with('google', key: key, sub: 'g-mfa', email: email)
+      body = sign_in_with('google', key: key, sub: 'g-mfa', email: email, hd: 'example.test')
 
       expect(response).to have_http_status(:ok)
       expect(body.keys).to eq(%w[mfa_required mfa_token user_id])

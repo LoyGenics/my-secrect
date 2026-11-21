@@ -17,7 +17,7 @@ RSpec.describe 'Sign in with Google / Apple (domain)' do
     it 'returns the subject and the normalised email' do
       stub_provider_jwks
       token = id_token_for('google', nonce: nonce, sub: 'g-1', email: ' Person@Example.TEST ')
-      expect(verify(token, nonce)).to eq(subject: 'g-1', email: 'person@example.test')
+      expect(verify(token, nonce)).to eq(subject: 'g-1', email: 'person@example.test', email_authoritative: false)
     end
 
     it 'fetches the JWKS once and serves later tokens from the cache' do
@@ -41,9 +41,30 @@ RSpec.describe 'Sign in with Google / Apple (domain)' do
       expect(described_class).to have_received(:fetch_jwks).twice
     end
 
-    it 'fails closed when the JWKS cannot be fetched' do
+    it 'fails closed when the JWKS cannot be fetched, and backs off for 30 seconds' do
       allow(Net::HTTP).to receive(:start).and_raise(SocketError)
-      expect { verify(id_token_for('google', nonce: nonce), nonce) }.to raise_error(described_class::VerificationError)
+      token = id_token_for('google', nonce: nonce)
+      2.times { expect { verify(token, nonce) }.to raise_error(described_class::VerificationError) }
+      expect(Net::HTTP).to have_received(:start).once
+
+      travel(31.seconds) do
+        expect { verify(id_token_for('google', nonce: nonce), nonce) }.to raise_error(described_class::VerificationError)
+      end
+      expect(Net::HTTP).to have_received(:start).twice
+    end
+
+    it 'marks only Apple, gmail.com and matching-hd Google emails authoritative' do
+      stub_provider_jwks
+      authoritative = lambda do |provider, email, **claims|
+        Authentication::IdToken.verify!(provider: provider, nonce: nonce,
+                                        id_token: id_token_for(provider, nonce: nonce, email: email, **claims))[:email_authoritative]
+      end
+      expect(authoritative.call('apple', 'x@privaterelay.appleid.com')).to be(true)
+      expect(authoritative.call('google', 'x@gmail.com')).to be(true)
+      expect(authoritative.call('google', 'x@googlemail.com')).to be(true)
+      expect(authoritative.call('google', 'x@corp.test', hd: 'corp.test')).to be(true)
+      expect(authoritative.call('google', 'x@corp.test')).to be(false)
+      expect(authoritative.call('google', 'x@corp.test', hd: 'other.test')).to be(false)
     end
   end
 

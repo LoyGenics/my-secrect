@@ -8,17 +8,22 @@ module Authentication
   #
   # Rules (never weaken):
   #   * The ID token is verified (IdToken) against the ticket's nonce
-  #     before anything is written.
+  #     before anything else is written. A token that fails verification
+  #     spends the ticket, so one ticket cannot be retried with new tokens.
   #   * Linking: a known (provider, subject) signs in to its user. Otherwise
   #     the provider's verified email finds or creates the user and the
-  #     identity is recorded. An account with a passkey is never linked by
+  #     identity is recorded. Only an authoritative email (IdToken) may link
+  #     to an EXISTING account; a non-authoritative Google email may only
+  #     create a new one. An account with a passkey is never linked by
   #     email: email possession alone is not enough for it
   #     (specs/device-identity.md §6.3), as for EmailSignIn.
   #   * The ticket, the user row, the identity and the device commit
   #     together: a bad device proof rolls everything back and the ticket
   #     stays usable. The device proof signs the raw nonce.
   #   * One generic VerificationError for every refusal; nothing is logged
-  #     but opaque ids and the provider name.
+  #     but opaque ids and the provider name. A refusal is audited only on
+  #     an account the token really identifies: its (provider, subject) or
+  #     its authoritative email.
   #   * The vault key is untouched: the client still needs the passphrase.
   module OauthSignIn
     class VerificationError < StandardError; end
@@ -28,7 +33,7 @@ module Authentication
     def call(provider:, ticket:, id_token:, device: nil, user_agent: nil, ip_address: nil)
       record = OauthStart.live_ticket!(ticket)
       nonce = OauthStart.nonce_for(ticket)
-      claims = IdToken.verify!(provider: provider, id_token: id_token, nonce: nonce)
+      claims = verified_claims!(record: record, provider: provider, id_token: id_token, nonce: nonce)
 
       created = false
       user = nil
@@ -49,13 +54,20 @@ module Authentication
       raise
     end
 
+    def verified_claims!(record:, provider:, id_token:, nonce:)
+      IdToken.verify!(provider: provider, id_token: id_token, nonce: nonce)
+    rescue IdToken::VerificationError
+      OauthStart.consume!(record)
+      raise
+    end
+
     # [user, created]
     def find_or_create_user!(provider:, claims:)
       identity = UserIdentity.find_by(provider: provider, subject: claims[:subject])
       return [User.lock.find(identity.user_id), false] if identity
 
       user = User.lock.find_by(email: claims[:email])
-      raise VerificationError, 'verification failed' if user&.passkey_account?
+      raise VerificationError, 'verification failed' if user && !linkable_by_email?(user, claims)
 
       created = user.nil?
       user ||= User.create!(email: claims[:email])
@@ -63,10 +75,22 @@ module Authentication
       [user, created]
     end
 
-    # Attributed to the account of the token's verified email, if it exists
-    # (a rolled-back sign-up leaves none), so its owner sees the refusal.
+    def linkable_by_email?(user, claims)
+      claims[:email_authoritative] && !user.passkey_account?
+    end
+
+    # nil for a failed token (claims nil). A rolled-back sign-up leaves no
+    # account behind, so it is attributed to none.
     def audit_failure(provider, claims)
-      Audit::Log.call(user: claims && User.find_by(email: claims[:email]), event_type: 'sign_in_failed', metadata: { method: provider.to_s })
+      Audit::Log.call(user: identified_user(provider, claims), event_type: 'sign_in_failed',
+                      metadata: { method: provider.to_s })
+    end
+
+    def identified_user(provider, claims)
+      return nil unless claims
+      identity = UserIdentity.find_by(provider: provider, subject: claims[:subject])
+      return identity.user if identity
+      User.find_by(email: claims[:email]) if claims[:email_authoritative]
     end
   end
 end
