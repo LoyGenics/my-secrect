@@ -66,7 +66,8 @@ const aStoredToken = async () => (await A.call<Record<string, string>>('rawStora
 before(async () => {
   api = await startApi({ port: API_PORT, db: DB, webOrigin: WEB });
   web = await startWeb(WEB_PORT);
-  browser = await chromium.launch();
+  // Full Chromium, not chrome-headless-shell: the shell turns on macOS Secure Input.
+  browser = await chromium.launch({ channel: 'chromium' });
   A = new Client('A', path.join(dir, 'a.json')).start({ API_BASE: api.apiBase, WEBAUTHN_ORIGIN: WEB, WEBAUTHN_RP_ID: 'localhost', MAIL_DIR: api.mailDir });
 });
 after(async () => {

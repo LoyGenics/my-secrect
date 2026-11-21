@@ -44,7 +44,8 @@ writeFileSync(filePath, png);
 console.log(`[browser] test file ${png.length} bytes (${Math.ceil(png.length / 1048576)} chunks expected)`);
 
 console.log('[browser] launching chromium');
-const browser = await chromium.launch({ timeout: 30000 });
+// Full Chromium, not chrome-headless-shell: the shell turns on macOS Secure Input.
+const browser = await chromium.launch({ channel: 'chromium', timeout: 30000 });
 console.log('[browser] launched');
 const context = await browser.newContext({ ignoreHTTPSErrors: true, acceptDownloads: true, viewport: { width: 1280, height: 900 } });
 await context.addInitScript(({ token, api }) => {

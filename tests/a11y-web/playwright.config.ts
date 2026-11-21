@@ -25,6 +25,9 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${port}`,
     browserName: 'chromium',
+    // Full Chromium (new headless): chrome-headless-shell turns on macOS Secure
+    // Input on password fields, which blocks keyboard input methods system-wide.
+    channel: 'chromium',
     locale: 'en-US',
   },
   webServer: {

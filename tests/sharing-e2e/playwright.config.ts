@@ -26,6 +26,9 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${process.env.E2E_WEB_PORT}`,
     browserName: 'chromium',
+    // Full Chromium (new headless): chrome-headless-shell turns on macOS Secure
+    // Input on password fields, which blocks keyboard input methods system-wide.
+    channel: 'chromium',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
