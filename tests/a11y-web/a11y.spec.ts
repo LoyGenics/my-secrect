@@ -6,6 +6,7 @@
  */
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import { mailCodes, uniqueEmail, waitForMailCode } from '../e2e-web/fixtures';
 
 const PASS = 'correct horse battery staple 42!';
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
@@ -35,12 +36,23 @@ for (const theme of ['dark', 'light'] as const) {
     test(`main screens: ${theme} @ ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: width > 600 ? 800 : 844 });
       await page.emulateMedia({ reducedMotion: 'reduce' });
-      // Local-only: the production web build defaults to a same-origin account server, which
-      // puts the sign-in gate first; this scan covers the local vault flow.
-      await page.addInitScript((t) => { localStorage.setItem('my-secrect:theme', t); localStorage.setItem('my-secrect:api-base-url', ''); }, theme);
+      await page.addInitScript((t) => { localStorage.setItem('my-secrect:theme', t); }, theme);
       const tag = `${theme}@${width}`;
 
+      // Account first (no local-only vault): the production build's same-origin
+      // API is the real Rails server (global-setup.ts); sign up with an email code.
       await page.goto('/');
+      await page.getByRole('heading', { name: 'Sign in to your account' }).waitFor();
+      await scan(page, `${tag} sign-in`);
+      const email = uniqueEmail('a11y');
+      await page.getByRole('tab', { name: 'Create account' }).click();
+      await page.getByLabel('Account email').fill(email);
+      const seen = mailCodes(email).length;
+      await page.getByRole('button', { name: 'Email me a code' }).click();
+      await page.getByRole('heading', { name: 'Check your email' }).waitFor();
+      await page.getByLabel('Verification code').fill(await waitForMailCode(email, seen));
+      await page.getByRole('button', { name: 'Create account', exact: true }).click();
+
       await page.getByLabel('Master passphrase', { exact: true }).waitFor();
       await scan(page, `${tag} onboarding`);
 

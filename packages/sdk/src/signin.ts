@@ -62,6 +62,8 @@ export type SignInErrorKind =
   | 'signup-expired'
   | 'device-rejected'
   | 'device-approval-required'
+  | 'oauth-failed'
+  | 'oauth-unavailable'
   | 'offline'
   | 'unknown';
 
@@ -132,6 +134,26 @@ export function emailSignedIn(
     return { ...state, step: 'signed-in', mfaToken: null, error: null, busy: false };
   }
   return { ...state, error: 'verification-failed', busy: false };
+}
+
+/** Outcome of POST /v1/auth/oauth/:provider/session (Google / Apple). Same
+ *  answers as emailSignedIn; `email` is the address in the provider's ID
+ *  token. Allowed from any step but MFA: the provider buttons sit on the
+ *  email step. */
+export function oauthSignedIn(
+  state: SignInState,
+  email: string,
+  result: { token?: string; mfa_required?: boolean; mfa_token?: string },
+): SignInState {
+  if (state.step === 'mfa') return state;
+  const base = { ...state, email: normalizeEmail(email), busy: false };
+  if (result.mfa_required === true && typeof result.mfa_token === 'string' && result.mfa_token) {
+    return { ...base, step: 'mfa', mfaToken: result.mfa_token, error: null };
+  }
+  if (typeof result.token === 'string' && result.token) {
+    return { ...base, step: 'signed-in', mfaToken: null, error: null };
+  }
+  return { ...base, step: 'email', mfaToken: null, error: 'oauth-failed' };
 }
 
 /** POST /v1/auth/email/request answered 202: wait for the user to type
