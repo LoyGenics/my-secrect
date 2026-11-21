@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
+import { useFonts } from 'expo-font';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import type { VaultItem } from '../../../packages/core/src/types';
 import { LS_API_TOKEN_EXPIRES_AT, clearSessionToken } from '../../../packages/sdk/src/security';
@@ -25,6 +26,7 @@ import LockScreen from './screens/LockScreen';
 import BillingScreen from './screens/BillingScreen';
 import { useMobileBilling } from './useMobileBilling';
 import { AppearanceProvider, useAppPreferences } from './ui/AppearanceProvider';
+import { fontAssets } from './ui/fonts';
 
 type Boot = 'loading' | 'error' | 'signin' | 'plans' | 'onboarding' | 'locked' | 'unlocked';
 
@@ -47,6 +49,8 @@ function Start() {
   const [locale, setLocale] = useState<Locale | null>(null);
   const { ready, resolvedScheme } = useAppPreferences();
   const { colors } = useMobileTheme();
+  // Every text role names a Be Vietnam Pro face, so nothing renders until the faces are registered.
+  const [fontsLoaded, fontError] = useFonts(fontAssets);
   useEffect(() => {
     let active = true;
     AsyncStorage.getItem(LOCALE_STORAGE_KEY)
@@ -58,7 +62,8 @@ function Start() {
     <I18nProvider key={locale ?? 'loading'} initialLocale={locale ?? defaultLocale}
       onLocaleChange={next => void AsyncStorage.setItem(LOCALE_STORAGE_KEY, next).catch(() => undefined)}>
       <StatusBar style={resolvedScheme === 'light' ? 'dark' : 'light'} backgroundColor={colors.canvas} />
-      {ready && locale ? <AppShell /> : <BootStatus />}
+      {!fontsLoaded && !fontError ? <View style={{ flex: 1, backgroundColor: colors.canvas }} />
+        : ready && locale ? <AppShell /> : <BootStatus />}
     </I18nProvider>
   );
 }
