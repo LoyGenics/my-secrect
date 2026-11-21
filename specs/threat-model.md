@@ -6,6 +6,7 @@
 | Server/DB bị chiếm | E2EE, server không giữ decryption keys |
 | Password yếu | Argon2id mạnh, hướng dẫn passphrase |
 | Chiếm tài khoản cloud | Passkey/MFA, E2EE, device authorization |
+| ID token Google/Apple giả hoặc phát lại | RS256 + JWKS của nhà cung cấp, kiểm tra iss/aud/exp/iat, nonce dùng một lần gắn với ticket (`specs/account-sign-in.md`) |
 | Thiết bị thất lạc | Local encryption, device protection, revoke session |
 | Sync bị thay thế/rollback | AEAD, signed events, trusted checkpoints |
 | Browser phishing | Domain verification, user-confirmed autofill |
@@ -19,7 +20,8 @@
 2. **Zero-knowledge ≠ không rò metadata.** Email, IP, thời gian truy cập, dung lượng, số lượng record server vẫn có thể biết.
 3. **Server không thể kiểm tra nội dung.** Nếu mở sharing công khai, cần chính sách chống lạm dụng/quota riêng mà không phá E2EE.
 4. **Web client là bề mặt tấn công riêng.** Kẻ kiểm soát JS được phân phối có thể đọc secret sau unlock. HTTPS + E2EE không đủ nếu nguồn phân phối mã bị xâm nhập.
-5. **Nhập bằng AI là luồng xử lý văn bản riêng.** Sau khi người dùng đồng ý, API gửi nguyên văn nội dung đã dán tới OpenAI để trả về bản xem trước. Nội dung này không nằm trong phạm vi E2EE khi xử lý. API không lưu nội dung hoặc ghi vào log và yêu cầu OpenAI tắt lưu phản hồi. Xử lý CSV diễn ra trên thiết bị.
+5. **Đăng nhập bằng Google/Apple tiết lộ danh tính tài khoản cho nhà cung cấp.** Server lưu `sub` và email đã xác minh (có thể là email relay của Apple); Google/Apple biết người dùng đăng nhập ứng dụng này. Khóa vault vẫn chỉ dẫn xuất từ passphrase trên thiết bị: chiếm tài khoản Google/Apple chỉ cho phiên tài khoản, không mở được vault.
+6. **Nhập bằng AI là luồng xử lý văn bản riêng.** Sau khi người dùng đồng ý, API gửi nguyên văn nội dung đã dán tới OpenAI để trả về bản xem trước. Nội dung này không nằm trong phạm vi E2EE khi xử lý. API không lưu nội dung hoặc ghi vào log và yêu cầu OpenAI tắt lưu phản hồi. Xử lý CSV diễn ra trên thiết bị.
 
 ## Thẻ ngân hàng / PCI
 - Kho thẻ hỗ trợ số thẻ đầy đủ, được mã hóa như các trường khác trong kho và được che khi xem.

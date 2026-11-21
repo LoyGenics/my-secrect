@@ -49,6 +49,8 @@ class Rack::Attack
   EMAIL_REQUEST = '/api/v1/auth/email/request'.freeze
   EMAIL_VERIFY = '/api/v1/auth/email/verify'.freeze
   EMAIL_SESSION = '/api/v1/auth/email/session'.freeze
+  OAUTH_START = '/api/v1/auth/oauth/start'.freeze
+  OAUTH_SESSIONS = %w[/api/v1/auth/oauth/google/session /api/v1/auth/oauth/apple/session].freeze
   STEP_UP_EMAIL_REQUEST = '/api/v1/auth/step-up/email/request'.freeze
   STEP_UP_EMAIL = '/api/v1/auth/step-up/email'.freeze
   PASSKEY_EMAIL_PATHS = %w[/api/v1/auth/passkeys/register /api/v1/auth/passkeys/authenticate
@@ -67,6 +69,9 @@ class Rack::Attack
   # account. The step-up request is also capped per session token, like the
   # per-address cap above, so one session cannot mail-bomb or out-guess it.
   throttle('auth/email/session/ip', limit: 10, period: 60) { |req| req.ip if req.post? && req.path == EMAIL_SESSION }
+  # Sign in with Google / Apple: tickets and ID-token sessions, per IP.
+  throttle('auth/oauth/start/ip', limit: 10, period: 60) { |req| req.ip if req.post? && req.path == OAUTH_START }
+  throttle('auth/oauth/session/ip', limit: 10, period: 60) { |req| req.ip if req.post? && OAUTH_SESSIONS.include?(req.path) }
   throttle('auth/step-up/email/ip', limit: 10, period: 60) do |req|
     req.ip if req.post? && [STEP_UP_EMAIL_REQUEST, STEP_UP_EMAIL].include?(req.path)
   end

@@ -11,6 +11,7 @@ gem 'connection_pool', '~> 2.4' # sidekiq 7.3 is incompatible with connection_po
 gem 'redis', '~> 5.0'
 gem 'webauthn', '~> 3.0'    # account auth via passkeys — separate from vault unlock
 gem 'rotp', '~> 6.3'       # TOTP MFA (RFC 6238) — account second factor, never vault unlock
+gem 'jwt', '~> 3.1'        # verify Google/Apple ID tokens (RS256, JWKS); already locked via webauthn
 gem 'rbnacl', '~> 7.1'     # Ed25519 recovery-key signatures (RbNaCl::VerifyKey)
 gem 'aws-sdk-s3', '~> 1.0'  # S3 / R2 / MinIO presigned URLs (client uploads ciphertext directly)
 gem 'rack-cors'

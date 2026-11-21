@@ -88,6 +88,10 @@ Rails.application.routes.draw do
       # Durable device revocation: re-approve a restricted passkey (§6.3).
       post 'auth/passkeys/:id/approve', to: 'passkeys#approve'
       # --- END auth: email ownership + device proof (Agent 02) -----------
+      # Sign in with Google / Apple (specs/account-sign-in.md).
+      get 'auth/providers', to: 'auth#providers'
+      post 'auth/oauth/start', to: 'auth#oauth_start'
+      post 'auth/oauth/:provider/session', to: 'auth#oauth_session', constraints: { provider: /google|apple/ }
     end
   end
 end

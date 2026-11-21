@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.2].define(version: 2026_11_18_120001) do
+ActiveRecord::Schema[7.2].define(version: 2026_11_21_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -278,6 +278,16 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_18_120001) do
     t.index ["user_id"], name: "index_mfa_challenges_on_user_id"
   end
 
+  create_table "oauth_tickets", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.string "ticket_digest", null: false
+    t.datetime "expires_at", null: false
+    t.datetime "consumed_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["expires_at"], name: "index_oauth_tickets_on_expires_at"
+    t.index ["ticket_digest"], name: "index_oauth_tickets_on_ticket_digest", unique: true
+  end
+
   create_table "passkey_challenges", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.string "email", null: false
     t.string "challenge", null: false
@@ -388,6 +398,17 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_18_120001) do
     t.index ["vault_id"], name: "index_sync_events_on_vault_id"
   end
 
+  create_table "user_identities", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "user_id", null: false
+    t.string "provider", null: false
+    t.string "subject", null: false
+    t.string "email", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["provider", "subject"], name: "index_user_identities_on_provider_and_subject", unique: true
+    t.index ["user_id"], name: "index_user_identities_on_user_id"
+  end
+
   create_table "users", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.string "email", null: false
     t.string "status", default: "active", null: false
@@ -448,5 +469,6 @@ ActiveRecord::Schema[7.2].define(version: 2026_11_18_120001) do
   add_foreign_key "shares", "vaults"
   add_foreign_key "sync_events", "devices"
   add_foreign_key "sync_events", "vaults"
+  add_foreign_key "user_identities", "users"
   add_foreign_key "vaults", "users", column: "owner_id"
 end

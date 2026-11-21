@@ -117,6 +117,18 @@ RSpec.describe 'Rate limiting', type: :request do
     end
   end
 
+  it 'limits Google / Apple sign-in per IP (10/min each for start and session)' do
+    10.times { expect(hit('/api/v1/auth/oauth/start')).to eq(200) }
+    hit('/api/v1/auth/oauth/start')
+    expect_throttled
+    expect(OauthTicket.count).to eq(10)
+
+    5.times { expect(hit('/api/v1/auth/oauth/google/session', params: { ticket: 'ot_x', id_token: 'x' })).to eq(401) }
+    5.times { expect(hit('/api/v1/auth/oauth/apple/session', params: { ticket: 'ot_x', id_token: 'x' })).to eq(401) }
+    hit('/api/v1/auth/oauth/apple/session', params: { ticket: 'ot_x', id_token: 'x' })
+    expect_throttled
+  end
+
   it 'limits device proof endpoints per IP (10/min)' do
     user = User.create!(email: email)
     headers = auth_headers_for(user)

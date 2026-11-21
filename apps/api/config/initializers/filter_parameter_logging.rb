@@ -9,5 +9,5 @@
 Rails.application.config.filter_parameters += %i[
   passw secret token crypt _key salt certificate otp ssn cvv cvc pin
   credential attestation client_data authenticator_data challenge signature
-  code recovery manifest email source_text
+  code recovery manifest email source_text nonce full_name
 ]

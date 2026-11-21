@@ -253,6 +253,12 @@ restore test. All PENDING.
   repo or CI logs. `.env.example` holds placeholders only.
 - Keep an offline copy of `SECRET_KEY_BASE` and the S3 keys, separate from the
   server and from backups.
+- Sign in with Google / Apple needs only public client ids in the API
+  environment (`GOOGLE_*_CLIENT_ID`, `APPLE_SERVICES_ID`, `APPLE_BUNDLE_ID`,
+  see `apps/api/.env.example` and `specs/account-sign-in.md`). The API fetches
+  Google's and Apple's JWKS over HTTPS, so it needs outbound access to
+  `www.googleapis.com` and `appleid.apple.com`. `infra/docker/docker-compose.yml`
+  does not pass these variables yet — PENDING.
 
 ## 6. Backup [RUN, A.0]
 
