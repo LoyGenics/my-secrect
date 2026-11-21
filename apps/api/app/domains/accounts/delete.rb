@@ -71,6 +71,7 @@ module Accounts
         RecoveryVerifier.where(user_id: user.id).delete_all
         RecoveryCode.where(user_id: user.id).delete_all
         Authenticator.where(user_id: user.id).delete_all
+        UserIdentity.where(user_id: user.id).delete_all
 
         unless device_ids.empty?
           AuditEvent.where(device_id: device_ids).update_all(device_id: nil)

@@ -249,6 +249,14 @@ usable; every other failure is one generic `401 verification_failed`.
   are all marked for re-approval after a revocation, the "enrolling passkey
   unknown" rule).
 
+### 6.5 Sign-in with Google / Apple (`POST /api/v1/auth/oauth/:provider/session`)
+
+Same as §6.4 with `{ ticket, id_token, device? }`: `device` is the §6.1 proof
+signed over the **raw nonce** from `POST /auth/oauth/start` as `challenge`
+(server-issued, 256-bit-derived, single use with its ticket). Same order, same
+rollback, same MFA branch, same unbound session without `device`. Linking and
+token rules: `specs/account-sign-in.md`.
+
 ## 7. Server verification rules (normative)
 
 1. Look up the challenge; consume it atomically; reject when missing,

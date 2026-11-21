@@ -8,7 +8,7 @@ module Api
     class AuthController < ApplicationController
       skip_before_action :authenticate_request!,
                          only: %i[request_email_code verify_email_code email_session register_passkey verify_passkey
-                                  authenticate_passkey verify_mfa]
+                                  authenticate_passkey verify_mfa providers oauth_start oauth_session]
 
       # POST /v1/auth/email/request — sign-up step 1: email a 6-digit code.
       # Body: { email: }. 202 { status: 'sent', expires_in: 600 } for EVERY
@@ -49,6 +49,40 @@ module Api
         )
         render json: result, status: :ok
       rescue Authentication::EmailOwnership::VerificationError
+        render json: { error: 'verification_failed' }, status: :unauthorized
+      rescue Authentication::DeviceProof::VerificationError
+        render json: { error: 'device_verification_failed' }, status: :unauthorized
+      end
+
+      # GET /v1/auth/providers — the Google / Apple client ids this server
+      # accepts. 200 { google: { web_client_id:, ios_client_id:,
+      # android_client_id:, extension_client_id: } | null,
+      # apple: { services_id:, bundle_id: } | null }; null = provider off.
+      def providers
+        render json: Authentication::OauthProviders.public_config, status: :ok
+      end
+
+      # POST /v1/auth/oauth/start — Google / Apple sign-in step 1.
+      # 200 { ticket:, nonce:, expires_at: } (single use, 10 minutes).
+      # Google gets the nonce raw, Apple its SHA-256 hex; the device proof
+      # signs the raw nonce. Rate-limited.
+      def oauth_start
+        render json: Authentication::OauthStart.call, status: :ok
+      end
+
+      # POST /v1/auth/oauth/:provider/session (google | apple) — step 2.
+      # Body: { ticket:, id_token:, device: (optional, as for email/session,
+      # signed over the nonce), full_name: (Apple, ignored: not stored) }.
+      # Same 200 body as email/session. One generic 401 verification_failed;
+      # 401 device_verification_failed for a bad device proof (the ticket
+      # stays usable). Rate-limited.
+      def oauth_session
+        result = Authentication::OauthSignIn.call(
+          provider: params[:provider], ticket: params[:ticket], id_token: params[:id_token], device: params[:device],
+          user_agent: request.user_agent, ip_address: request.remote_ip
+        )
+        render json: result, status: :ok
+      rescue Authentication::OauthSignIn::VerificationError
         render json: { error: 'verification_failed' }, status: :unauthorized
       rescue Authentication::DeviceProof::VerificationError
         render json: { error: 'device_verification_failed' }, status: :unauthorized

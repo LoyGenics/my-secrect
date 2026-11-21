@@ -4,6 +4,7 @@ class User < ApplicationRecord
   has_one :owned_family, class_name: 'Family', foreign_key: :owner_id, dependent: :destroy
   has_one :family_membership, dependent: :destroy
   has_many :authenticators, dependent: :destroy
+  has_many :user_identities, dependent: :delete_all
   # Session.device_id is a foreign key: remove sessions before devices.
   has_many :sessions, dependent: :destroy
   has_many :devices, dependent: :destroy

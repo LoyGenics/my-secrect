@@ -30,8 +30,8 @@ module Authentication
       verification = EmailOwnership.live_ticket!(email: normalized, ticket: registration_ticket)
 
       created = false
-      mfa_token = nil
-      user, session_device = ActiveRecord::Base.transaction do
+      user = nil
+      step = ActiveRecord::Base.transaction do
         EmailOwnership.consume_ticket!(verification)
         user = User.lock.find_by(email: normalized)
         if user
@@ -40,21 +40,12 @@ module Authentication
           user = User.create!(id: verification.pending_user_id, email: normalized)
           created = true
         end
-        proof = DeviceProof.sign_in_proof!(user: user, challenge: registration_ticket, proof: device)
-        if user.mfa_enabled?
-          mfa_token = MfaTokens.issue(user: user, device: proof&.dig(:device), pending_device: proof&.dig(:enroll))
-          [user, nil]
-        else
-          [user, DeviceProof.device_for!(user: user, proof: proof)]
-        end
+        SignInCompletion.prove_device!(user: user, challenge: registration_ticket, device: device)
       end
       Audit::Log.call(user: user, event_type: 'account_created',
                       metadata: { email_verification_id: verification.id }) if created
-      return { mfa_required: true, mfa_token: mfa_token, user_id: user.id } if mfa_token
-
-      token = SessionTokens.issue(user: user, device: session_device, user_agent: user_agent, ip_address: ip_address)
-      Audit::Log.call(user: user, device: session_device, event_type: 'sign_in_succeeded', metadata: { method: 'email_code' })
-      { token: token, user_id: user.id, device_id: session_device&.id, expires_in: SessionTokens::TTL_SECONDS, account_created: created }
+      SignInCompletion.finish(user: user, step: step, method: 'email_code', account_created: created,
+                              user_agent: user_agent, ip_address: ip_address)
     rescue EmailOwnership::VerificationError, ActiveRecord::RecordInvalid, ActiveRecord::RecordNotUnique
       audit_failure(normalized)
       raise EmailOwnership::VerificationError, 'verification failed'

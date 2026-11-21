@@ -52,6 +52,14 @@ x-app-env: &app-env
   MAIL_FROM: ${MAIL_FROM:?MAIL_FROM is required (sender address of sign-up codes)}
   SMTP_TLS_MODE: ${SMTP_TLS_MODE:-}
   SMTP_AUTHENTICATION: ${SMTP_AUTHENTICATION:-}
+  # Optional sign-in providers (specs/account-sign-in.md). Unset ids hide the
+  # matching "Continue with Google/Apple" button; email codes always work.
+  GOOGLE_WEB_CLIENT_ID: ${GOOGLE_WEB_CLIENT_ID:-}
+  GOOGLE_IOS_CLIENT_ID: ${GOOGLE_IOS_CLIENT_ID:-}
+  GOOGLE_ANDROID_CLIENT_ID: ${GOOGLE_ANDROID_CLIENT_ID:-}
+  GOOGLE_EXTENSION_CLIENT_ID: ${GOOGLE_EXTENSION_CLIENT_ID:-}
+  APPLE_SERVICES_ID: ${APPLE_SERVICES_ID:-}
+  APPLE_BUNDLE_ID: ${APPLE_BUNDLE_ID:-}
   BILLING_ENVIRONMENT: ${BILLING_ENVIRONMENT:-test}
   BILLING_WEB_URL: ${BILLING_WEB_URL:-}
   STRIPE_API_KEY: ${STRIPE_API_KEY:-}
