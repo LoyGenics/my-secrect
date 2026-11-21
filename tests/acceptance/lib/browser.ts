@@ -71,6 +71,19 @@ export async function registerViaUi(page: Page, webUrl: string, email: string, m
   await page.getByText('Create your local vault').waitFor();
 }
 
+/** Sign-up on the gate with an email code only (no passkey); stops at the
+ *  vault onboarding. The account is mandatory before any vault exists. */
+export async function signUpWithEmailCodeViaUi(page: Page, email: string, mailDir: string): Promise<void> {
+  await page.getByRole('tab', { name: 'Create account' }).click();
+  await page.getByLabel('Account email').fill(email);
+  const seen = mailCodes(mailDir, email).length;
+  await page.getByRole('button', { name: 'Email me a code' }).click();
+  await page.getByRole('heading', { name: 'Check your email' }).waitFor();
+  await page.getByLabel('Verification code').fill(await waitForMailCode(mailDir, email, seen));
+  await page.getByRole('button', { name: 'Create account', exact: true }).click();
+  await page.getByRole('heading', { name: 'Create passphrase', level: 1 }).waitFor();
+}
+
 export async function signInViaUi(page: Page, email: string): Promise<void> {
   await page.getByRole('tab', { name: 'Sign in' }).click();
   await page.getByLabel('Account email').fill(email);
