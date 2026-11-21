@@ -61,18 +61,18 @@ for (const theme of ['dark', 'light'] as const) {
       await page.getByRole('heading', { name: 'Example Website', level: 2 }).waitFor();
       await scan(page, `${tag} item detail`);
 
-      await page.getByRole('button', { name: '+ New item' }).click();
+      await page.getByRole('button', { name: 'New item' }).click();
       await page.getByRole('heading', { name: 'New item' }).waitFor();
       await scan(page, `${tag} item form`);
       // Phones push the form as its own screen (tab bar hidden); Back returns to the list.
       const back = page.getByRole('button', { name: 'Back to list' });
       if (await back.isVisible().catch(() => false)) await back.click();
 
-      await nav(page, /Watchtower/, 'Watchtower');
+      await nav(page, /^Health$/, 'Health');
       await page.getByRole('meter').first().waitFor();
       await scan(page, `${tag} watchtower`);
 
-      await nav(page, /^Generator$/, 'Generator');
+      await nav(page, /^Generate$/, 'Generate');
       await page.getByRole('heading', { name: 'Generator', level: 2 }).waitFor();
       await scan(page, `${tag} generator`);
 

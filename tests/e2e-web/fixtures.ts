@@ -216,8 +216,14 @@ export async function unlockVaultViaUi(page: Page, passphrase = DEFAULT_PASSPHRA
   await page.getByRole('button', { name: 'Unlock', exact: true }).click();
 }
 
-export async function openSecurityCenter(page: Page): Promise<void> {
+/** Security Center lives in the Settings tab's spine (Settings index). */
+export async function openSecurityCenterTab(page: Page): Promise<void> {
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Settings' }).click();
   await page.getByRole('button', { name: /Security Center/ }).first().click();
+}
+
+export async function openSecurityCenter(page: Page): Promise<void> {
+  await openSecurityCenterTab(page);
   await expect(page.getByRole('heading', { name: 'Security Center', level: 2 })).toBeVisible();
   // Wait for the first load to settle (loading text gone) so specs act on real server state.
   await expect(page.getByText('Loading…')).toHaveCount(0);

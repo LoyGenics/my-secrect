@@ -1,11 +1,11 @@
 import {
-  newVirtualAuthenticator, createVaultViaUi, openSecurityCenter,
+  newVirtualAuthenticator, createVaultViaUi, openSecurityCenter, openSecurityCenterTab,
   test, expect, signedInWithVault, storedToken, apiFetch, secondBrowser, stepUpWithPasskey,
   signInWithPasskeyViaUi, syncCredentials, unlockVaultViaUi, SESSIONS_API, stepUpDialog,
 } from './fixtures';
 
 async function openSecurityCenterNoWait(page: import('@playwright/test').Page) {
-  await page.getByRole('button', { name: /Security Center/ }).first().click();
+  await openSecurityCenterTab(page);
 }
 
 const section = (page: import('@playwright/test').Page, heading: string) =>
@@ -92,7 +92,7 @@ test.describe('Security Center: sessions', () => {
     // Reload Security Center: two sessions, one current.
     await page.reload();
     await unlockVaultViaUi(page);
-    await page.getByRole('button', { name: /Security Center/ }).first().click();
+    await openSecurityCenterTab(page);
     await expect(sessionsSection.getByRole('button', { name: 'Revoke session' })).toHaveCount(1);
 
     // Revoke the other one.
@@ -102,7 +102,7 @@ test.describe('Security Center: sessions', () => {
     await expect(sessionsSection.getByRole('button', { name: 'Revoke session' })).toHaveCount(0);
     expect((await apiFetch(apiUrl, otherToken, 'GET', SESSIONS_API)).status).toBe(401);
     // The revoked browser only learns on its next server call, then is sent back to sign-in.
-    await other.page.getByRole('button', { name: 'All items' }).click();
+    await other.page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Vault' }).click();
     await openSecurityCenterNoWait(other.page);
     await expect(other.page.getByRole('heading', { name: 'Sign in to your account' })).toBeVisible();
     await expect(other.page.getByText('Your session expired')).toBeVisible();
@@ -116,7 +116,7 @@ test.describe('Security Center: sessions', () => {
     const otherToken2 = (await storedToken(other.page))!;
     await page.reload();
     await unlockVaultViaUi(page);
-    await page.getByRole('button', { name: /Security Center/ }).first().click();
+    await openSecurityCenterTab(page);
     // Before step-up the server refuses (independent of the UI).
     const mine = (await storedToken(page))!;
     expect((await apiFetch(apiUrl, mine, 'DELETE', '/api/v1/auth/sessions/others')).status).toBe(403);
