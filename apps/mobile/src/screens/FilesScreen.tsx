@@ -32,7 +32,8 @@ function FileGlyph({ item }: { item: VaultItem }) {
   const { colors } = useMobileTheme();
   const mime = String(item.fields.mime_type ?? '');
   const glyph = isFileFolder(item) ? 'collections' : mime.startsWith('image/') ? 'gallery' : mime.startsWith('video/') ? 'video' : 'genericFile';
-  return <View style={{ width: size.touch, height: size.touch, alignItems: 'center', justifyContent: 'center', borderRadius: radius.glyph, backgroundColor: colors.surface2 }}><Icon name={glyph} size="xl" color={colors.secondary} /></View>;
+  const stamp = colors.stamp[isFileFolder(item) ? 'group' : 'file'];
+  return <View style={{ width: size.stamp, height: size.stamp, alignItems: 'center', justifyContent: 'center', borderRadius: size.stamp / 2, backgroundColor: stamp.bg }}><Icon name={glyph} color={stamp.ink} /></View>;
 }
 
 export type FilePickerKind = 'document' | 'photo';
